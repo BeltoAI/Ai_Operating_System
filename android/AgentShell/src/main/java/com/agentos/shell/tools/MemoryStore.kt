@@ -21,6 +21,49 @@ object MemoryStore {
     fun autonomous(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO, false)
     fun setAutonomous(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean(KEY_AUTO, value).apply()
 
+    /**
+     * Night schedule: when on, auto-reply is FORCED on between [autoStartHour] and [autoEndHour]
+     * (defaults 20:00–06:00). Outside that window the manual [autonomous] toggle is the default.
+     */
+    fun nightAuto(ctx: Context): Boolean = prefs(ctx).getBoolean("night_auto", false)
+    fun setNightAuto(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("night_auto", value).apply()
+    fun autoStartHour(ctx: Context): Int = prefs(ctx).getInt("auto_start", 20)
+    fun autoEndHour(ctx: Context): Int = prefs(ctx).getInt("auto_end", 6)
+    fun setAutoWindow(ctx: Context, start: Int, end: Int) =
+        prefs(ctx).edit().putInt("auto_start", start).putInt("auto_end", end).apply()
+
+    /** Is the given hour (0–23) inside the night window? Handles windows that wrap past midnight. */
+    fun inNightWindow(ctx: Context, hour: Int): Boolean {
+        val s = autoStartHour(ctx); val e = autoEndHour(ctx)
+        return when {
+            s == e -> true                       // 24h window
+            s < e  -> hour in s until e          // same-day window
+            else   -> hour >= s || hour < e      // wraps midnight (e.g. 20→6)
+        }
+    }
+
+    /**
+     * Per-app opt-out. Auto-reply is ON for every app by default; the user can switch individual
+     * apps off here. We persist only the DISABLED packages.
+     */
+    private fun disabledApps(ctx: Context): Set<String> =
+        prefs(ctx).getStringSet("auto_disabled_apps", emptySet()) ?: emptySet()
+    fun appAutoEnabled(ctx: Context, pkg: String): Boolean = !disabledApps(ctx).contains(pkg)
+    fun setAppAuto(ctx: Context, pkg: String, enabled: Boolean) {
+        val cur = HashSet(disabledApps(ctx))
+        if (enabled) cur.remove(pkg) else cur.add(pkg)
+        prefs(ctx).edit().putStringSet("auto_disabled_apps", cur).apply()
+    }
+
+    /** The effective auto-reply state right now: forced on by the night window, else the toggle. */
+    fun autonomousEffective(ctx: Context): Boolean {
+        if (nightAuto(ctx)) {
+            val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            if (inNightWindow(ctx, h)) return true
+        }
+        return autonomous(ctx)
+    }
+
     /** When true, a spicy take is generated and notified once each morning. */
     fun spicyDaily(ctx: Context): Boolean = prefs(ctx).getBoolean("spicy_daily", false)
     fun setSpicyDaily(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("spicy_daily", value).apply()
@@ -32,4 +75,11 @@ object MemoryStore {
     /** When true, the Telegram bot service runs (reads attachments, answers, ingests PDFs). */
     fun telegramBot(ctx: Context): Boolean = prefs(ctx).getBoolean("telegram_bot", false)
     fun setTelegramBot(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("telegram_bot", value).apply()
+
+    /**
+     * When true, the Accessibility service logs on-screen text into InteractionStore for recall.
+     * (The OS-level Accessibility permission must also be granted in Settings.)
+     */
+    fun recallEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("recall_capture", false)
+    fun setRecallEnabled(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("recall_capture", value).apply()
 }

@@ -75,11 +75,14 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         if (query.isBlank()) return
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
+            val recall = if (com.agentos.shell.tools.MemoryStore.recallEnabled(ctx))
+                com.agentos.shell.tools.InteractionStore.search(ctx, query, 40)
+                    .map { "Seen in ${it.app}: ${it.text}" } else emptyList()
             val corpus = MemoryGraphStore.memoryLines() +
                 com.agentos.shell.tools.ConversationStore.all(ctx).flatMap { (k, msgs) ->
                     val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
                     msgs.map { (if (it.role == "me") "You to $who" else who) + ": " + it.text }
-                }
+                } + recall
             val a = withContext(Dispatchers.IO) { AgentClient.askMemory(query, corpus) }
             answer = a
             // Light up the "synapse path": the memories most related to the question + answer.

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recall_accessibility_desc">Lets SlyOS read on-screen text so the agent can remember and recall your interactions. Everything stays on your device.</string>
+</resources>

@@ -80,7 +80,13 @@ class TelegramService : Service() {
                 val chat = u.chatId.toString()
                 ConversationStore.add(applicationContext, "Telegram", chat, "them", u.text)
                 val thread = ConversationStore.thread(applicationContext, "Telegram", chat).map { it.role to it.text }
-                val doc = if (KnowledgeStore.hasDoc(applicationContext))
+                // Only pull the white paper when the message is actually about the tech — otherwise
+                // it bleeds formality into normal chit-chat and makes replies sound robotic.
+                val lc = u.text.lowercase()
+                val techy = listOf("belto", "slyos", "white paper", "whitepaper", "the paper",
+                    "architecture", "inference", "embedding", "rag", "model", "token", "latency",
+                    "how does it work", "how do you work", "tech").any { lc.contains(it) }
+                val doc = if (techy && KnowledgeStore.hasDoc(applicationContext))
                     KnowledgeStore.retrieve(applicationContext, u.text, 6000) else ""
                 val ans = AgentClient.telegramSmartReply(thread, doc, mem)
                 TelegramClient.sendMessage(u.chatId, ans)

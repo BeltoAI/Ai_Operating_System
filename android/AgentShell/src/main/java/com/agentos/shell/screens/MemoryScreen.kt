@@ -2,6 +2,7 @@ package com.agentos.shell.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -36,11 +38,15 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var about by remember { mutableStateOf(MemoryStore.about(ctx)) }
     var saved by remember { mutableStateOf(false) }
     var autonomous by remember { mutableStateOf(MemoryStore.autonomous(ctx)) }
+    var nightAuto by remember { mutableStateOf(MemoryStore.nightAuto(ctx)) }
+    var startH by remember { mutableStateOf(MemoryStore.autoStartHour(ctx)) }
+    var endH by remember { mutableStateOf(MemoryStore.autoEndHour(ctx)) }
     var spicyDaily by remember { mutableStateOf(MemoryStore.spicyDaily(ctx)) }
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
     var kbStatus by remember { mutableStateOf("") }
     var docTelegram by remember { mutableStateOf(MemoryStore.docTelegram(ctx)) }
     var tgBot by remember { mutableStateOf(MemoryStore.telegramBot(ctx)) }
+    var recall by remember { mutableStateOf(MemoryStore.recallEnabled(ctx)) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             kbStatus = "Reading PDF…"
@@ -107,7 +113,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text("Auto-reply to messages", fontSize = T.body, color = T.ink)
                 Text(
-                    "Agent replies on its own after an 8-second window you can cancel from Now.",
+                    "Replies on its own to every messaging & social app (WhatsApp, Messages, " +
+                        "Signal, Instagram, Telegram…) after an 8-second window you can cancel from Now.",
                     fontSize = T.small, color = T.inkFaint
                 )
             }
@@ -115,6 +122,75 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 checked = autonomous,
                 onCheckedChange = { autonomous = it; MemoryStore.setAutonomous(ctx, it) }
             )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto-reply on a schedule", fontSize = T.body, color = T.ink)
+                Text(
+                    "Forces auto-reply ON during the window below (e.g. overnight). Outside the " +
+                        "window, the toggle above is the default.",
+                    fontSize = T.small, color = T.inkFaint
+                )
+            }
+            Switch(
+                checked = nightAuto,
+                onCheckedChange = { nightAuto = it; MemoryStore.setNightAuto(ctx, it) }
+            )
+        }
+        if (nightAuto) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HourStepper("From", startH) { startH = it; MemoryStore.setAutoWindow(ctx, startH, endH) }
+                Spacer(Modifier.width(16.dp))
+                HourStepper("To", endH) { endH = it; MemoryStore.setAutoWindow(ctx, startH, endH) }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Text("Which apps", fontSize = T.body, color = T.ink)
+        Text("Auto-reply applies to these. Switch any off to keep it manual.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
+        val apps = remember { com.agentos.shell.tools.AppScanner.installed(ctx) }
+        if (apps.isEmpty()) {
+            Text("No messaging or social apps detected yet. They'll appear here once installed " +
+                "or after their first message.", fontSize = T.small, color = T.inkFaint)
+        } else {
+            val enabledMap = remember {
+                mutableStateMapOf<String, Boolean>().apply {
+                    apps.forEach { put(it.pkg, MemoryStore.appAutoEnabled(ctx, it.pkg)) }
+                }
+            }
+            apps.forEach { app ->
+                val icon = remember(app.pkg) {
+                    com.agentos.shell.tools.AppScanner.icon(ctx, app.pkg)?.asImageBitmap()
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    if (icon != null) {
+                        Image(bitmap = icon, contentDescription = app.label,
+                            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)))
+                    } else {
+                        Box(
+                            Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(T.hairline),
+                            contentAlignment = Alignment.Center
+                        ) { Text(app.label.take(1).uppercase(), fontSize = T.small, color = T.inkSoft) }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(app.label, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = enabledMap[app.pkg] ?: true,
+                        onCheckedChange = {
+                            enabledMap[app.pkg] = it
+                            MemoryStore.setAppAuto(ctx, app.pkg, it)
+                        }
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -178,6 +254,40 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Total recall", fontSize = T.body, color = T.ink)
+                Text("Reads on-screen text across your apps into a private, searchable memory so the " +
+                    "agent can recall what you saw and said. Stays on your phone. Needs Accessibility " +
+                    "access in Settings (passwords are never captured).",
+                    fontSize = T.small, color = T.inkFaint)
+            }
+            Switch(checked = recall, onCheckedChange = {
+                recall = it; MemoryStore.setRecallEnabled(ctx, it)
+            })
+        }
+        if (recall) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Grant Accessibility", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable {
+                            try { ctx.startActivity(android.content.Intent(
+                                android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            catch (e: Exception) {}
+                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+                Spacer(Modifier.width(12.dp))
+                val n = com.agentos.shell.tools.InteractionStore.count(ctx)
+                if (n > 0) Text("Clear ($n)", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clickable { com.agentos.shell.tools.InteractionStore.clear(ctx) })
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("Find SlyOS under Settings ▸ Accessibility ▸ Installed apps and turn it on.",
+                fontSize = T.caption, color = T.inkFaint)
+        }
+
+        Spacer(Modifier.height(20.dp))
         Text("Lock screen", fontSize = T.body, color = T.ink)
         Text("Set a SlyOS-styled lock-screen wallpaper (the clock/widgets stay Samsung's).",
             fontSize = T.small, color = T.inkFaint)
@@ -197,5 +307,32 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 "part of a prompt you trigger.",
             fontSize = T.caption, color = T.inkFaint
         )
+    }
+}
+
+/** 12-hour label for a 0–23 hour, e.g. 20 -> "8 PM", 6 -> "6 AM", 0 -> "12 AM". */
+private fun hourLabel(h: Int): String {
+    val hr = ((h % 24) + 24) % 24
+    val ampm = if (hr < 12) "AM" else "PM"
+    val twelve = when (hr % 12) { 0 -> 12; else -> hr % 12 }
+    return "$twelve $ampm"
+}
+
+/** Compact −/+ stepper for picking an hour of the day. */
+@Composable
+private fun HourStepper(label: String, hour: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.width(8.dp))
+        Text("–", fontSize = T.body, color = T.bgElevated,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                .clickable { onChange(((hour - 1) % 24 + 24) % 24) }
+                .padding(horizontal = 12.dp, vertical = 4.dp))
+        Text(hourLabel(hour), fontSize = T.body, color = T.ink,
+            modifier = Modifier.widthIn(min = 56.dp).padding(horizontal = 10.dp))
+        Text("+", fontSize = T.body, color = T.bgElevated,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                .clickable { onChange((hour + 1) % 24) }
+                .padding(horizontal = 12.dp, vertical = 4.dp))
     }
 }

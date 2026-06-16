@@ -31,8 +31,10 @@ AOSP Cuttlefish or an unlockable Pixel (see `docs/`), never the locked S25.
   and "save as PDF."
 - **Conversation-aware replies.** Incoming messages (WhatsApp, Telegram, SMS, Signal…) are kept
   per contact and persisted; the agent replies with full thread context, in your voice, with a
-  review step. Optional autonomous mode (undo window + self-echo guard). Email (Gmail) is
-  always review-only and bot-filtered.
+  review step. Optional autonomous mode (undo window + self-echo guard) that covers **every**
+  app exposing a reply action. A **night schedule** can force auto-reply on during a window you
+  pick (default 8 PM–6 AM); outside it, your toggle is the default. Email (Gmail) is always
+  review-only and bot-filtered.
 - **Telegram bot brain.** A foreground service runs your Telegram bot: it reads images
   (vision) and PDFs (ingested as knowledge), answers from your document or conversationally,
   and replies — through Telegram's open Bot API, no notification limits.
@@ -54,6 +56,12 @@ AOSP Cuttlefish or an unlockable Pixel (see `docs/`), never the locked S25.
   each reviewed and sent by you.
 - **The Architect (Opus).** Long-press the wordmark → describe an app → Opus builds a
   self-contained mini-app that runs live in a sandboxed WebView.
+- **Total recall (opt-in).** An owner-granted Accessibility service reads on-screen text across
+  your apps into a private, on-device searchable log; the agent pulls from it to answer recall
+  questions ("what did Anna say about the deck?"). Passwords/secure fields are never captured,
+  the log is capped and stays on the phone, and it's fully gated by an in-app toggle.
+- **Per-app auto-reply.** A live list of your installed messaging/social apps (WhatsApp,
+  Telegram, Instagram, X, Reddit, SMS, Signal, Messenger, Discord…) each with its own switch.
 - **Identity guard.** Every outward message — Telegram, WhatsApp/notification replies, comment
   clapbacks, emails, outreach — is sent **as you**, in your name (pulled from memory). The agent
   never breaks character, never announces it's an AI / Claude / a bot, and never "corrects the

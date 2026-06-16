@@ -184,9 +184,13 @@ fun HomeScreen(
                 val cal = CalendarTool.upcoming(ctx)
                 val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date())
+                val recall = if (MemoryStore.recallEnabled(ctx))
+                    com.agentos.shell.tools.InteractionStore.retrieve(ctx, q, 20) else ""
                 buildString {
                     if (mem.isNotBlank()) append(mem)
                     if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+                    if (recall.isNotBlank())
+                        append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
                     append("\nCurrent time: ").append(now)
                 }
             }

@@ -78,11 +78,13 @@ class AgentNotificationListener : NotificationListenerService() {
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) return
         if (note.isEmail) return   // email is always human-reviewed, never autonomous
+        if (!MemoryStore.appAutoEnabled(applicationContext, note.pkg)) return   // per-app opt-out
         val telegram = note.pkg.startsWith("org.telegram")
         val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
-        // Telegram document-answering is its own lane; otherwise require global autonomous.
-        if (!MemoryStore.autonomous(applicationContext) && !docMode) return
+        // Telegram document-answering is its own lane; otherwise require autonomous (toggle OR
+        // night schedule). Covers EVERY messaging/social app that exposes a reply action.
+        if (!MemoryStore.autonomousEffective(applicationContext) && !docMode) return
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
         if (NotificationStore.isOwnEcho(note)) { Log.i("SlyOS", "auto skip: own echo"); return }
         if (NotificationStore.repliedWithin(note, cooldownMs)) { Log.i("SlyOS", "auto skip: cooldown ${note.title}"); return }
