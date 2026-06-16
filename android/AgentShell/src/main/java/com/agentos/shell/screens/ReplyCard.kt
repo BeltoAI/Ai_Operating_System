@@ -3,6 +3,7 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -10,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -22,6 +24,22 @@ import com.agentos.shell.tools.ToolRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Recognizable color per source app. */
+private fun appColor(pkg: String): Color = when {
+    pkg.contains("whatsapp") -> Color(0xFF1FA855)
+    pkg.startsWith("org.telegram") -> Color(0xFF2AABEE)
+    pkg == "com.google.android.gm" -> Color(0xFFD93025)
+    pkg.contains("instagram") -> Color(0xFFC13584)
+    pkg.contains("signal") -> Color(0xFF3A76F0)
+    pkg.contains("slack") -> Color(0xFF611F69)
+    pkg.contains("twitter") -> Color(0xFF1DA1F2)
+    pkg.contains("reddit") -> Color(0xFFFF4500)
+    pkg.contains("discord") -> Color(0xFF5865F2)
+    pkg.contains("messaging") || pkg.contains("mms") || pkg.contains("sms") -> Color(0xFF1FA855)
+    pkg.contains("outlook") || pkg.contains("email") -> Color(0xFF0078D4)
+    else -> Color(0xFFE8642C)
+}
 
 /**
  * One notification with the full "ask before action" reply flow:
@@ -39,10 +57,20 @@ fun ReplyCard(note: NotificationStore.Note) {
     var eventBusy by remember { mutableStateOf(false) }
     var eventStatus by remember { mutableStateOf("") }
 
-    Column(Modifier.padding(vertical = 10.dp)) {
+    val appCol = appColor(note.pkg)
+    Column(Modifier.padding(vertical = 11.dp)) {
         Row(verticalAlignment = Alignment.Top) {
+            // Colored app badge so the source (WhatsApp / Telegram / Gmail …) is obvious.
+            Box(
+                Modifier.size(34.dp).clip(CircleShape).background(appCol),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(note.app.firstOrNull()?.uppercase() ?: "•",
+                    fontSize = T.body, color = Color.White, fontWeight = FontWeight.Medium)
+            }
+            Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(note.app, fontSize = T.caption, color = T.inkFaint)
+                Text(note.app.uppercase(), fontSize = T.caption, color = appCol, fontWeight = FontWeight.Medium)
                 if (note.title.isNotBlank())
                     Text(note.title, fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
                 if (note.text.isNotBlank())

@@ -46,6 +46,7 @@ class AgentNotificationListener : NotificationListenerService() {
     private fun ingest(sbn: StatusBarNotification): NotificationStore.Note? {
         val n = sbn.notification ?: return null
         if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return null
+        if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return null   // skip the duplicate "summary"
 
         val extras = n.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()

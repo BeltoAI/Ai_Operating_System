@@ -82,7 +82,8 @@ object NotificationStore {
     }
 
     fun put(note: Note) {
-        notes.removeAll { it.key == note.key }
+        // Drop the same notification (by key) AND any duplicate with identical sender + text.
+        notes.removeAll { it.key == note.key || (it.app == note.app && it.title == note.title && it.text == note.text) }
         notes.add(0, note)
         while (notes.size > 25) notes.removeAt(notes.size - 1)
     }
