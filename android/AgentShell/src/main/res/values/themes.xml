@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light, no action bar, ivory window background so nothing ever flashes black. -->
+    <style name="Theme.SlyOS" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/slyos_bg</item>
+        <item name="android:colorBackground">@color/slyos_bg</item>
+        <item name="android:statusBarColor">@color/slyos_bg</item>
+        <item name="android:navigationBarColor">@color/slyos_bg</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

@@ -1,0 +1,16 @@
+# Secrets — never commit
+apikey.properties
+**/apikey.properties
+local.properties
+**/local.properties
+
+# Build output
+.gradle/
+**/build/
+*.apk
+*.iml
+.idea/
+.DS_Store
+
+# Device interrogation reports (may contain your device serial)
+docs/agentos_device_report_*.txt
