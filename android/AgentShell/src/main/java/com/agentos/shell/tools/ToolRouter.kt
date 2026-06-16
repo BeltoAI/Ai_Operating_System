@@ -106,6 +106,11 @@ object ToolRouter {
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
+                "pin_app" -> {
+                    val app = installedApps(ctx).firstOrNull { it.label.lowercase().contains(arg.lowercase()) }
+                    if (app != null) { ShortcutStore.add(ctx, "app", app.label, app.pkg); "Pinned ${app.label} to Home." }
+                    else "No app named \"$arg\"."
+                }
                 else -> ""
             }
         } catch (e: Exception) { "" }

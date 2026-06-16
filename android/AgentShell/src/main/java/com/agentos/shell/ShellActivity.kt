@@ -69,7 +69,8 @@ class ShellActivity : ComponentActivity() {
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
                             onArchitect = { screen = Screen.Architect },
                             onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost },
-                            onResearch = { t -> researchTopic = t; screen = Screen.Research }
+                            onResearch = { t -> researchTopic = t; screen = Screen.Research },
+                            onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m) { screen = Screen.Home }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }

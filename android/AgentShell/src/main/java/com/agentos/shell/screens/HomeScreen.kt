@@ -18,7 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Checklist
@@ -34,23 +39,32 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.Screen
 import com.agentos.shell.theme.T
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
 import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.AppStore
 import com.agentos.shell.tools.CalendarTool
 import com.agentos.shell.tools.ImageUtil
 import com.agentos.shell.tools.MemoryLog
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.MetricsStore
 import com.agentos.shell.tools.PdfTool
+import com.agentos.shell.tools.ShortcutStore
 import com.agentos.shell.tools.ToolRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,7 +84,8 @@ fun HomeScreen(
     onCompose: (String, String) -> Unit = { _, _ -> },
     onArchitect: () -> Unit = {},
     onSpicy: (String) -> Unit = {},
-    onResearch: (String) -> Unit = {}
+    onResearch: (String) -> Unit = {},
+    onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -79,6 +94,13 @@ fun HomeScreen(
     var thinking by remember { mutableStateOf(false) }
     var rememberSuggestion by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
+    var showAdd by remember { mutableStateOf(false) }
+    val shortcuts = remember { mutableStateListOf<ShortcutStore.Shortcut>().apply { addAll(ShortcutStore.list(ctx)) } }
+    fun refreshShortcuts() { shortcuts.clear(); shortcuts.addAll(ShortcutStore.list(ctx)) }
+    var editing by remember { mutableStateOf(false) }
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragX by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
     var photos by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -200,6 +222,7 @@ fun HomeScreen(
                 ToolRouter.executeActions(ctx, result.actions)
             }
             reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
+            refreshShortcuts()
             if (doSpeak) speak(reply)
             history = (history + (q to reply)).takeLast(6)
             // Capture this exchange as connected memories.
@@ -231,7 +254,78 @@ fun HomeScreen(
     }
 
     Column(modifier) {
-        Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Filled.Add, contentDescription = "Add shortcut", tint = T.inkSoft,
+                modifier = Modifier.size(26.dp).clickable { showAdd = true })
+        }
+
+        if (shortcuts.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            if (editing) {
+                Text("Done", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable { editing = false; ShortcutStore.saveOrder(ctx, shortcuts.toList()) })
+                Spacer(Modifier.height(6.dp))
+            }
+            val itemW = with(density) { 62.dp.toPx() }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                items(shortcuts, key = { it.id }) { s ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .animateItemPlacement()
+                            .graphicsLayer { translationX = if (draggingId == s.id) dragX else 0f }
+                            .then(
+                                if (editing) Modifier.pointerInput(s.id) {
+                                    detectDragGestures(
+                                        onDragStart = { draggingId = s.id },
+                                        onDragEnd = { draggingId = null; dragX = 0f; ShortcutStore.saveOrder(ctx, shortcuts.toList()) },
+                                        onDragCancel = { draggingId = null; dragX = 0f },
+                                        onDrag = { ch, amt ->
+                                            ch.consume(); dragX += amt.x
+                                            val idx = shortcuts.indexOfFirst { it.id == s.id }
+                                            if (dragX > itemW / 2 && idx < shortcuts.size - 1) {
+                                                shortcuts.add(idx + 1, shortcuts.removeAt(idx)); dragX -= itemW
+                                            } else if (dragX < -itemW / 2 && idx > 0) {
+                                                shortcuts.add(idx - 1, shortcuts.removeAt(idx)); dragX += itemW
+                                            }
+                                        }
+                                    )
+                                } else Modifier
+                            )
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Box(
+                                Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
+                                    .background(if (s.kind == "app") T.bgElevated else T.accent)
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (editing) return@combinedClickable
+                                            if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
+                                            else s.ref.toLongOrNull()?.let { onOpenApp(it) }
+                                        },
+                                        onLongClick = { editing = true }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(if (s.kind == "app") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
+                                    fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated)
+                            }
+                            if (editing) {
+                                Box(Modifier.size(18.dp).clip(CircleShape).background(T.danger)
+                                    .clickable { ShortcutStore.remove(ctx, s.id); refreshShortcuts() },
+                                    contentAlignment = Alignment.Center) {
+                                    Text("✕", fontSize = T.caption, color = Color.White)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(s.label.take(10), fontSize = T.caption, color = T.inkSoft, maxLines = 1)
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.weight(1f))
         Text("what should happen?", fontSize = T.prompt, color = T.ink)
@@ -349,6 +443,42 @@ fun HomeScreen(
                 if (paused) Icons.Filled.PlayCircle else Icons.Filled.PauseCircle,
                 if (paused) "Resume" else "Manual"
             ) { onManual() }
+        }
+    }
+
+    if (showAdd) {
+        val apps = remember { ToolRouter.installedApps(ctx) }
+        val miniApps = remember { AppStore.load(ctx) }
+        Dialog(onDismissRequest = { showAdd = false }) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 480.dp)
+                    .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(16.dp)
+            ) {
+                Text("Add to Home", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(10.dp))
+                LazyColumn(Modifier.weight(1f)) {
+                    item {
+                        Text("＋ Create a new mini-app (Opus)", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.fillMaxWidth().clickable { showAdd = false; onArchitect() }.padding(vertical = 10.dp))
+                        if (miniApps.isNotEmpty()) Text("MINI-APPS", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    items(miniApps, key = { "m" + it.id }) { a ->
+                        Text("◆  ${a.name}", fontSize = T.body, color = T.ink,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { ShortcutStore.add(ctx, "miniapp", a.name, a.id.toString()); refreshShortcuts(); showAdd = false }
+                                .padding(vertical = 10.dp))
+                    }
+                    item { Text("APPS", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp)) }
+                    items(apps, key = { "a" + it.pkg }) { app ->
+                        Text(app.label, fontSize = T.body, color = T.ink,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { ShortcutStore.add(ctx, "app", app.label, app.pkg); refreshShortcuts(); showAdd = false }
+                                .padding(vertical = 10.dp))
+                    }
+                }
+                Text("Close", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.clickable { showAdd = false }.padding(top = 8.dp))
+            }
         }
     }
 }
