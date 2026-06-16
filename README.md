@@ -128,4 +128,6 @@ except prompts you trigger, using your own keys.
 
 ## License
 
-Personal project. Add a license (e.g. MIT) before distributing.
+**Proprietary — all rights reserved.** See [LICENSE](LICENSE). No permission is granted to
+use, copy, modify, or distribute this software without a written agreement. To request a
+license: eshir010@ucr.edu

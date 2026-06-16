@@ -1,0 +1,28 @@
+SlyOS — Proprietary Software License
+Copyright (c) 2026 Emil Shirokikh. All rights reserved.
+
+This software and its source code, design, documentation, and all associated
+materials (the "Software") are the proprietary and confidential property of the
+copyright holder.
+
+NO LICENSE IS GRANTED. Except where a separate written agreement signed by the
+copyright holder states otherwise, you are NOT permitted to:
+
+  1. use, run, or deploy the Software, in whole or in part;
+  2. copy, reproduce, or store the Software;
+  3. modify, adapt, translate, or create derivative works from it;
+  4. distribute, publish, sublicense, sell, rent, or lease it;
+  5. reverse engineer or decompile it except to the extent that such restriction
+     is expressly prohibited by applicable law; or
+  6. remove or alter this notice.
+
+Viewing this repository for evaluation does not grant any of the rights above.
+
+To request a license, contact the copyright holder: eshir010@ucr.edu
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
