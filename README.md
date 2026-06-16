@@ -54,6 +54,10 @@ AOSP Cuttlefish or an unlockable Pixel (see `docs/`), never the locked S25.
   each reviewed and sent by you.
 - **The Architect (Opus).** Long-press the wordmark → describe an app → Opus builds a
   self-contained mini-app that runs live in a sandboxed WebView.
+- **Identity guard.** Every outward message — Telegram, WhatsApp/notification replies, comment
+  clapbacks, emails, outreach — is sent **as you**, in your name (pulled from memory). The agent
+  never breaks character, never announces it's an AI / Claude / a bot, and never "corrects the
+  record" if someone mixes it up — it just replies the way you would.
 - **Checklist, calendar awareness, personalization memory, time-saved metric, AI lock-screen
   brief, SlyOS lock-screen wallpaper.**
 

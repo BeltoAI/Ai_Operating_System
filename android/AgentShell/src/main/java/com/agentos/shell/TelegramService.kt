@@ -75,15 +75,17 @@ class TelegramService : Service() {
                 val ans = if (b64 != null) AgentClient.askVision(ask, listOf(b64), mem) else "I couldn't open that image."
                 TelegramClient.sendMessage(u.chatId, ans)
             }
-            // Text → answer from the document if loaded, else conversationally.
+            // Text → natural reply, white paper only when the question is Belto/SlyOS tech.
             u.text.isNotBlank() -> {
-                val ans = if (KnowledgeStore.hasDoc(applicationContext))
-                    AgentClient.answerFromDoc(u.text, KnowledgeStore.retrieve(applicationContext, u.text))
-                else AgentClient.telegramReply(u.text, "", mem)
+                val chat = u.chatId.toString()
+                ConversationStore.add(applicationContext, "Telegram", chat, "them", u.text)
+                val thread = ConversationStore.thread(applicationContext, "Telegram", chat).map { it.role to it.text }
+                val doc = if (KnowledgeStore.hasDoc(applicationContext))
+                    KnowledgeStore.retrieve(applicationContext, u.text, 6000) else ""
+                val ans = AgentClient.telegramSmartReply(thread, doc, mem)
                 TelegramClient.sendMessage(u.chatId, ans)
-                ConversationStore.add(applicationContext, "Telegram", u.chatId.toString(), "them", u.text)
-                ConversationStore.add(applicationContext, "Telegram", u.chatId.toString(), "me", ans)
-                MemoryLog.add(applicationContext, "response", "Telegram: ${u.text.take(30)}", "$ans", "Telegram bot")
+                ConversationStore.add(applicationContext, "Telegram", chat, "me", ans)
+                MemoryLog.add(applicationContext, "response", "Telegram: ${u.text.take(30)}", ans, "Telegram bot")
             }
             u.voiceFileId != null -> TelegramClient.sendMessage(u.chatId,
                 "I got a voice note — voice transcription isn't on yet, send it as text and I'll help.")

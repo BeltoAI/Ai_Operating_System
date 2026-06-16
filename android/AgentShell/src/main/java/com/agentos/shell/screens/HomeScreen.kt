@@ -39,7 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -263,61 +263,53 @@ fun HomeScreen(
 
         if (shortcuts.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            if (editing) {
-                Text("Done", fontSize = T.small, color = T.accent,
-                    modifier = Modifier.clickable { editing = false; ShortcutStore.saveOrder(ctx, shortcuts.toList()) })
-                Spacer(Modifier.height(6.dp))
-            }
-            val itemW = with(density) { 62.dp.toPx() }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(shortcuts, key = { it.id }) { s ->
+            BoxWithConstraints(Modifier.fillMaxWidth().height(220.dp)) {
+                val maxX = (maxWidth.value - 56f).coerceAtLeast(0f)
+                val maxY = (maxHeight.value - 70f).coerceAtLeast(0f)
+                shortcuts.forEach { s ->
+                    val isDragged = draggingId == s.id
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .animateItemPlacement()
-                            .graphicsLayer { translationX = if (draggingId == s.id) dragX else 0f }
-                            .then(
-                                if (editing) Modifier.pointerInput(s.id) {
-                                    detectDragGestures(
-                                        onDragStart = { draggingId = s.id },
-                                        onDragEnd = { draggingId = null; dragX = 0f; ShortcutStore.saveOrder(ctx, shortcuts.toList()) },
-                                        onDragCancel = { draggingId = null; dragX = 0f },
-                                        onDrag = { ch, amt ->
-                                            ch.consume(); dragX += amt.x
-                                            val idx = shortcuts.indexOfFirst { it.id == s.id }
-                                            if (dragX > itemW / 2 && idx < shortcuts.size - 1) {
-                                                shortcuts.add(idx + 1, shortcuts.removeAt(idx)); dragX -= itemW
-                                            } else if (dragX < -itemW / 2 && idx > 0) {
-                                                shortcuts.add(idx - 1, shortcuts.removeAt(idx)); dragX += itemW
-                                            }
+                            .offset(s.x.dp, s.y.dp)
+                            .graphicsLayer { val sc = if (isDragged) 1.12f else 1f; scaleX = sc; scaleY = sc }
+                            .pointerInput(s.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { draggingId = s.id },
+                                    onDragEnd = {
+                                        draggingId = null
+                                        ShortcutStore.savePositions(ctx, shortcuts.toList())
+                                    },
+                                    onDragCancel = { draggingId = null },
+                                    onDrag = { ch, amt ->
+                                        ch.consume()
+                                        val i = shortcuts.indexOfFirst { it.id == s.id }
+                                        if (i >= 0) {
+                                            val nx = (shortcuts[i].x + amt.x / density.density).coerceIn(0f, maxX)
+                                            val ny = (shortcuts[i].y + amt.y / density.density).coerceIn(0f, maxY)
+                                            shortcuts[i] = shortcuts[i].copy(x = nx, y = ny)
                                         }
-                                    )
-                                } else Modifier
-                            )
+                                    }
+                                )
+                            }
                     ) {
                         Box(contentAlignment = Alignment.TopEnd) {
                             Box(
                                 Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
                                     .background(if (s.kind == "app") T.bgElevated else T.accent)
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (editing) return@combinedClickable
-                                            if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
-                                            else s.ref.toLongOrNull()?.let { onOpenApp(it) }
-                                        },
-                                        onLongClick = { editing = true }
-                                    ),
+                                    .clickable {
+                                        if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
+                                        else s.ref.toLongOrNull()?.let { onOpenApp(it) }
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(if (s.kind == "app") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
                                     fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated)
                             }
-                            if (editing) {
-                                Box(Modifier.size(18.dp).clip(CircleShape).background(T.danger)
-                                    .clickable { ShortcutStore.remove(ctx, s.id); refreshShortcuts() },
-                                    contentAlignment = Alignment.Center) {
-                                    Text("✕", fontSize = T.caption, color = Color.White)
-                                }
+                            Box(Modifier.size(17.dp).clip(CircleShape).background(T.hairline)
+                                .clickable { ShortcutStore.remove(ctx, s.id); refreshShortcuts() },
+                                contentAlignment = Alignment.Center) {
+                                Text("✕", fontSize = T.caption, color = T.inkSoft)
                             }
                         }
                         Spacer(Modifier.height(4.dp))
@@ -426,13 +418,23 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
-        if (!AgentClient.hasKey())
-            Text("agent offline — add API key", fontSize = T.caption, color = T.danger)
-        else
-            Text(
-                "agent online" + if (saved > 0) " · ~$saved min saved today" else "",
-                fontSize = T.caption, color = T.inkFaint
-            )
+        val online = AgentClient.hasKey()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Box(Modifier.size(7.dp).clip(CircleShape)
+                    .background(if (online) Color(0xFF4E9A5B) else T.danger))
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    if (!online) "agent offline — add API key"
+                    else "online" + if (saved > 0) "  ·  ~$saved min saved today" else "",
+                    fontSize = T.caption, color = T.inkSoft
+                )
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             NavIcon(Icons.Filled.Science, "Research") { onOpen(Screen.Research) }

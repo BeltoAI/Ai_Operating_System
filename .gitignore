@@ -14,3 +14,4 @@ local.properties
 
 # Device interrogation reports (may contain your device serial)
 docs/agentos_device_report_*.txt
+/android/.kotlin/
