@@ -20,4 +20,12 @@ object MemoryStore {
     /** When true, the agent auto-replies to incoming messages (after a short undo window). */
     fun autonomous(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO, false)
     fun setAutonomous(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean(KEY_AUTO, value).apply()
+
+    /** When true, a spicy take is generated and notified once each morning. */
+    fun spicyDaily(ctx: Context): Boolean = prefs(ctx).getBoolean("spicy_daily", false)
+    fun setSpicyDaily(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("spicy_daily", value).apply()
+
+    /** When true, Telegram messages are auto-answered from the loaded PDF. */
+    fun docTelegram(ctx: Context): Boolean = prefs(ctx).getBoolean("doc_telegram", false)
+    fun setDocTelegram(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("doc_telegram", value).apply()
 }

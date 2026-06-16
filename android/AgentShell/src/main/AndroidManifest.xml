@@ -5,6 +5,8 @@
 
     <!-- Agent needs network to reach the LLM API. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Daily spicy-take notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Calendar awareness + the ability to block time. -->

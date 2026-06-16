@@ -24,9 +24,15 @@ object NotificationStore {
         val app: String,
         val title: String,
         val text: String,
-        val replyAction: Notification.Action?
+        val replyAction: Notification.Action?,
+        val picture: android.graphics.Bitmap? = null,
+        val pkg: String = ""
     ) {
         val canReply: Boolean get() = replyAction?.remoteInputs?.isNotEmpty() == true
+        val isSocial: Boolean get() = pkg in setOf(
+            "com.twitter.android", "com.reddit.frontpage", "com.instagram.android",
+            "com.linkedin.android", "com.zhiliaoapp.musically"
+        )
     }
 
     val notes = mutableStateListOf<Note>()
@@ -39,27 +45,27 @@ object NotificationStore {
 
     // Shared reply cooldown so manual AND autonomous replies don't double up on a sender.
     private val recentReplies = HashMap<String, Long>()
-    private val lastSent = HashMap<String, String>()
-    private val recentSent = ArrayDeque<String>()   // global echo guard, last few sent
+    private val recentSent = ArrayDeque<Pair<String, Long>>()   // (text, time) — echo guard
     private fun senderKey(note: Note) = "${note.app}|${note.title}"
     fun markReplied(note: Note) { recentReplies[senderKey(note)] = System.currentTimeMillis() }
     fun recordSent(note: Note, message: String) {
-        val m = message.trim()
-        lastSent[senderKey(note)] = m
-        recentSent.addFirst(m); while (recentSent.size > 8) recentSent.removeLast()
+        recentSent.addFirst(message.trim() to System.currentTimeMillis())
+        while (recentSent.size > 10) recentSent.removeLast()
     }
     fun repliedWithin(note: Note, windowMs: Long): Boolean =
         System.currentTimeMillis() - (recentReplies[senderKey(note)] ?: 0L) < windowMs
 
-    private fun echoes(t: String, s: String) =
-        s.isNotBlank() && (t == s || t.contains(s) || s.contains(t))
-
-    /** True if this notification is just an echo of something we recently sent. */
+    /**
+     * True only if this notification is clearly an echo of something we JUST sent (within ~20s)
+     * — strict match so normal short replies like "ok" aren't wrongly suppressed.
+     */
     fun isOwnEcho(note: Note): Boolean {
         val t = note.text.trim()
         if (t.isBlank()) return false
-        lastSent[senderKey(note)]?.let { if (echoes(t, it)) return true }
-        return recentSent.any { echoes(t, it) }
+        val now = System.currentTimeMillis()
+        return recentSent.any { (s, ts) ->
+            now - ts < 20_000L && (t.equals(s, true) || (s.length > 12 && t.contains(s, true)))
+        }
     }
 
     /** Dismiss the actual system notification and drop it from the list. */
@@ -95,6 +101,7 @@ object NotificationStore {
             Log.i(TAG, "sendReply: fired OK")
             markReplied(note)
             recordSent(note, message)
+            ConversationStore.add(ctx, note.app, note.title, "me", message)
             MetricsStore.record(ctx, MetricsStore.secondsFor("reply"))
             true
         } catch (e: Exception) {

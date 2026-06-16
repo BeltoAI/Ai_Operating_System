@@ -24,7 +24,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, Checklist, Architect, AppView, Manual }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Architect, AppView, Manual }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,6 +36,7 @@ class ShellActivity : ComponentActivity() {
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
             var currentAppId by remember { mutableStateOf(0L) }
+            var spicyTopic by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
             LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
@@ -63,7 +64,8 @@ class ShellActivity : ComponentActivity() {
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
-                            onArchitect = { screen = Screen.Architect }
+                            onArchitect = { screen = Screen.Architect },
+                            onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost }
                         )
                         Screen.Now    -> NowScreen(m) { screen = Screen.Home }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
@@ -72,6 +74,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Apps   -> AppsScreen(m) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
+                        Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }
                         Screen.Architect -> ArchitectScreen(m, onBack = { screen = Screen.Home }, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView })
                         Screen.AppView -> AppViewScreen(m, currentAppId) { screen = Screen.Architect }
                         Screen.Manual -> ManualModeScreen(

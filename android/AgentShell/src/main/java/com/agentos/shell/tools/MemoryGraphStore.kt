@@ -44,14 +44,24 @@ object MemoryGraphStore {
         val forg = forgotten(ctx)
         val hub = n("hub", "hub", "SlyOS", "Your second brain.", "Core", 1f, 1f, true)
 
-        // People + messages, grouped by sender (newest first in the store).
-        NotificationStore.notes.groupBy { it.title.ifBlank { it.app } }.forEach { (sender, list) ->
-            val key = "msg:$sender"
-            if (sender.isBlank() || key in forg) return@forEach
-            val latest = list.first()
-            val id = n(key, "person", sender, latest.text, latest.app,
-                (0.45f + 0.08f * list.size).coerceAtMost(0.9f), 0.92f, false)
-            e(hub, id)
+        // Each conversation: a person node, with their recent messages chained off it.
+        ConversationStore.all(ctx).forEach { (sKey, msgs) ->
+            val app = sKey.substringBefore("|"); val title = sKey.substringAfter("|")
+            val pkey = "person:$sKey"
+            if (title.isBlank() && app.isBlank()) return@forEach
+            if (pkey !in forg) {
+                val pid = n(pkey, "person", title.ifBlank { app }, "${msgs.size} messages", app,
+                    (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false)
+                e(hub, pid)
+                msgs.takeLast(6).forEach { m ->
+                    val mkey = "msg:$sKey:${m.time}"
+                    if (mkey in forg) return@forEach
+                    val mine = m.role == "me"
+                    e(pid, n(mkey, if (mine) "response" else "transcript",
+                        m.text, m.text, if (mine) "You → ${title.ifBlank { app }}" else title.ifBlank { app },
+                        0.42f, 0.7f, false))
+                }
+            }
         }
         // Facts the agent learned about you.
         MemoryStore.about(ctx).split("\n").map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { i, line ->

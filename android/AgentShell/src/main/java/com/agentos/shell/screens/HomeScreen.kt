@@ -66,7 +66,8 @@ fun HomeScreen(
     onOpen: (Screen) -> Unit,
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
-    onArchitect: () -> Unit = {}
+    onArchitect: () -> Unit = {},
+    onSpicy: (String) -> Unit = {}
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -94,12 +95,14 @@ fun HomeScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {}
     LaunchedEffect(Unit) {
-        val need = listOf(
+        val need = mutableListOf(
             android.Manifest.permission.READ_CALENDAR,
             android.Manifest.permission.WRITE_CALENDAR,
             android.Manifest.permission.READ_CONTACTS,
             android.Manifest.permission.SEND_SMS
         )
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            need.add(android.Manifest.permission.POST_NOTIFICATIONS)
         calPerm.launch(need.toTypedArray())
     }
 
@@ -158,6 +161,13 @@ fun HomeScreen(
                 val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: q
                 thinking = false
                 onCompose(platform, tpc)
+                return@launch
+            }
+            // spicy_post navigates to the X post composer.
+            val spicyAct = result.actions.firstOrNull { it.type == "spicy_post" }
+            if (spicyAct != null) {
+                thinking = false
+                onSpicy(spicyAct.arg.ifBlank { q })
                 return@launch
             }
 

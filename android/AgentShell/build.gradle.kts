@@ -23,6 +23,10 @@ android {
         versionCode = 1
         versionName = "0.2.0"
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
+        buildConfigField("String", "TWITTER_API_KEY", "\"${apiKeyProps.getProperty("TWITTER_API_KEY", "")}\"")
+        buildConfigField("String", "TWITTER_API_SECRET", "\"${apiKeyProps.getProperty("TWITTER_API_SECRET", "")}\"")
+        buildConfigField("String", "TWITTER_ACCESS_TOKEN", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_TOKEN", "")}\"")
+        buildConfigField("String", "TWITTER_ACCESS_SECRET", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_SECRET", "")}\"")
     }
     buildFeatures {
         compose = true
@@ -46,4 +50,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

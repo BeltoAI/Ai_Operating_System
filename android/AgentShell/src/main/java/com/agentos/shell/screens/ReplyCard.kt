@@ -76,8 +76,11 @@ fun ReplyCard(note: NotificationStore.Note) {
                         busy = true
                         scope.launch {
                             val memory = MemoryStore.about(ctx)
+                            val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
+                            val thread = com.agentos.shell.tools.ConversationStore
+                                .thread(ctx, note.app, note.title).map { it.role to it.text }
                             val d = withContext(Dispatchers.IO) {
-                                AgentClient.draftReply(note.app, note.text, memory)
+                                AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
                             }
                             draft = d; approving = true; busy = false
                         }

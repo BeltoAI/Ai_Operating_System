@@ -3,6 +3,7 @@ package com.agentos.shell
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.NotificationStore
@@ -21,7 +22,7 @@ class AgentNotificationListener : NotificationListenerService() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val undoWindowMs = 8000L
-    private val cooldownMs = 90_000L
+    private val cooldownMs = 10_000L
 
     override fun onListenerConnected() {
         NotificationStore.listener = this
@@ -60,32 +61,57 @@ class AgentNotificationListener : NotificationListenerService() {
             a.remoteInputs?.any { it.resultKey != null } == true
         }
 
-        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction)
+        // Best-effort: some apps attach the image as EXTRA_PICTURE (BigPictureStyle).
+        val picture = try {
+            extras.get(android.app.Notification.EXTRA_PICTURE) as? android.graphics.Bitmap
+        } catch (e: Exception) { null }
+
+        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture, sbn.packageName)
         NotificationStore.put(note)
+        // Record incoming messages per-conversation (only repliable = real messages).
+        if (note.canReply && text.isNotBlank())
+            com.agentos.shell.tools.ConversationStore.add(applicationContext, appLabel, title, "them", text)
         return note
     }
 
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) return
-        if (!MemoryStore.autonomous(applicationContext)) return
-        if (NotificationStore.pendingAuto.contains(note.key)) return
-        // Don't reply to our own sent message echoed back in the notification.
-        if (NotificationStore.isOwnEcho(note)) return
-
-        // One reply per sender per cooldown — shared with manual replies — stops the
-        // post-reply notification update from re-triggering an endless loop.
-        if (NotificationStore.repliedWithin(note, cooldownMs)) return
-        NotificationStore.markReplied(note)   // reserve immediately
-
+        val telegram = note.pkg.startsWith("org.telegram")
+        val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
+            com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
+        // Telegram document-answering is its own lane; otherwise require global autonomous.
+        if (!MemoryStore.autonomous(applicationContext) && !docMode) return
+        if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
+        if (NotificationStore.isOwnEcho(note)) { Log.i("SlyOS", "auto skip: own echo"); return }
+        if (NotificationStore.repliedWithin(note, cooldownMs)) { Log.i("SlyOS", "auto skip: cooldown ${note.title}"); return }
+        NotificationStore.markReplied(note)
         NotificationStore.pendingAuto.add(note.key)
+        Log.i("SlyOS", "auto reply scheduled for ${note.title}: \"${note.text}\"")
         scope.launch {
-            val memory = MemoryStore.about(applicationContext)
-            val draft = AgentClient.draftReply(note.app, note.text, memory)
-            delay(undoWindowMs)
-            if (NotificationStore.pendingAuto.contains(note.key)) {
-                val ok = NotificationStore.sendReply(applicationContext, note, draft)
-                if (ok) NotificationStore.dismiss(note.key)
-                NotificationStore.pendingAuto.remove(note.key)
+            try {
+                val memory = MemoryStore.about(applicationContext)
+                val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
+                val draft = when {
+                    docMode -> AgentClient.answerFromDoc(
+                        note.text, com.agentos.shell.tools.KnowledgeStore.retrieve(applicationContext, note.text)
+                    )
+                    note.isSocial -> AgentClient.draftCommentReply(note.text, memory)
+                    else -> {
+                        val thread = com.agentos.shell.tools.ConversationStore
+                            .thread(applicationContext, note.app, note.title).map { it.role to it.text }
+                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
+                    }
+                }
+                delay(undoWindowMs)
+                if (NotificationStore.pendingAuto.contains(note.key)) {
+                    val ok = NotificationStore.sendReply(applicationContext, note, draft)
+                    Log.i("SlyOS", "auto reply sent=$ok to ${note.title}: \"$draft\"")
+                    if (ok) NotificationStore.dismiss(note.key)
+                }
+            } catch (e: Exception) {
+                Log.e("SlyOS", "auto reply failed", e)
+            } finally {
+                NotificationStore.pendingAuto.remove(note.key)   // always clear
             }
         }
     }

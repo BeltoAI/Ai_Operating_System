@@ -58,6 +58,16 @@ fun ComposeScreen(
     var caption by remember { mutableStateOf("") }
     var generating by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
+    var editPrompt by remember { mutableStateOf("") }
+
+    fun revise() {
+        if (editPrompt.isBlank() || caption.isBlank()) return
+        val instr = editPrompt; generating = true; status = ""
+        scope.launch {
+            caption = withContext(Dispatchers.IO) { AgentClient.revisePost(caption, instr, platform, MemoryStore.about(ctx)) }
+            editPrompt = ""; generating = false
+        }
+    }
 
     val takePic = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) pendingUri?.let { photos = photos + it }
@@ -157,6 +167,25 @@ fun ComposeScreen(
                 inner()
             }
         )
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                value = editPrompt,
+                onValueChange = { editPrompt = it },
+                singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                    .background(T.bgElevated).padding(horizontal = 12.dp, vertical = 9.dp),
+                decorationBox = { inner ->
+                    if (editPrompt.isEmpty())
+                        Text("how should I change it?", fontSize = T.small, color = T.inkFaint)
+                    inner()
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            Pill(if (generating) "…" else "Edit", T.ink) { revise() }
+        }
+
         Spacer(Modifier.height(12.dp))
         Row {
             Pill("Post to $platform", accent) { post() }

@@ -14,6 +14,18 @@ object ImageUtil {
         ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
     } catch (e: Exception) { null }
 
+    fun encodeBitmap(src: Bitmap, max: Int = 1024): String? = try {
+        var bmp = src
+        val w = bmp.width; val h = bmp.height
+        if (w > max || h > max) {
+            val s = max.toFloat() / maxOf(w, h)
+            bmp = Bitmap.createScaledBitmap(bmp, (w * s).toInt(), (h * s).toInt(), true)
+        }
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (e: Exception) { null }
+
     fun encode(ctx: Context, uri: Uri, max: Int = 1024): String? = try {
         var bmp = loadBitmap(ctx, uri)
         if (bmp == null) null else {
