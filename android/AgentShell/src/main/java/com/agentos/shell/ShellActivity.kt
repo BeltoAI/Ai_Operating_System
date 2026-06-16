@@ -24,12 +24,14 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Architect, AppView, Manual }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
+        if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
+            TelegramService.start(this)
         setContent {
             var screen by remember { mutableStateOf(Screen.Boot) }
             var agentPaused by remember { mutableStateOf(false) }
@@ -37,6 +39,7 @@ class ShellActivity : ComponentActivity() {
             var composeTopic by remember { mutableStateOf("") }
             var currentAppId by remember { mutableStateOf(0L) }
             var spicyTopic by remember { mutableStateOf("") }
+            var researchTopic by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
             LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
@@ -65,7 +68,8 @@ class ShellActivity : ComponentActivity() {
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
                             onArchitect = { screen = Screen.Architect },
-                            onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost }
+                            onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost },
+                            onResearch = { t -> researchTopic = t; screen = Screen.Research }
                         )
                         Screen.Now    -> NowScreen(m) { screen = Screen.Home }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
@@ -73,6 +77,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
+                        Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
+                        Screen.Research -> ResearchScreen(m, researchTopic) { researchTopic = ""; screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }
                         Screen.Architect -> ArchitectScreen(m, onBack = { screen = Screen.Home }, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView })
@@ -80,7 +86,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Manual -> ManualModeScreen(
                             m,
                             onResume = { agentPaused = false; screen = Screen.Home },
-                            onChecklist = { screen = Screen.Checklist }
+                            onChecklist = { screen = Screen.Checklist },
+                            onOutreach = { screen = Screen.Outreach }
                         )
                     }
                 }

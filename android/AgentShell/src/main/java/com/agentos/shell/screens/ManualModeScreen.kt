@@ -17,7 +17,7 @@ import com.agentos.shell.tools.ToolRouter
 private val tools = listOf("Phone", "Messages", "Camera", "Browser", "Files", "Settings")
 
 @Composable
-fun ManualModeScreen(modifier: Modifier = Modifier, onResume: () -> Unit, onChecklist: () -> Unit = {}) {
+fun ManualModeScreen(modifier: Modifier = Modifier, onResume: () -> Unit, onChecklist: () -> Unit = {}, onOutreach: () -> Unit = {}) {
     val ctx = LocalContext.current
     var status by remember { mutableStateOf("") }
     Column(modifier) {
@@ -37,6 +37,9 @@ fun ManualModeScreen(modifier: Modifier = Modifier, onResume: () -> Unit, onChec
         }
         Text("Checklist", fontSize = T.body, color = T.ink,
             modifier = Modifier.fillMaxWidth().padding(vertical = 13.dp).clickable { onChecklist() })
+        Hairline()
+        Text("Outreach emails", fontSize = T.body, color = T.ink,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 13.dp).clickable { onOutreach() })
         Hairline()
         Spacer(Modifier.weight(1f))
         Text("▸ Resume agent", fontSize = T.small, color = T.accent,

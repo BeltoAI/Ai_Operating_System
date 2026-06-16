@@ -2,62 +2,60 @@
 
 An agent-native phone experience for Android. When you open it, there's no app grid —
 just one prompt: **"what should happen?"** The agent is the home screen, the notification
-layer, the people layer, the memory layer, and the system interface. Real apps become tools
-the agent calls. A manual fallback always exists.
+layer, the memory layer, and the system interface. Real apps become tools the agent calls.
+A manual fallback always exists.
 
 SlyOS runs as a **custom launcher** on a stock, **locked** phone — no root, no bootloader
-unlock, no exploits. Everything it does uses documented, sanctioned Android APIs and is
-reversible by changing your default Home app or uninstalling.
+unlock, no exploits. Everything uses documented Android APIs and is reversible by changing
+the default Home app or uninstalling.
 
 ---
 
-## Why a launcher (and not a flashed OS)
+## Why a launcher (not a flashed OS)
 
-The reference device is a Samsung Galaxy S25 (`SM-S931U`, US Snapdragon). Its bootloader is
-locked with OEM-unlock fused off (`flash.locked=1`, `oem_unlock_allowed=0`, verified boot
-`green`). There is **no official way to flash it**, so a custom system image / kernel is
-impossible on this unit without exploits — which this project does not do.
-
-Instead, SlyOS becomes the phone's launcher and uses sanctioned capabilities to feel like an
-OS layer: a `HOME` launcher activity, an optional Device Owner provisioning for kiosk, and a
-user-granted `NotificationListenerService` that reads notifications and replies through their
-built-in inline-reply actions. For a literal flashed OS / custom kernel, the portable path is
-AOSP Cuttlefish or an officially-unlockable Pixel (see `docs/`), never the locked S25.
+Reference device: Samsung Galaxy S25 (`SM-S931U`, US Snapdragon) — bootloader locked, OEM
+unlock fused off, verified boot enforcing. No official flash path, so a custom system
+image/kernel is impossible without exploits (not done here). Instead SlyOS is the launcher and
+uses sanctioned capabilities to feel like an OS layer. A true flashed OS / kernel belongs on
+AOSP Cuttlefish or an unlockable Pixel (see `docs/`), never the locked S25.
 
 ---
 
 ## Features
 
-- **Agent home.** Type or speak; an LLM (your Anthropic key) understands the request and runs
-  one or more actions in order: open an app, web search, dial, send an SMS to a contact, take a
-  photo, open settings, create a calendar event, set a timer/alarm, add a checklist item,
-  compose a social post, or open the Architect. Replies render in a clean card; it can suggest
-  facts to remember.
-- **Camera + vision on Home.** Snap a photo and ask about it, or say "save as PDF" to turn
-  photos into a PDF.
+- **Agent home.** Type or speak ("what should happen?"). An LLM understands the request and
+  runs one or more actions in order: open apps, web search, dial, SMS a contact, take a photo,
+  settings, create calendar events, timers/alarms, add checklist items, compose social posts,
+  spicy posts, **write a research paper**, or open the Architect. Replies render in a card and
+  can be **spoken aloud** when you used voice (on-device TTS). Camera-on-Home for vision Q&A
+  and "save as PDF."
 - **Conversation-aware replies.** Incoming messages (WhatsApp, Telegram, SMS, Signal…) are kept
-  per contact and persisted. When the agent replies — reviewed or autonomous — it sends the
-  whole thread for that person, so it holds real, contextual conversations. Optional autonomous
-  mode auto-replies after an undo window, with a strict self-echo guard so it never answers
-  itself. Best-effort image understanding when a picture is in the notification.
-- **Telegram Document Q&A.** Load a PDF; SlyOS extracts its text and auto-answers Telegram
-  messages using only that document (focused retrieval, so huge PDFs work).
-- **Memory graph.** A native, pannable/zoomable graph built from your real data — people you've
-  messaged and their message chains, facts the agent learned, checklist items, and your
-  prompts/replies. Natural-language "Ask" answers over your memories; tap a node for details and
-  source; Forget to delete.
-- **Checklist.** Persistent to-do list (in Manual Mode) the agent can add to ("add milk and eggs
-  to my to-dos").
-- **Social post composer.** Take photos → the agent writes a platform-styled caption from what
-  it sees → themed LinkedIn/Instagram preview → edit by prompt ("make it punchier") → post.
-- **Spicy takes.** Generate savage-but-constructive tech posts (Opus) for X and Reddit
-  (Reddit gets a headline + long body), edit by prompt, and post. Optional **daily** morning
-  draft delivered as a notification with one-tap Post-to-X / Post-to-Reddit. Real X API posting
-  if you add keys; otherwise a one-tap hand-off to the app.
-- **The Architect (Opus 4.8).** Long-press the SlyOS wordmark for a hidden console. Describe an
-  app; Opus writes a self-contained mini-app that SlyOS stores and runs live in a sandboxed
-  WebView. Build tools on top of SlyOS by prompting — no rebuild.
-- **Calendar awareness, personalization memory, time-saved metric, lock-screen brief.**
+  per contact and persisted; the agent replies with full thread context, in your voice, with a
+  review step. Optional autonomous mode (undo window + self-echo guard). Email (Gmail) is
+  always review-only and bot-filtered.
+- **Telegram bot brain.** A foreground service runs your Telegram bot: it reads images
+  (vision) and PDFs (ingested as knowledge), answers from your document or conversationally,
+  and replies — through Telegram's open Bot API, no notification limits.
+- **Document Q&A.** Load a PDF; SlyOS answers from it (Telegram or in-app), with chunked
+  retrieval for big documents.
+- **Memory graph.** A clean, Obsidian-style native graph built from real data — people +
+  message counts, learned facts, checklist, research papers, recent prompts. Pan/zoom, tap a
+  node for details + recent messages, **Ask** (natural-language Q&A over memory) which lights
+  up the **synapse path** of memories behind the answer, and **Forget** to delete.
+- **Research workspace.** Multi-paper library (create / open / delete). Opus writes a full
+  academic paper in your name — abstract, numbered sections, references, real equations
+  (MathJax). Toggle **web research** (Anthropic web-search tool, with citations) and **use your
+  PDF** as source. Edit by prompt or by hand, **Export PDF** (print) or **Share** the PDF to any
+  app. A daily Opus **usage cap** guards credits.
+- **Social.** Photo post composer (themed LinkedIn/Instagram preview, edit-by-prompt). Spicy
+  tech takes for X/Reddit (platform-tuned), optional daily morning draft as a notification with
+  one-tap Post-to-X / Post-to-Reddit. Real X API posting if keys are set.
+- **Outreach.** Import a CSV of your own recipients → personalized, opt-out-friendly drafts,
+  each reviewed and sent by you.
+- **The Architect (Opus).** Long-press the wordmark → describe an app → Opus builds a
+  self-contained mini-app that runs live in a sandboxed WebView.
+- **Checklist, calendar awareness, personalization memory, time-saved metric, AI lock-screen
+  brief, SlyOS lock-screen wallpaper.**
 
 ---
 
@@ -65,81 +63,69 @@ AOSP Cuttlefish or an officially-unlockable Pixel (see `docs/`), never the locke
 
 ```
 agentos/
-  README.md                 you are here
-  docs/                     device facts, safety, architecture, UX spec, kernel notes
-  android/                  the Android app (Gradle project)
-    AgentShell/src/main/
-      AndroidManifest.xml
-      java/com/agentos/shell/
-        ShellActivity.kt            single-activity screen state machine
-        AgentNotificationListener.kt notification capture + contextual / doc auto-reply
-        SpicyWorker.kt, SpicyScheduler.kt  daily spicy-take notification (WorkManager)
-        screens/    Home, Lock, Now, People, MemoryGraph, MemorySettings, Checklist,
-                    Manual, Compose (posts), SpicyPost, Architect, AppView, ReplyCard, …
-        tools/      AgentClient (LLM + Architect + spicy + revise + doc QA),
-                    ToolRouter (actions), NotificationStore, ConversationStore,
-                    MemoryStore, MemoryGraphStore, MemoryLog, KnowledgeStore (PDF),
-                    CalendarTool, ContactsTool, ChecklistStore, AppStore, TwitterClient,
-                    PdfTool, ImageUtil, MetricsStore, BriefStore
-      build.gradle.kts
-    settings.gradle.kts, build.gradle.kts, gradle/
-  scripts/                  device interrogation, Device Owner provisioning, build notes
-  kernel/                   portable-track custom-kernel demo (Cuttlefish/Pixel only)
-  build_and_install.sh      one-shot build + install helper (run from project root)
+  README.md
+  docs/        device facts, safety, architecture, UX spec, kernel notes
+  android/AgentShell/src/main/
+    AndroidManifest.xml
+    java/com/agentos/shell/
+      ShellActivity.kt              screen state machine
+      AgentNotificationListener.kt  notification capture + contextual/doc auto-reply
+      TelegramService.kt            Telegram bot (foreground service)
+      SpicyWorker.kt / SpicyScheduler.kt   daily spicy-take notification
+      screens/   Home, Lock, Now, MemoryGraph, MemorySettings, Research, Checklist,
+                 Manual, Compose, SpicyPost, Outreach, Architect, AppView, ReplyCard …
+      tools/     AgentClient (LLM: chat, actions, vision, paper-writer w/ web search,
+                 architect, spicy, revise, doc-QA), ToolRouter, NotificationStore,
+                 ConversationStore, MemoryStore, MemoryGraphStore, MemoryLog,
+                 KnowledgeStore (PDF), PaperStore, CalendarTool, ContactsTool,
+                 ChecklistStore, EmailDraftStore, AppStore, TwitterClient, TelegramClient,
+                 PdfTool, ImageUtil, WallpaperTool, UsageLimiter, MetricsStore, BriefStore
+    build.gradle.kts ; settings.gradle.kts ; build.gradle.kts ; gradle/
+  scripts/     device interrogation, Device Owner provisioning, build notes
+  kernel/      portable-track custom-kernel demo (Cuttlefish/Pixel only)
+  build_and_install.sh
 ```
 
 ---
 
 ## Build & install
 
-Requirements: a Mac/Linux machine, an Android phone with USB debugging on, and an Anthropic
-API key (https://console.anthropic.com).
-
-1. Tools (macOS): `brew install --cask temurin@17 android-commandlinetools android-platform-tools`
-2. Keys (git-ignored, never committed) in `agentos/android/apikey.properties`:
+1. macOS: `brew install --cask temurin@17 android-commandlinetools android-platform-tools`
+2. Keys in `agentos/android/apikey.properties` (git-ignored):
    ```
    ANTHROPIC_API_KEY=sk-ant-...
-   # optional, for direct X posting:
-   TWITTER_API_KEY=...
-   TWITTER_API_SECRET=...
-   TWITTER_ACCESS_TOKEN=...
-   TWITTER_ACCESS_SECRET=...
+   TELEGRAM_BOT_TOKEN=...        # optional, from @BotFather, for the bot
+   TWITTER_API_KEY=... etc.      # optional, for direct X posting
    ```
-3. Build + install: `bash build_and_install.sh` (or open `android/` in Android Studio → Run).
-4. Press Home on the phone → choose SlyOS → Always. Grant notification access when prompted.
+3. `bash build_and_install.sh` (or open `android/` in Android Studio → Run).
+4. Phone: press Home → choose SlyOS → Always; grant notification access when asked.
 
-Revert anytime: Settings → Apps → Default apps → Home → One UI Home, or `adb uninstall com.agentos.shell`.
+Revert: Settings → Apps → Default apps → Home → One UI Home, or `adb uninstall com.agentos.shell`.
 
 ---
 
 ## Permissions (all user-granted)
 
-INTERNET, RECORD_AUDIO (voice), READ/WRITE_CALENDAR, READ_CONTACTS, SEND_SMS, POST_NOTIFICATIONS,
-and notification access. Nothing leaves the device except prompts you trigger, using your own keys.
-
----
-
-## Safety
-
-Never flashes, unlocks, or writes partitions on the locked S25; never bypasses Knox / verified
-boot / FRP. Everything is reversible. Autonomous reply and daily posting are opt-in. See
-`docs/flashing_safety.md`.
+INTERNET, RECORD_AUDIO, READ/WRITE_CALENDAR, READ_CONTACTS, SEND_SMS, POST_NOTIFICATIONS,
+SET_WALLPAPER, FOREGROUND_SERVICE(+DATA_SYNC), notification access. Nothing leaves the device
+except prompts you trigger, using your own keys.
 
 ---
 
 ## Honest limitations
 
 - It's a launcher, not a flashed OS — the power-on boot logo stays Samsung's.
-- Architect mini-apps are real and live but sandboxed; they can't yet reach SlyOS data or
-  change SlyOS's native screens. Native self-modification needs a rebuild.
-- Conversation/Document features depend on each app exposing an inline reply action in its
-  notification (WhatsApp/Telegram do; X/Reddit often don't), and learn going forward — they
-  can't import an app's private history retroactively.
-- Document Q&A needs a text-layer PDF (scanned/image PDFs need OCR, not yet added).
-- X's API write tier is paid as of Feb 2026; the no-cost path hands off to the app for a one-tap post.
+- Can't read other apps' private files (WhatsApp media, voice notes) or pick up cellular calls
+  — OS-blocked on a locked phone. Telegram works fully via its open bot API.
+- Email/social auto-send isn't possible without each platform's API; SlyOS drafts and hands off
+  for a one-tap send (X has a real-API path if keys are set).
+- The Architect's mini-apps are sandboxed (no access to SlyOS data yet).
+- Document Q&A needs a text-layer PDF (scanned PDFs need OCR, not yet added).
+- True LaTeX typesetting needs a TeX engine; papers render via HTML+MathJax → PDF.
+- The memory "synapse path" is reconstructed by relevance matching, not a token-level trace.
 
 ---
 
 ## License
 
-Personal project. Add a license of your choice (e.g. MIT) before distributing.
+Personal project. Add a license (e.g. MIT) before distributing.

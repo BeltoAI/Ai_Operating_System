@@ -33,6 +33,13 @@ object NotificationStore {
             "com.twitter.android", "com.reddit.frontpage", "com.instagram.android",
             "com.linkedin.android", "com.zhiliaoapp.musically"
         )
+        val isEmail: Boolean get() = pkg == "com.google.android.gm"
+        val isLikelyBot: Boolean get() {
+            val s = "$title $text".lowercase()
+            return listOf("no-reply", "noreply", "no reply", "do not reply", "donotreply",
+                "notifications@", "newsletter", "mailer-daemon", "automated", "unsubscribe",
+                "verification code", "verify your").any { s.contains(it) }
+        }
     }
 
     val notes = mutableStateListOf<Note>()

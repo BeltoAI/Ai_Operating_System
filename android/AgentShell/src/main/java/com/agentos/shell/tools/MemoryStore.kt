@@ -28,4 +28,8 @@ object MemoryStore {
     /** When true, Telegram messages are auto-answered from the loaded PDF. */
     fun docTelegram(ctx: Context): Boolean = prefs(ctx).getBoolean("doc_telegram", false)
     fun setDocTelegram(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("doc_telegram", value).apply()
+
+    /** When true, the Telegram bot service runs (reads attachments, answers, ingests PDFs). */
+    fun telegramBot(ctx: Context): Boolean = prefs(ctx).getBoolean("telegram_bot", false)
+    fun setTelegramBot(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("telegram_bot", value).apply()
 }

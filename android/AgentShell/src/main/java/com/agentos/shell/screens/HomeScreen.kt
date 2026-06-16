@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -67,7 +69,8 @@ fun HomeScreen(
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
     onArchitect: () -> Unit = {},
-    onSpicy: (String) -> Unit = {}
+    onSpicy: (String) -> Unit = {},
+    onResearch: (String) -> Unit = {}
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -106,7 +109,21 @@ fun HomeScreen(
         calPerm.launch(need.toTypedArray())
     }
 
-    val submit: (String) -> Unit = submit@{ raw ->
+    // Text-to-speech so the agent can speak its reply (on-device, free).
+    val ttsRef = remember { mutableStateOf<TextToSpeech?>(null) }
+    DisposableEffect(Unit) {
+        val engine = TextToSpeech(ctx) {}
+        ttsRef.value = engine
+        onDispose { engine.stop(); engine.shutdown() }
+    }
+    val speak: (String) -> Unit = { s ->
+        if (s.isNotBlank()) ttsRef.value?.apply {
+            language = java.util.Locale.getDefault()
+            speak(s, TextToSpeech.QUEUE_FLUSH, null, "slyos")
+        }
+    }
+
+    val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""
@@ -134,6 +151,7 @@ fun HomeScreen(
                         AgentClient.askVision(q, b64s, MemoryStore.about(ctx))
                     }
                 }
+                if (doSpeak) speak(reply)
                 thinking = false
                 return@launch
             }
@@ -170,11 +188,19 @@ fun HomeScreen(
                 onSpicy(spicyAct.arg.ifBlank { q })
                 return@launch
             }
+            // write_paper navigates to the Research workspace, pre-filled.
+            val paperAct = result.actions.firstOrNull { it.type == "write_paper" }
+            if (paperAct != null) {
+                thinking = false
+                onResearch(paperAct.arg.ifBlank { q })
+                return@launch
+            }
 
             val actionMsg = withContext(Dispatchers.IO) {
                 ToolRouter.executeActions(ctx, result.actions)
             }
             reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
+            if (doSpeak) speak(reply)
             history = (history + (q to reply)).takeLast(6)
             // Capture this exchange as connected memories.
             val pk = MemoryLog.add(ctx, "prompt", q, q, "Home prompt")
@@ -191,7 +217,7 @@ fun HomeScreen(
             val spoken = res.data
                 ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull()
-            if (!spoken.isNullOrBlank()) { text = spoken; submit(spoken) }
+            if (!spoken.isNullOrBlank()) { text = spoken; submit(spoken, true) }
         }
     }
     val startVoice: () -> Unit = {
@@ -218,7 +244,7 @@ fun HomeScreen(
                 singleLine = true,
                 textStyle = TextStyle(color = T.ink, fontSize = T.body),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { submit(text) }),
+                keyboardActions = KeyboardActions(onSend = { submit(text, false) }),
                 modifier = Modifier
                     .weight(1f)
                     .drawBehind {
@@ -246,7 +272,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(if (text.isBlank() || thinking) T.hairline else T.accent)
-                    .clickable { submit(text) }
+                    .clickable { submit(text, false) }
                     .padding(horizontal = 16.dp, vertical = 9.dp)
             )
         }
@@ -315,9 +341,9 @@ fun HomeScreen(
             )
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            NavIcon(Icons.Filled.Bolt, "Now") { onOpen(Screen.Now) }
-            NavIcon(Icons.Filled.People, "People") { onOpen(Screen.People) }
+            NavIcon(Icons.Filled.Science, "Research") { onOpen(Screen.Research) }
             NavIcon(Icons.Filled.Memory, "Memory") { onOpen(Screen.Memory) }
+            NavIcon(Icons.Filled.Bolt, "Now") { onOpen(Screen.Now) }
             NavIcon(Icons.Filled.Apps, "Apps") { onOpen(Screen.Apps) }
             NavIcon(
                 if (paused) Icons.Filled.PlayCircle else Icons.Filled.PauseCircle,

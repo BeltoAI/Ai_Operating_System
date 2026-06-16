@@ -40,6 +40,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
     var kbStatus by remember { mutableStateOf("") }
     var docTelegram by remember { mutableStateOf(MemoryStore.docTelegram(ctx)) }
+    var tgBot by remember { mutableStateOf(MemoryStore.telegramBot(ctx)) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             kbStatus = "Reading PDF…"
@@ -160,6 +161,35 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
             Switch(checked = docTelegram, onCheckedChange = { docTelegram = it; MemoryStore.setDocTelegram(ctx, it) })
         }
+
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Telegram bot brain", fontSize = T.body, color = T.ink)
+                Text("Runs your Telegram bot: reads images & PDFs people send, answers from your " +
+                    "document, replies as you. Needs TELEGRAM_BOT_TOKEN in apikey.properties.",
+                    fontSize = T.small, color = T.inkFaint)
+            }
+            Switch(checked = tgBot, onCheckedChange = {
+                tgBot = it; MemoryStore.setTelegramBot(ctx, it)
+                if (it) com.agentos.shell.TelegramService.start(ctx)
+                else com.agentos.shell.TelegramService.stop(ctx)
+            })
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Text("Lock screen", fontSize = T.body, color = T.ink)
+        Text("Set a SlyOS-styled lock-screen wallpaper (the clock/widgets stay Samsung's).",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var wpStatus by remember { mutableStateOf("") }
+        Text(if (wpStatus.isEmpty()) "Set SlyOS lock screen" else wpStatus,
+            fontSize = T.small, color = T.bgElevated,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                .clickable {
+                    wpStatus = if (com.agentos.shell.tools.WallpaperTool.setLockScreen(ctx))
+                        "Lock screen updated ✓" else "Couldn't set wallpaper"
+                }.padding(horizontal = 18.dp, vertical = 10.dp))
 
         Spacer(Modifier.height(20.dp))
         Text(

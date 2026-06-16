@@ -27,6 +27,7 @@ android {
         buildConfigField("String", "TWITTER_API_SECRET", "\"${apiKeyProps.getProperty("TWITTER_API_SECRET", "")}\"")
         buildConfigField("String", "TWITTER_ACCESS_TOKEN", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_TOKEN", "")}\"")
         buildConfigField("String", "TWITTER_ACCESS_SECRET", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_SECRET", "")}\"")
+        buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${apiKeyProps.getProperty("TELEGRAM_BOT_TOKEN", "")}\"")
     }
     buildFeatures {
         compose = true

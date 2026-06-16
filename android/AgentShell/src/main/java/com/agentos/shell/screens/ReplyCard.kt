@@ -76,17 +76,27 @@ fun ReplyCard(note: NotificationStore.Note) {
                         busy = true
                         scope.launch {
                             val memory = MemoryStore.about(ctx)
-                            val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
-                            val thread = com.agentos.shell.tools.ConversationStore
-                                .thread(ctx, note.app, note.title).map { it.role to it.text }
                             val d = withContext(Dispatchers.IO) {
-                                AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
+                                if (note.isEmail) {
+                                    val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
+                                    AgentClient.draftEmailReply(note.title, note.text, doc, memory)
+                                } else {
+                                    val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
+                                    val thread = com.agentos.shell.tools.ConversationStore
+                                        .thread(ctx, note.app, note.title).map { it.role to it.text }
+                                    AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
+                                }
                             }
                             draft = d; approving = true; busy = false
                         }
                     }
                 )
             }
+        }
+
+        if (note.isEmail && note.isLikelyBot && sent.isEmpty()) {
+            Text("looks automated — probably a bot, skip replying", fontSize = T.caption, color = T.inkFaint,
+                modifier = Modifier.padding(top = 4.dp))
         }
 
         // "Add event" — works on any message that implies a time/plan, repliable or not.

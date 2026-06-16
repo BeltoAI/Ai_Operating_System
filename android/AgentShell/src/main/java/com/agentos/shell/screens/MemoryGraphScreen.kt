@@ -54,28 +54,45 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current.density
-    LaunchedEffect(Unit) { MemoryGraphStore.rebuild(ctx) }
     var version by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { MemoryGraphStore.rebuild(ctx); version++ }
 
     val nodes = MemoryGraphStore.nodes
     val edges = MemoryGraphStore.edges
-    var scale by remember { mutableStateOf(1f) }
+    var scale by remember { mutableStateOf(0.75f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var selected by remember { mutableStateOf<Int?>(null) }
     var query by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-
-    val pulse by rememberInfiniteTransition(label = "p").animateFloat(
-        0.4f, 1f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), label = "pp"
+    var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
+    val flow by rememberInfiniteTransition(label = "f").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
     )
+
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
     fun ask() {
         if (query.isBlank()) return
-        searching = true; answer = ""
+        searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
-            val a = withContext(Dispatchers.IO) { AgentClient.askMemory(query, MemoryGraphStore.memoryLines()) }
-            answer = a; searching = false
+            val corpus = MemoryGraphStore.memoryLines() +
+                com.agentos.shell.tools.ConversationStore.all(ctx).flatMap { (k, msgs) ->
+                    val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
+                    msgs.map { (if (it.role == "me") "You to $who" else who) + ": " + it.text }
+                }
+            val a = withContext(Dispatchers.IO) { AgentClient.askMemory(query, corpus) }
+            answer = a
+            // Light up the "synapse path": the memories most related to the question + answer.
+            val toks = ("$query $a").lowercase().split(Regex("\\W+")).filter { it.length > 3 }.toSet()
+            pathNodes = nodes.filter { it.type != "hub" }
+                .map { n -> n.id to toks.count { (n.label + " " + n.content).lowercase().contains(it) } }
+                .filter { it.second > 0 }.sortedByDescending { it.second }.take(5).map { it.first }
+            if (pathNodes.isNotEmpty()) {
+                val px = pathNodes.map { nodes[it].x }.average().toFloat()
+                val py = pathNodes.map { nodes[it].y }.average().toFloat()
+                scale = 1f; offset = Offset(-px, -py)
+            }
+            searching = false
         }
     }
 
@@ -141,40 +158,56 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                 val n = nodes[i]
                                 if (hypot(wx - n.x, wy - n.y) < 7f + n.strength * 13f + 5f) { hit = i; break }
                             }
-                            selected = hit
+                            selected = hit; if (hit != null) pathNodes = emptyList()
                         }
                     }
             ) {
-                pulse.let { }
+                version.let { }
                 val cx = size.width / 2f + offset.x; val cy = size.height / 2f + offset.y
                 val conn = selected?.let { s -> edges.filter { it.a == s || it.b == s }.flatMap { listOf(it.a, it.b) }.toSet() }
+                val graphite = Color(0xFF8C8475)
                 edges.forEach { e ->
                     if (e.a >= nodes.size || e.b >= nodes.size) return@forEach
                     val a = nodes[e.a]; val b = nodes[e.b]
                     val hot = selected != null && (e.a == selected || e.b == selected)
                     drawLine(
-                        if (hot) ACCENT.copy(alpha = 0.4f) else Color(0xFF282A1C).copy(alpha = if (selected != null) 0.04f else 0.09f),
+                        if (hot) ACCENT.copy(alpha = 0.35f) else Color(0xFF1A1714).copy(alpha = if (selected != null) 0.035f else 0.07f),
                         Offset(cx + a.x * scale, cy + a.y * scale), Offset(cx + b.x * scale, cy + b.y * scale),
-                        strokeWidth = if (hot) 2f else 1f
+                        strokeWidth = if (hot) 1.4f else 0.8f
                     )
+                }
+                // Synapse path: glowing connections between the memories behind the answer.
+                if (pathNodes.size > 1) {
+                    for (i in 0 until pathNodes.size - 1) {
+                        val a = nodes[pathNodes[i]]; val b = nodes[pathNodes[i + 1]]
+                        val ax = cx + a.x * scale; val ay = cy + a.y * scale
+                        val bx = cx + b.x * scale; val by = cy + b.y * scale
+                        drawLine(ACCENT.copy(alpha = 0.7f), Offset(ax, ay), Offset(bx, by), strokeWidth = 2.5f)
+                        drawCircle(ACCENT, 3f, Offset(ax + (bx - ax) * flow, ay + (by - ay) * flow))
+                    }
                 }
                 nodes.forEach { n ->
                     val X = cx + n.x * scale; val Y = cy + n.y * scale
-                    val r = (7f + n.strength * 13f) * scale; val col = typeColor(n.type)
-                    val dim = (selected != null && conn?.contains(n.id) != true) ||
-                        (query.isNotBlank() && !(n.label + n.content).contains(query, true) && n.id != selected)
-                    val a = if (dim) 0.22f else 1f
-                    drawCircle(col.copy(alpha = 0.16f * a), r * 1.7f, Offset(X, Y + 1.5f))
+                    val sel = n.id == selected; val hub = n.type == "hub"
+                    val inPath = pathNodes.contains(n.id)
+                    val r = (4f + n.strength * 7f) * scale
+                    val dim = when {
+                        pathNodes.isNotEmpty() -> !inPath
+                        selected != null -> conn?.contains(n.id) != true
+                        query.isNotBlank() -> !(n.label + n.content).contains(query, true) && !sel
+                        else -> false
+                    }
+                    val a = if (dim) 0.16f else 1f
+                    val col = if (sel || hub || inPath) ACCENT else graphite
                     drawCircle(col.copy(alpha = a), r, Offset(X, Y))
-                    if (n.id == selected) drawCircle(ACCENT, r + 4f, Offset(X, Y), style = Stroke(width = 2f))
-                    if (n.recency > 0.7f && !dim)
-                        drawCircle(ACCENT.copy(alpha = pulse), 2.6f * scale, Offset(X + r * 0.72f, Y - r * 0.72f))
-                    if (scale > 0.8f || n.strength > 0.74f || n.id == selected) {
+                    drawCircle(Color(0xFF1A1714).copy(alpha = 0.12f * a), r, Offset(X, Y), style = Stroke(width = 0.8f))
+                    if (sel || inPath) drawCircle(ACCENT, r + 5f, Offset(X, Y), style = Stroke(width = 1.6f))
+                    if (sel || hub || inPath || scale > 1.4f) {
                         drawIntoCanvas { c ->
                             val p = android.graphics.Paint().apply {
-                                color = android.graphics.Color.parseColor("#4A4136")
-                                textSize = 11f * density; textAlign = android.graphics.Paint.Align.CENTER
-                                isAntiAlias = true; alpha = (a * 235).toInt()
+                                color = android.graphics.Color.parseColor("#6B6258")
+                                textSize = 10.5f * density; textAlign = android.graphics.Paint.Align.CENTER
+                                isAntiAlias = true; alpha = (a * 220).toInt()
                             }
                             val lbl = if (n.label.length > 22) n.label.take(21) + "…" else n.label
                             c.nativeCanvas.drawText(lbl, X, Y + r + 13f * density, p)
@@ -194,6 +227,23 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     Text(n.content, fontSize = T.small, color = T.inkSoft)
                     Spacer(Modifier.height(8.dp))
                     Text("↳ ${n.source}", fontSize = T.caption, color = T.inkFaint)
+
+                    if (n.type == "person" && n.key.startsWith("person:")) {
+                        val sKey = n.key.removePrefix("person:")
+                        val msgs = com.agentos.shell.tools.ConversationStore
+                            .thread(ctx, sKey.substringBefore("|"), sKey.substringAfter("|"))
+                        Spacer(Modifier.height(10.dp))
+                        Text("RECENT", fontSize = T.caption, color = T.inkFaint)
+                        msgs.takeLast(6).forEach { m ->
+                            Row(Modifier.padding(top = 5.dp)) {
+                                Text(if (m.role == "me") "you" else "·", fontSize = T.caption,
+                                    color = if (m.role == "me") ACCENT else T.inkFaint,
+                                    modifier = Modifier.width(28.dp))
+                                Text(m.text, fontSize = T.small, color = T.inkSoft)
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(10.dp))
                     Row {
                         if (n.type != "hub")

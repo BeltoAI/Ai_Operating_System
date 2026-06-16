@@ -76,6 +76,7 @@ class AgentNotificationListener : NotificationListenerService() {
 
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) return
+        if (note.isEmail) return   // email is always human-reviewed, never autonomous
         val telegram = note.pkg.startsWith("org.telegram")
         val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)

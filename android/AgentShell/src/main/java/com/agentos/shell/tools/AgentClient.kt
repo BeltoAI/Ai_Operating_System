@@ -39,23 +39,24 @@ object AgentClient {
         callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens)
 
     /** Low-level call with a full messages array (supports multi-turn history). */
-    private fun callMessages(system: String, messages: JSONArray, maxTokens: Int, model: String = MODEL): Pair<Int, String> {
+    private fun callMessages(system: String, messages: JSONArray, maxTokens: Int, model: String = MODEL, readMs: Int = 60000, tools: JSONArray? = null): Pair<Int, String> {
         val key = BuildConfig.ANTHROPIC_API_KEY
         if (key.isBlank()) return -1 to "No API key set."
 
-        val payload = JSONObject()
+        val obj = JSONObject()
             .put("model", model)
             .put("max_tokens", maxTokens)
             .put("system", system)
             .put("messages", messages)
-            .toString()
+        if (tools != null) obj.put("tools", tools)
+        val payload = obj.toString()
 
         return try {
             val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
                 connectTimeout = 15000
-                readTimeout = 60000
+                readTimeout = readMs
                 setRequestProperty("content-type", "application/json")
                 setRequestProperty("x-api-key", key)
                 setRequestProperty("anthropic-version", "2023-06-01")
@@ -100,7 +101,8 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, dial, sms, send_sms, camera, settings, add_event, timer, alarm, compose_post, spicy_post, checklist_add, none. ")
+            append("types: open_app, web_search, dial, sms, send_sms, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, checklist_add, none. ")
+            append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
             append("checklist or list MUST use checklist_add — never open_app for that. ")
@@ -242,6 +244,57 @@ object AgentClient {
         return if (code == 200) text.trim().trim('"') else "[couldn't reply: $code $text]"
     }
 
+    private fun webTool(): JSONArray =
+        JSONArray().put(JSONObject().put("type", "web_search_20250305").put("name", "web_search").put("max_uses", 4))
+
+    private fun cleanHtml(s: String): String {
+        var h = s.trim()
+        if (h.startsWith("```")) h = h.substringAfter('\n', h).trim()
+        if (h.endsWith("```")) h = h.removeSuffix("```").trim()
+        return h
+    }
+
+    /** Opus call with one retry on transient 5xx errors. */
+    private fun paperCall(sys: String, userContent: String, web: Boolean): Pair<Int, String> {
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", userContent))
+        val tools = if (web) webTool() else null
+        val to = if (web) 180000 else 120000
+        var (code, text) = callMessages(sys, msgs, 6000, OPUS, to, tools)
+        if (code in 500..599) {
+            try { Thread.sleep(1200) } catch (e: Exception) {}
+            val r = callMessages(sys, msgs, 6000, OPUS, to, tools); code = r.first; text = r.second
+        }
+        return code to text
+    }
+
+    /** Write a research/white paper (Opus). Returns HTML, or "ERR::code::body" on failure. */
+    fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = ""): String {
+        val src = if (web) source.take(2500) else source.take(12000)
+        val sys = "You are an expert research writer. Write a rigorous, well-structured white paper / " +
+            "research paper IN THE USER'S NAME on their topic. Output a COMPLETE self-contained HTML " +
+            "document: clean academic style (serif body, centered title, author line, abstract, numbered " +
+            "sections, and a references section). Render math with MathJax — include exactly this in <head>: " +
+            "<script src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script> and write " +
+            "math as \\( inline \\) and $$ display $$. Use ivory #F4EFE6 background, near-black text, generous margins. " +
+            (if (memory.isNotBlank()) "About the author (reflect their context/voice): $memory. " else "") +
+            (if (web) "Use web search to find current, real sources and CITE them with links in the references. " else "") +
+            (if (src.isNotBlank()) "Also ground it in this source material:\n$src\n" else "") +
+            "Return ONLY the HTML document."
+        val (code, text) = paperCall(sys, prompt, web)
+        return if (code == 200) cleanHtml(text) else "ERR::$code::${text.take(400)}"
+    }
+
+    /** Revise the paper HTML. Returns HTML, or "ERR::code::body" on failure. */
+    fun revisePaper(currentHtml: String, instruction: String, web: Boolean = false, memory: String = ""): String {
+        val sys = "Revise this HTML research paper per the instruction. Keep it a COMPLETE self-contained " +
+            "HTML document with the same MathJax setup and academic styling. " +
+            (if (memory.isNotBlank()) "About the author: $memory. " else "") +
+            (if (web) "Use web search for any new facts/sources and cite them. " else "") +
+            "Return ONLY the HTML."
+        val (code, text) = paperCall(sys, "INSTRUCTION: $instruction\n\nPAPER HTML:\n${currentHtml.take(40000)}", web)
+        return if (code == 200) cleanHtml(text) else "ERR::$code::${text.take(400)}"
+    }
+
     /** The Architect (Opus 4.8): turn a prompt into a self-contained mini-app. Returns (name, html). */
     fun architect(prompt: String): Pair<String, String> {
         val sys = "You are the SlyOS Architect. The user describes an app or tool to add to their phone OS. " +
@@ -261,6 +314,15 @@ object AgentClient {
         if (html.endsWith("```")) html = html.removeSuffix("```").trim()
         Log.i("SlyOS", "architect name='$name' htmlLen=${html.length}")
         return name to html
+    }
+
+    /** Conversational reply for the Telegram bot (uses the document if relevant). */
+    fun telegramReply(text: String, doc: String = "", memory: String = ""): String {
+        val sys = (if (memory.isNotBlank()) "About the owner you speak for: $memory. " else "") +
+            "You are the owner's Telegram assistant. Reply helpfully, warm and concise, as them. " +
+            (if (doc.isNotBlank()) "If relevant, use this document:\n$doc\n" else "")
+        val (code, t) = call(sys, text)
+        return if (code == 200) t.trim() else "Hmm, I hit an error ($code)."
     }
 
     /** Answer a question using ONLY the provided document excerpts. */
@@ -295,6 +357,33 @@ object AgentClient {
         if (s < 0 || e <= s) return ""
         val json = text.substring(s, e + 1)
         return if (json.contains("\"none\"")) "" else json
+    }
+
+    /** Draft a human-sounding email reply, grounded in a document if one is provided. */
+    fun draftEmailReply(sender: String, snippet: String, doc: String = "", memory: String = ""): String {
+        val sys = (if (memory.isNotBlank()) "About the owner: $memory. " else "") +
+            "Write a reply email on behalf of the owner. Sound genuinely human — warm, natural, " +
+            "concise and professional; vary sentence length, no robotic filler, never say you're an AI. " +
+            (if (doc.isNotBlank())
+                "Ground any factual or technical claims ONLY in this document; if it isn't covered, " +
+                "stay general and don't invent specifics:\nDOCUMENT:\n$doc\n" else "") +
+            "Return ONLY the email body (greeting, body, sign-off)."
+        val (code, text) = call(sys, "Email from $sender:\n$snippet")
+        return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
+    }
+
+    /** A short, human, personalized outreach email. Returns (subject, body). */
+    fun draftOutreach(recipient: String, topic: String, content: String, memory: String = ""): Pair<String, String> {
+        val sys = (if (memory.isNotBlank()) "About the sender: $memory. " else "") +
+            "Write a short, genuinely human, personalized outreach email. Warm, specific, respectful, " +
+            "with a clear ask and a polite one-line opt-out. Not spammy, no hype. " +
+            "Format: first line 'SUBJECT: ...', then a blank line, then the body."
+        val user = "Recipient: $recipient\nTopic: $topic" + (if (content.isNotBlank()) "\nReference:\n$content" else "")
+        val (code, text) = call(sys, user)
+        if (code != 200) return "Hello" to "[couldn't draft: $code $text]"
+        val subj = Regex("(?i)subject:\\s*(.*)").find(text)?.groupValues?.get(1)?.trim() ?: "Hello"
+        val body = text.substringAfter("\n").substringAfter(subj).trim().ifBlank { text.trim() }
+        return subj to body
     }
 
     /** Context-aware reply: sees the whole conversation thread with this person. */

@@ -44,24 +44,18 @@ object MemoryGraphStore {
         val forg = forgotten(ctx)
         val hub = n("hub", "hub", "SlyOS", "Your second brain.", "Core", 1f, 1f, true)
 
-        // Each conversation: a person node, with their recent messages chained off it.
+        // Each conversation = ONE clean person node (sized by message count). The messages
+        // themselves are revealed in the detail panel when you tap the person — keeping the
+        // graph calm and Obsidian-like instead of an explosion of message dots.
         ConversationStore.all(ctx).forEach { (sKey, msgs) ->
             val app = sKey.substringBefore("|"); val title = sKey.substringAfter("|")
             val pkey = "person:$sKey"
-            if (title.isBlank() && app.isBlank()) return@forEach
-            if (pkey !in forg) {
-                val pid = n(pkey, "person", title.ifBlank { app }, "${msgs.size} messages", app,
-                    (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false)
-                e(hub, pid)
-                msgs.takeLast(6).forEach { m ->
-                    val mkey = "msg:$sKey:${m.time}"
-                    if (mkey in forg) return@forEach
-                    val mine = m.role == "me"
-                    e(pid, n(mkey, if (mine) "response" else "transcript",
-                        m.text, m.text, if (mine) "You → ${title.ifBlank { app }}" else title.ifBlank { app },
-                        0.42f, 0.7f, false))
-                }
-            }
+            if ((title.isBlank() && app.isBlank()) || pkey in forg) return@forEach
+            val last = msgs.lastOrNull()?.text?.take(60).orEmpty()
+            val label = title.ifBlank { app }
+            val content = "${msgs.size} message" + (if (msgs.size != 1) "s" else "") +
+                (if (last.isNotBlank()) " · “$last”" else "")
+            e(hub, n(pkey, "person", label, content, app, (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false))
         }
         // Facts the agent learned about you.
         MemoryStore.about(ctx).split("\n").map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { i, line ->
@@ -75,9 +69,15 @@ object MemoryGraphStore {
             if (key in forg) return@forEach
             e(hub, n(key, "task", it.text, if (it.done) "Completed" else "To do", "Checklist", 0.55f, 0.6f, false))
         }
-        // Captured prompts, responses and moments — link children to their parent if present.
+        // Research papers you've generated.
+        PaperStore.list(ctx).forEach { p ->
+            val key = "paper:${p.id}"
+            if (key in forg) return@forEach
+            e(hub, n(key, "paper", p.title, "Research paper", "Research", 0.7f, 0.6f, false))
+        }
+        // Captured prompts, responses and moments — keep it tidy: only the most recent few.
         val idByKey = HashMap<String, Int>()
-        MemoryLog.load(ctx).forEach { ev ->
+        MemoryLog.load(ctx).takeLast(12).forEach { ev ->
             val key = "log:${ev.id}"
             if (key in forg) return@forEach
             val nid = n(key, ev.type, ev.label, ev.content, ev.source, 0.5f, 0.7f, false)
@@ -90,21 +90,26 @@ object MemoryGraphStore {
 
     private fun layout() {
         val rnd = Random(7)
-        nodes.forEach { it.x = (rnd.nextFloat() - .5f) * 280; it.y = (rnd.nextFloat() - .5f) * 280 }
-        repeat(400) {
+        nodes.forEach { it.x = (rnd.nextFloat() - .5f) * 460; it.y = (rnd.nextFloat() - .5f) * 460 }
+        val minGap = 64f      // keep nodes from overlapping
+        repeat(600) {
             for (i in nodes.indices) {
                 val a = nodes[i]
                 for (j in i + 1 until nodes.size) {
                     val b = nodes[j]
                     val dx = a.x - b.x; val dy = a.y - b.y; val d2 = dx * dx + dy * dy + .01f
-                    val d = sqrt(d2); val rep = 2600f / d2; val ux = dx / d; val uy = dy / d
+                    val d = sqrt(d2); val rep = 5200f / d2; val ux = dx / d; val uy = dy / d
                     a.x += ux * rep * .5f; a.y += uy * rep * .5f; b.x -= ux * rep * .5f; b.y -= uy * rep * .5f
+                    if (d < minGap) {
+                        val push = (minGap - d) * .5f
+                        a.x += ux * push; a.y += uy * push; b.x -= ux * push; b.y -= uy * push
+                    }
                 }
             }
             edges.forEach {
                 val a = nodes[it.a]; val b = nodes[it.b]
                 val dx = b.x - a.x; val dy = b.y - a.y; val d = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-                val f = (d - 95f) * .02f; val ux = dx / d; val uy = dy / d
+                val f = (d - 150f) * .015f; val ux = dx / d; val uy = dy / d
                 a.x += ux * f; a.y += uy * f; b.x -= ux * f; b.y -= uy * f
             }
         }

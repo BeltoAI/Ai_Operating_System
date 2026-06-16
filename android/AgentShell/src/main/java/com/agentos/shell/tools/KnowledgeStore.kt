@@ -35,6 +35,18 @@ object KnowledgeStore {
         } catch (e: Exception) { 0 }
     }
 
+    /** Extract text from PDF bytes (e.g. a Telegram document) and store it. Returns char count. */
+    fun loadFromBytes(ctx: Context, bytes: ByteArray, displayName: String): Int {
+        return try {
+            PDFBoxResourceLoader.init(ctx.applicationContext)
+            val doc = PDDocument.load(bytes)
+            val text = PDFTextStripper().getText(doc); doc.close()
+            file(ctx).writeText(text)
+            prefs(ctx).edit().putString("name", displayName).apply()
+            text.length
+        } catch (e: Exception) { 0 }
+    }
+
     /** Return the most relevant excerpts for [query], capped to fit a prompt. */
     fun retrieve(ctx: Context, query: String, maxChars: Int = 9000): String {
         val t = text(ctx)
