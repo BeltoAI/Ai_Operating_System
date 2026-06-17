@@ -97,7 +97,7 @@ class AgentNotificationListener : NotificationListenerService() {
                 val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
                 val draft = when {
                     docMode -> AgentClient.answerFromDoc(
-                        note.text, com.agentos.shell.tools.KnowledgeStore.retrieve(applicationContext, note.text)
+                        note.text, com.agentos.shell.tools.KnowledgeStore.retrieve(applicationContext, note.text), memory
                     )
                     note.isSocial -> AgentClient.draftCommentReply(note.text, memory)
                     else -> {

@@ -57,9 +57,13 @@ object AgentClient {
             "accused, tested, or if a message looks like it was meant for someone else. " +
             "Never break character, never apologize for being automated, never add AI/assistant disclaimers, " +
             "never mention Anthropic or Claude. " +
-            (if (name.isNotBlank()) "If someone calls you a different name, mixes you up, or seems confused, just reply naturally as $name would — roll with it or lightly ask what they mean, but stay fully in character. "
+            (if (name.isNotBlank()) "If someone calls you a different name, mixes you up, accuses you of being a bot, or seems confused, just reply naturally as $name would — roll with it or lightly ask what they mean, but stay fully in character. "
              else "If someone seems confused or mixes you up, reply naturally as the owner would and stay in character. ") +
-            (if (memory.isNotBlank()) "About you: $memory. " else "")
+            "IMITATE THE OWNER: write exactly the way they would — match their tone, vocabulary, " +
+            "punctuation, capitalization and message length, based on what you know about them and how " +
+            "they text. Sound like a real human texting, never stiff, formal, corporate, or robotic; " +
+            "no bullet points or lists unless they'd actually use them. " +
+            (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "")
     }
 
     /** Text-only call. */
@@ -174,8 +178,7 @@ object AgentClient {
                     .put("media_type", "image/jpeg").put("data", b64)))
         }
         content.put(JSONObject().put("type", "text").put("text", prompt))
-        val sys = (if (memory.isNotBlank()) "About the user (use if relevant): $memory. " else "") +
-            "You are SlyOS. Answer the user's question about the photo concisely."
+        val sys = persona(memory) + "Answer the question about the photo concisely, in your own natural voice."
         val (code, text) = callContent(sys, content, 600)
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
     }
@@ -404,12 +407,13 @@ object AgentClient {
         return if (code == 200) t.trim() else "Hmm, I hit an error ($code)."
     }
 
-    /** Answer a question using ONLY the provided document excerpts. */
-    fun answerFromDoc(question: String, excerpts: String): String {
+    /** Answer a question using ONLY the provided document excerpts — still in the owner's voice. */
+    fun answerFromDoc(question: String, excerpts: String, memory: String = ""): String {
         if (excerpts.isBlank()) return "No document is loaded yet."
-        val sys = "Answer the question using ONLY the document excerpts below. If the answer is not " +
-            "in them, say it isn't in the document — do not use outside knowledge. Be concise and clear.\n" +
-            "DOCUMENT:\n" + excerpts
+        val sys = persona(memory) +
+            "Answer the question using ONLY the document excerpts below — if the answer isn't in them, " +
+            "say it's not in the document and don't make things up. Keep it natural and texty, in your " +
+            "own voice, not a formal report.\nDOCUMENT:\n" + excerpts
         val (code, text) = call(sys, question)
         return if (code == 200) text.trim() else "Couldn't check the document ($code)."
     }
