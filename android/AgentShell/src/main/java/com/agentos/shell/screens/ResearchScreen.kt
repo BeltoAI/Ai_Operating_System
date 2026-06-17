@@ -48,6 +48,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var html by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf(initialTopic) }
     var editPrompt by remember { mutableStateOf("") }
+    var lastInstr by remember { mutableStateOf("") }
+    var proposal by remember { mutableStateOf("") }     // suggested fragment, not yet added
+    var propKind by remember { mutableStateOf("") }     // add | edit | intro
+    var propLabel by remember { mutableStateOf("") }
+    var propStart by remember { mutableStateOf(0) }
+    var propEnd by remember { mutableStateOf(0) }
+    var showPaper by remember { mutableStateOf(false) } // full paper hidden by default
     var web by remember { mutableStateOf(false) }
     var useDoc by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
@@ -116,56 +123,67 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         return if (b > 0) b else h.length
     }
 
-    // ONE prompt bar. Routes each instruction to: add a new chapter, edit an existing chapter, or
-    // edit the front matter — always SPLICING in place so nothing already written is ever lost.
-    fun applyInstruction() {
+    // Render a fragment on its own so it can be previewed before it's added to the paper.
+    fun wrapFragment(frag: String): String =
+        "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
+        "<script src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'></script>" +
+        "<style>body{background:#F4EFE6;color:#1A1714;font-family:Georgia,serif;line-height:1.6;padding:18px}</style>" +
+        "</head><body>" + frag + "</body></html>"
+
+    // Step 1: ask Opus what to add/change. It SUGGESTS a fragment; nothing is committed yet.
+    fun propose() {
         if (editPrompt.isBlank() || busy) return
         if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily limit reached ($EXPAND_CAP)."; return }
-        val instr = editPrompt; busy = true; status = "Opus is working…"
+        val instr = editPrompt; lastInstr = instr; busy = true; status = "Thinking it through…"; proposal = ""
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val title = titleOf(html, "")
             val outline = outlineOf(html)
             val chaps = chapters(html)
             val (action, target) = withContext(Dispatchers.IO) { AgentClient.routePaperEdit(title, outline, instr) }
-
-            // Resolve an edit target to a specific chapter (exact, then fuzzy heading match).
             val tnorm = target.lowercase().trim()
             val chap = if (action == "edit" && target.isNotBlank() && !target.equals("INTRO", true))
                 chaps.firstOrNull { it.heading.equals(target, true) }
                     ?: chaps.firstOrNull { it.heading.lowercase().contains(tnorm) || tnorm.contains(it.heading.lowercase()) }
             else null
-
-            val out: String
             when {
                 action == "edit" && target.equals("INTRO", true) -> {
-                    val end = frontMatterEnd(html)
-                    val head = html.substring(0, end)
+                    val head = html.substring(0, frontMatterEnd(html))
                     val frag = withContext(Dispatchers.IO) { AgentClient.reviseFrontMatter(head, instr, mem) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    html = frag.trim() + "\n" + html.substring(end)
-                    out = "Intro updated ✓"
+                    proposal = frag; propKind = "intro"; propLabel = "Title / abstract / intro"
                 }
                 chap != null -> {
                     val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    html = html.substring(0, chap.start) + frag.trim() + "\n" + html.substring(chap.end)
-                    out = "“${chap.heading}” updated ✓"
+                    proposal = frag; propKind = "edit"; propLabel = chap.heading; propStart = chap.start; propEnd = chap.end
                 }
-                else -> {   // add a brand-new chapter (default — never destructive)
+                else -> {
                     val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    html = insertBeforeBodyEnd(html, frag)
-                    out = "New chapter added ✓"
+                    proposal = frag; propKind = "add"; propLabel = "New chapter"
                 }
             }
-            UsageLimiter.use(ctx, "expand", EXPAND_CAP)
-            PaperStore.save(ctx, currentId, html)
-            MemoryLog.add(ctx, "response", "Paper: $title", "$out ($instr)", "Research")
-            papers = PaperStore.list(ctx)
-            editPrompt = ""; busy = false; status = out
+            busy = false; status = "Here's a suggestion — add it, or ask for changes."
         }
     }
+
+    // Step 2: you approve → splice it into the paper (in place, nothing else touched).
+    fun commit() {
+        if (proposal.isBlank() || busy) return
+        val frag = proposal
+        when (propKind) {
+            "intro" -> { val end = frontMatterEnd(html); html = frag.trim() + "\n" + html.substring(end) }
+            "edit" -> { html = html.substring(0, propStart) + frag.trim() + "\n" + html.substring(propEnd) }
+            else -> { html = insertBeforeBodyEnd(html, frag) }
+        }
+        UsageLimiter.use(ctx, "expand", EXPAND_CAP)
+        PaperStore.save(ctx, currentId, html)
+        MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
+        papers = PaperStore.list(ctx)
+        proposal = ""; editPrompt = ""; status = "Added ✓ — tap View paper to review."
+    }
+    fun discard() { proposal = ""; status = "Discarded." }
     fun exportPdf() {
         val wv = webRef ?: return
         try {
@@ -262,55 +280,100 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                         .padding(horizontal = 20.dp, vertical = 11.dp))
             }
             "editor" -> {
-                AndroidView(
-                    modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
-                    factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true; webRef = this
-                        loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } },
-                    update = { wv -> if (wv.tag != html) { wv.tag = html; wv.loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } }
-                )
-                Spacer(Modifier.height(8.dp))
-                if (showSource) {
-                    BasicTextField(value = html, onValueChange = { html = it; PaperStore.save(ctx, currentId, it) },
-                        textStyle = TextStyle(color = T.ink, fontSize = T.caption),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 200.dp)
-                            .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp))
-                    Spacer(Modifier.height(8.dp))
-                }
-                // One natural prompt bar — just say what you want; it adds a chapter, edits one, or
-                // edits the intro, splicing in place so nothing already written is lost.
+                // Top bar: switch between the conversational writing flow and the full paper view.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
-                        textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                        modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
-                            .background(T.bgElevated).padding(10.dp),
-                        decorationBox = { inner ->
-                            if (editPrompt.isEmpty()) Text(
-                                "tell it what to do — add a chapter on…, expand section 3, fix the abstract…",
-                                fontSize = T.small, color = T.inkFaint); inner() })
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
+                    Text(if (showPaper) "✎ Keep writing" else "▢ View paper", fontSize = T.small, color = T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                            .clickable(enabled = !busy && editPrompt.isNotBlank()) { applyInstruction() }
-                            .padding(horizontal = 16.dp, vertical = 9.dp))
-                }
-                Spacer(Modifier.height(4.dp))
-                Text("Ask for anything — new chapters, edits to a section, abstract tweaks. It keeps everything you've already written.",
-                    fontSize = T.caption, color = T.inkFaint)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Share", fontSize = T.small, color = T.bgElevated,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                            .clickable { sharePdf() }.padding(horizontal = 16.dp, vertical = 9.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Print/Save", fontSize = T.small, color = T.ink,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                            .clickable { exportPdf() }.padding(horizontal = 14.dp, vertical = 9.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (showSource) "Source" else "Source", fontSize = T.small, color = T.inkSoft,
-                        modifier = Modifier.clickable { showSource = !showSource }.padding(vertical = 9.dp))
-                    Spacer(Modifier.width(10.dp))
+                            .clickable { showPaper = !showPaper }.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Spacer(Modifier.weight(1f))
                     Text("Library", fontSize = T.small, color = T.inkSoft,
-                        modifier = Modifier.clickable { papers = PaperStore.list(ctx); mode = "library" }.padding(vertical = 9.dp))
+                        modifier = Modifier.clickable { papers = PaperStore.list(ctx); mode = "library" }.padding(vertical = 8.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+
+                if (showPaper) {
+                    // Full paper preview + export tools.
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
+                        factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true; webRef = this
+                            loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } },
+                        update = { wv -> if (wv.tag != html) { wv.tag = html; wv.loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (showSource) {
+                        BasicTextField(value = html, onValueChange = { html = it; PaperStore.save(ctx, currentId, it) },
+                            textStyle = TextStyle(color = T.ink, fontSize = T.caption),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp, max = 200.dp)
+                                .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp))
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Share", fontSize = T.small, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                .clickable { sharePdf() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Print/Save", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { exportPdf() }.padding(horizontal = 14.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Source", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clickable { showSource = !showSource }.padding(vertical = 9.dp))
+                    }
+                } else if (proposal.isNotEmpty()) {
+                    // A suggestion is on the table — preview it, then approve or refine.
+                    Text("Suggestion · $propLabel", fontSize = T.caption, color = T.accent)
+                    Spacer(Modifier.height(6.dp))
+                    val preview = remember(proposal) { if (propKind == "intro") proposal else wrapFragment(proposal) }
+                    AndroidView(
+                        modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
+                        factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true
+                            loadDataWithBaseURL("https://localhost/", preview, "text/html", "utf-8", null) } },
+                        update = { wv -> if (wv.tag != preview) { wv.tag = preview; wv.loadDataWithBaseURL("https://localhost/", preview, "text/html", "utf-8", null) } }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (busy) "…" else "✓ Add to paper", fontSize = T.small, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                .clickable(enabled = !busy) { commit() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("↻ Redo", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable(enabled = !busy) { editPrompt = lastInstr; propose() }.padding(horizontal = 14.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("✕ Discard", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clickable(enabled = !busy) { discard() }.padding(vertical = 9.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
+                            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                            modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
+                                .background(T.bgElevated).padding(10.dp),
+                            decorationBox = { inner -> if (editPrompt.isEmpty()) Text("ask for changes, or something new…", fontSize = T.small, color = T.inkFaint); inner() })
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.ink)
+                                .clickable(enabled = !busy && editPrompt.isNotBlank()) { propose() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                    }
+                } else {
+                    // Empty conversational state — just ask.
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text(if (busy) "Thinking it through…"
+                             else "What should we add or change?\n\nI'll suggest it → you approve → it goes into the paper.\nThen tap View paper to review.",
+                            fontSize = T.small, color = T.inkFaint)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
+                            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                            modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
+                                .background(T.bgElevated).padding(10.dp),
+                            decorationBox = { inner -> if (editPrompt.isEmpty()) Text("e.g. add a chapter on…, expand section 3, sharpen the abstract…", fontSize = T.small, color = T.inkFaint); inner() })
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                .clickable(enabled = !busy && editPrompt.isNotBlank()) { propose() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                    }
                 }
             }
         }
