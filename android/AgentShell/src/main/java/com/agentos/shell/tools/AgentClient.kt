@@ -476,8 +476,8 @@ object AgentClient {
             "Examples of the vibe — Them: 'yo you free tmrw?' You: 'should be, what's up?'  •  " +
             "Them: 'sent you the deck' You: 'got it, taking a look 👀'  •  Them: 'this is taking forever lol' You: 'fr 😭 almost done tho'. " +
             (if (doc.isNotBlank())
-                "Only this message looks like it's about Belto/SlyOS tech — answer it accurately from the notes below, but STILL keep it casual and texty, not a lecture (if it's not in the notes, just say you're not 100% sure). NOTES:\n$doc\n"
-             else "Just chat naturally. Never bring up Belto, SlyOS, white papers, or any 'document' unless they ask. ")
+                "A document has been shared in this chat. If THIS message is asking about it (or clearly refers to it), answer accurately from the excerpts below — but STILL keep it casual and texty, not a lecture, and if the answer isn't in them say you're not sure. If the message is just casual chatter, ignore the document and chat normally. DOCUMENT EXCERPTS:\n$doc\n"
+             else "Just chat naturally. ")
         val merged = ArrayList<Pair<String, String>>()
         thread.forEach { (role, text) ->
             val r = if (role == "me") "assistant" else "user"
@@ -496,9 +496,12 @@ object AgentClient {
     fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null): String {
         if (thread.isEmpty()) return draftReply(sender, "", memory, imageB64)
         val system = persona(memory) +
-            "You are in an ongoing conversation with $sender. " +
-            "Use the earlier messages for context — stay consistent, remember what was said. " +
-            "Write ONLY the next reply text, short and natural. No quotes, no preamble."
+            "You're texting with $sender in an ongoing conversation. Reply like a real person texting: " +
+            "short (usually a line or two), warm, casual, contractions, mirror their energy and length, " +
+            "emoji only if it fits. Use the earlier messages AND what you know about them (above) — stay " +
+            "consistent, remember names, plans and details already mentioned, and pick up where things left off. " +
+            "Don't sound like an assistant, don't over-explain, no sign-offs, no 'let me know if you need anything'. " +
+            "Write ONLY the next reply text — no quotes, no preamble."
         // Normalize to alternating user/assistant turns, starting with user.
         val merged = ArrayList<Pair<String, String>>()
         thread.forEach { (role, text) ->
@@ -519,7 +522,7 @@ object AgentClient {
             else t
             arr.put(JSONObject().put("role", r).put("content", content))
         }
-        val (code, text) = callMessages(system, arr, 400)
+        val (code, text) = callMessages(system, arr, 500)
         return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
     }
 

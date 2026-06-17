@@ -158,7 +158,8 @@ fun ReplyCard(note: NotificationStore.Note) {
                                     val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
                                     val thread = com.agentos.shell.tools.ConversationStore
                                         .thread(ctx, note.app, note.title).map { it.role to it.text }
-                                    AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
+                                    val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
+                                    AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
                                 }
                             }
                             draft = d; approving = true; busy = false

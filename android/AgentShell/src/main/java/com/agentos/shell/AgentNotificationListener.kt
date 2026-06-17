@@ -103,7 +103,9 @@ class AgentNotificationListener : NotificationListenerService() {
                     else -> {
                         val thread = com.agentos.shell.tools.ConversationStore
                             .thread(applicationContext, note.app, note.title).map { it.role to it.text }
-                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, memory, img)
+                        val ctxMem = com.agentos.shell.tools.ReplyContext
+                            .forSender(applicationContext, note.app, note.title)
+                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
                     }
                 }
                 delay(undoWindowMs)

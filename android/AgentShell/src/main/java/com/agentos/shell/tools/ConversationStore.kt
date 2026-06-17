@@ -14,7 +14,7 @@ object ConversationStore {
 
     private const val PREF = "slyos_convos"
     private const val KEY = "threads"
-    private const val CAP = 30
+    private const val CAP = 60
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     private fun root(ctx: Context): JSONObject =
         try { JSONObject(prefs(ctx).getString(KEY, "{}")) } catch (e: Exception) { JSONObject() }
