@@ -45,6 +45,7 @@ private fun typeColor(t: String): Color = when (t) {
     "response" -> Color(0xFFB3AB9C)
     "transcript" -> Color(0xFF86907A)
     "idea" -> Color(0xFFC39A5E)
+    "recall" -> Color(0xFF6E8FA6)
     else -> Color(0xFF8C8475)
 }
 private val ACCENT = Color(0xFFE8642C)
@@ -244,6 +245,17 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                     modifier = Modifier.width(28.dp))
                                 Text(m.text, fontSize = T.small, color = T.inkSoft)
                             }
+                        }
+                    }
+
+                    if (n.type == "recall" && n.key.startsWith("recall:")) {
+                        val app = n.key.removePrefix("recall:")
+                        val snips = com.agentos.shell.tools.InteractionStore.recentForApp(ctx, app, 8)
+                        Spacer(Modifier.height(10.dp))
+                        Text("RECENT ON SCREEN", fontSize = T.caption, color = T.inkFaint)
+                        snips.forEach { s ->
+                            Text("· ${s.text}", fontSize = T.small, color = T.inkSoft,
+                                modifier = Modifier.padding(top = 5.dp))
                         }
                     }
 

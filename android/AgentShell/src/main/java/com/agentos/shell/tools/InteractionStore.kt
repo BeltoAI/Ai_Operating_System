@@ -73,6 +73,17 @@ object InteractionStore {
         return scored.take(limit).map { it.first }
     }
 
+    /** Capture count per app, most-captured first. */
+    fun appCounts(ctx: Context): List<Pair<String, Int>> {
+        val counts = LinkedHashMap<String, Int>()
+        for (e in all(ctx)) counts[e.app] = (counts[e.app] ?: 0) + 1
+        return counts.entries.sortedByDescending { it.value }.map { it.key to it.value }
+    }
+
+    /** Most recent captures for one app, newest first. */
+    fun recentForApp(ctx: Context, app: String, limit: Int = 8): List<Entry> =
+        all(ctx).filter { it.app == app }.takeLast(limit).reversed()
+
     /** Formatted recall block for a prompt, or "" if nothing relevant. */
     fun retrieve(ctx: Context, query: String, max: Int = 25): String {
         val hits = search(ctx, query, max)

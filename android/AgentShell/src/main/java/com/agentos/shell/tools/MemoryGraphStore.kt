@@ -75,6 +75,15 @@ object MemoryGraphStore {
             if (key in forg) return@forEach
             e(hub, n(key, "paper", p.title, "Research paper", "Research", 0.7f, 0.6f, false))
         }
+        // On-screen recall, grouped into ONE node per app (tidy; tap to see recent snippets).
+        if (MemoryStore.recallEnabled(ctx)) {
+            InteractionStore.appCounts(ctx).take(12).forEach { (app, cnt) ->
+                val key = "recall:$app"
+                if (key in forg) return@forEach
+                e(hub, n(key, "recall", app, "$cnt on-screen capture" + (if (cnt != 1) "s" else ""),
+                    "Total recall", (0.5f + 0.03f * cnt).coerceAtMost(0.9f), 0.8f, false))
+            }
+        }
         // Captured prompts, responses and moments — keep it tidy: only the most recent few.
         val idByKey = HashMap<String, Int>()
         MemoryLog.load(ctx).takeLast(12).forEach { ev ->
