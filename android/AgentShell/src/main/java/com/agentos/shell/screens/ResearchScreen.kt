@@ -6,9 +6,7 @@ import android.print.PrintManager
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.KnowledgeStore
+import com.agentos.shell.tools.MemoryLog
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.PaperStore
 import com.agentos.shell.tools.UsageLimiter
@@ -49,7 +48,6 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var html by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf(initialTopic) }
     var editPrompt by remember { mutableStateOf("") }
-    var selectedChap by remember { mutableStateOf(-1) }   // -1 = whole paper
     var web by remember { mutableStateOf(false) }
     var useDoc by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
@@ -77,22 +75,11 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem) }
             if (out.startsWith("ERR::")) { status = errText(out); busy = false; return@launch }
             UsageLimiter.use(ctx, "paper", CAP)
-            val id = PaperStore.create(ctx, titleOf(out, prompt), out)
+            val newTitle = titleOf(out, prompt)
+            val id = PaperStore.create(ctx, newTitle, out)
+            MemoryLog.add(ctx, "response", "Paper: $newTitle", "Wrote a research paper: $newTitle", "Research")
             papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
             currentId = id; html = out; prompt = ""; mode = "editor"; busy = false; status = ""
-        }
-    }
-    fun revise() {
-        if (editPrompt.isBlank() || busy) return
-        if (UsageLimiter.remaining(ctx, "paper", CAP) <= 0) { status = "Daily limit reached ($CAP/$CAP)."; return }
-        val instr = editPrompt; busy = true; status = "Revising…"
-        scope.launch {
-            val mem = MemoryStore.about(ctx)
-            val out = withContext(Dispatchers.IO) { AgentClient.revisePaper(html, instr, web, mem) }
-            if (out.startsWith("ERR::")) { status = errText(out); busy = false; return@launch }
-            UsageLimiter.use(ctx, "paper", CAP)
-            html = out; PaperStore.save(ctx, currentId, html, titleOf(html, ""))
-            editPrompt = ""; remaining = UsageLimiter.remaining(ctx, "paper", CAP); busy = false; status = ""
         }
     }
     // Headings already in the paper, so Opus continues the numbering and doesn't repeat itself.
@@ -122,39 +109,61 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         return out
     }
 
-    // Revise just the selected chapter in place.
-    fun editChapter() {
-        if (editPrompt.isBlank() || busy) return
-        val chaps = chapters(html)
-        if (selectedChap !in chaps.indices) { status = "Pick a chapter to edit first."; return }
-        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily limit reached ($EXPAND_CAP)."; return }
-        val instr = editPrompt; val chap = chaps[selectedChap]; busy = true; status = "Revising “${chap.heading}”…"
-        scope.launch {
-            val mem = MemoryStore.about(ctx); val title = titleOf(html, "")
-            val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem) }
-            if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-            UsageLimiter.use(ctx, "expand", EXPAND_CAP)
-            html = html.substring(0, chap.start) + frag.trim() + "\n" + html.substring(chap.end)
-            PaperStore.save(ctx, currentId, html)
-            editPrompt = ""; busy = false; status = "“${chap.heading}” updated ✓"
-        }
+    fun frontMatterEnd(h: String): Int {
+        val firstH2 = Regex("(?is)<h2[^>]*>").find(h)?.range?.first
+        if (firstH2 != null) return firstH2
+        val b = h.lastIndexOf("</body>", ignoreCase = true)
+        return if (b > 0) b else h.length
     }
 
-    // Expand = append a brand-new chapter (never a full rewrite), so the paper can grow without limit.
-    fun expand() {
+    // ONE prompt bar. Routes each instruction to: add a new chapter, edit an existing chapter, or
+    // edit the front matter — always SPLICING in place so nothing already written is ever lost.
+    fun applyInstruction() {
         if (editPrompt.isBlank() || busy) return
-        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily expand limit reached ($EXPAND_CAP)."; return }
-        val instr = editPrompt; busy = true; status = "Opus is writing a new chapter…"
+        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily limit reached ($EXPAND_CAP)."; return }
+        val instr = editPrompt; busy = true; status = "Opus is working…"
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val title = titleOf(html, "")
             val outline = outlineOf(html)
-            val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem) }
-            if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+            val chaps = chapters(html)
+            val (action, target) = withContext(Dispatchers.IO) { AgentClient.routePaperEdit(title, outline, instr) }
+
+            // Resolve an edit target to a specific chapter (exact, then fuzzy heading match).
+            val tnorm = target.lowercase().trim()
+            val chap = if (action == "edit" && target.isNotBlank() && !target.equals("INTRO", true))
+                chaps.firstOrNull { it.heading.equals(target, true) }
+                    ?: chaps.firstOrNull { it.heading.lowercase().contains(tnorm) || tnorm.contains(it.heading.lowercase()) }
+            else null
+
+            val out: String
+            when {
+                action == "edit" && target.equals("INTRO", true) -> {
+                    val end = frontMatterEnd(html)
+                    val head = html.substring(0, end)
+                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseFrontMatter(head, instr, mem) }
+                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+                    html = frag.trim() + "\n" + html.substring(end)
+                    out = "Intro updated ✓"
+                }
+                chap != null -> {
+                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem) }
+                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+                    html = html.substring(0, chap.start) + frag.trim() + "\n" + html.substring(chap.end)
+                    out = "“${chap.heading}” updated ✓"
+                }
+                else -> {   // add a brand-new chapter (default — never destructive)
+                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem) }
+                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+                    html = insertBeforeBodyEnd(html, frag)
+                    out = "New chapter added ✓"
+                }
+            }
             UsageLimiter.use(ctx, "expand", EXPAND_CAP)
-            html = insertBeforeBodyEnd(html, frag)
             PaperStore.save(ctx, currentId, html)
-            editPrompt = ""; busy = false; status = "Chapter added ✓"
+            MemoryLog.add(ctx, "response", "Paper: $title", "$out ($instr)", "Research")
+            papers = PaperStore.list(ctx)
+            editPrompt = ""; busy = false; status = out
         }
     }
     fun exportPdf() {
@@ -267,47 +276,25 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                             .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp))
                     Spacer(Modifier.height(8.dp))
                 }
-                // Chapter picker — choose what "Edit" targets: the whole paper or one chapter.
-                val chaps = remember(html) { chapters(html) }
-                if (chaps.isNotEmpty()) {
-                    if (selectedChap >= chaps.size) selectedChap = -1
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        val chip = @Composable { label: String, sel: Boolean, onClick: () -> Unit ->
-                            Text(label, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                                modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
-                                    .background(if (sel) T.accent else T.hairline).clickable { onClick() }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp))
-                        }
-                        chip("Whole paper", selectedChap == -1) { selectedChap = -1 }
-                        chaps.forEachIndexed { i, c ->
-                            chip(c.heading.take(22).ifBlank { "Ch ${i + 1}" }, selectedChap == i) { selectedChap = i }
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                }
+                // One natural prompt bar — just say what you want; it adds a chapter, edits one, or
+                // edits the intro, splicing in place so nothing already written is lost.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val editingChapter = selectedChap >= 0 && chaps.isNotEmpty()
-                    BasicTextField(value = editPrompt, onValueChange = { editPrompt = it }, singleLine = true,
+                    BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
                         textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
+                            .background(T.bgElevated).padding(10.dp),
                         decorationBox = { inner ->
                             if (editPrompt.isEmpty()) Text(
-                                if (editingChapter) "how should this chapter change?" else "edit the paper, or describe a chapter to add…",
+                                "tell it what to do — add a chapter on…, expand section 3, fix the abstract…",
                                 fontSize = T.small, color = T.inkFaint); inner() })
                     Spacer(Modifier.width(8.dp))
-                    Text(if (busy) "…" else "Edit", fontSize = T.small, color = T.bgElevated,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.ink)
-                            .clickable(enabled = !busy && editPrompt.isNotBlank()) {
-                                if (editingChapter) editChapter() else revise()
-                            }.padding(horizontal = 13.dp, vertical = 9.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (busy) "…" else "＋ Expand", fontSize = T.small, color = T.bgElevated,
+                    Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                            .clickable(enabled = !busy && editPrompt.isNotBlank()) { expand() }.padding(horizontal = 13.dp, vertical = 9.dp))
+                            .clickable(enabled = !busy && editPrompt.isNotBlank()) { applyInstruction() }
+                            .padding(horizontal = 16.dp, vertical = 9.dp))
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("Pick a chapter to edit just that part · “Whole paper” rewrites all · Expand appends a new chapter",
+                Text("Ask for anything — new chapters, edits to a section, abstract tweaks. It keeps everything you've already written.",
                     fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -290,17 +290,54 @@ object AgentClient {
         return h
     }
 
-    /** Opus call with one retry on transient 5xx errors. */
-    private fun paperCall(sys: String, userContent: String, web: Boolean): Pair<Int, String> {
+    /** Opus call with one retry on transient 5xx errors. Big token budget for long-form writing. */
+    private fun paperCall(sys: String, userContent: String, web: Boolean, maxTokens: Int = 16000): Pair<Int, String> {
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", userContent))
         val tools = if (web) webTool() else null
-        val to = if (web) 180000 else 120000
-        var (code, text) = callMessages(sys, msgs, 6000, OPUS, to, tools)
+        val to = if (web) 280000 else 240000
+        var (code, text) = callMessages(sys, msgs, maxTokens, OPUS, to, tools)
         if (code in 500..599) {
             try { Thread.sleep(1200) } catch (e: Exception) {}
-            val r = callMessages(sys, msgs, 6000, OPUS, to, tools); code = r.first; text = r.second
+            val r = callMessages(sys, msgs, maxTokens, OPUS, to, tools); code = r.first; text = r.second
         }
         return code to text
+    }
+
+    /**
+     * Decide how a free-form instruction should change a paper, so the UI can be a single prompt bar.
+     * Returns Pair(action, target): action = "add" (new chapter) or "edit"; target = the exact existing
+     * heading to edit, "INTRO" for title/abstract, or "" for add. Defaults to "add" (never destructive).
+     */
+    fun routePaperEdit(title: String, outline: String, instruction: String): Pair<String, String> {
+        val sys = "You manage edits to a paper titled \"$title\". Given its chapter headings and the user's " +
+            "instruction, reply with ONLY compact JSON: {\"action\":\"add\"|\"edit\",\"target\":\"...\"}. " +
+            "Use \"add\" when they want NEW material or a new chapter/section not already present (target=\"\"). " +
+            "Use \"edit\" to change/expand/shorten/rewrite/fix an EXISTING part: set target to the EXACT heading " +
+            "text from the list it refers to, or \"INTRO\" for the title/abstract/introduction. If unsure, prefer add.\n" +
+            "HEADINGS:\n" + outline.ifBlank { "(none yet)" }
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", instruction)), 150, MODEL)
+        if (code != 200) return "add" to ""
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val o = JSONObject(text.substring(s, e + 1))
+            val a = if (o.optString("action") == "edit") "edit" else "add"
+            a to o.optString("target").trim()
+        } catch (ex: Exception) { "add" to "" }
+    }
+
+    /** Revise a paper's FRONT MATTER (everything before the first chapter) in place. Returns HTML or ERR. */
+    fun reviseFrontMatter(headHtml: String, instruction: String, memory: String = ""): String {
+        val sys = "You are editing the FRONT MATTER of an HTML research paper — the part before the first " +
+            "chapter: the <head> (with its MathJax <script> tag), the <title>, the centered paper title, the " +
+            "author line, and the abstract. Apply the instruction to that front matter only. " +
+            (if (memory.isNotBlank()) "Author: $memory. " else "") +
+            "Return the SAME front matter as HTML: it MUST begin with <!DOCTYPE or <html, KEEP the full <head> " +
+            "with the MathJax script unchanged, include the opening <body ...> tag, the title/author/abstract — " +
+            "and MUST NOT include any <h2> chapters or a closing </body>/</html>. Return ONLY that HTML."
+        val (code, text) = paperCall(sys, "INSTRUCTION: $instruction\n\nFRONT MATTER:\n${headHtml.take(20000)}", false, 8000)
+        if (code != 200) return "ERR::$code::${text.take(400)}"
+        val frag = cleanHtml(text)
+        return if (frag.contains("<body", true)) frag else "ERR::0::front-matter edit malformed"
     }
 
     /** Write a research/white paper (Opus). Returns HTML, or "ERR::code::body" on failure. */
@@ -308,8 +345,11 @@ object AgentClient {
         val src = if (web) source.take(2500) else source.take(12000)
         val sys = "You are an expert research writer. Write a rigorous, well-structured white paper / " +
             "research paper IN THE USER'S NAME on their topic. Output a COMPLETE self-contained HTML " +
-            "document: clean academic style (serif body, centered title, author line, abstract, numbered " +
-            "sections, and a references section). Render math with MathJax — include exactly this in <head>: " +
+            "document: clean academic style (serif body, centered title, author line, abstract). " +
+            "Structure the body as MULTIPLE NUMBERED CHAPTERS, each one an <h2> heading like " +
+            "<h2>1. Introduction</h2>, with <h3> subsections, detailed multi-paragraph prose, examples, and a " +
+            "<h2>References</h2> section last. Write thoroughly — aim for many pages of real content, not a summary. " +
+            "Render math with MathJax — include exactly this in <head>: " +
             "<script src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script> and write " +
             "math as \\( inline \\) and $$ display $$. Use ivory #F4EFE6 background, near-black text, generous margins. " +
             (if (memory.isNotBlank()) "About the author (reflect their context/voice): $memory. " else "") +
