@@ -6,7 +6,9 @@ import android.print.PrintManager
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +36,7 @@ import java.util.Date
 import java.util.Locale
 
 private const val CAP = 6
+private const val EXPAND_CAP = 80   // expansions are append-only chapters; allow many so papers can grow huge
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -46,6 +49,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var html by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf(initialTopic) }
     var editPrompt by remember { mutableStateOf("") }
+    var selectedChap by remember { mutableStateOf(-1) }   // -1 = whole paper
     var web by remember { mutableStateOf(false) }
     var useDoc by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
@@ -89,6 +93,68 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             UsageLimiter.use(ctx, "paper", CAP)
             html = out; PaperStore.save(ctx, currentId, html, titleOf(html, ""))
             editPrompt = ""; remaining = UsageLimiter.remaining(ctx, "paper", CAP); busy = false; status = ""
+        }
+    }
+    // Headings already in the paper, so Opus continues the numbering and doesn't repeat itself.
+    fun outlineOf(h: String): String =
+        Regex("(?is)<h[1-3][^>]*>(.*?)</h[1-3]>").findAll(h)
+            .map { it.groupValues[1].replace(Regex("<[^>]+>"), "").trim() }
+            .filter { it.isNotBlank() }.joinToString("\n")
+
+    fun insertBeforeBodyEnd(h: String, frag: String): String {
+        val idx = h.lastIndexOf("</body>", ignoreCase = true)
+        return if (idx >= 0) h.substring(0, idx) + "\n" + frag + "\n" + h.substring(idx) else h + "\n" + frag
+    }
+
+    // Split the paper into chapters by <h2> so we can edit just one (works on huge papers).
+    data class Chap(val heading: String, val html: String, val start: Int, val end: Int)
+    fun chapters(h: String): List<Chap> {
+        val ms = Regex("(?is)<h2[^>]*>(.*?)</h2>").findAll(h).toList()
+        if (ms.isEmpty()) return emptyList()
+        val out = ArrayList<Chap>()
+        for (i in ms.indices) {
+            val start = ms[i].range.first
+            val end = if (i + 1 < ms.size) ms[i + 1].range.first
+                      else h.lastIndexOf("</body>", ignoreCase = true).let { if (it > start) it else h.length }
+            val heading = ms[i].groupValues[1].replace(Regex("<[^>]+>"), "").trim()
+            out.add(Chap(heading, h.substring(start, end), start, end))
+        }
+        return out
+    }
+
+    // Revise just the selected chapter in place.
+    fun editChapter() {
+        if (editPrompt.isBlank() || busy) return
+        val chaps = chapters(html)
+        if (selectedChap !in chaps.indices) { status = "Pick a chapter to edit first."; return }
+        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily limit reached ($EXPAND_CAP)."; return }
+        val instr = editPrompt; val chap = chaps[selectedChap]; busy = true; status = "Revising “${chap.heading}”…"
+        scope.launch {
+            val mem = MemoryStore.about(ctx); val title = titleOf(html, "")
+            val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem) }
+            if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+            UsageLimiter.use(ctx, "expand", EXPAND_CAP)
+            html = html.substring(0, chap.start) + frag.trim() + "\n" + html.substring(chap.end)
+            PaperStore.save(ctx, currentId, html)
+            editPrompt = ""; busy = false; status = "“${chap.heading}” updated ✓"
+        }
+    }
+
+    // Expand = append a brand-new chapter (never a full rewrite), so the paper can grow without limit.
+    fun expand() {
+        if (editPrompt.isBlank() || busy) return
+        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily expand limit reached ($EXPAND_CAP)."; return }
+        val instr = editPrompt; busy = true; status = "Opus is writing a new chapter…"
+        scope.launch {
+            val mem = MemoryStore.about(ctx)
+            val title = titleOf(html, "")
+            val outline = outlineOf(html)
+            val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem) }
+            if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
+            UsageLimiter.use(ctx, "expand", EXPAND_CAP)
+            html = insertBeforeBodyEnd(html, frag)
+            PaperStore.save(ctx, currentId, html)
+            editPrompt = ""; busy = false; status = "Chapter added ✓"
         }
     }
     fun exportPdf() {
@@ -201,16 +267,48 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                             .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp))
                     Spacer(Modifier.height(8.dp))
                 }
+                // Chapter picker — choose what "Edit" targets: the whole paper or one chapter.
+                val chaps = remember(html) { chapters(html) }
+                if (chaps.isNotEmpty()) {
+                    if (selectedChap >= chaps.size) selectedChap = -1
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        val chip = @Composable { label: String, sel: Boolean, onClick: () -> Unit ->
+                            Text(label, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                                modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
+                                    .background(if (sel) T.accent else T.hairline).clickable { onClick() }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp))
+                        }
+                        chip("Whole paper", selectedChap == -1) { selectedChap = -1 }
+                        chaps.forEachIndexed { i, c ->
+                            chip(c.heading.take(22).ifBlank { "Ch ${i + 1}" }, selectedChap == i) { selectedChap = i }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val editingChapter = selectedChap >= 0 && chaps.isNotEmpty()
                     BasicTextField(value = editPrompt, onValueChange = { editPrompt = it }, singleLine = true,
                         textStyle = TextStyle(color = T.ink, fontSize = T.small),
                         modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
-                        decorationBox = { inner -> if (editPrompt.isEmpty()) Text("tell Opus how to change it…", fontSize = T.small, color = T.inkFaint); inner() })
+                        decorationBox = { inner ->
+                            if (editPrompt.isEmpty()) Text(
+                                if (editingChapter) "how should this chapter change?" else "edit the paper, or describe a chapter to add…",
+                                fontSize = T.small, color = T.inkFaint); inner() })
                     Spacer(Modifier.width(8.dp))
                     Text(if (busy) "…" else "Edit", fontSize = T.small, color = T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.ink)
-                            .clickable(enabled = !busy && editPrompt.isNotBlank()) { revise() }.padding(horizontal = 14.dp, vertical = 9.dp))
+                            .clickable(enabled = !busy && editPrompt.isNotBlank()) {
+                                if (editingChapter) editChapter() else revise()
+                            }.padding(horizontal = 13.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (busy) "…" else "＋ Expand", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable(enabled = !busy && editPrompt.isNotBlank()) { expand() }.padding(horizontal = 13.dp, vertical = 9.dp))
                 }
+                Spacer(Modifier.height(4.dp))
+                Text("Pick a chapter to edit just that part · “Whole paper” rewrites all · Expand appends a new chapter",
+                    fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Share", fontSize = T.small, color = T.bgElevated,

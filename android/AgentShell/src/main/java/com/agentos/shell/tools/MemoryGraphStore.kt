@@ -47,6 +47,7 @@ object MemoryGraphStore {
         // Each conversation = ONE clean person node (sized by message count). The messages
         // themselves are revealed in the detail panel when you tap the person — keeping the
         // graph calm and Obsidian-like instead of an explosion of message dots.
+        val peopleByApp = HashMap<String, MutableList<Int>>()
         ConversationStore.all(ctx).forEach { (sKey, msgs) ->
             val app = sKey.substringBefore("|"); val title = sKey.substringAfter("|")
             val pkey = "person:$sKey"
@@ -55,7 +56,9 @@ object MemoryGraphStore {
             val label = title.ifBlank { app }
             val content = "${msgs.size} message" + (if (msgs.size != 1) "s" else "") +
                 (if (last.isNotBlank()) " · “$last”" else "")
-            e(hub, n(pkey, "person", label, content, app, (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false))
+            val pid = n(pkey, "person", label, content, app, (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false)
+            e(hub, pid)
+            if (app.isNotBlank()) peopleByApp.getOrPut(app) { mutableListOf() }.add(pid)
         }
         // Facts the agent learned about you.
         MemoryStore.about(ctx).split("\n").map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { i, line ->
@@ -75,18 +78,22 @@ object MemoryGraphStore {
             if (key in forg) return@forEach
             e(hub, n(key, "paper", p.title, "Research paper", "Research", 0.7f, 0.6f, false))
         }
-        // On-screen recall, grouped into ONE node per app (tidy; tap to see recent snippets).
+        // On-screen recall, grouped into ONE node per app, and WIRED to the people you talk to in
+        // that app — so messaging, social and screen activity all connect instead of floating apart.
         if (MemoryStore.recallEnabled(ctx)) {
-            InteractionStore.appCounts(ctx).take(12).forEach { (app, cnt) ->
+            InteractionStore.appCounts(ctx).take(16).forEach { (app, cnt) ->
                 val key = "recall:$app"
                 if (key in forg) return@forEach
-                e(hub, n(key, "recall", app, "$cnt on-screen capture" + (if (cnt != 1) "s" else ""),
-                    "Total recall", (0.5f + 0.03f * cnt).coerceAtMost(0.9f), 0.8f, false))
+                val rid = n(key, "recall", app, "$cnt on-screen capture" + (if (cnt != 1) "s" else ""),
+                    "Total recall", (0.5f + 0.03f * cnt).coerceAtMost(0.9f), 0.8f, false)
+                e(hub, rid)
+                peopleByApp[app]?.forEach { pid -> e(pid, rid) }   // connect app ↔ its conversations
             }
         }
-        // Captured prompts, responses and moments — keep it tidy: only the most recent few.
+        // Every captured prompt, response and moment becomes a memory, chained to its parent so the
+        // whole history stays connected (not just the last few).
         val idByKey = HashMap<String, Int>()
-        MemoryLog.load(ctx).takeLast(12).forEach { ev ->
+        MemoryLog.load(ctx).takeLast(50).forEach { ev ->
             val key = "log:${ev.id}"
             if (key in forg) return@forEach
             val nid = n(key, ev.type, ev.label, ev.content, ev.source, 0.5f, 0.7f, false)

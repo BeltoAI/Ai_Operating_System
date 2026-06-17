@@ -328,6 +328,52 @@ object AgentClient {
         return if (code == 200) cleanHtml(text) else "ERR::$code::${text.take(400)}"
     }
 
+    /**
+     * Grow a paper without rewriting it: generate ONE new chapter/section as an HTML fragment,
+     * given the outline of what already exists. This is how a paper reaches hundreds of pages —
+     * each call appends ~several pages instead of regenerating (and truncating) the whole doc.
+     * Returns an HTML fragment (no <html>/<head>/<body>), or "ERR::code::body".
+     */
+    fun expandPaper(title: String, outline: String, instruction: String, web: Boolean = false, memory: String = ""): String {
+        val sys = "You are extending an existing academic paper titled \"$title\". " +
+            "Write the NEXT chapter/section the user asks for — substantial and rigorous (aim for several " +
+            "pages: multiple subsections, detailed prose, examples, and equations where useful). " +
+            "Continue the existing numbering and do NOT repeat earlier content. " +
+            "Output ONLY an HTML FRAGMENT to append to the body: start with an <h2> chapter heading and " +
+            "its content (use <h3> subsections, <p>, <ul>, etc.). Do NOT include <html>, <head>, <body>, " +
+            "<title>, the abstract, or the references list — only the new chapter markup. " +
+            "Render math with MathJax syntax \\( inline \\) and $$ display $$. " +
+            (if (memory.isNotBlank()) "About the author (match their voice): $memory. " else "") +
+            (if (web) "Use web search for real, current sources and cite them inline as needed. " else "") +
+            "EXISTING OUTLINE (headings so far):\n$outline\n"
+        val (code, text) = paperCall(sys, "Add this next: $instruction", web)
+        if (code != 200) return "ERR::$code::${text.take(400)}"
+        var frag = cleanHtml(text)
+        // Strip anything the model wrapped around the fragment, just in case.
+        Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
+        return frag
+    }
+
+    /**
+     * Revise ONE existing chapter in place (so editing works even on a huge paper, where rewriting
+     * the whole document would blow the token limit). Returns the revised chapter as an HTML
+     * fragment beginning with its <h2>, or "ERR::code::body".
+     */
+    fun reviseChapter(title: String, chapterHtml: String, instruction: String, web: Boolean = false, memory: String = ""): String {
+        val sys = "You are editing ONE chapter of the academic paper \"$title\". Apply the user's instruction " +
+            "to THIS chapter only. Return ONLY the revised chapter as an HTML fragment that begins with its " +
+            "<h2> heading (keep the same heading unless asked to change it), using <h3>, <p>, <ul>, etc. " +
+            "Do NOT include <html>, <head>, <body>, the title, abstract, references, or any other chapter. " +
+            "Render math with MathJax syntax \\( inline \\) and $$ display $$. " +
+            (if (memory.isNotBlank()) "About the author (match their voice): $memory. " else "") +
+            (if (web) "Use web search for any new facts/sources and cite them. " else "")
+        val (code, text) = paperCall(sys, "INSTRUCTION: $instruction\n\nCHAPTER HTML:\n${chapterHtml.take(30000)}", web)
+        if (code != 200) return "ERR::$code::${text.take(400)}"
+        var frag = cleanHtml(text)
+        Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
+        return frag
+    }
+
     /** The Architect (Opus 4.8): turn a prompt into a self-contained mini-app. Returns (name, html). */
     fun architect(prompt: String): Pair<String, String> {
         val sys = "You are the SlyOS Architect. The user describes an app or tool to add to their phone OS. " +
