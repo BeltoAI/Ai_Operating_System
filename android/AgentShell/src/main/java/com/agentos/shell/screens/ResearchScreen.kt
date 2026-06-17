@@ -66,13 +66,12 @@ mjx-container { overflow-x:auto; max-width:100%; }
 
 /** Make sure the paper's <head> carries our print CSS (idempotent — replaces any prior copy). */
 private fun ensureStyle(html: String): String {
-    var h = Regex("(?is)<style id=\"slyos-print\">.*?</style>").replace(html, "")
-    val head = Regex("(?i)</head>").find(h)
-    return when {
-        head != null -> h.substring(0, head.range.first) + PAPER_CSS + h.substring(head.range.first)
-        h.contains("<body", true) -> Regex("(?i)<body[^>]*>").replaceFirst(h) { it.value + PAPER_CSS }
-        else -> PAPER_CSS + h
-    }
+    val h = Regex("(?is)<style id=\"slyos-print\">.*?</style>").replace(html, "")
+    val headClose = Regex("(?i)</head>").find(h)
+    if (headClose != null) return h.substring(0, headClose.range.first) + PAPER_CSS + h.substring(headClose.range.first)
+    val bodyOpen = Regex("(?i)<body[^>]*>").find(h)
+    if (bodyOpen != null) return h.substring(0, bodyOpen.range.last + 1) + PAPER_CSS + h.substring(bodyOpen.range.last + 1)
+    return PAPER_CSS + h
 }
 
 @SuppressLint("SetJavaScriptEnabled")
