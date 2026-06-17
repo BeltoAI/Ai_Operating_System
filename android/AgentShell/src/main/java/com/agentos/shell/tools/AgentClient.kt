@@ -183,6 +183,26 @@ object AgentClient {
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
     }
 
+    /**
+     * "What did I miss?" — brief the owner (spoken TO them, not as them): a short digest of recent
+     * activity plus who is genuinely waiting for a personal reply.
+     */
+    fun catchUp(notifications: List<String>, awaiting: List<String>, memory: String = ""): String {
+        if (notifications.isEmpty() && awaiting.isEmpty()) return "You're all caught up — nothing waiting. ✨"
+        val sys = (if (memory.isNotBlank()) "About the person you're briefing: $memory. " else "") +
+            "You are SlyOS briefing the owner on what they missed. Write 2–4 short, friendly, plain-English " +
+            "lines on what actually matters. Then, on a NEW line starting with 'Text back: ', list the people " +
+            "who are genuinely waiting for a personal reply (names only, comma-separated) — skip bots, " +
+            "newsletters, and anything already handled. If nobody needs a reply, end with 'Text back: nobody right now.' " +
+            "No markdown, no bullet points."
+        val user = buildString {
+            if (notifications.isNotEmpty()) append("RECENT NOTIFICATIONS:\n").append(notifications.joinToString("\n")).append("\n\n")
+            if (awaiting.isNotEmpty()) append("CONVERSATIONS AWAITING YOUR REPLY:\n").append(awaiting.joinToString("\n"))
+        }
+        val (code, text) = callContent(sys, user, 600)
+        return if (code == 200) text.trim() else "Couldn't build your catch-up ($code)."
+    }
+
     /** Summarize notifications into up to 3 plain-English priorities for the lock screen. */
     fun brief(items: List<String>, memory: String = ""): List<String> {
         if (items.isEmpty()) return emptyList()

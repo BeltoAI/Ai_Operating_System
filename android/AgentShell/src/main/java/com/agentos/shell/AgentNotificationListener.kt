@@ -75,6 +75,16 @@ class AgentNotificationListener : NotificationListenerService() {
         return note
     }
 
+    /** A draft is only safe to auto-send if it's real text — not an error, placeholder, or empty. */
+    private fun isSendable(draft: String): Boolean {
+        val d = draft.trim()
+        if (d.length < 1 || d.length > 1500) return false
+        val low = d.lowercase()
+        val bad = listOf("[couldn't", "err::", "agent error", "couldn't ", "no api key",
+            "having trouble connecting", "no document is loaded", "(no reply)")
+        return bad.none { low.startsWith(it) || low.contains("err::") }
+    }
+
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) return
         if (note.isEmail) return   // email is always human-reviewed, never autonomous
@@ -110,9 +120,14 @@ class AgentNotificationListener : NotificationListenerService() {
                 }
                 delay(undoWindowMs)
                 if (NotificationStore.pendingAuto.contains(note.key)) {
-                    val ok = NotificationStore.sendReply(applicationContext, note, draft)
-                    Log.i("SlyOS", "auto reply sent=$ok to ${note.title}: \"$draft\"")
-                    if (ok) NotificationStore.dismiss(note.key)
+                    // FAIL-SAFE: never send an error/placeholder/empty draft to a real person.
+                    if (!isSendable(draft)) {
+                        Log.w("SlyOS", "auto reply skipped — draft not sendable: \"${draft.take(60)}\"")
+                    } else {
+                        val ok = NotificationStore.sendReply(applicationContext, note, draft)
+                        Log.i("SlyOS", "auto reply sent=$ok to ${note.title}: \"$draft\"")
+                        if (ok) NotificationStore.dismiss(note.key)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("SlyOS", "auto reply failed", e)
