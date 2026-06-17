@@ -6,7 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -147,6 +150,18 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             return@Column
         }
 
+        // Legend — what each color means, so the brain reads at a glance.
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            listOf("Person" to "person", "Fact" to "idea", "Task" to "task",
+                "Paper" to "paper", "Recall" to "recall", "Note" to "prompt").forEach { (label, type) ->
+                Box(Modifier.size(8.dp).clip(CircleShape).background(typeColor(type)))
+                Spacer(Modifier.width(4.dp))
+                Text(label, fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.width(12.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+
         Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFFF6F1E7))) {
             Canvas(
                 Modifier.fillMaxSize()
@@ -202,7 +217,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                         else -> false
                     }
                     val a = if (dim) 0.16f else 1f
-                    val col = if (sel || hub || inPath) ACCENT else graphite
+                    // Color each memory by what it IS, so the brain reads at a glance instead of
+                    // looking like an undifferentiated cluster. Selection/path still glow accent.
+                    val col = when { sel || inPath -> ACCENT; hub -> ACCENT; else -> typeColor(n.type) }
                     drawCircle(col.copy(alpha = a), r, Offset(X, Y))
                     drawCircle(Color(0xFF1A1714).copy(alpha = 0.12f * a), r, Offset(X, Y), style = Stroke(width = 0.8f))
                     if (sel || inPath) drawCircle(ACCENT, r + 5f, Offset(X, Y), style = Stroke(width = 1.6f))

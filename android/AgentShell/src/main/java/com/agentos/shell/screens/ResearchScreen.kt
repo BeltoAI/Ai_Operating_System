@@ -37,6 +37,44 @@ import java.util.Locale
 private const val CAP = 6
 private const val EXPAND_CAP = 80   // expansions are append-only chapters; allow many so papers can grow huge
 
+// A clean, A4-proportioned print/screen stylesheet injected into every paper so content sits in a
+// readable column with real margins and never breaks across pages mid-element.
+private const val PAPER_CSS = """
+<style id="slyos-print">
+@page { size: A4; margin: 22mm 18mm; }
+* { box-sizing: border-box; }
+html, body { background:#fff !important; }
+body { font-family: Georgia,'Times New Roman',serif !important; font-size:11.5pt !important;
+  line-height:1.55 !important; color:#1A1714 !important; max-width:170mm !important;
+  margin:0 auto !important; padding:14mm 6mm !important; text-rendering:optimizeLegibility;
+  -webkit-print-color-adjust:exact; }
+h1 { font-size:20pt; text-align:center; line-height:1.25; margin:0 0 6pt; }
+h2 { font-size:14.5pt; margin:20pt 0 7pt; break-after:avoid; page-break-after:avoid; }
+h3 { font-size:12pt; margin:13pt 0 4pt; break-after:avoid; page-break-after:avoid; }
+h1,h2,h3,h4 { break-inside:avoid; page-break-inside:avoid; }
+p { margin:0 0 9pt; text-align:justify; orphans:3; widows:3; }
+ul,ol { margin:0 0 9pt 18pt; }
+li { margin:0 0 4pt; }
+pre,table,figure,blockquote { break-inside:avoid; page-break-inside:avoid; max-width:100%; overflow-x:auto; }
+img { max-width:100%; height:auto; }
+table { width:100%; border-collapse:collapse; font-size:10.5pt; }
+th,td { border:1px solid #d8d0c2; padding:5px 8px; text-align:left; }
+mjx-container { overflow-x:auto; max-width:100%; }
+.references li, .references p { font-size:10.5pt; }
+</style>
+"""
+
+/** Make sure the paper's <head> carries our print CSS (idempotent — replaces any prior copy). */
+private fun ensureStyle(html: String): String {
+    var h = Regex("(?is)<style id=\"slyos-print\">.*?</style>").replace(html, "")
+    val head = Regex("(?i)</head>").find(h)
+    return when {
+        head != null -> h.substring(0, head.range.first) + PAPER_CSS + h.substring(head.range.first)
+        h.contains("<body", true) -> Regex("(?i)<body[^>]*>").replaceFirst(h) { it.value + PAPER_CSS }
+        else -> PAPER_CSS + h
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onBack: () -> Unit) {
@@ -123,12 +161,11 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         return if (b > 0) b else h.length
     }
 
-    // Render a fragment on its own so it can be previewed before it's added to the paper.
+    // Render a fragment on its own (same clean style) so it can be previewed before it's added.
     fun wrapFragment(frag: String): String =
         "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
         "<script src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'></script>" +
-        "<style>body{background:#F4EFE6;color:#1A1714;font-family:Georgia,serif;line-height:1.6;padding:18px}</style>" +
-        "</head><body>" + frag + "</body></html>"
+        PAPER_CSS + "</head><body>" + frag + "</body></html>"
 
     // Step 1: ask Opus what to add/change. It SUGGESTS a fragment; nothing is committed yet.
     fun propose() {
@@ -198,11 +235,33 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         try {
             val density = ctx.resources.displayMetrics.density
             val w = if (wv.width > 0) wv.width else 1080
-            val h = (wv.contentHeight * density).toInt().coerceIn(wv.height.coerceAtLeast(1), 20000)
+            val totalH = (wv.contentHeight * density).toInt().coerceIn(1, 200000)
+            // Slice the rendered paper into real A4-proportioned pages with a numbered footer.
+            val pageH = (w * 842f / 595f).toInt()
+            val footer = (pageH * 0.045f).toInt()
+            val usableH = (pageH - footer).coerceAtLeast(1)
+            val pageCount = ((totalH + usableH - 1) / usableH).coerceAtLeast(1)
+            val full = android.graphics.Bitmap.createBitmap(w, totalH, android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(full).apply { drawColor(android.graphics.Color.WHITE); wv.draw(this) }
+            val foot = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#8A8076"); textSize = w * 0.020f
+                textAlign = android.graphics.Paint.Align.CENTER; isAntiAlias = true
+            }
             val doc = android.graphics.pdf.PdfDocument()
-            val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, h, 1).create())
-            wv.draw(page.canvas)
-            doc.finishPage(page)
+            for (i in 0 until pageCount) {
+                val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, pageH, i + 1).create())
+                val canvas = page.canvas; canvas.drawColor(android.graphics.Color.WHITE)
+                val top = i * usableH
+                val sliceH = minOf(usableH, totalH - top)
+                if (sliceH > 0) {
+                    val src = android.graphics.Rect(0, top, w, top + sliceH)
+                    val dst = android.graphics.Rect(0, 0, w, sliceH)
+                    canvas.drawBitmap(full, src, dst, null)
+                }
+                canvas.drawText("Page ${i + 1} of $pageCount", w / 2f, pageH - footer / 2f, foot)
+                doc.finishPage(page)
+            }
+            full.recycle()
             val file = java.io.File(ctx.cacheDir, "paper_$currentId.pdf")
             java.io.FileOutputStream(file).use { doc.writeTo(it) }; doc.close()
             val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
@@ -292,12 +351,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                 Spacer(Modifier.height(10.dp))
 
                 if (showPaper) {
-                    // Full paper preview + export tools.
+                    // Full paper preview + export tools (styled with the clean print CSS).
+                    val styled = remember(html) { ensureStyle(html) }
                     AndroidView(
                         modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
                         factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true; webRef = this
-                            loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } },
-                        update = { wv -> if (wv.tag != html) { wv.tag = html; wv.loadDataWithBaseURL("https://localhost/", html, "text/html", "utf-8", null) } }
+                            loadDataWithBaseURL("https://localhost/", styled, "text/html", "utf-8", null) } },
+                        update = { wv -> if (wv.tag != styled) { wv.tag = styled; wv.loadDataWithBaseURL("https://localhost/", styled, "text/html", "utf-8", null) } }
                     )
                     Spacer(Modifier.height(8.dp))
                     if (showSource) {
