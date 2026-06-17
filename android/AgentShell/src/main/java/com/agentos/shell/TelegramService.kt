@@ -92,6 +92,8 @@ class TelegramService : Service() {
                 val ans = AgentClient.telegramSmartReply(thread, doc, mem)
                 TelegramClient.sendMessage(u.chatId, ans)
                 ConversationStore.add(applicationContext, "Telegram", chat, "me", ans)
+                com.agentos.shell.tools.MetricsStore.record(applicationContext,
+                    com.agentos.shell.tools.MetricsStore.secondsFor(if (doc.isNotBlank()) "doc_answer" else "reply"))
                 MemoryLog.add(applicationContext, "response", "Telegram: ${u.text.take(30)}", ans, "Telegram bot")
             }
             u.voiceFileId != null -> TelegramClient.sendMessage(u.chatId,

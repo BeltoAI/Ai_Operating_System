@@ -1,5 +1,6 @@
 package com.agentos.shell
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -32,8 +33,11 @@ class ShellActivity : ComponentActivity() {
         hideSystemBars()
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
+        if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
+            com.agentos.shell.tools.VoiceShortcut.post(this)
+        val startVoice = intent?.getBooleanExtra("start_voice", false) == true
         setContent {
-            var screen by remember { mutableStateOf(Screen.Boot) }
+            var screen by remember { mutableStateOf(if (startVoice) Screen.Home else Screen.Boot) }
             var agentPaused by remember { mutableStateOf(false) }
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
@@ -64,6 +68,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Home   -> HomeScreen(
                             m,
                             paused = agentPaused,
+                            autoVoice = startVoice,
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
@@ -103,6 +108,13 @@ class ShellActivity : ComponentActivity() {
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+
+    // If the lock-screen "Speak" notification is tapped while SlyOS is already running, restart the
+    // activity so it lands on Home and fires voice capture.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("start_voice", false)) { setIntent(intent); recreate() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

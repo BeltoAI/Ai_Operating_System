@@ -72,6 +72,7 @@ fun OutreachScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${d.to}"))
                 .putExtra(Intent.EXTRA_SUBJECT, d.subject).putExtra(Intent.EXTRA_TEXT, d.body)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            com.agentos.shell.tools.MetricsStore.record(ctx, com.agentos.shell.tools.MetricsStore.secondsFor("outreach"))
             status = "Opening email to ${d.to} — review and send."
         } catch (e: Exception) { status = "No email app found." }
     }

@@ -25,6 +25,7 @@ import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.KnowledgeStore
 import com.agentos.shell.tools.MemoryLog
 import com.agentos.shell.tools.MemoryStore
+import com.agentos.shell.tools.MetricsStore
 import com.agentos.shell.tools.PaperStore
 import com.agentos.shell.tools.UsageLimiter
 import kotlinx.coroutines.Dispatchers
@@ -122,6 +123,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             val newTitle = titleOf(out, prompt)
             val id = PaperStore.create(ctx, newTitle, out)
             MemoryLog.add(ctx, "response", "Paper: $newTitle", "Wrote a research paper: $newTitle", "Research")
+            MetricsStore.record(ctx, MetricsStore.secondsFor("paper_write"))
             papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
             currentId = id; html = out; prompt = ""; mode = "editor"; busy = false; status = ""
         }
@@ -215,6 +217,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         }
         UsageLimiter.use(ctx, "expand", EXPAND_CAP)
         PaperStore.save(ctx, currentId, html)
+        MetricsStore.record(ctx, MetricsStore.secondsFor(if (propKind == "add") "paper_expand" else "paper_edit"))
         MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
         papers = PaperStore.list(ctx)
         proposal = ""; editPrompt = ""; status = "Added ✓ — tap View paper to review."

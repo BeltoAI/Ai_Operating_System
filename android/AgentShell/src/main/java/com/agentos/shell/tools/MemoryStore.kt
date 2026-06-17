@@ -82,4 +82,8 @@ object MemoryStore {
      */
     fun recallEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("recall_capture", false)
     fun setRecallEnabled(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("recall_capture", value).apply()
+
+    /** When true, a persistent lock-screen notification offers one-tap voice to SlyOS. */
+    fun lockVoice(ctx: Context): Boolean = prefs(ctx).getBoolean("lock_voice", false)
+    fun setLockVoice(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("lock_voice", value).apply()
 }

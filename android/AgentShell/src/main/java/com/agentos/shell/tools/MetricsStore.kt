@@ -31,14 +31,38 @@ object MetricsStore {
     fun savedMinutesToday(ctx: Context): Int = prefs(ctx).getInt("saved_${today()}", 0) / 60
     fun actionsToday(ctx: Context): Int = prefs(ctx).getInt("count_${today()}", 0)
 
-    /** Typical seconds saved per action type — rough but consistent. */
+    /** Human label that scales: "~6 min", "~45 min", "~2 h 10 min". */
+    fun savedLabelToday(ctx: Context): String {
+        val mins = savedMinutesToday(ctx)
+        return when {
+            mins <= 0 -> ""
+            mins < 60 -> "~$mins min saved today"
+            else -> {
+                val h = mins / 60; val m = mins % 60
+                if (m == 0) "~$h h saved today" else "~$h h $m min saved today"
+            }
+        }
+    }
+
+    /**
+     * Realistic minutes-worth of effort each action would have taken you by hand. Writing a research
+     * paper is hours, not seconds — the estimate reflects that instead of a flat ~1 min per action.
+     */
     fun secondsFor(type: String): Int = when (type) {
-        "send_sms", "reply" -> 60
-        "add_event" -> 45
-        "alarm", "timer" -> 25
-        "web_search" -> 20
-        "dial", "sms" -> 20
+        "paper_write"  -> 9000   // ~2.5 h to draft a paper from scratch
+        "paper_expand" -> 2400   // ~40 min to write a new chapter
+        "paper_edit"   -> 900    // ~15 min to revise a section
+        "outreach", "email_reply" -> 360   // ~6 min for a real email
+        "social_post"  -> 480    // ~8 min to craft + caption a post
+        "spicy_post"   -> 300
+        "doc_answer"   -> 240
+        "web_search"   -> 300    // a real lookup + skim
+        "reply", "send_sms" -> 90
+        "add_event"    -> 60
+        "alarm", "timer" -> 30
+        "dial", "sms"  -> 20
+        "catch_up"     -> 120
         "open_app", "settings", "camera" -> 10
-        else -> 0
+        else -> 30
     }
 }

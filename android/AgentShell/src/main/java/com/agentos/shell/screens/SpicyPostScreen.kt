@@ -68,6 +68,7 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
 
     fun publish() {
         if (post.isBlank()) return
+        com.agentos.shell.tools.MetricsStore.record(ctx, com.agentos.shell.tools.MetricsStore.secondsFor("spicy_post"))
         if (isReddit) {
             val parts = post.split("\n", limit = 2)
             val title = parts[0].trim()

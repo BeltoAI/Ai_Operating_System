@@ -47,6 +47,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var docTelegram by remember { mutableStateOf(MemoryStore.docTelegram(ctx)) }
     var tgBot by remember { mutableStateOf(MemoryStore.telegramBot(ctx)) }
     var recall by remember { mutableStateOf(MemoryStore.recallEnabled(ctx)) }
+    var lockVoice by remember { mutableStateOf(MemoryStore.lockVoice(ctx)) }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             kbStatus = "Reading PDF…"
@@ -285,6 +286,21 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             Text("Find SlyOS under Settings ▸ Accessibility ▸ Installed apps and turn it on.",
                 fontSize = T.caption, color = T.inkFaint)
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Lock-screen voice button", fontSize = T.body, color = T.ink)
+                Text("Keeps a “Speak to SlyOS” shortcut on your lock screen — tap it to talk to the " +
+                    "agent (your phone may ask you to unlock first).",
+                    fontSize = T.small, color = T.inkFaint)
+            }
+            Switch(checked = lockVoice, onCheckedChange = {
+                lockVoice = it; MemoryStore.setLockVoice(ctx, it)
+                if (it) com.agentos.shell.tools.VoiceShortcut.post(ctx)
+                else com.agentos.shell.tools.VoiceShortcut.cancel(ctx)
+            })
         }
 
         Spacer(Modifier.height(20.dp))

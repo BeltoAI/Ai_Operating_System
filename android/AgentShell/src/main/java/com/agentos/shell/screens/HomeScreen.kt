@@ -79,6 +79,7 @@ import kotlinx.coroutines.withContext
 fun HomeScreen(
     modifier: Modifier = Modifier,
     paused: Boolean,
+    autoVoice: Boolean = false,
     onOpen: (Screen) -> Unit,
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
@@ -256,6 +257,8 @@ fun HomeScreen(
             )
         } catch (e: Exception) { reply = "No voice input available on this device." }
     }
+    // Launched from the lock-screen "Speak" shortcut → open the mic immediately, once.
+    LaunchedEffect(autoVoice) { if (autoVoice) startVoice() }
 
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -434,7 +437,7 @@ fun HomeScreen(
                 Spacer(Modifier.width(7.dp))
                 Text(
                     if (!online) "agent offline — add API key"
-                    else "online" + if (saved > 0) "  ·  ~$saved min saved today" else "",
+                    else "online" + (com.agentos.shell.tools.MetricsStore.savedLabelToday(ctx).let { if (it.isNotEmpty()) "  ·  $it" else "" }),
                     fontSize = T.caption, color = T.inkSoft
                 )
             }

@@ -118,6 +118,7 @@ fun ComposeScreen(
         }
         ctx.startActivity(Intent.createChooser(intent, "Post to $platform")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        com.agentos.shell.tools.MetricsStore.record(ctx, com.agentos.shell.tools.MetricsStore.secondsFor("social_post"))
     }
 
     val accent = accentFor(platform)
