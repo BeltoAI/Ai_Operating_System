@@ -12,7 +12,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,29 @@ private fun appColor(pkg: String): Color = when {
     else -> Color(0xFFE8642C)
 }
 
+/** Pull the first email address out of a string, if present. */
+private fun extractEmail(s: String): String? =
+    Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(s)?.value
+
+/** Open a mail compose window prefilled with the reply; falls back to just opening Gmail. */
+private fun openMail(ctx: android.content.Context, to: String?, subject: String, body: String) {
+    try {
+        val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO).apply {
+            data = android.net.Uri.parse("mailto:" + (to ?: ""))
+            putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+            putExtra(android.content.Intent.EXTRA_TEXT, body)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ctx.startActivity(intent)
+    } catch (e: Exception) {
+        try {
+            val gmail = ctx.packageManager.getLaunchIntentForPackage("com.google.android.gm")
+                ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (gmail != null) ctx.startActivity(gmail)
+        } catch (e2: Exception) {}
+    }
+}
+
 /**
  * One notification with the full "ask before action" reply flow:
  * draft → review/edit → Send (or Cancel), plus dismiss. Self-contained state, so it can be
@@ -50,12 +75,29 @@ private fun appColor(pkg: String): Color = when {
 fun ReplyCard(note: NotificationStore.Note) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var busy by remember { mutableStateOf(false) }
     var approving by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf("") }
+    var copied by remember { mutableStateOf(false) }
     var eventBusy by remember { mutableStateOf(false) }
     var eventStatus by remember { mutableStateOf("") }
+
+    // Human emails: auto-generate a reply draft (never auto-sent) the moment the card appears.
+    val isHumanEmail = note.isEmail && !note.isLikelyBot && note.text.isNotBlank()
+    LaunchedEffect(note.key) {
+        if (isHumanEmail && draft.isEmpty() && sent.isEmpty()) {
+            busy = true
+            val memory = MemoryStore.about(ctx)
+            val d = withContext(Dispatchers.IO) {
+                val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
+                AgentClient.draftEmailReply(note.title, note.text, doc, memory)
+            }
+            if (!d.startsWith("[couldn't")) { draft = d; approving = true }
+            busy = false
+        }
+    }
 
     val appCol = appColor(note.pkg)
     Column(Modifier.padding(vertical = 11.dp)) {
@@ -95,6 +137,10 @@ fun ReplyCard(note: NotificationStore.Note) {
                     Text("cancel", fontSize = T.small, color = T.danger,
                         modifier = Modifier.clickable { NotificationStore.pendingAuto.remove(note.key) })
                 }
+            }
+            busy && note.isEmail && !approving -> {
+                Text("✍ drafting a reply…", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.padding(top = 6.dp))
             }
             note.canReply && !approving -> {
                 Text(
@@ -170,31 +216,69 @@ fun ReplyCard(note: NotificationStore.Note) {
                     .padding(12.dp)
             )
             Spacer(Modifier.height(10.dp))
-            Row {
-                Text(
-                    "Send", fontSize = T.small, color = T.bgElevated,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(T.accent)
-                        .clickable {
-                            val toSend = draft
-                            scope.launch {
-                                val ok = NotificationStore.sendReply(ctx, note, toSend)
-                                if (ok) {
-                                    NotificationStore.dismiss(note.key)
-                                    sent = "Sent: \"$toSend\""
-                                } else sent = "Send failed (see log)."
-                                approving = false
+            if (note.isEmail) {
+                // Email: never auto-send. Offer Copy, Open Mail (prefilled), and Send only if the
+                // notification actually exposes an inline reply box.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Copy", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { clipboard.setText(AnnotatedString(draft)); copied = true }
+                            .padding(horizontal = 16.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Open Mail", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable {
+                                val to = extractEmail("${note.title} ${note.text}")
+                                openMail(ctx, to, "Re: ${note.title}", draft)
                             }
-                        }
-                        .padding(horizontal = 18.dp, vertical = 9.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Cancel", fontSize = T.small, color = T.inkSoft,
-                    modifier = Modifier.clickable { approving = false }
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
-                )
+                            .padding(horizontal = 16.dp, vertical = 9.dp))
+                    if (note.canReply) {
+                        Spacer(Modifier.width(10.dp))
+                        Text("Send", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable {
+                                    val toSend = draft
+                                    scope.launch {
+                                        val ok = NotificationStore.sendReply(ctx, note, toSend)
+                                        sent = if (ok) { NotificationStore.dismiss(note.key); "Sent ✓" }
+                                               else "Send failed — use Open Mail."
+                                        approving = false
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 9.dp))
+                    }
+                }
+                if (copied) { Spacer(Modifier.height(5.dp)); Text("Copied to clipboard ✓", fontSize = T.caption, color = T.accent) }
+                Spacer(Modifier.height(8.dp))
+                Text("Dismiss draft", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.clickable { approving = false })
+            } else {
+                Row {
+                    Text(
+                        "Send", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(T.accent)
+                            .clickable {
+                                val toSend = draft
+                                scope.launch {
+                                    val ok = NotificationStore.sendReply(ctx, note, toSend)
+                                    if (ok) {
+                                        NotificationStore.dismiss(note.key)
+                                        sent = "Sent: \"$toSend\""
+                                    } else sent = "Send failed (see log)."
+                                    approving = false
+                                }
+                            }
+                            .padding(horizontal = 18.dp, vertical = 9.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { approving = false }
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                    )
+                }
             }
         }
         Hairline()

@@ -61,10 +61,25 @@ object TwitterClient {
             conn.outputStream.use { it.write(JSONObject().put("text", text).toString().toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream).bufferedReader().use { it.readText() }
-            if (code in 200..299) true to "Posted to X."
-            else false to "X error $code: ${body.take(140)}"
+            if (code in 200..299) true to "Posted to X." else false to explain(code, body)
         } catch (e: Exception) {
             false to "Couldn't reach X: ${e.message}"
+        }
+    }
+
+    /** Turn X's raw error into something actionable instead of a cryptic code. */
+    private fun explain(code: Int, body: String): String {
+        val low = body.lowercase()
+        return when {
+            low.contains("duplicate") ->
+                "X blocked this as a duplicate — it won't post the same text twice. Tweak the wording and try again."
+            code == 401 ->
+                "X rejected the credentials (401). Regenerate your Access Token & Secret AFTER setting the app to Read+Write, then update apikey.properties."
+            code == 403 ->
+                "X forbade this post (403) — usually the app is Read-only or your access tier can't write. In the developer portal enable OAuth 1.0a Read+Write and regenerate tokens."
+            code == 429 ->
+                "Rate-limited (429) — the free tier has a small posting cap. Wait a bit and try again."
+            else -> "X error $code: ${body.take(160)}"
         }
     }
 }
