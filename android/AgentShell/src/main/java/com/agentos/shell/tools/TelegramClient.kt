@@ -14,8 +14,12 @@ object TelegramClient {
 
     data class Update(
         val updateId: Long, val chatId: Long, val text: String, val caption: String,
-        val photoFileId: String?, val docFileId: String?, val docName: String, val voiceFileId: String?
-    )
+        val photoFileId: String?, val docFileId: String?, val docName: String,
+        val docMime: String, val voiceFileId: String?
+    ) {
+        val isPdf: Boolean get() = docFileId != null &&
+            (docName.endsWith(".pdf", true) || docMime.equals("application/pdf", true))
+    }
 
     private fun get(urlStr: String, readMs: Int = 60000): String? = try {
         val c = (URL(urlStr).openConnection() as HttpURLConnection).apply {
@@ -40,6 +44,7 @@ object TelegramClient {
                     u.getLong("update_id"), chat.getLong("id"),
                     msg.optString("text"), msg.optString("caption"),
                     photo, doc?.optString("file_id"), doc?.optString("file_name").orEmpty(),
+                    doc?.optString("mime_type").orEmpty(),
                     msg.optJSONObject("voice")?.optString("file_id")
                 )
             }

@@ -60,12 +60,16 @@ class TelegramService : Service() {
         val mem = MemoryStore.about(applicationContext)
         when {
             // PDF document → ingest as the knowledge base.
-            u.docFileId != null && u.docName.endsWith(".pdf", true) -> {
-                val bytes = TelegramClient.downloadFile(u.docFileId)
-                val chars = if (bytes != null) KnowledgeStore.loadFromBytes(applicationContext, bytes, u.docName) else 0
+            u.isPdf -> {
+                val name = u.docName.ifBlank { "document.pdf" }
+                val bytes = u.docFileId?.let { TelegramClient.downloadFile(it) }
+                val chars = if (bytes != null) KnowledgeStore.loadFromBytes(applicationContext, bytes, name) else 0
                 TelegramClient.sendMessage(u.chatId,
-                    if (chars > 0) "Loaded “${u.docName}” ($chars chars). Ask me anything about it."
-                    else "Couldn't read that PDF.")
+                    when {
+                        chars > 0 -> "Got “$name” — read it ($chars chars). Ask me anything about it."
+                        bytes == null -> "Couldn't download that file (it may be too big — Telegram bots can only fetch files up to 20 MB)."
+                        else -> "Downloaded “$name” but couldn't extract text — it may be a scanned/image PDF."
+                    })
             }
             // Photo → describe / answer with vision.
             u.photoFileId != null -> {
