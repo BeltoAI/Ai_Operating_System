@@ -116,7 +116,7 @@ private fun NetworkTab(ctx: android.content.Context) {
         items(never.take(25), key = { it.name + "|" + it.source }) { c ->
             val sub = listOfNotNull(c.role.ifBlank { null }, c.company.ifBlank { null }).joinToString(" · ")
             OutreachCard(ctx, c.name, (if (sub.isNotBlank()) "$sub · " else "") + c.source, c.source,
-                onReached = { ConnectionStore.markReachedOut(ctx, c.name) }) { mem ->
+                openUrl = c.url, onReached = { ConnectionStore.markReachedOut(ctx, c.name) }) { mem ->
                 AgentClient.introMessage(c.name, c.company, c.role, c.source, mem)
             }
         }
@@ -127,7 +127,7 @@ private fun NetworkTab(ctx: android.content.Context) {
 @Composable
 private fun OutreachCard(
     ctx: android.content.Context, name: String, subtitle: String, appLabel: String,
-    onReached: () -> Unit = {}, draft: suspend (String) -> String
+    openUrl: String = "", onReached: () -> Unit = {}, draft: suspend (String) -> String
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -159,9 +159,12 @@ private fun OutreachCard(
                         .clickable { clipboard.setText(AnnotatedString(msg)); copied = true }
                         .padding(horizontal = 16.dp, vertical = 8.dp))
                 Spacer(Modifier.width(10.dp))
-                Text("Open $appLabel", fontSize = T.small, color = T.ink,
+                Text(if (openUrl.isNotBlank()) "Open profile" else "Open $appLabel", fontSize = T.small, color = T.ink,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                        .clickable { clipboard.setText(AnnotatedString(msg)); copied = true; openByLabel(ctx, appLabel) }
+                        .clickable {
+                            clipboard.setText(AnnotatedString(msg)); copied = true
+                            if (openUrl.isNotBlank()) openProfile(ctx, openUrl, appLabel) else openByLabel(ctx, appLabel)
+                        }
                         .padding(horizontal = 16.dp, vertical = 8.dp))
                 Spacer(Modifier.width(10.dp))
                 Text("Done", fontSize = T.small, color = T.inkFaint,
@@ -170,6 +173,28 @@ private fun OutreachCard(
             if (copied) { Spacer(Modifier.height(4.dp)); Text("Copied — paste it in $appLabel ✓", fontSize = T.caption, color = T.accent) }
         }
         Hairline()
+    }
+}
+
+/** Open a specific profile URL — in the platform's app when possible, so "Message" is one tap. */
+private fun openProfile(ctx: android.content.Context, url: String, source: String) {
+    val pkg = mapOf(
+        "linkedin" to "com.linkedin.android", "x" to "com.twitter.android", "twitter" to "com.twitter.android",
+        "instagram" to "com.instagram.android"
+    )[source.lowercase()]
+    val uri = android.net.Uri.parse(if (url.startsWith("http")) url else "https://$url")
+    try {
+        val i = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (pkg != null) {
+            try { ctx.packageManager.getPackageInfo(pkg, 0); i.setPackage(pkg) } catch (e: Exception) {}
+        }
+        ctx.startActivity(i)
+    } catch (e: Exception) {
+        try {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e2: Exception) { openByLabel(ctx, source) }
     }
 }
 
