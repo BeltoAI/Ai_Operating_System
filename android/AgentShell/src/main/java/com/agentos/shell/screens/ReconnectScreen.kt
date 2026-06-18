@@ -21,7 +21,6 @@ import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.ConnectionStore
 import com.agentos.shell.tools.ConversationStore
-import com.agentos.shell.tools.MemoryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,7 +61,8 @@ private fun QuietTab(ctx: android.content.Context) {
     LazyColumn {
         items(stale, key = { "${it.app}|${it.title}|${it.lastTime}" }) { s ->
             val days = ((System.currentTimeMillis() - s.lastTime) / 86_400_000L).toInt()
-            OutreachCard(ctx, s.title, "quiet ${days}d · ${s.app}", s.app) { mem ->
+            OutreachCard(ctx, s.title, "quiet ${days}d · ${s.app}", s.app) {
+                val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, s.app, s.title)
                 AgentClient.reconnectMessage(s.title, s.lastText, days, mem)
             }
         }
@@ -116,7 +116,8 @@ private fun NetworkTab(ctx: android.content.Context) {
         items(never.take(25), key = { it.name + "|" + it.source }) { c ->
             val sub = listOfNotNull(c.role.ifBlank { null }, c.company.ifBlank { null }).joinToString(" · ")
             OutreachCard(ctx, c.name, (if (sub.isNotBlank()) "$sub · " else "") + c.source, c.source,
-                openUrl = c.url, onReached = { ConnectionStore.markReachedOut(ctx, c.name) }) { mem ->
+                openUrl = c.url, onReached = { ConnectionStore.markReachedOut(ctx, c.name) }) {
+                val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, c.source, c.name)
                 AgentClient.introMessage(c.name, c.company, c.role, c.source, mem)
             }
         }
@@ -127,7 +128,7 @@ private fun NetworkTab(ctx: android.content.Context) {
 @Composable
 private fun OutreachCard(
     ctx: android.content.Context, name: String, subtitle: String, appLabel: String,
-    openUrl: String = "", onReached: () -> Unit = {}, draft: suspend (String) -> String
+    openUrl: String = "", onReached: () -> Unit = {}, draft: suspend () -> String
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -137,8 +138,7 @@ private fun OutreachCard(
 
     LaunchedEffect(name) {
         if (msg.isEmpty()) {
-            val mem = MemoryStore.about(ctx)
-            val d = withContext(Dispatchers.IO) { draft(mem) }
+            val d = withContext(Dispatchers.IO) { draft() }
             if (!d.startsWith("[couldn't")) msg = d
         }
     }

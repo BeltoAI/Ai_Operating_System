@@ -49,6 +49,7 @@ private fun typeColor(t: String): Color = when (t) {
     "transcript" -> Color(0xFF86907A)
     "idea" -> Color(0xFFC39A5E)
     "recall" -> Color(0xFF6E8FA6)
+    "network" -> Color(0xFF2E6F9E)
     else -> Color(0xFF8C8475)
 }
 private val ACCENT = Color(0xFFE8642C)
@@ -153,7 +154,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         // Legend — what each color means, so the brain reads at a glance.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             listOf("Person" to "person", "Fact" to "idea", "Task" to "task",
-                "Paper" to "paper", "Recall" to "recall", "Note" to "prompt").forEach { (label, type) ->
+                "Paper" to "paper", "Recall" to "recall", "Network" to "network", "Note" to "prompt").forEach { (label, type) ->
                 Box(Modifier.size(8.dp).clip(CircleShape).background(typeColor(type)))
                 Spacer(Modifier.width(4.dp))
                 Text(label, fontSize = T.caption, color = T.inkFaint)

@@ -90,6 +90,14 @@ object MemoryGraphStore {
                 peopleByApp[app]?.forEach { pid -> e(pid, rid) }   // connect app ↔ its conversations
             }
         }
+        // Your imported network as ONE node (20k individual dots would bury the brain + freeze layout).
+        val connCount = ConnectionStore.count(ctx)
+        if (connCount > 0 && "network:linkedin" !in forg) {
+            val msg = ConnectionStore.messagedCount(ctx)
+            val never = ConnectionStore.neverReachedOut(ctx).size
+            e(hub, n("network:linkedin", "network", "LinkedIn network",
+                "$connCount connections · messaged $msg · $never to reach", "Network", 0.95f, 0.75f, false))
+        }
         // Every captured prompt, response and moment becomes a memory, chained to its parent so the
         // whole history stays connected (not just the last few).
         val idByKey = HashMap<String, Int>()
