@@ -6,7 +6,9 @@ import android.print.PrintManager
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.KnowledgeStore
@@ -108,6 +111,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var pendingHighlight by remember { mutableStateOf(false) }
     val web = true   // Opus ALWAYS researches the web + cites sources
     var useDoc by remember { mutableStateOf(false) }
+    var docType by remember { mutableStateOf("paper") }   // paper | whitepaper | memo
+    var thesis by remember { mutableStateOf("") }
+    var showHistory by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -119,7 +125,11 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(h)?.groupValues?.get(1)?.trim()
             ?.takeIf { it.isNotBlank() } ?: fallback.take(60).ifBlank { "Untitled" }
 
-    fun openPaper(id: Long) { currentId = id; html = PaperStore.html(ctx, id); mode = "editor"; status = "" }
+    fun openPaper(id: Long) {
+        currentId = id; html = PaperStore.html(ctx, id)
+        docType = PaperStore.docType(ctx, id); thesis = PaperStore.thesis(ctx, id)
+        mode = "editor"; status = ""
+    }
 
     fun errText(out: String) = "Failed (" + out.removePrefix("ERR::").replace("::", "): ")
 
@@ -131,11 +141,14 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             val source = if (useDoc && KnowledgeStore.hasDoc(ctx)) KnowledgeStore.retrieve(ctx, prompt, 12000) else ""
             val mem = MemoryStore.about(ctx)
             val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, 0L, prompt) }
-            val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem, lib) }
+            val dt = docType; val th = thesis
+            val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem, lib, dt, th) }
             if (out.startsWith("ERR::")) { status = errText(out); busy = false; return@launch }
             UsageLimiter.use(ctx, "paper", CAP)
             val newTitle = titleOf(out, prompt)
-            val id = PaperStore.create(ctx, newTitle, out)
+            val id = PaperStore.create(ctx, newTitle, out, dt)
+            if (th.isNotBlank()) PaperStore.setThesis(ctx, id, th)
+            PaperStore.snapshot(ctx, id, "Created")
             MemoryLog.add(ctx, "response", "Paper: $newTitle", "Wrote a research paper: $newTitle", "Research")
             MetricsStore.record(ctx, MetricsStore.secondsFor("paper_write"))
             papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
@@ -167,6 +180,25 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             out.add(Chap(heading, h.substring(start, end), start, end))
         }
         return out
+    }
+
+    // Local cleanup: strip highlight markers and renumber chapters sequentially (skips
+    // Abstract/References/Appendix). Safe — only heading numbers change, no prose is rewritten.
+    fun finalize() {
+        var h = html.replace("id=\"slyosnew\"", "").replace("id=\"slyosold\"", "")
+        var n = 0
+        h = Regex("(?is)(<h2[^>]*>)(.*?)(</h2>)").replace(h) { m ->
+            val open = m.groupValues[1]; var txt = m.groupValues[2].trim(); val close = m.groupValues[3]
+            val plain = txt.replace(Regex("<[^>]+>"), "").trim()
+            val skip = listOf("reference", "appendix", "acknowledg", "abstract", "bibliography")
+                .any { plain.lowercase().startsWith(it) }
+            if (skip) "$open$txt$close"
+            else { n++; txt = txt.replace(Regex("^\\s*\\d+[.).]?\\s+"), ""); "$open$n. $txt$close" }
+        }
+        html = h
+        PaperStore.save(ctx, currentId, html)
+        PaperStore.snapshot(ctx, currentId, "Finalized (renumbered)")
+        status = "Renumbered $n chapters & cleaned markers ✓"
     }
 
     fun frontMatterEnd(h: String): Int {
@@ -206,13 +238,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     proposal = frag; propKind = "intro"; propLabel = "Title / abstract / intro"
                 }
                 chap != null -> {
-                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem) }
+                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem, docType, thesis) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
                     proposal = frag; propKind = "edit"; propLabel = chap.heading; propStart = chap.start; propEnd = chap.end
                 }
                 else -> {
                     val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, currentId, instr) }
-                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib) }
+                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib, docType, thesis) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
                     proposal = frag; propKind = "add"; propLabel = "New chapter"
                 }
@@ -240,6 +272,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             else -> { html = insertBeforeBodyEnd(html, "<div id=\"slyosnew\">$frag</div>") }
         }
         PaperStore.save(ctx, currentId, html)
+        PaperStore.snapshot(ctx, currentId, "$propLabel — ${lastInstr.take(40)}")
         MetricsStore.record(ctx, MetricsStore.secondsFor(if (propKind == "add") "paper_expand" else "paper_edit"))
         MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
         papers = PaperStore.list(ctx)
@@ -352,7 +385,25 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     decorationBox = { inner -> if (prompt.isEmpty()) Text("What should the paper be about? Topic, angle, scope…", fontSize = T.small, color = T.inkFaint); inner() }
                 )
                 Spacer(Modifier.height(10.dp))
-                Text("🌐 Always researches the web & cites real sources · draws on your other papers via the brain",
+                // Document type — locks genre + voice for the whole document.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    listOf("paper" to "Academic", "whitepaper" to "White paper", "memo" to "Investor memo").forEach { (id, label) ->
+                        val sel = docType == id
+                        Text(label, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                            modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
+                                .background(if (sel) T.accent else T.hairline).clickable { docType = id }
+                                .padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                BasicTextField(
+                    value = thesis, onValueChange = { thesis = it }, singleLine = true,
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+                    decorationBox = { inner -> if (thesis.isEmpty()) Text("Core thesis to stay anchored to (optional) — e.g. onboard data triage on the payload they already fly", fontSize = T.small, color = T.inkFaint); inner() }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("🌐 Always researches the web & cites real sources with links · draws on your other papers via the brain",
                     fontSize = T.caption, color = T.inkFaint)
                 if (KnowledgeStore.hasDoc(ctx)) {
                     Spacer(Modifier.height(6.dp))
@@ -403,15 +454,23 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                                 .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp))
                         Spacer(Modifier.height(8.dp))
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                         Text("Share", fontSize = T.small, color = T.bgElevated,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                                 .clickable { sharePdf() }.padding(horizontal = 16.dp, vertical = 9.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text("Print/Save", fontSize = T.small, color = T.ink,
+                        Spacer(Modifier.width(8.dp))
+                        Text("Print", fontSize = T.small, color = T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                                .clickable { exportPdf() }.padding(horizontal = 14.dp, vertical = 9.dp))
-                        Spacer(Modifier.width(10.dp))
+                                .clickable { exportPdf() }.padding(horizontal = 12.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Finalize", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { finalize() }.padding(horizontal = 12.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("History", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { showHistory = true }.padding(horizontal = 12.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text("Source", fontSize = T.small, color = T.inkSoft,
                             modifier = Modifier.clickable { showSource = !showSource }.padding(vertical = 9.dp))
                     }
@@ -474,5 +533,36 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             }
         }
         if (status.isNotEmpty()) { Spacer(Modifier.height(10.dp)); Text(status, fontSize = T.small, color = T.accent) }
+    }
+
+    if (showHistory) {
+        val vers = remember(showHistory, html) { PaperStore.versions(ctx, currentId) }
+        Dialog(onDismissRequest = { showHistory = false }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(18.dp))
+                .background(T.bgElevated).padding(16.dp)) {
+                Text("Version history", fontSize = T.body, color = T.ink)
+                Text("Tap any version to restore it. Your current version is saved first, so nothing is lost.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(10.dp))
+                if (vers.isEmpty()) Text("No versions yet — they're saved on each change.", fontSize = T.small, color = T.inkFaint)
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    items(vers, key = { it.ts }) { v ->
+                        Column(Modifier.fillMaxWidth().clickable {
+                            PaperStore.snapshot(ctx, currentId, "Before restore")
+                            val old = PaperStore.versionHtml(ctx, currentId, v.ts)
+                            if (old.isNotBlank()) { html = old; PaperStore.save(ctx, currentId, html); status = "Restored: ${v.label}" }
+                            showHistory = false
+                        }.padding(vertical = 10.dp)) {
+                            Text(v.label.ifBlank { "snapshot" }, fontSize = T.small, color = T.ink)
+                            Text(fmt.format(Date(v.ts)), fontSize = T.caption, color = T.inkFaint)
+                        }
+                        Hairline()
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.clickable { showHistory = false })
+            }
+        }
     }
 }

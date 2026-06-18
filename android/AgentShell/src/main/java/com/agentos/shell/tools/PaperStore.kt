@@ -7,7 +7,7 @@ import java.io.File
 
 /** A library of research papers: lightweight index in prefs, full HTML stored per-file. */
 object PaperStore {
-    data class Paper(val id: Long, val title: String, val updated: Long)
+    data class Paper(val id: Long, val title: String, val updated: Long, val docType: String = "paper")
 
     private const val PREF = "slyos_papers"
     private const val KEY = "index"
@@ -17,13 +17,19 @@ object PaperStore {
     fun list(ctx: Context): List<Paper> = try {
         val arr = JSONArray(prefs(ctx).getString(KEY, "[]"))
         (0 until arr.length()).map {
-            val o = arr.getJSONObject(it); Paper(o.getLong("id"), o.getString("title"), o.optLong("updated"))
+            val o = arr.getJSONObject(it)
+            Paper(o.getLong("id"), o.getString("title"), o.optLong("updated"), o.optString("docType", "paper"))
         }.sortedByDescending { it.updated }
     } catch (e: Exception) { emptyList() }
 
+    fun docType(ctx: Context, id: Long): String = list(ctx).firstOrNull { it.id == id }?.docType ?: "paper"
+
+    fun thesis(ctx: Context, id: Long): String = prefs(ctx).getString("thesis_$id", "") ?: ""
+    fun setThesis(ctx: Context, id: Long, v: String) = prefs(ctx).edit().putString("thesis_$id", v.trim()).apply()
+
     private fun writeIndex(ctx: Context, papers: List<Paper>) {
         val arr = JSONArray()
-        papers.forEach { arr.put(JSONObject().put("id", it.id).put("title", it.title).put("updated", it.updated)) }
+        papers.forEach { arr.put(JSONObject().put("id", it.id).put("title", it.title).put("updated", it.updated).put("docType", it.docType)) }
         prefs(ctx).edit().putString(KEY, arr.toString()).apply()
     }
 
@@ -32,11 +38,42 @@ object PaperStore {
     } catch (e: Exception) { "" }
 
     /** Create a new paper, returns its id. */
-    fun create(ctx: Context, title: String, html: String): Long {
+    fun create(ctx: Context, title: String, html: String, docType: String = "paper"): Long {
         val id = System.currentTimeMillis()
         file(ctx, id).writeText(html)
-        writeIndex(ctx, listOf(Paper(id, title.ifBlank { "Untitled" }.take(60), id)) + list(ctx))
+        writeIndex(ctx, listOf(Paper(id, title.ifBlank { "Untitled" }.take(60), id, docType)) + list(ctx))
         return id
+    }
+
+    // ---- Version history: timestamped snapshots so you never lose a version ----
+    data class Version(val ts: Long, val label: String)
+    private const val VCAP = 25
+    private fun vKey(id: Long) = "versions_$id"
+    private fun vFile(ctx: Context, id: Long, ts: Long) = File(ctx.filesDir, "paper_${id}_v$ts.html")
+
+    fun versions(ctx: Context, id: Long): List<Version> = try {
+        val arr = JSONArray(prefs(ctx).getString(vKey(id), "[]"))
+        (0 until arr.length()).map { val o = arr.getJSONObject(it); Version(o.getLong("ts"), o.optString("label")) }
+            .sortedByDescending { it.ts }
+    } catch (e: Exception) { emptyList() }
+
+    fun versionHtml(ctx: Context, id: Long, ts: Long): String = try {
+        vFile(ctx, id, ts).let { if (it.exists()) it.readText() else "" }
+    } catch (e: Exception) { "" }
+
+    /** Save the CURRENT html of [id] as a labeled checkpoint. */
+    fun snapshot(ctx: Context, id: Long, label: String) {
+        val cur = html(ctx, id)
+        if (cur.isBlank()) return
+        val ts = System.currentTimeMillis()
+        vFile(ctx, id, ts).writeText(cur)
+        val list = versions(ctx, id).toMutableList()
+        list.add(0, Version(ts, label.take(60)))
+        // Cap: delete oldest files beyond VCAP.
+        while (list.size > VCAP) { val old = list.removeAt(list.size - 1); try { vFile(ctx, id, old.ts).delete() } catch (e: Exception) {} }
+        val arr = JSONArray()
+        list.forEach { arr.put(JSONObject().put("ts", it.ts).put("label", it.label)) }
+        prefs(ctx).edit().putString(vKey(id), arr.toString()).apply()
     }
 
     /** Update an existing paper's html (and bump its updated time). */
@@ -49,6 +86,8 @@ object PaperStore {
 
     fun delete(ctx: Context, id: Long) {
         file(ctx, id).delete()
+        versions(ctx, id).forEach { try { vFile(ctx, id, it.ts).delete() } catch (e: Exception) {} }
+        prefs(ctx).edit().remove(vKey(id)).apply()
         writeIndex(ctx, list(ctx).filterNot { it.id == id })
     }
 

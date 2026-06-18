@@ -374,11 +374,26 @@ object AgentClient {
         return if (frag.contains("<body", true)) frag else "ERR::0::front-matter edit malformed"
     }
 
+    /** Genre + voice lock + verified-citation rules + thesis anchor, shared by all paper calls. */
+    private fun docBrief(docType: String, thesis: String): String {
+        val genre = when (docType) {
+            "memo" -> "Write as a crisp INVESTOR MEMO: lead with the thesis, then market, why-now, product, traction, and the ask. Confident, plain business prose. No theorems or proofs. "
+            "whitepaper" -> "Write as a professional technical WHITE PAPER: authoritative, precise, neutral third person; explain the system, its design and rationale; minimal heavy math unless essential. "
+            else -> "Write as a rigorous ACADEMIC PAPER: formal third person, precise definitions, claims and proofs where appropriate. "
+        }
+        return genre +
+            "Keep ONE consistent professional voice and genre throughout — no casual asides, no snark, no jokes, no first-person quips. " +
+            "CITATIONS: cite ONLY sources you actually retrieved via web search, and include the real working URL for each in the references. " +
+            "Never invent papers, arXiv IDs, statistics, or quotes, and never attribute an estimate or quote to a named real person or company unless you genuinely found it with a link. If unsure, leave it out. " +
+            (if (thesis.isNotBlank()) "CORE THESIS — stay anchored to this, do not drift into adjacent topics: $thesis. " else "")
+    }
+
     /** Write a research/white paper (Opus). Returns HTML, or "ERR::code::body" on failure. */
-    fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = "", library: String = ""): String {
+    fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = "", library: String = "", docType: String = "paper", thesis: String = ""): String {
         val src = if (web) source.take(2500) else source.take(12000)
-        val sys = "You are an expert research writer. Write a rigorous, well-structured white paper / " +
-            "research paper IN THE USER'S NAME on their topic. Output a COMPLETE self-contained HTML " +
+        val sys = docBrief(docType, thesis) +
+            "You are an expert research writer. Write a well-structured document IN THE USER'S NAME on their topic. " +
+            "Output a COMPLETE self-contained HTML " +
             "document: clean academic style (serif body, centered title, author line, abstract). " +
             "Structure the body as MULTIPLE NUMBERED CHAPTERS, each one an <h2> heading like " +
             "<h2>1. Introduction</h2>, with <h3> subsections, detailed multi-paragraph prose, examples, and a " +
@@ -413,8 +428,9 @@ object AgentClient {
      * each call appends ~several pages instead of regenerating (and truncating) the whole doc.
      * Returns an HTML fragment (no <html>/<head>/<body>), or "ERR::code::body".
      */
-    fun expandPaper(title: String, outline: String, instruction: String, web: Boolean = false, memory: String = "", library: String = ""): String {
-        val sys = "You are extending an existing academic paper titled \"$title\". " +
+    fun expandPaper(title: String, outline: String, instruction: String, web: Boolean = false, memory: String = "", library: String = "", docType: String = "paper", thesis: String = ""): String {
+        val sys = docBrief(docType, thesis) +
+            "You are extending an existing document titled \"$title\". " +
             "Write the NEXT chapter/section the user asks for — substantial and rigorous (aim for several " +
             "pages: multiple subsections, detailed prose, examples, and equations where useful). " +
             "Continue the existing numbering and do NOT repeat earlier content. " +
@@ -439,8 +455,9 @@ object AgentClient {
      * the whole document would blow the token limit). Returns the revised chapter as an HTML
      * fragment beginning with its <h2>, or "ERR::code::body".
      */
-    fun reviseChapter(title: String, chapterHtml: String, instruction: String, web: Boolean = false, memory: String = ""): String {
-        val sys = "You are editing ONE chapter of the academic paper \"$title\". Apply the user's instruction " +
+    fun reviseChapter(title: String, chapterHtml: String, instruction: String, web: Boolean = false, memory: String = "", docType: String = "paper", thesis: String = ""): String {
+        val sys = docBrief(docType, thesis) +
+            "You are editing ONE chapter of the document \"$title\". Apply the user's instruction " +
             "to THIS chapter only. Return ONLY the revised chapter as an HTML fragment that begins with its " +
             "<h2> heading (keep the same heading unless asked to change it), using <h3>, <p>, <ul>, etc. " +
             "Do NOT include <html>, <head>, <body>, the title, abstract, references, or any other chapter. " +
