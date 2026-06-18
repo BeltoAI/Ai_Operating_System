@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = "com.agentos.shell"
-        minSdk = 34
+        minSdk = 29   // Android 10+ — covers Note 20 (max Android 13) and most Samsungs since ~2019
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.0"

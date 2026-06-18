@@ -1,0 +1,14 @@
+# Copy this file to "apikey.properties" (same folder) and fill in your keys.
+# apikey.properties is git-ignored — your keys NEVER get committed or shared.
+#
+# REQUIRED — the agent does nothing without this:
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# OPTIONAL — only if you want the Telegram bot brain:
+TELEGRAM_BOT_TOKEN=
+
+# OPTIONAL — only if you want one-tap posting to X/Twitter:
+TWITTER_API_KEY=
+TWITTER_API_SECRET=
+TWITTER_ACCESS_TOKEN=
+TWITTER_ACCESS_SECRET=

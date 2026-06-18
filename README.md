@@ -11,6 +11,104 @@ the default Home app or uninstalling.
 
 ---
 
+## Get it running on your Samsung (step-by-step, no experience needed)
+
+This works on most Samsung phones running **Android 10 or newer** (Galaxy S20/Note 20 and up).
+You'll need a **Mac**, your **phone + its USB cable**, and about 30 minutes. You install it once
+from the Mac; after that it just runs on the phone. Nothing is flashed — it's a normal app you
+can uninstall anytime.
+
+**1. Install the basics on the Mac (one time).** Open the **Terminal** app and paste these:
+```bash
+# Homebrew (skip if you already have it):
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Java 17 (needed to build):
+brew install --cask temurin@17
+# Git (skip if you have it):
+brew install git
+```
+
+**2. Download the project.**
+```bash
+cd ~/Downloads
+git clone https://github.com/BeltoAI/Ai_Operating_System.git
+cd Ai_Operating_System/agentos
+```
+
+**3. Add your AI key.** The agent needs an Anthropic API key (this is what makes it think).
+   - Get one at **https://console.anthropic.com** → API Keys → Create Key (starts with `sk-ant-`).
+   - Then create your keys file:
+```bash
+cp android/apikey.properties.example android/apikey.properties
+open -e android/apikey.properties          # opens TextEdit — paste your key after ANTHROPIC_API_KEY=
+```
+   Save and close. (This file is private and never uploaded.)
+
+**4. Turn on developer mode on the phone (one time).**
+   - Settings → **About phone** → **Software information** → tap **Build number** 7 times (it says "You're a developer").
+   - Go back to Settings → **Developer options** → turn on **USB debugging**.
+
+**5. Plug the phone into the Mac** with the cable. On the phone, a popup asks "Allow USB
+   debugging?" — tap **Allow** (check "always allow from this computer").
+
+**6. Build and install — one command:**
+```bash
+bash build_and_install.sh
+```
+   First run takes a while (it downloads the Android tools). When it finishes, on the **phone**
+   press the **Home** button and choose **SlyOS → Always**. That's it — SlyOS is now the home screen.
+   *(To go back to normal anytime: Settings → Apps → Default apps → Home app → One UI Home. Or
+   `adb uninstall com.agentos.shell`.)*
+
+**7. Grant the permissions that make it powerful** (on the phone, Settings):
+   - **Notifications access:** Settings → Notifications → Advanced/Special access → **Notification access** → turn on **SlyOS**. (Lets it read & reply to messages.)
+   - **Total recall (optional):** open SlyOS → Brain → About → turn on **Total recall**, tap **Grant Accessibility**, enable SlyOS there. (Lets it remember what's on screen.)
+   - **Battery:** Settings → Apps → SlyOS → Battery → **Unrestricted** (so it keeps working in the background).
+
+**8. Make it yours.** Open SlyOS → **Brain → About**, and write a few lines about who you are,
+   how you text, your work, and (optional) paste your **Calendly/booking link**. The more it knows,
+   the more it sounds like you.
+
+---
+
+## Load your LinkedIn network (optional but powerful)
+
+This lets SlyOS reach your whole LinkedIn network and draft personalized openers.
+
+1. On a computer, go to LinkedIn → **Settings → Data privacy → Get a copy of your data** →
+   check **Connections** (and **Messages** if you want it to know who you've already talked to,
+   and **Profile** to auto-fill your About). Request it; LinkedIn emails you a `.zip` in a few
+   minutes to a day. Unzip it — you'll get `Connections.csv`, `messages.csv`, `Profile.csv`.
+2. Put those files on the phone. With the phone plugged in, from the `agentos` folder:
+```bash
+adb push ~/Downloads/Connections.csv /sdcard/Download/
+adb push ~/Downloads/messages.csv   /sdcard/Download/
+adb push ~/Downloads/Profile.csv    /sdcard/Download/
+```
+   *(Or just email the files to yourself and download them on the phone.)*
+3. In SlyOS: **Now → Reconnect → "My network" → Import LinkedIn CSV**, and pick each file once.
+   SlyOS detects what each one is. Then it lists everyone you've never messaged with a ready
+   opener — tap **Copy → Open profile** to send.
+
+---
+
+## Optional extras
+- **Telegram bot:** create a bot with **@BotFather** on Telegram, copy the token into
+  `apikey.properties` (`TELEGRAM_BOT_TOKEN=`), rebuild, then turn on "Telegram bot brain" in
+  Brain → About.
+- **Post to X/Twitter:** add your four X API keys to `apikey.properties` and rebuild.
+
+---
+
+## If something goes wrong
+- **"adb: command not found"** → run `export PATH="/opt/homebrew/share/android-commandlinetools/platform-tools:$PATH"` then retry, or just re-run `bash build_and_install.sh`.
+- **Phone shows "unauthorized"** → unlock the phone and tap **Allow** on the USB-debugging popup; run `adb devices` — it should say `device`, not `unauthorized`.
+- **"JDK 17 missing"** → `brew install --cask temurin@17`.
+- **"app not installed" / won't install** → make sure the phone is Android 10+; uninstall any old copy with `adb uninstall com.agentos.shell` and retry.
+- **Build fails the first time** → run `bash build_and_install.sh` again (first run downloads dependencies and can time out).
+
+---
+
 ## Why a launcher (not a flashed OS)
 
 Reference device: Samsung Galaxy S25 (`SM-S931U`, US Snapdragon) — bootloader locked, OEM

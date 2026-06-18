@@ -6,7 +6,9 @@
 #
 set -euo pipefail
 
-REPO="$HOME/Downloads/MADSCIENTIST/agentos/android"
+# Portable: locate the repo relative to THIS script, so it works wherever you cloned it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$SCRIPT_DIR/android"
 APK="$REPO/AgentShell/build/outputs/apk/debug/AgentShell-debug.apk"
 BREW="$(command -v brew >/dev/null 2>&1 && brew --prefix || echo /opt/homebrew)"
 
