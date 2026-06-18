@@ -84,6 +84,20 @@ object NotificationStore {
     fun repliedWithin(note: Note, windowMs: Long): Boolean =
         System.currentTimeMillis() - (recentReplies[senderKey(note)] ?: 0L) < windowMs
 
+    // Messages we've already replied to — so the app re-posting the same notification doesn't put
+    // a handled conversation back in the inbox. Matched by content signature, time-bounded.
+    private val handled = ArrayDeque<Pair<String, Long>>()
+    private fun sig(note: Note) = "${note.app}|${note.title}|${note.text}".lowercase().trim()
+    fun markHandled(note: Note) {
+        handled.addFirst(sig(note) to System.currentTimeMillis())
+        while (handled.size > 50) handled.removeLast()
+    }
+    fun isHandled(note: Note): Boolean {
+        if (note.text.isBlank()) return false
+        val s = sig(note); val now = System.currentTimeMillis()
+        return handled.any { (h, t) -> now - t < 15 * 60_000L && h == s }
+    }
+
     /**
      * True only if this notification is clearly an echo of something we JUST sent (within ~20s)
      * — strict match so normal short replies like "ok" aren't wrongly suppressed.
@@ -104,6 +118,9 @@ object NotificationStore {
     }
 
     fun put(note: Note) {
+        // Don't re-show an echo of our own reply, or a message we've already handled (replied to) —
+        // apps love to re-post the same notification right after you reply.
+        if (isOwnEcho(note) || isHandled(note)) return
         // Drop the same notification (by key) AND any duplicate with identical sender + text.
         notes.removeAll { it.key == note.key || (it.app == note.app && it.title == note.title && it.text == note.text) }
         notes.add(0, note)
@@ -130,8 +147,10 @@ object NotificationStore {
             action.actionIntent.send(ctx, 0, intent)
             Log.i(TAG, "sendReply: fired OK")
             markReplied(note)
+            markHandled(note)          // keep this conversation out of the inbox after replying
             recordSent(note, message)
             ConversationStore.add(ctx, note.app, note.title, "me", message)
+            remove(note.key)           // drop it from Now immediately
             MetricsStore.record(ctx, MetricsStore.secondsFor("reply"))
             true
         } catch (e: Exception) {
