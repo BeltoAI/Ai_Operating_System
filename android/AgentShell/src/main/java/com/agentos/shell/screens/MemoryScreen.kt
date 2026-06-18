@@ -104,6 +104,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 .background(if (saved) T.hairline else T.accent)
                 .clickable {
                     MemoryStore.setAbout(ctx, about.trim())
+                    com.agentos.shell.tools.AgentClient.bookingLink = MemoryStore.effectiveBookingLink(ctx)
                     saved = true
                 }
                 .padding(horizontal = 22.dp, vertical = 10.dp)

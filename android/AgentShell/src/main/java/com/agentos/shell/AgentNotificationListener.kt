@@ -50,7 +50,13 @@ class AgentNotificationListener : NotificationListenerService() {
 
         val extras = n.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        // EXTRA_TEXT is often a TRUNCATED preview for long messages — prefer the full BigText /
+        // TextLines so the agent sees the whole message and doesn't think it was cut off.
+        val short = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        val big = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.joinToString("\n") { it.toString() }.orEmpty()
+        val text = listOf(big, lines, short).maxByOrNull { it.length } ?: short
         if (title.isBlank() && text.isBlank()) return null
 
         val appLabel = try {

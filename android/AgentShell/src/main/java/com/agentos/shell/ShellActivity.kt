@@ -33,7 +33,7 @@ class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
-        com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.bookingLink(this)
+        com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))

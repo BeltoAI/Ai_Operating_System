@@ -21,6 +21,15 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    /** The booking link to actually use: the explicit field, else auto-detected from your About text. */
+    fun effectiveBookingLink(ctx: Context): String {
+        val explicit = bookingLink(ctx)
+        if (explicit.isNotBlank()) return explicit
+        val m = Regex("https?://(?:www\\.)?(?:calendly\\.com|cal\\.com|savvycal\\.com|app\\.usemotion\\.com|tidycal\\.com)/\\S+", RegexOption.IGNORE_CASE)
+            .find(about(ctx))
+        return m?.value?.trimEnd('.', ',', ')', ' ') ?: ""
+    }
+
     /** When true, the agent auto-replies to incoming messages (after a short undo window). */
     fun autonomous(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO, false)
     fun setAutonomous(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean(KEY_AUTO, value).apply()
