@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
-import com.agentos.shell.tools.ConversationStore
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.NotificationStore
 import kotlinx.coroutines.Dispatchers
@@ -36,23 +35,14 @@ fun NowScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         loading = true; digest = ""
         scope.launch {
             val mem = MemoryStore.about(ctx)
-            val now = System.currentTimeMillis()
-            val notifs = notes.filter { !it.isLikelyBot && it.text.isNotBlank() }
-                .map { "${it.app} · ${it.title}: ${it.text}".take(160) }
-            // Conversations whose LAST message is from them AND recent (≤3 days) = genuinely waiting.
-            val awaiting = withContext(Dispatchers.IO) {
-                ConversationStore.all(ctx).mapNotNull { (k, msgs) ->
-                    val last = msgs.lastOrNull() ?: return@mapNotNull null
-                    if (last.role != "them" || last.text.isBlank()) return@mapNotNull null
-                    if (now - last.time > 3L * 24 * 3600_000L) return@mapNotNull null
-                    val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
-                    val app = k.substringBefore("|")
-                    val hrs = ((now - last.time) / 3600_000L).toInt()
-                    val ago = if (hrs < 1) "just now" else if (hrs < 24) "${hrs}h ago" else "${hrs / 24}d ago"
-                    Triple(last.time, who, "$who ($app, $ago): \"${last.text.take(100)}\"")
-                }.sortedByDescending { it.first }.map { it.third }
-            }
-            digest = withContext(Dispatchers.IO) { AgentClient.catchUp(notifs, awaiting, mem) }
+            // Use the CURRENT notification tray — the freshest signal of what's actually pending.
+            // (Once you read/reply in the real app, the notification clears and drops off here.)
+            val snapshot = notes.toList()
+            val awaiting = snapshot.filter { it.isConversational && it.text.isNotBlank() }
+                .map { "${it.title.ifBlank { it.app }} (${it.app}): \"${it.text.take(120)}\"" }
+            val otherNotifs = snapshot.filter { !it.isConversational && !it.isLikelyBot && it.text.isNotBlank() }
+                .map { "${it.app}: ${it.text.take(120)}" }
+            digest = withContext(Dispatchers.IO) { AgentClient.catchUp(otherNotifs, awaiting, mem) }
             loading = false
         }
     }
