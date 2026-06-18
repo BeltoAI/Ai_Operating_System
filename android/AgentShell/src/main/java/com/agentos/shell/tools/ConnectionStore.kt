@@ -76,16 +76,33 @@ object ConnectionStore {
             .sortedBy { it.second }
     }
 
+    // General intent synonyms so ANY kind of ask matches — not just investors.
+    private val SYN = mapOf(
+        "vc" to listOf("venture", "capital", "ventures", "investor", "partner", "fund", "equity", "angel"),
+        "investor" to listOf("venture", "capital", "investor", "partner", "fund", "angel"),
+        "founder" to listOf("founder", "cofounder", "co-founder", "ceo", "owner"),
+        "engineer" to listOf("engineer", "developer", "software", "swe"),
+        "designer" to listOf("designer", "design", "ux", "ui"),
+        "sales" to listOf("sales", "account", "business development"),
+        "marketing" to listOf("marketing", "growth", "brand"),
+        "recruiter" to listOf("recruiter", "talent", "recruiting"),
+        "professor" to listOf("professor", "phd", "research", "lab", "university"),
+        "lawyer" to listOf("lawyer", "legal", "attorney", "counsel")
+    )
+
     /**
-     * Search your connections by name/company/role for the Memory Ask. Expands investor/VC synonyms
-     * so "interesting VCs" actually matches venture/capital/partner/fund roles.
+     * Search your connections by name / company / role for the Memory Ask — works for ANY query
+     * (people, companies, roles, schools…), with plural/singular stemming and light synonym boosts.
      */
     fun search(ctx: Context, query: String, limit: Int = 40): List<Conn> {
-        val q = query.lowercase()
-        val terms = q.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.toMutableSet()
-        if (listOf("vc", "vcs", "investor", "venture", "capital", "fund", "funding", "raise", "angel").any { q.contains(it) })
-            terms.addAll(listOf("venture", "capital", "ventures", "vc", "investor", "partner", "fund", "equity", "angel"))
-        if (terms.isEmpty()) return emptyList()
+        val raw = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 }
+        if (raw.isEmpty()) return emptyList()
+        val terms = HashSet<String>()
+        raw.forEach { w ->
+            terms.add(w)
+            if (w.endsWith("s") && w.length > 3) terms.add(w.dropLast(1)) else terms.add(w + "s")
+            SYN[w]?.let { terms.addAll(it) }
+        }
         return load(ctx).map { c ->
             val hay = (c.name + " " + c.company + " " + c.role).lowercase()
             c to terms.count { hay.contains(it) }

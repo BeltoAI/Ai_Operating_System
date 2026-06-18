@@ -1,10 +1,25 @@
 package com.agentos.shell.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowBack
@@ -69,51 +84,46 @@ fun Hairline() =
 @Composable
 fun BusyDog() {
     val active = com.agentos.shell.tools.Busy.active
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    var wasBusy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(active) {
+    val ctx = LocalContext.current
+    var wasBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(active) {
         val busyNow = active > 0
         if (wasBusy && !busyNow) {
             try {
                 val v = ctx.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
                 if (android.os.Build.VERSION.SDK_INT >= 26)
-                    v?.vibrate(android.os.VibrationEffect.createOneShot(18, 60))
-                else @Suppress("DEPRECATION") v?.vibrate(18)
+                    v?.vibrate(android.os.VibrationEffect.createOneShot(18L, 60))
+                else @Suppress("DEPRECATION") v?.vibrate(18L)
             } catch (e: Exception) {}
         }
         wasBusy = busyNow
     }
     if (active <= 0) return
 
-    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "dog")
-    val x by t.animateFloat(0f, 1f,
-        androidx.compose.animation.core.infiniteRepeatable(
-            androidx.compose.animation.core.tween(1100, easing = androidx.compose.animation.core.LinearEasing)),
-        label = "x")
-    val legUp by t.animateFloat(0f, 1f,
-        androidx.compose.animation.core.infiniteRepeatable(
-            androidx.compose.animation.core.tween(140), androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "leg")
+    val t = rememberInfiniteTransition(label = "dog")
+    val x by t.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "x"
+    )
+    val legUp by t.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "leg"
+    )
 
-    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(18.dp)) {
+    Canvas(Modifier.fillMaxWidth().height(18.dp)) {
         val p = 4f                                   // pixel size
-        val baseX = x * (size.width + 10 * p) - 10 * p
-        val gy = size.height - p                     // ground line
+        val baseX = x * (size.width + 10f * p) - 10f * p
+        val gy = size.height - p
         val ink = T.ink
-        fun px(cx: Float, cy: Float) = drawRect(ink, androidx.compose.ui.geometry.Offset(baseX + cx * p, cy * p), androidx.compose.ui.geometry.Size(p, p))
-        // body
+        fun px(cx: Float, cy: Float) = drawRect(ink, Offset(baseX + cx * p, cy * p), Size(p, p))
         for (bx in 0..4) px(bx.toFloat(), 1.5f)
         for (bx in 0..4) px(bx.toFloat(), 2.5f)
-        // head + snout
-        px(5f, 0.5f); px(5f, 1.5f); px(6f, 1.5f); px(5f, 2.5f)
-        // ear + tail
-        px(4.5f, 0.5f); px(-0.5f, 0.5f)
-        // legs (alternating)
+        px(5f, 0.5f); px(5f, 1.5f); px(6f, 1.5f); px(5f, 2.5f)   // head + snout
+        px(4.5f, 0.5f); px(-0.5f, 0.5f)                         // ear + tail
         val a = if (legUp > 0.5f) 0f else 0.6f
         val b = if (legUp > 0.5f) 0.6f else 0f
-        px(0.5f, 3.5f + a); px(4f, 3.5f + b)
-        // faint dust puff behind
-        drawCircle(ink.copy(alpha = 0.12f), p, androidx.compose.ui.geometry.Offset(baseX - p, gy))
+        px(0.5f, 3.5f + a); px(4f, 3.5f + b)                    // legs
+        drawCircle(ink.copy(alpha = 0.12f), p, Offset(baseX - p, gy))   // dust
     }
 }
 
