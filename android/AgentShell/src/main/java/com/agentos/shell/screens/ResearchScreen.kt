@@ -35,8 +35,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private const val CAP = 6
-private const val EXPAND_CAP = 80   // expansions are append-only chapters; allow many so papers can grow huge
+private const val CAP = 6   // daily Opus paper operations (new paper + each suggestion)
 
 // A clean, A4-proportioned print/screen stylesheet injected into every paper so content sits in a
 // readable column with real margins and never breaks across pages mid-element.
@@ -171,7 +170,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     // Step 1: ask Opus what to add/change. It SUGGESTS a fragment; nothing is committed yet.
     fun propose() {
         if (editPrompt.isBlank() || busy) return
-        if (UsageLimiter.remaining(ctx, "expand", EXPAND_CAP) <= 0) { status = "Daily limit reached ($EXPAND_CAP)."; return }
+        if (UsageLimiter.remaining(ctx, "paper", CAP) <= 0) { status = "Daily Opus limit reached ($CAP/$CAP). Resets tomorrow."; return }
         val instr = editPrompt; lastInstr = instr; busy = true; status = "Thinking it through…"; proposal = ""
         scope.launch {
             val mem = MemoryStore.about(ctx)
@@ -202,7 +201,10 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     proposal = frag; propKind = "add"; propLabel = "New chapter"
                 }
             }
-            busy = false; status = "Here's a suggestion — add it, or ask for changes."
+            // Each suggestion is a real Opus call → it counts against the daily cap.
+            UsageLimiter.use(ctx, "paper", CAP)
+            remaining = UsageLimiter.remaining(ctx, "paper", CAP)
+            busy = false; status = "Here's a suggestion — add it, or ask for changes. ($remaining/$CAP Opus left)"
         }
     }
 
@@ -215,7 +217,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             "edit" -> { html = html.substring(0, propStart) + frag.trim() + "\n" + html.substring(propEnd) }
             else -> { html = insertBeforeBodyEnd(html, frag) }
         }
-        UsageLimiter.use(ctx, "expand", EXPAND_CAP)
+        // No Opus call here — the suggestion was already generated (and metered) in propose().
         PaperStore.save(ctx, currentId, html)
         MetricsStore.record(ctx, MetricsStore.secondsFor(if (propKind == "add") "paper_expand" else "paper_edit"))
         MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
@@ -284,7 +286,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             if (mode == "library") onBack() else { PaperStore.list(ctx); papers = PaperStore.list(ctx); mode = "library" }
         }
         Spacer(Modifier.height(4.dp))
-        Text("Opus papers · $remaining/$CAP left today", fontSize = T.caption, color = T.inkFaint)
+        Text("Opus · $remaining/$CAP left today (new paper + each suggestion)", fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
 
         when (mode) {
