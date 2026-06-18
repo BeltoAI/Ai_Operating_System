@@ -72,8 +72,10 @@ class AgentNotificationListener : NotificationListenerService() {
         // DMs always carry a reply action, so they're never filtered.
         if (note.isLowValue && !note.canReply) return null
         NotificationStore.put(note)
-        // Record incoming messages per-conversation (only repliable = real messages).
-        if (note.canReply && text.isNotBlank())
+        // Record EVERY real incoming message into per-conversation memory (not just repliable ones),
+        // so comments/DMs from any app feed memory and the graph. Skip bots/digests/own echoes.
+        if (text.isNotBlank() && title.isNotBlank() && !note.isLikelyBot && !note.isLowValue
+            && !NotificationStore.isOwnEcho(note))
             com.agentos.shell.tools.ConversationStore.add(applicationContext, appLabel, title, "them", text)
         return note
     }
