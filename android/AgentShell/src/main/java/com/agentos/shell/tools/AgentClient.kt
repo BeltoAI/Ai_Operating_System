@@ -197,14 +197,18 @@ object AgentClient {
     fun catchUp(notifications: List<String>, awaiting: List<String>, memory: String = ""): String {
         if (notifications.isEmpty() && awaiting.isEmpty()) return "You're all caught up — nothing waiting. ✨"
         val sys = (if (memory.isNotBlank()) "About the person you're briefing: $memory. " else "") +
-            "You are SlyOS briefing the owner on what they missed. Write 2–4 short, friendly, plain-English " +
-            "lines on what actually matters. Then, on a NEW line starting with 'Text back: ', list the people " +
-            "who are genuinely waiting for a personal reply (names only, comma-separated) — skip bots, " +
-            "newsletters, and anything already handled. If nobody needs a reply, end with 'Text back: nobody right now.' " +
-            "No markdown, no bullet points."
+            "You are SlyOS giving the owner an accurate catch-up. Use ONLY the data provided below — do not " +
+            "invent senders, messages, or events, and do not generalize (never say things like 'updates from " +
+            "LinkedIn you may have missed'). Reference specific people and what they actually said. " +
+            "Write 1–3 short, plain-English lines summarizing what genuinely matters. Then a NEW line starting " +
+            "with 'Text back: ' naming ONLY people from the 'AWAITING YOUR REPLY' list who still need a personal " +
+            "response (comma-separated names). If that list is empty, write exactly 'Text back: nobody right now.' " +
+            "Never put someone in 'Text back' who isn't in the awaiting list. No markdown, no bullet points."
         val user = buildString {
-            if (notifications.isNotEmpty()) append("RECENT NOTIFICATIONS:\n").append(notifications.joinToString("\n")).append("\n\n")
-            if (awaiting.isNotEmpty()) append("CONVERSATIONS AWAITING YOUR REPLY:\n").append(awaiting.joinToString("\n"))
+            append("AWAITING YOUR REPLY (these people sent the last message and you haven't answered):\n")
+            append(if (awaiting.isEmpty()) "(none)" else awaiting.joinToString("\n"))
+            append("\n\nOTHER RECENT NOTIFICATIONS (context only — not necessarily needing a reply):\n")
+            append(if (notifications.isEmpty()) "(none)" else notifications.joinToString("\n"))
         }
         val (code, text) = callContent(sys, user, 600)
         return if (code == 200) text.trim() else "Couldn't build your catch-up ($code)."

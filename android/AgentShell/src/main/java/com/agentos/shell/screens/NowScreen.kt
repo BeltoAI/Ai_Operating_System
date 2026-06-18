@@ -36,17 +36,21 @@ fun NowScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         loading = true; digest = ""
         scope.launch {
             val mem = MemoryStore.about(ctx)
-            val notifs = notes.filter { !it.isLikelyBot }
+            val now = System.currentTimeMillis()
+            val notifs = notes.filter { !it.isLikelyBot && it.text.isNotBlank() }
                 .map { "${it.app} · ${it.title}: ${it.text}".take(160) }
-            // People whose last message is from THEM = waiting on you.
+            // Conversations whose LAST message is from them AND recent (≤3 days) = genuinely waiting.
             val awaiting = withContext(Dispatchers.IO) {
                 ConversationStore.all(ctx).mapNotNull { (k, msgs) ->
                     val last = msgs.lastOrNull() ?: return@mapNotNull null
-                    if (last.role != "them") return@mapNotNull null
+                    if (last.role != "them" || last.text.isBlank()) return@mapNotNull null
+                    if (now - last.time > 3L * 24 * 3600_000L) return@mapNotNull null
                     val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
                     val app = k.substringBefore("|")
-                    "$who ($app): \"${last.text.take(80)}\""
-                }
+                    val hrs = ((now - last.time) / 3600_000L).toInt()
+                    val ago = if (hrs < 1) "just now" else if (hrs < 24) "${hrs}h ago" else "${hrs / 24}d ago"
+                    Triple(last.time, who, "$who ($app, $ago): \"${last.text.take(100)}\"")
+                }.sortedByDescending { it.first }.map { it.third }
             }
             digest = withContext(Dispatchers.IO) { AgentClient.catchUp(notifs, awaiting, mem) }
             loading = false
