@@ -4,10 +4,14 @@ import android.content.Context
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 /**
- * Your LinkedIn network, imported from the official Connections.csv export. Lets SlyOS reach the
- * whole graph (not just people you've chatted with) and find who you've never actually messaged.
+ * Your LinkedIn network + message history, imported from the official data export. Lets SlyOS reach
+ * the whole graph (not just phone chats), know exactly who you've messaged and when, and find who
+ * you've never actually reached out to.
  */
 object ConnectionStore {
     data class Conn(
@@ -17,6 +21,7 @@ object ConnectionStore {
 
     private const val PREF = "slyos_connections"
     private const val KEY = "items"
+    private const val KEY_MSG = "contacted"   // name -> last-contacted epoch millis
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
     fun load(ctx: Context): List<Conn> = try {
@@ -40,77 +45,146 @@ object ConnectionStore {
     }
 
     fun count(ctx: Context): Int = load(ctx).size
-    fun clear(ctx: Context) = prefs(ctx).edit().remove(KEY).apply()
+    fun clear(ctx: Context) = prefs(ctx).edit().remove(KEY).remove(KEY_MSG).apply()
 
     fun markReachedOut(ctx: Context, name: String) =
         save(ctx, load(ctx).map { if (it.name == name) it.copy(reachedOut = true) else it })
 
-    /** Connections you have NOT messaged (not in conversation history) and not yet marked reached-out. */
+    // ---- contacted map (from messages.csv) ----
+    private fun contacted(ctx: Context): Map<String, Long> = try {
+        val o = JSONObject(prefs(ctx).getString(KEY_MSG, "{}"))
+        o.keys().asSequence().associateWith { o.getLong(it) }
+    } catch (e: Exception) { emptyMap() }
+
+    fun messagedCount(ctx: Context): Int = contacted(ctx).size
+
+    /** Connections you've NEVER messaged (per LinkedIn history + phone chats) and not marked done. */
     fun neverReachedOut(ctx: Context): List<Conn> {
-        val talkedTo = ConversationStore.all(ctx).keys
-            .map { it.substringAfter("|").lowercase().trim() }.filter { it.isNotBlank() }.toHashSet()
-        return load(ctx).filter { !it.reachedOut && !talkedTo.contains(it.name.lowercase().trim()) }
+        val talked = HashSet<String>()
+        ConversationStore.all(ctx).keys.forEach { talked.add(it.substringAfter("|").lowercase().trim()) }
+        contacted(ctx).keys.forEach { talked.add(it.lowercase().trim()) }
+        return load(ctx).filter { !it.reachedOut && !talked.contains(it.name.lowercase().trim()) }
+    }
+
+    /** Connections you HAVE messaged but not in over [days] days (from message history). */
+    fun staleConnections(ctx: Context, days: Int): List<Pair<Conn, Long>> {
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        val map = contacted(ctx)
+        val byName = load(ctx).associateBy { it.name.lowercase().trim() }
+        return map.entries.filter { it.value in 1 until cutoff }
+            .mapNotNull { e -> byName[e.key.lowercase().trim()]?.let { it to e.value } }
+            .sortedBy { it.second }
     }
 
     /**
-     * Import a connections CSV from ANY platform, tagged with [source].
-     * Handles LinkedIn's export (First Name, Last Name, URL, Company, Position, Connected On) AND any
-     * generic CSV with a "Name" column (plus optional Company/Title/Handle/URL). Appends to existing
-     * connections (so you can import LinkedIn, then X, then Instagram…). Returns number imported.
+     * Smart import: sniff a LinkedIn CSV (Connections / messages / Profile) and route it.
+     * Returns a human status string.
      */
-    fun importCsv(ctx: Context, uri: Uri, source: String = "LinkedIn"): Int {
+    fun importLinkedIn(ctx: Context, uri: Uri): String {
         val text = try {
-            ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: return 0
-        } catch (e: Exception) { return 0 }
-        val lines = text.split(Regex("\r?\n")).filter { it.isNotBlank() }
-        if (lines.isEmpty()) return 0
-        // Find the header row (skip LinkedIn's preamble); else assume the first line is the header.
-        val headerIdx = lines.indexOfFirst {
-            val l = it.lowercase()
-            (l.contains("first name") && l.contains("last name")) || l.contains("name")
-        }.let { if (it < 0) 0 else it }
-        val header = splitCsv(lines[headerIdx]).map { it.trim().lowercase() }
-        fun col(vararg names: String) = header.indexOfFirst { h -> names.any { h == it || h.contains(it) } }
-        val iFirst = col("first name"); val iLast = col("last name")
-        val iName = col("name", "full name", "display name")
-        val iUrl = col("url", "profile", "link"); val iHandle = col("handle", "username", "@")
-        val iCompany = col("company", "organization"); val iRole = col("position", "title", "role")
-        val iWhen = col("connected on", "date", "since")
-        val out = ArrayList<Conn>()
-        for (i in headerIdx + 1 until lines.size) {
-            val c = splitCsv(lines[i])
-            fun g(idx: Int) = if (idx >= 0 && idx in c.indices) c[idx].trim() else ""
-            val name = when {
-                iFirst >= 0 || iLast >= 0 -> (g(iFirst) + " " + g(iLast)).trim()
-                iName >= 0 -> g(iName)
-                else -> g(0)
-            }
-            if (name.isBlank() || name.equals("name", true)) continue
-            out.add(Conn(name, g(iCompany), g(iRole), g(iWhen), g(iUrl).ifBlank { g(iHandle) }, source))
+            ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: return "Couldn't open the file."
+        } catch (e: Exception) { return "Couldn't open the file." }
+        val rows = parseCsv(text)
+        if (rows.isEmpty()) return "Empty file."
+        val headerRow = rows.firstOrNull { r -> r.any { it.contains("First Name", true) || it.contains("CONVERSATION ID", true) || it.contains("Headline", true) } }
+            ?: return "Unrecognized CSV."
+        val hl = headerRow.joinToString(",").lowercase()
+        return when {
+            hl.contains("conversation id") -> importMessages(ctx, rows, headerRow)
+            hl.contains("headline") && hl.contains("summary") -> importProfile(ctx, rows, headerRow)
+            hl.contains("first name") -> importConnections(ctx, rows, headerRow)
+            else -> "Unrecognized LinkedIn CSV."
         }
-        if (out.isEmpty()) return 0
-        // Append, de-duping by name+source.
-        val existing = load(ctx)
-        val seen = existing.map { it.name.lowercase() + "|" + it.source.lowercase() }.toHashSet()
-        val merged = existing + out.filter { seen.add(it.name.lowercase() + "|" + it.source.lowercase()) }
-        save(ctx, merged)
-        return out.size
     }
 
-    /** Minimal CSV field splitter that respects double-quoted fields. */
-    private fun splitCsv(line: String): List<String> {
-        val res = ArrayList<String>(); val sb = StringBuilder(); var inQ = false; var i = 0
-        while (i < line.length) {
-            val ch = line[i]
+    private fun importConnections(ctx: Context, rows: List<List<String>>, header: List<String>): String {
+        val h = header.map { it.trim().lowercase() }
+        fun col(vararg n: String) = h.indexOfFirst { x -> n.any { x == it } }
+        val iF = col("first name"); val iL = col("last name"); val iU = col("url")
+        val iC = col("company"); val iR = col("position"); val iW = col("connected on")
+        val start = rows.indexOf(header) + 1
+        val out = ArrayList<Conn>()
+        for (i in start until rows.size) {
+            val c = rows[i]; fun g(idx: Int) = if (idx in c.indices) c[idx].trim() else ""
+            val name = (g(iF) + " " + g(iL)).trim()
+            if (name.isBlank()) continue
+            out.add(Conn(name, g(iC), g(iR), g(iW), g(iU), "LinkedIn"))
+        }
+        if (out.isEmpty()) return "No connections found."
+        val existing = load(ctx).filter { it.source != "LinkedIn" }   // replace LinkedIn set
+        save(ctx, existing + out)
+        return "Imported ${out.size} LinkedIn connections."
+    }
+
+    private fun importMessages(ctx: Context, rows: List<List<String>>, header: List<String>): String {
+        val h = header.map { it.trim().uppercase() }
+        val iFrom = h.indexOf("FROM"); val iTo = h.indexOf("TO"); val iDate = h.indexOf("DATE")
+        if (iFrom < 0 || iTo < 0) return "Couldn't read messages.csv."
+        val start = rows.indexOf(header) + 1
+        // Owner = the name appearing most often across FROM (you sent the most).
+        val freq = HashMap<String, Int>()
+        for (i in start until rows.size) {
+            val c = rows[i]; if (iFrom in c.indices) { val f = c[iFrom].trim(); if (f.isNotBlank()) freq[f] = (freq[f] ?: 0) + 1 }
+        }
+        val owner = freq.maxByOrNull { it.value }?.key ?: ""
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        val last = HashMap<String, Long>()
+        for (i in start until rows.size) {
+            val c = rows[i]
+            fun g(idx: Int) = if (idx in c.indices) c[idx].trim() else ""
+            val from = g(iFrom); val to = g(iTo)
+            val other = if (from.equals(owner, true)) to else from
+            if (other.isBlank() || other.equals(owner, true)) continue
+            val t = try { fmt.parse(g(iDate).replace(" UTC", ""))?.time ?: 0L } catch (e: Exception) { 0L }
+            val cur = last[other] ?: 0L
+            if (t > cur) last[other] = t
+        }
+        if (last.isEmpty()) return "No messages parsed."
+        val o = JSONObject(); last.forEach { (k, v) -> o.put(k, v) }
+        prefs(ctx).edit().putString(KEY_MSG, o.toString()).apply()
+        return "Imported message history for ${last.size} people."
+    }
+
+    private fun importProfile(ctx: Context, rows: List<List<String>>, header: List<String>): String {
+        val h = header.map { it.trim().lowercase() }
+        val iHead = h.indexOf("headline"); val iSum = h.indexOf("summary")
+        val iF = h.indexOf("first name"); val iL = h.indexOf("last name")
+        val data = rows.getOrNull(rows.indexOf(header) + 1) ?: return "No profile row."
+        fun g(idx: Int) = if (idx in data.indices) data[idx].trim() else ""
+        val name = (g(iF) + " " + g(iL)).trim()
+        val parts = listOfNotNull(
+            name.ifBlank { null }?.let { "My name is $it." },
+            g(iHead).ifBlank { null }?.let { "Headline: $it." },
+            g(iSum).ifBlank { null }
+        )
+        if (parts.isEmpty()) return "No profile details found."
+        val cur = MemoryStore.about(ctx)
+        val block = parts.joinToString(" ")
+        MemoryStore.setAbout(ctx, if (cur.isBlank()) block else "$cur\n\n$block")
+        return "Added your LinkedIn profile to your About/memory."
+    }
+
+    /** Robust CSV parser: handles quoted fields that contain commas AND newlines. */
+    private fun parseCsv(text: String): List<List<String>> {
+        val rows = ArrayList<List<String>>()
+        var row = ArrayList<String>(); val sb = StringBuilder(); var inQ = false; var i = 0
+        while (i < text.length) {
+            val ch = text[i]
             when {
-                ch == '"' && inQ && i + 1 < line.length && line[i + 1] == '"' -> { sb.append('"'); i++ }
+                ch == '"' && inQ && i + 1 < text.length && text[i + 1] == '"' -> { sb.append('"'); i++ }
                 ch == '"' -> inQ = !inQ
-                ch == ',' && !inQ -> { res.add(sb.toString()); sb.setLength(0) }
+                ch == ',' && !inQ -> { row.add(sb.toString()); sb.setLength(0) }
+                (ch == '\n' || ch == '\r') && !inQ -> {
+                    if (ch == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++
+                    row.add(sb.toString()); sb.setLength(0)
+                    if (row.any { it.isNotBlank() }) rows.add(row)
+                    row = ArrayList()
+                }
                 else -> sb.append(ch)
             }
             i++
         }
-        res.add(sb.toString())
-        return res
+        if (sb.isNotEmpty() || row.isNotEmpty()) { row.add(sb.toString()); if (row.any { it.isNotBlank() }) rows.add(row) }
+        return rows
     }
 }

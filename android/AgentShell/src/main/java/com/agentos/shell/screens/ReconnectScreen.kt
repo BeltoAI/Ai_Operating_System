@@ -4,11 +4,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -74,50 +72,45 @@ private fun QuietTab(ctx: android.content.Context) {
 @Composable
 private fun NetworkTab(ctx: android.content.Context) {
     var count by remember { mutableStateOf(ConnectionStore.count(ctx)) }
+    var messaged by remember { mutableStateOf(ConnectionStore.messagedCount(ctx)) }
     var never by remember { mutableStateOf(ConnectionStore.neverReachedOut(ctx)) }
-    var source by remember { mutableStateOf("LinkedIn") }
     var status by remember { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val n = ConnectionStore.importCsv(ctx, uri, source)
-            count = ConnectionStore.count(ctx); never = ConnectionStore.neverReachedOut(ctx)
-            status = if (n > 0) "Imported $n from $source." else "Couldn't read that CSV."
+            status = ConnectionStore.importLinkedIn(ctx, uri)
+            count = ConnectionStore.count(ctx); messaged = ConnectionStore.messagedCount(ctx)
+            never = ConnectionStore.neverReachedOut(ctx)
         }
     }
 
-    Text("Import your connections (e.g. LinkedIn ▸ Settings ▸ Data privacy ▸ Get a copy of your data ▸ " +
-        "Connections). SlyOS finds who you've never messaged and proposes an opener.",
+    Text("Import your LinkedIn data export (Settings ▸ Data privacy ▸ Get a copy of your data). " +
+        "Import Connections, messages, and Profile — SlyOS detects each. It then finds who you've " +
+        "never messaged and proposes an opener.",
         fontSize = T.small, color = T.inkFaint)
     Spacer(Modifier.height(8.dp))
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-        listOf("LinkedIn", "X", "Instagram", "Other").forEach { s ->
-            val sel = source == s
-            Text(s, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
-                    .background(if (sel) T.accent else T.hairline).clickable { source = s }
-                    .padding(horizontal = 10.dp, vertical = 6.dp))
-        }
-    }
-    Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Import $source CSV", fontSize = T.small, color = T.bgElevated,
+        Text("Import LinkedIn CSV", fontSize = T.small, color = T.bgElevated,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                 .clickable { picker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "*/*")) }
                 .padding(horizontal = 16.dp, vertical = 9.dp))
         if (count > 0) {
             Spacer(Modifier.width(12.dp))
-            Text("Clear ($count)", fontSize = T.small, color = T.danger,
-                modifier = Modifier.clickable { ConnectionStore.clear(ctx); count = 0; never = emptyList(); status = "" })
+            Text("Clear", fontSize = T.small, color = T.danger,
+                modifier = Modifier.clickable { ConnectionStore.clear(ctx); count = 0; messaged = 0; never = emptyList(); status = "" })
         }
     }
     if (status.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(status, fontSize = T.caption, color = T.accent) }
+    if (count > 0) {
+        Spacer(Modifier.height(4.dp))
+        Text("$count connections · messaged $messaged · ${never.size} never reached", fontSize = T.caption, color = T.inkFaint)
+    }
     Spacer(Modifier.height(10.dp))
 
     if (count == 0) {
         Text("No network imported yet.", fontSize = T.small, color = T.inkFaint)
         return
     }
-    Text("NEVER REACHED OUT · ${never.size}", fontSize = T.caption, color = T.inkFaint)
+    Text("NEVER REACHED OUT", fontSize = T.caption, color = T.inkFaint)
     Spacer(Modifier.height(6.dp))
     LazyColumn {
         items(never.take(25), key = { it.name + "|" + it.source }) { c ->
