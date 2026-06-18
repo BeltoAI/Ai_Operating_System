@@ -83,11 +83,14 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val recall = if (com.agentos.shell.tools.MemoryStore.recallEnabled(ctx))
                 com.agentos.shell.tools.InteractionStore.search(ctx, query, 40)
                     .map { "Seen in ${it.app}: ${it.text}" } else emptyList()
+            // Pull relevant people from the imported network so questions like "interesting VCs" work.
+            val conns = com.agentos.shell.tools.ConnectionStore.search(ctx, query, 40)
+                .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") }
             val corpus = MemoryGraphStore.memoryLines() +
                 com.agentos.shell.tools.ConversationStore.all(ctx).flatMap { (k, msgs) ->
                     val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
                     msgs.map { (if (it.role == "me") "You to $who" else who) + ": " + it.text }
-                } + recall
+                } + recall + conns
             val a = withContext(Dispatchers.IO) { AgentClient.askMemory(query, corpus) }
             answer = a
             // Light up the "synapse path": the memories most related to the question + answer.

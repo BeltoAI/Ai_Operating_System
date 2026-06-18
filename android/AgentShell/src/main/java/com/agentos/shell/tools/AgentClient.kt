@@ -94,6 +94,7 @@ object AgentClient {
         if (tools != null) obj.put("tools", tools)
         val payload = obj.toString()
 
+        Busy.start()   // drives the global "generating" animation; every model call is covered here
         return try {
             val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -123,6 +124,8 @@ object AgentClient {
             200 to sb.toString()
         } catch (e: Exception) {
             -1 to (e.message ?: "network error")
+        } finally {
+            Busy.end()
         }
     }
 
@@ -555,10 +558,13 @@ object AgentClient {
     /** Natural-language Q&A over the user's memories. Returns an answer. */
     fun askMemory(query: String, memories: List<String>): String {
         if (memories.isEmpty()) return "Your memory is empty so far — as you chat, reply, and learn, it fills up."
-        val sys = "You are SlyOS memory. Answer the user's question using ONLY the memories below. " +
-            "Be concise and specific; quote names/times when present. If the answer isn't in them, say you don't have it yet.\n" +
+        val sys = "You are SlyOS memory. Answer the user's question grounded in the memories below — you " +
+            "MAY reason over, filter, group, and RANK them to give a direct, helpful answer (e.g. 'which VCs " +
+            "are most relevant' → pick and order the best-fitting people from the list and say why in a few words " +
+            "each). Be specific; quote names, companies, roles. Only claim facts present in the memories; if there's " +
+            "genuinely nothing relevant, say so. Give a straight answer, not a disclaimer.\n" +
             "MEMORIES:\n" + memories.joinToString("\n")
-        val (code, text) = call(sys, query)
+        val (code, text) = callContent(sys, query, 900)
         return if (code == 200) text.trim() else "Couldn't search memory ($code)."
     }
 

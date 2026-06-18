@@ -77,6 +77,22 @@ object ConnectionStore {
     }
 
     /**
+     * Search your connections by name/company/role for the Memory Ask. Expands investor/VC synonyms
+     * so "interesting VCs" actually matches venture/capital/partner/fund roles.
+     */
+    fun search(ctx: Context, query: String, limit: Int = 40): List<Conn> {
+        val q = query.lowercase()
+        val terms = q.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.toMutableSet()
+        if (listOf("vc", "vcs", "investor", "venture", "capital", "fund", "funding", "raise", "angel").any { q.contains(it) })
+            terms.addAll(listOf("venture", "capital", "ventures", "vc", "investor", "partner", "fund", "equity", "angel"))
+        if (terms.isEmpty()) return emptyList()
+        return load(ctx).map { c ->
+            val hay = (c.name + " " + c.company + " " + c.role).lowercase()
+            c to terms.count { hay.contains(it) }
+        }.filter { it.second > 0 }.sortedByDescending { it.second }.take(limit).map { it.first }
+    }
+
+    /**
      * Smart import: sniff a LinkedIn CSV (Connections / messages / Profile) and route it.
      * Returns a human status string.
      */

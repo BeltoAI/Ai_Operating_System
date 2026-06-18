@@ -67,6 +67,7 @@ class ShellActivity : ComponentActivity() {
                 Screen.Research, Screen.Apps, Screen.People, Screen.Checklist, Screen.Manual
             )
             Surface(Modifier.fillMaxSize(), color = T.bg) {
+              androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
               Column(Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = screen,
@@ -120,6 +121,8 @@ class ShellActivity : ComponentActivity() {
                         }
                     }
                 }
+              }
+              BusyDog()   // non-blocking "generating" animation, app-wide
               }
             }
         }
