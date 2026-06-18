@@ -178,7 +178,7 @@ fun ReplyCard(note: NotificationStore.Note) {
             }
             // No inline reply box (most LinkedIn/IG/X comments & DMs) → draft a detailed reply you
             // can copy and paste after opening the app. Lets you reply to ANY message or comment.
-            !note.canReply && !note.isEmail && !note.isLikelyBot && note.text.isNotBlank() && !approving -> {
+            !note.canReply && !note.isEmail && note.isConversational && note.text.isNotBlank() && !approving -> {
                 Text(
                     if (busy) "drafting…" else "✦ draft a reply",
                     fontSize = T.small, color = T.accent,

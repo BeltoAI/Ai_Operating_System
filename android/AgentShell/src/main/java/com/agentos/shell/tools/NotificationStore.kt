@@ -45,6 +45,20 @@ object NotificationStore {
          * ("see updates you missed", "people you may know", "X is hiring", trending, etc.).
          * These are pure noise — we keep them out of the feed.
          */
+        /**
+         * Is this an actual human message/comment we should offer to reply to — on ANY platform?
+         * True when it has a reply box, comes from a known messaging/social app, or reads like a
+         * message/comment/mention. False for transactional/system noise (orders, banks, rides, news).
+         */
+        val isConversational: Boolean get() {
+            if (isLikelyBot || isLowValue) return false
+            if (canReply) return true
+            if (pkg in MESSAGING_PKGS) return true
+            val s = "$title $text".lowercase()
+            return listOf("message", "messaged", "sent you", "sent a", "texted", "replied", "reply",
+                "comment", "commented", "mentioned", "mention", "tagged", "wants to", "shared a",
+                "dm", "direct message", "@you", "posted", "reacted").any { s.contains(it) }
+        }
         val isLowValue: Boolean get() {
             val s = "$title $text".lowercase()
             // Only UNAMBIGUOUS digest/promo phrases — things a real person would never text you.
@@ -63,6 +77,17 @@ object NotificationStore {
             return !real && baits.any { s.contains(it) }
         }
     }
+
+    // Known messaging + social apps — anything from these is treated as conversational.
+    private val MESSAGING_PKGS = setOf(
+        "com.whatsapp", "com.whatsapp.w4b", "com.facebook.orca", "com.facebook.mlite",
+        "com.instagram.android", "org.telegram.messenger", "org.telegram.messenger.web",
+        "org.thoughtcrime.securesms", "com.google.android.apps.messaging", "com.samsung.android.messaging",
+        "com.twitter.android", "com.x.android", "com.snapchat.android", "com.discord", "com.Slack",
+        "com.reddit.frontpage", "com.linkedin.android", "com.zhiliaoapp.musically", "com.tencent.mm",
+        "com.viber.voip", "jp.naver.line.android", "com.microsoft.teams", "com.skype.raider",
+        "com.kakao.talk", "com.groupme.android"
+    )
 
     val notes = mutableStateListOf<Note>()
 
