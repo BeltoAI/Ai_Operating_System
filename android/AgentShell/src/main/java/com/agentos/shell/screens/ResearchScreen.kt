@@ -64,6 +64,19 @@ mjx-container { overflow-x:auto; max-width:100%; }
 </style>
 """
 
+/** Briefly highlight + scroll to the freshly-added text (the #slyosnew marker), then fade it out. */
+private fun injectHighlight(html: String): String {
+    val inject = """
+<style>#slyosnew{background:#FCE7DA;border-left:3px solid #E8642C;padding:6px 0 6px 12px;border-radius:6px;
+  transition:background 1.4s ease,border-color 1.4s ease;}</style>
+<script>setTimeout(function(){var e=document.getElementById('slyosnew');if(e){
+  e.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(function(){e.style.background='transparent';e.style.borderColor='transparent';},3800);}},450);</script>
+"""
+    val idx = html.lastIndexOf("</body>", ignoreCase = true)
+    return if (idx >= 0) html.substring(0, idx) + inject + html.substring(idx) else html + inject
+}
+
 /** Make sure the paper's <head> carries our print CSS (idempotent — replaces any prior copy). */
 private fun ensureStyle(html: String): String {
     val h = Regex("(?is)<style id=\"slyos-print\">.*?</style>").replace(html, "")
@@ -92,6 +105,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var propStart by remember { mutableStateOf(0) }
     var propEnd by remember { mutableStateOf(0) }
     var showPaper by remember { mutableStateOf(false) } // full paper hidden by default
+    var pendingHighlight by remember { mutableStateOf(false) }
     val web = true   // Opus ALWAYS researches the web + cites sources
     var useDoc by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
@@ -210,21 +224,33 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         }
     }
 
-    // Step 2: you approve → splice it into the paper (in place, nothing else touched).
+    // Step 2: you approve → splice it into the paper (in place, nothing else touched), then jump to
+    // the paper with the new text highlighted + scrolled into view, and say exactly what changed.
     fun commit() {
         if (proposal.isBlank() || busy) return
-        val frag = proposal
+        val frag = proposal.trim()
+        val headingTxt = Regex("(?is)<h[1-4][^>]*>(.*?)</h[1-4]>").find(frag)
+            ?.groupValues?.get(1)?.replace(Regex("<[^>]+>"), " ")?.trim()
+        val words = frag.replace(Regex("<[^>]+>"), " ").split(Regex("\\s+")).count { it.isNotBlank() }
+        // Demote any previous highlight marker so only the newest change glows.
+        html = html.replace("id=\"slyosnew\"", "id=\"slyosold\"")
         when (propKind) {
-            "intro" -> { val end = frontMatterEnd(html); html = frag.trim() + "\n" + html.substring(end) }
-            "edit" -> { html = html.substring(0, propStart) + frag.trim() + "\n" + html.substring(propEnd) }
-            else -> { html = insertBeforeBodyEnd(html, frag) }
+            "intro" -> { val end = frontMatterEnd(html); html = frag + "\n" + html.substring(end) }
+            "edit" -> { html = html.substring(0, propStart) + "<div id=\"slyosnew\">$frag</div>\n" + html.substring(propEnd) }
+            else -> { html = insertBeforeBodyEnd(html, "<div id=\"slyosnew\">$frag</div>") }
         }
-        // No Opus call here — the suggestion was already generated (and metered) in propose().
         PaperStore.save(ctx, currentId, html)
         MetricsStore.record(ctx, MetricsStore.secondsFor(if (propKind == "add") "paper_expand" else "paper_edit"))
         MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
         papers = PaperStore.list(ctx)
-        proposal = ""; editPrompt = ""; status = "Added ✓ — tap View paper to review."
+        status = when (propKind) {
+            "add" -> "✓ Added new chapter “${headingTxt ?: "section"}” (~$words words) at the end — highlighted below."
+            "intro" -> "✓ Revised the title / abstract / intro — shown below."
+            else -> "✓ Updated “$propLabel” (~$words words) — highlighted below."
+        }
+        proposal = ""; editPrompt = ""
+        pendingHighlight = (propKind != "intro")
+        showPaper = true   // jump to the paper so you see the change immediately
     }
     fun discard() { proposal = ""; status = "Discarded." }
     fun exportPdf() {
@@ -356,7 +382,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
 
                 if (showPaper) {
                     // Full paper preview + export tools (styled with the clean print CSS).
-                    val styled = remember(html) { ensureStyle(html) }
+                    val styled = remember(html, pendingHighlight) {
+                        val s = ensureStyle(html); if (pendingHighlight) injectHighlight(s) else s
+                    }
+                    // Highlight glows briefly, then stop re-triggering on later renders.
+                    LaunchedEffect(pendingHighlight) {
+                        if (pendingHighlight) { kotlinx.coroutines.delay(5000); pendingHighlight = false }
+                    }
                     AndroidView(
                         modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
                         factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true; webRef = this
