@@ -47,19 +47,19 @@ object NotificationStore {
          */
         val isLowValue: Boolean get() {
             val s = "$title $text".lowercase()
+            // Only UNAMBIGUOUS digest/promo phrases — things a real person would never text you.
             val baits = listOf(
-                "you may have missed", "updates you missed", "missed notification", "new notification",
-                "people you may know", "you may know", "is hiring", "are hiring", "trending",
-                "suggested for you", "recommended for you", "viewed your profile", "views on your",
-                "work anniversary", "celebrate", "congratulate", "in your network", "back to",
-                "haven't seen you", "we miss you", "come back", "don't miss", "see what",
-                "new posts", "stories for you", "reels for you", "top posts", "daily digest",
-                "weekly digest", "what you missed", "catch up on", "now on", "just joined",
-                "started following you", "suggested", "promotion", "% off", "sale", "limited time"
+                "you may have missed", "updates you missed", "notifications you missed",
+                "missed notifications", "new notifications from", "people you may know",
+                "suggested for you", "recommended for you", "viewed your profile",
+                "profile views", "work anniversary", "is hiring", "are hiring",
+                "in your network", "daily digest", "weekly digest", "what you missed this",
+                "started following you", "stories for you", "reels for you",
+                "trending in your", "new connections", "people you may want to follow"
             )
-            // Never treat a direct message or a reply/mention as low-value.
+            // Never treat a direct message / reply / mention / comment as low-value.
             val real = listOf("message", "messaged", "sent you", "replied", "comment", "commented",
-                "mentioned", "tagged you", "wants to").any { s.contains(it) }
+                "mentioned", "tagged you", "wants to", "shared", "voice", "photo").any { s.contains(it) }
             return !real && baits.any { s.contains(it) }
         }
     }
