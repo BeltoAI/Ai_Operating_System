@@ -51,4 +51,32 @@ object PaperStore {
         file(ctx, id).delete()
         writeIndex(ctx, list(ctx).filterNot { it.id == id })
     }
+
+    private fun stripHtml(h: String): String = h
+        .replace(Regex("(?is)<script.*?</script>"), " ")
+        .replace(Regex("(?is)<style.*?</style>"), " ")
+        .replace(Regex("<[^>]+>"), " ")
+        .replace(Regex("\\s+"), " ").trim()
+
+    /**
+     * Relevant context drawn from your OTHER papers — this is how one paper can build on another
+     * through the brain. Returns excerpts most related to [query], excluding the current paper.
+     */
+    fun libraryContext(ctx: Context, excludeId: Long, query: String, maxChars: Int = 3500): String {
+        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 3 }
+        val out = StringBuilder()
+        for (p in list(ctx)) {
+            if (p.id == excludeId) continue
+            val text = stripHtml(html(ctx, p.id))
+            if (text.length < 40) continue
+            val low = text.lowercase()
+            val hit = terms.firstNotNullOfOrNull { t -> low.indexOf(t).takeIf { it >= 0 } }
+            val snippet = if (hit != null)
+                text.substring((hit - 200).coerceAtLeast(0), (hit + 500).coerceAtMost(text.length))
+            else text.take(350)
+            out.append("From your paper “${p.title}”: ").append(snippet.trim()).append("\n\n")
+            if (out.length > maxChars) break
+        }
+        return out.toString().take(maxChars)
+    }
 }

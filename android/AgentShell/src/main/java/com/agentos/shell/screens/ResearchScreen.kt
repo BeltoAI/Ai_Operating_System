@@ -92,7 +92,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var propStart by remember { mutableStateOf(0) }
     var propEnd by remember { mutableStateOf(0) }
     var showPaper by remember { mutableStateOf(false) } // full paper hidden by default
-    var web by remember { mutableStateOf(false) }
+    val web = true   // Opus ALWAYS researches the web + cites sources
     var useDoc by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -112,11 +112,12 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     fun generate() {
         if (prompt.isBlank() || busy) return
         if (UsageLimiter.remaining(ctx, "paper", CAP) <= 0) { status = "Daily limit reached ($CAP/$CAP). Resets tomorrow."; return }
-        busy = true; status = if (web) "Opus is researching the web + writing…" else "Opus is writing…"
+        busy = true; status = "Opus is researching the web + writing…"
         scope.launch {
             val source = if (useDoc && KnowledgeStore.hasDoc(ctx)) KnowledgeStore.retrieve(ctx, prompt, 12000) else ""
             val mem = MemoryStore.about(ctx)
-            val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem) }
+            val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, 0L, prompt) }
+            val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem, lib) }
             if (out.startsWith("ERR::")) { status = errText(out); busy = false; return@launch }
             UsageLimiter.use(ctx, "paper", CAP)
             val newTitle = titleOf(out, prompt)
@@ -196,7 +197,8 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     proposal = frag; propKind = "edit"; propLabel = chap.heading; propStart = chap.start; propEnd = chap.end
                 }
                 else -> {
-                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem) }
+                    val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, currentId, instr) }
+                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib) }
                     if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
                     proposal = frag; propKind = "add"; propLabel = "New chapter"
                 }
@@ -324,10 +326,8 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     decorationBox = { inner -> if (prompt.isEmpty()) Text("What should the paper be about? Topic, angle, scope…", fontSize = T.small, color = T.inkFaint); inner() }
                 )
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { web = !web }) {
-                    Text(if (web) "☑" else "☐", fontSize = T.body, color = T.accent)
-                    Spacer(Modifier.width(8.dp)); Text("Research the web & cite sources", fontSize = T.small, color = T.inkSoft)
-                }
+                Text("🌐 Always researches the web & cites real sources · draws on your other papers via the brain",
+                    fontSize = T.caption, color = T.inkFaint)
                 if (KnowledgeStore.hasDoc(ctx)) {
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useDoc = !useDoc }) {

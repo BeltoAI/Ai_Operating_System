@@ -372,7 +372,7 @@ object AgentClient {
     }
 
     /** Write a research/white paper (Opus). Returns HTML, or "ERR::code::body" on failure. */
-    fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = ""): String {
+    fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = "", library: String = ""): String {
         val src = if (web) source.take(2500) else source.take(12000)
         val sys = "You are an expert research writer. Write a rigorous, well-structured white paper / " +
             "research paper IN THE USER'S NAME on their topic. Output a COMPLETE self-contained HTML " +
@@ -386,6 +386,8 @@ object AgentClient {
             (if (memory.isNotBlank()) "About the author (reflect their context/voice): $memory. " else "") +
             (if (web) "Use web search to find current, real sources and CITE them with links in the references. " else "") +
             (if (src.isNotBlank()) "Also ground it in this source material:\n$src\n" else "") +
+            (if (library.isNotBlank()) "Draw on the author's OWN earlier papers for consistency and to build on " +
+                "their prior work where relevant (don't copy verbatim):\n$library\n" else "") +
             "Return ONLY the HTML document."
         val (code, text) = paperCall(sys, prompt, web)
         return if (code == 200) cleanHtml(text) else "ERR::$code::${text.take(400)}"
@@ -408,7 +410,7 @@ object AgentClient {
      * each call appends ~several pages instead of regenerating (and truncating) the whole doc.
      * Returns an HTML fragment (no <html>/<head>/<body>), or "ERR::code::body".
      */
-    fun expandPaper(title: String, outline: String, instruction: String, web: Boolean = false, memory: String = ""): String {
+    fun expandPaper(title: String, outline: String, instruction: String, web: Boolean = false, memory: String = "", library: String = ""): String {
         val sys = "You are extending an existing academic paper titled \"$title\". " +
             "Write the NEXT chapter/section the user asks for — substantial and rigorous (aim for several " +
             "pages: multiple subsections, detailed prose, examples, and equations where useful). " +
@@ -419,6 +421,7 @@ object AgentClient {
             "Render math with MathJax syntax \\( inline \\) and $$ display $$. " +
             (if (memory.isNotBlank()) "About the author (match their voice): $memory. " else "") +
             (if (web) "Use web search for real, current sources and cite them inline as needed. " else "") +
+            (if (library.isNotBlank()) "Build on the author's OWN other papers where relevant:\n$library\n" else "") +
             "EXISTING OUTLINE (headings so far):\n$outline\n"
         val (code, text) = paperCall(sys, "Add this next: $instruction", web)
         if (code != 200) return "ERR::$code::${text.take(400)}"
