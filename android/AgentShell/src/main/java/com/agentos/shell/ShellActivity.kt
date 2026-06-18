@@ -91,7 +91,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
                         Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings })
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
-                        Screen.Apps   -> AppsScreen(m) { screen = Screen.Home }
+                        Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
                         Screen.Research -> ResearchScreen(m, researchTopic) { researchTopic = ""; screen = Screen.Home }

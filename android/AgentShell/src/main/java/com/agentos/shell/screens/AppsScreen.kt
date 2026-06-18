@@ -15,12 +15,16 @@ import com.agentos.shell.tools.ToolRouter
 
 /** Full app reachability — you can always get to every installed app from here. */
 @Composable
-fun AppsScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
+fun AppsScreen(modifier: Modifier = Modifier, onManual: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val apps = remember { ToolRouter.installedApps(ctx) }
     Column(modifier) {
         ScreenHeader("Apps", onBack)
         Spacer(Modifier.height(12.dp))
+        Text("⏸ Manual mode — pause the agent", fontSize = T.small, color = T.inkSoft,
+            modifier = Modifier.fillMaxWidth().clickable { onManual() }.padding(vertical = 10.dp))
+        Hairline()
+        Spacer(Modifier.height(6.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(apps) { app ->
                 Text(

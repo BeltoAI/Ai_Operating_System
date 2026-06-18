@@ -451,25 +451,63 @@ object AgentClient {
         return frag
     }
 
-    /** The Architect (Opus 4.8): turn a prompt into a self-contained mini-app. Returns (name, html). */
-    fun architect(prompt: String): Pair<String, String> {
-        val sys = "You are the SlyOS Architect. The user describes an app or tool to add to their phone OS. " +
-            "Build it as ONE self-contained HTML document — inline CSS and JS only, absolutely no external URLs, " +
-            "fonts, or libraries (it runs offline in a WebView). Make it genuinely functional, not a mockup. " +
-            "Match SlyOS style: warm ivory background #F4EFE6, near-black text #1A1714, one orange accent #E8642C, " +
-            "rounded corners, generous whitespace, Apple-like minimalism, system sans-serif. " +
-            "OUTPUT FORMAT: first line = a short app name (2-4 words), then a line with only ---, then the full HTML document."
-        val (code, text) = callMessages(
-            sys, JSONArray().put(JSONObject().put("role", "user").put("content", prompt)), 4000, OPUS
-        )
+    /** Shared Architect brief: design rules + the SlyOS bridge API available to every mini-app. */
+    private fun architectSys(): String =
+        "You are the SlyOS Architect. Build a genuinely USEFUL app as ONE self-contained HTML document — " +
+        "inline CSS and JS only, no external URLs/fonts/libraries (runs offline in a WebView). Not a mockup: " +
+        "real, working functionality with sensible defaults and empty states.\n" +
+        "LAYOUT (must stay inside the phone frame — apps currently overflow, fix that): include " +
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">; use " +
+        "* { box-sizing:border-box } and html,body { margin:0; width:100%; max-width:100%; overflow-x:hidden }; " +
+        "size everything in %/vw/rem, never fixed px widths; wrap long text; make it responsive to a narrow screen.\n" +
+        "STYLE: warm ivory #F4EFE6 background, near-black #1A1714 text, ONE orange accent #E8642C, rounded corners, " +
+        "generous padding, Apple-like minimalism, system sans-serif, comfortable tap targets (min 40px high).\n" +
+        "SLYOS BRIDGE (already injected — use it to make the app smart and persistent; never redefine it):\n" +
+        "• SlyOS.save(key, value)  — persist data (value can be an object; it's auto-JSON'd).\n" +
+        "• SlyOS.load(key)  — returns the saved value (parsed) or null. Load on startup to restore state.\n" +
+        "• SlyOS.memory()  — returns the user's profile/notes string (who they are). Personalize with it.\n" +
+        "• SlyOS.remember(fact)  — write a durable note back into the user's brain/memory graph.\n" +
+        "• await SlyOS.ask(prompt)  — returns an AI text answer (Promise). Use for any intelligence: " +
+        "summarize, classify, generate, advise. For structured data, ask it to 'reply ONLY with JSON' and JSON.parse.\n" +
+        "Prefer apps that actually use save/load (so data survives) and ask/memory (so they're intelligent and personal).\n" +
+        "OUTPUT FORMAT: first line = a short app name (2-4 words), then a line with only ---, then the full HTML document."
+
+    private fun parseArchitect(code: Int, text: String): Pair<String, String> {
         if (code != 200) return "Build failed" to "<body style='font-family:sans-serif;padding:20px'><h3>Couldn't build ($code)</h3><p>$text</p></body>"
         val idx = text.indexOf("---")
         val name = (if (idx > 0) text.substring(0, idx) else "New app").trim().take(40).ifBlank { "New app" }
         var html = (if (idx > 0) text.substring(idx + 3) else text).trim()
         if (html.startsWith("```")) html = html.substringAfter('\n', html).trim()
         if (html.endsWith("```")) html = html.removeSuffix("```").trim()
+        return name to html
+    }
+
+    /** The Architect (Opus 4.8): turn a prompt into a self-contained, bridge-powered mini-app. */
+    fun architect(prompt: String): Pair<String, String> {
+        val (code, text) = callMessages(
+            architectSys(), JSONArray().put(JSONObject().put("role", "user").put("content", prompt)), 8000, OPUS, 240000
+        )
+        val (name, html) = parseArchitect(code, text)
         Log.i("SlyOS", "architect name='$name' htmlLen=${html.length}")
         return name to html
+    }
+
+    /** Refine an existing mini-app per an instruction, keeping it self-contained + bridge-powered. */
+    fun reviseApp(currentHtml: String, instruction: String): Pair<String, String> {
+        val sys = architectSys() + "\nYou are REVISING an existing app. Apply the instruction, keep everything that " +
+            "still works (including any SlyOS.save/load data usage), and return the COMPLETE updated document."
+        val user = "INSTRUCTION: $instruction\n\nCURRENT APP HTML:\n${currentHtml.take(40000)}"
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 8000, OPUS, 240000)
+        return parseArchitect(code, text)
+    }
+
+    /** Backing AI call for a mini-app's SlyOS.ask(). Concise, returns plain text (or JSON if asked). */
+    fun appAsk(prompt: String, memory: String = ""): String {
+        val sys = (if (memory.isNotBlank()) "User context (use if relevant): $memory. " else "") +
+            "You are the intelligence inside a small app the user built. Answer the request directly and concisely. " +
+            "If the app asks for JSON, return ONLY valid JSON with no prose or code fences."
+        val (code, text) = callContent(sys, prompt, 1200)
+        return if (code == 200) text.trim() else "Sorry, I couldn't process that."
     }
 
     /** Conversational reply for the Telegram bot (uses the document if relevant). */

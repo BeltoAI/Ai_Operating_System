@@ -93,15 +93,24 @@ fun ReplyCard(note: NotificationStore.Note) {
     var eventBusy by remember { mutableStateOf(false) }
     var eventStatus by remember { mutableStateOf("") }
 
-    // Human emails: auto-generate a reply draft (never auto-sent) the moment the card appears.
+    // Auto-propose a reply (never auto-sent) the moment the card appears, for things you'd reply to
+    // by hand: human emails, and comments/DMs with no inline reply box (LinkedIn, IG, X, Reddit…).
     val isHumanEmail = note.isEmail && !note.isLikelyBot && note.text.isNotBlank()
+    val autoProposable = isHumanEmail ||
+        (note.isConversational && !note.canReply && !note.isEmail && note.text.isNotBlank())
     LaunchedEffect(note.key) {
-        if (isHumanEmail && draft.isEmpty() && sent.isEmpty()) {
+        if (autoProposable && draft.isEmpty() && sent.isEmpty()) {
             busy = true
-            val memory = MemoryStore.about(ctx)
             val d = withContext(Dispatchers.IO) {
-                val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
-                AgentClient.draftEmailReply(note.title, note.text, doc, memory)
+                if (note.isEmail) {
+                    val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
+                    AgentClient.draftEmailReply(note.title, note.text, doc, MemoryStore.about(ctx))
+                } else {
+                    val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
+                    val thread = com.agentos.shell.tools.ConversationStore.thread(ctx, note.app, note.title)
+                        .joinToString("\n") { (if (it.role == "me") "you" else note.title.ifBlank { note.app }) + ": " + it.text }
+                    AgentClient.draftReplyDetailed(note.title.ifBlank { note.app }, note.text, thread, mem)
+                }
             }
             if (!d.startsWith("[couldn't")) { draft = d; approving = true }
             busy = false

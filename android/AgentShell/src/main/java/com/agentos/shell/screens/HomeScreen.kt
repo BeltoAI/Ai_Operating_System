@@ -442,14 +442,6 @@ fun HomeScreen(
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Text(
-                if (paused) "▶ Resume agent" else "⏸ Manual mode",
-                fontSize = T.caption, color = T.inkFaint,
-                modifier = Modifier.clickable { onManual() }.padding(6.dp)
-            )
-        }
     }
 
     if (showAdd) {

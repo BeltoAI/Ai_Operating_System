@@ -34,4 +34,15 @@ object AppStore {
 
     fun get(ctx: Context, id: Long): MiniApp? = load(ctx).firstOrNull { it.id == id }
     fun remove(ctx: Context, id: Long) = save(ctx, load(ctx).filterNot { it.id == id })
+
+    /** Replace an app's html (and optionally name), keeping its id + stored data. */
+    fun update(ctx: Context, id: Long, html: String, name: String? = null) =
+        save(ctx, load(ctx).map { if (it.id == id) it.copy(html = html, name = name ?: it.name) else it })
+
+    // Per-app key-value storage so generated apps can persist real data across sessions.
+    private fun dataPrefs(ctx: Context) = ctx.getSharedPreferences("slyos_appdata", Context.MODE_PRIVATE)
+    fun saveData(ctx: Context, appId: Long, key: String, value: String) =
+        dataPrefs(ctx).edit().putString("$appId|$key", value).apply()
+    fun loadData(ctx: Context, appId: Long, key: String): String =
+        dataPrefs(ctx).getString("$appId|$key", "") ?: ""
 }
