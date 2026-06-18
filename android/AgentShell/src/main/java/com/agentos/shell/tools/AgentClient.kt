@@ -562,7 +562,9 @@ object AgentClient {
             "MAY reason over, filter, group, and RANK them to give a direct, helpful answer (e.g. 'which VCs " +
             "are most relevant' → pick and order the best-fitting people from the list and say why in a few words " +
             "each). Be specific; quote names, companies, roles. Only claim facts present in the memories; if there's " +
-            "genuinely nothing relevant, say so. Give a straight answer, not a disclaimer.\n" +
+            "genuinely nothing relevant, say so. Give a straight answer, not a disclaimer. " +
+            "Write in PLAIN TEXT — no markdown, no ** asterisks **, no # headers; if you list people use simple " +
+            "'• ' bullets, one per line.\n" +
             "MEMORIES:\n" + memories.joinToString("\n")
         val (code, text) = callContent(sys, query, 900)
         return if (code == 200) text.trim() else "Couldn't search memory ($code)."

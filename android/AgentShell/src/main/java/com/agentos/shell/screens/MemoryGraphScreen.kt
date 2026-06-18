@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -53,6 +54,19 @@ private fun typeColor(t: String): Color = when (t) {
     else -> Color(0xFF8C8475)
 }
 private val ACCENT = Color(0xFFE8642C)
+
+/** Strip markdown so answers render as clean text (no **, #, backticks; tidy bullets). */
+private fun prettify(s: String): String {
+    var t = s
+    t = t.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")        // **bold**
+    t = t.replace(Regex("__(.+?)__"), "$1")               // __bold__
+    t = t.replace(Regex("`([^`]*)`"), "$1")               // `code`
+    t = t.replace(Regex("(?m)^\\s*#{1,6}\\s*"), "")       // # headers
+    t = t.replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")       // - / * bullets
+    t = t.replace(Regex("(?<![\\w*])\\*(\\S.*?\\S)\\*(?![\\w*])"), "$1")  // *italic*
+    t = t.replace(Regex("\n{3,}"), "\n\n")
+    return t.trim()
+}
 
 @Composable
 fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit) {
@@ -138,8 +152,11 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp)) {
                 Text("✦", color = ACCENT, fontSize = T.small)
                 Spacer(Modifier.width(10.dp))
-                Text(if (searching) "Searching your memory…" else answer,
-                    fontSize = T.small, color = if (searching) T.inkFaint else T.ink, modifier = Modifier.weight(1f))
+                // Bounded + scrollable so long answers stay readable; markdown stripped for clean text.
+                Text(if (searching) "Searching your memory…" else prettify(answer),
+                    fontSize = T.small, color = if (searching) T.inkFaint else T.ink,
+                    modifier = Modifier.weight(1f).heightIn(max = 260.dp)
+                        .verticalScroll(rememberScrollState()))
                 if (!searching) Text("✕", color = T.inkFaint, fontSize = T.small,
                     modifier = Modifier.clickable { answer = "" }.padding(start = 8.dp))
             }
