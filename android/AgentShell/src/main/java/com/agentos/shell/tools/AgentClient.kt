@@ -512,6 +512,17 @@ object AgentClient {
         return if (code == 200) text.trim() else "[couldn't draft: $code]"
     }
 
+    /** A genuine first-touch opener to a connection you've never actually spoken with. Owner's voice. */
+    fun introMessage(name: String, company: String, role: String, source: String, memory: String = ""): String {
+        val sys = persona(memory) +
+            "You're connected with $name on $source but have never actually spoken. Write a short, warm, SPECIFIC " +
+            "opener to start a real conversation — never a mass-blast or a pitch, no 'hope you're well' filler. " +
+            "Reference what you can about them if useful. One or two lines, easy to reply to, in your voice. Return ONLY the message."
+        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")
+        val (code, text) = callContent(sys, who, 240)
+        return if (code == 200) text.trim() else "[couldn't draft: $code]"
+    }
+
     /** Backing AI call for a mini-app's SlyOS.ask(). Concise, returns plain text (or JSON if asked). */
     fun appAsk(prompt: String, memory: String = ""): String {
         val sys = (if (memory.isNotBlank()) "User context (use if relevant): $memory. " else "") +
