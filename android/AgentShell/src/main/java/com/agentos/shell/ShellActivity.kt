@@ -14,7 +14,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -54,13 +56,20 @@ class ShellActivity : ComponentActivity() {
                 screen = if (agentPaused) Screen.Manual else Screen.Home
             }
 
+            // Panels that show the persistent bottom nav (the calm, recurring surfaces).
+            val mainScreens = setOf(
+                Screen.Home, Screen.Now, Screen.Memory, Screen.MemorySettings,
+                Screen.Research, Screen.Apps, Screen.People, Screen.Checklist, Screen.Manual
+            )
             Surface(Modifier.fillMaxSize(), color = T.bg) {
+              Column(Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
                         (fadeIn(tween(600)) togetherWith fadeOut(tween(400)))
                     },
-                    label = "screen"
+                    label = "screen",
+                    modifier = Modifier.weight(1f)
                 ) { s ->
                     val m = Modifier.fillMaxSize().background(T.bg).padding(24.dp)
                     when (s) {
@@ -98,6 +107,14 @@ class ShellActivity : ComponentActivity() {
                         )
                     }
                 }
+                if (screen in mainScreens) {
+                    Surface(color = T.bg, modifier = Modifier.fillMaxWidth()) {
+                        androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
+                            SlyBottomNav(current = screen) { target -> screen = target }
+                        }
+                    }
+                }
+              }
             }
         }
     }

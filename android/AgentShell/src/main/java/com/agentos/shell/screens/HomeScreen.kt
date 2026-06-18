@@ -442,16 +442,13 @@ fun HomeScreen(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            NavIcon(Icons.Filled.Science, "Research") { onOpen(Screen.Research) }
-            NavIcon(Icons.Filled.Memory, "Memory") { onOpen(Screen.Memory) }
-            NavIcon(Icons.Filled.Bolt, "Now") { onOpen(Screen.Now) }
-            NavIcon(Icons.Filled.Apps, "Apps") { onOpen(Screen.Apps) }
-            NavIcon(
-                if (paused) Icons.Filled.PlayCircle else Icons.Filled.PauseCircle,
-                if (paused) "Resume" else "Manual"
-            ) { onManual() }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Text(
+                if (paused) "▶ Resume agent" else "⏸ Manual mode",
+                fontSize = T.caption, color = T.inkFaint,
+                modifier = Modifier.clickable { onManual() }.padding(6.dp)
+            )
         }
     }
 
