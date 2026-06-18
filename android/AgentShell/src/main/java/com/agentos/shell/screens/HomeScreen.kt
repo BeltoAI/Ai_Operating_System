@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -43,6 +44,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -96,6 +98,7 @@ fun HomeScreen(
     var rememberSuggestion by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
     var showAdd by remember { mutableStateOf(false) }
+    var showEff by remember { mutableStateOf(false) }
     val shortcuts = remember { mutableStateListOf<ShortcutStore.Shortcut>().apply { addAll(ShortcutStore.list(ctx)) } }
     fun refreshShortcuts() { shortcuts.clear(); shortcuts.addAll(ShortcutStore.list(ctx)) }
     var editing by remember { mutableStateOf(false) }
@@ -430,6 +433,7 @@ fun HomeScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+                    .clickable { showEff = true }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Box(Modifier.size(7.dp).clip(CircleShape)
@@ -440,6 +444,64 @@ fun HomeScreen(
                     else "online" + (com.agentos.shell.tools.MetricsStore.savedLabelToday(ctx).let { if (it.isNotEmpty()) "  ·  $it" else "" }),
                     fontSize = T.caption, color = T.inkSoft
                 )
+            }
+        }
+    }
+
+    if (showEff) {
+        val score = remember { com.agentos.shell.tools.MetricsStore.efficiencyScore(ctx) }
+        val trend = remember { com.agentos.shell.tools.MetricsStore.trendPct(ctx) }
+        val hist = remember { com.agentos.shell.tools.MetricsStore.history(ctx, 14) }
+        val weekMin = remember { hist.takeLast(7).sumOf { it.savedMin } }
+        Dialog(onDismissRequest = { showEff = false }) {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)
+            ) {
+                Text("Efficiency", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("$score", fontSize = 46.sp, color = T.accent, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(4.dp))
+                    Text("/100", fontSize = T.body, color = T.inkFaint, modifier = Modifier.padding(bottom = 8.dp))
+                    Spacer(Modifier.weight(1f))
+                    val up = trend >= 0
+                    Text((if (up) "▲ +" else "▼ ") + "$trend%",
+                        fontSize = T.body, color = if (up) Color(0xFF4E9A5B) else T.danger,
+                        modifier = Modifier.padding(bottom = 8.dp))
+                }
+                Text("vs last week · ~${if (weekMin >= 60) "${weekMin / 60}h ${weekMin % 60}m" else "$weekMin min"} saved this week",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(16.dp))
+
+                // 14-day minutes-saved bar chart.
+                val maxV = (hist.maxOfOrNull { it.savedMin } ?: 0).coerceAtLeast(1)
+                Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+                    val n = hist.size
+                    val gap = 6f
+                    val bw = (size.width - gap * (n - 1)) / n
+                    hist.forEachIndexed { i, d ->
+                        val h = (d.savedMin.toFloat() / maxV) * (size.height - 6f)
+                        val x = i * (bw + gap)
+                        val today = i == n - 1
+                        drawRect(
+                            color = if (today) T.accent else T.accent.copy(alpha = 0.35f),
+                            topLeft = Offset(x, size.height - h),
+                            size = Size(bw, h)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(hist.firstOrNull()?.label ?: "", fontSize = T.caption, color = T.inkFaint)
+                    Text("14 days", fontSize = T.caption, color = T.inkFaint)
+                    Text("today", fontSize = T.caption, color = T.inkSoft)
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Score = your 7-day average time saved (≈1 hr/day is 100). Keep letting the agent handle things to push it up.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(12.dp))
+                Text("Close", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable { showEff = false })
             }
         }
     }
