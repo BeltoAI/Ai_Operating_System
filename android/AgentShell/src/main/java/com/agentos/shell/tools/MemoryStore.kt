@@ -17,6 +17,10 @@ object MemoryStore {
     fun about(ctx: Context): String = prefs(ctx).getString(KEY_ABOUT, "") ?: ""
     fun setAbout(ctx: Context, value: String) = prefs(ctx).edit().putString(KEY_ABOUT, value).apply()
 
+    /** A booking/scheduling link (e.g. Calendly) the agent shares when someone wants to talk live. */
+    fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
+    fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
+
     /** When true, the agent auto-replies to incoming messages (after a short undo window). */
     fun autonomous(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO, false)
     fun setAutonomous(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean(KEY_AUTO, value).apply()

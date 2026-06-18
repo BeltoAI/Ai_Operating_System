@@ -30,6 +30,9 @@ object AgentClient {
 
     fun hasKey(): Boolean = BuildConfig.ANTHROPIC_API_KEY.isNotBlank()
 
+    /** Booking/scheduling link (Calendly etc.); set from MemoryStore so every reply can offer it. */
+    @Volatile var bookingLink: String = ""
+
     /** Best-effort owner name pulled from the memory blob ("my name is Emil", "I'm Emil", etc.). */
     private fun ownerName(memory: String): String {
         val pats = listOf(
@@ -63,7 +66,11 @@ object AgentClient {
             "punctuation, capitalization and message length, based on what you know about them and how " +
             "they text. Sound like a real human texting, never stiff, formal, corporate, or robotic; " +
             "no bullet points or lists unless they'd actually use them. " +
-            (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "")
+            (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "") +
+            (if (bookingLink.isNotBlank()) "ONLY if the person themselves asks to schedule a call, book " +
+                "time, or get on a call (or explicitly asks how to reach you for one), THEN you may share " +
+                "your booking link: $bookingLink. Never volunteer it otherwise, never steer the chat toward " +
+                "it, never paste it into normal conversation — it's a just-in-case, not a pitch. " else "")
     }
 
     /** Text-only call. */

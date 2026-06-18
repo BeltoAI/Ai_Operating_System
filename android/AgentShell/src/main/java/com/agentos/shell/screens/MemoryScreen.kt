@@ -109,6 +109,25 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 .padding(horizontal = 22.dp, vertical = 10.dp)
         )
 
+        Spacer(Modifier.height(18.dp))
+        Text("Booking link (optional)", fontSize = T.body, color = T.ink)
+        Text("Only shared if someone actually asks to schedule a call — never pushed.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var booking by remember { mutableStateOf(MemoryStore.bookingLink(ctx)) }
+        BasicTextField(
+            value = booking,
+            onValueChange = {
+                booking = it
+                MemoryStore.setBookingLink(ctx, it)
+                com.agentos.shell.tools.AgentClient.bookingLink = it.trim()
+            },
+            singleLine = true,
+            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+            decorationBox = { inner -> if (booking.isEmpty()) Text("https://calendly.com/…", fontSize = T.small, color = T.inkFaint); inner() }
+        )
+
         Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
