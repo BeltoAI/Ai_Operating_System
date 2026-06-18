@@ -40,6 +40,28 @@ object NotificationStore {
                 "notifications@", "newsletter", "mailer-daemon", "automated", "unsubscribe",
                 "verification code", "verify your").any { s.contains(it) }
         }
+        /**
+         * Engagement-bait / digest notifications with no real person behind them
+         * ("see updates you missed", "people you may know", "X is hiring", trending, etc.).
+         * These are pure noise — we keep them out of the feed.
+         */
+        val isLowValue: Boolean get() {
+            val s = "$title $text".lowercase()
+            val baits = listOf(
+                "you may have missed", "updates you missed", "missed notification", "new notification",
+                "people you may know", "you may know", "is hiring", "are hiring", "trending",
+                "suggested for you", "recommended for you", "viewed your profile", "views on your",
+                "work anniversary", "celebrate", "congratulate", "in your network", "back to",
+                "haven't seen you", "we miss you", "come back", "don't miss", "see what",
+                "new posts", "stories for you", "reels for you", "top posts", "daily digest",
+                "weekly digest", "what you missed", "catch up on", "now on", "just joined",
+                "started following you", "suggested", "promotion", "% off", "sale", "limited time"
+            )
+            // Never treat a direct message or a reply/mention as low-value.
+            val real = listOf("message", "messaged", "sent you", "replied", "comment", "commented",
+                "mentioned", "tagged you", "wants to").any { s.contains(it) }
+            return !real && baits.any { s.contains(it) }
+        }
     }
 
     val notes = mutableStateListOf<Note>()

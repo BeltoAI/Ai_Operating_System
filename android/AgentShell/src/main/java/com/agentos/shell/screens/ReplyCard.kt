@@ -66,6 +66,15 @@ private fun openMail(ctx: android.content.Context, to: String?, subject: String,
     }
 }
 
+/** Open the source app so a drafted reply can be pasted in. */
+private fun openApp(ctx: android.content.Context, pkg: String) {
+    try {
+        val i = ctx.packageManager.getLaunchIntentForPackage(pkg)
+            ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (i != null) ctx.startActivity(i)
+    } catch (e: Exception) {}
+}
+
 /**
  * One notification with the full "ask before action" reply flow:
  * draft → review/edit → Send (or Cancel), plus dismiss. Self-contained state, so it can be
@@ -167,6 +176,28 @@ fun ReplyCard(note: NotificationStore.Note) {
                     }
                 )
             }
+            // No inline reply box (most LinkedIn/IG/X comments & DMs) → draft a detailed reply you
+            // can copy and paste after opening the app. Lets you reply to ANY message or comment.
+            !note.canReply && !note.isEmail && !note.isLikelyBot && note.text.isNotBlank() && !approving -> {
+                Text(
+                    if (busy) "drafting…" else "✦ draft a reply",
+                    fontSize = T.small, color = T.accent,
+                    modifier = Modifier.padding(top = 6.dp).clickable(enabled = !busy) {
+                        busy = true
+                        scope.launch {
+                            val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
+                            val thread = com.agentos.shell.tools.ConversationStore
+                                .thread(ctx, note.app, note.title)
+                                .joinToString("\n") { (if (it.role == "me") "you" else note.title.ifBlank { note.app }) + ": " + it.text }
+                            val d = withContext(Dispatchers.IO) {
+                                AgentClient.draftReplyDetailed(note.title.ifBlank { note.app }, note.text, thread, mem)
+                            }
+                            if (!d.startsWith("[couldn't")) { draft = d; approving = true }
+                            busy = false
+                        }
+                    }
+                )
+            }
         }
 
         if (note.isEmail && note.isLikelyBot && sent.isEmpty()) {
@@ -253,6 +284,26 @@ fun ReplyCard(note: NotificationStore.Note) {
                 Spacer(Modifier.height(8.dp))
                 Text("Dismiss draft", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { approving = false })
+            } else if (!note.canReply) {
+                // No inline reply box → copy the draft and open the app to paste it.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Copy", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { clipboard.setText(AnnotatedString(draft)); copied = true }
+                            .padding(horizontal = 16.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Open ${note.app}", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable {
+                                clipboard.setText(AnnotatedString(draft)); copied = true
+                                if (note.pkg.isNotBlank()) openApp(ctx, note.pkg)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Dismiss", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { approving = false }.padding(vertical = 9.dp))
+                }
+                if (copied) { Spacer(Modifier.height(5.dp)); Text("Copied — paste it in ${note.app} ✓", fontSize = T.caption, color = T.accent) }
             } else {
                 Row {
                     Text(

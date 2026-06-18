@@ -590,6 +590,22 @@ object AgentClient {
         return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
     }
 
+    /**
+     * Thorough reply to ANY message or comment — used when the app has no inline reply box, so you
+     * draft it here, then copy/open the app. Detailed and substantive, but still in your own voice.
+     */
+    fun draftReplyDetailed(sender: String, message: String, threadContext: String = "", memory: String = ""): String {
+        val sys = persona(memory) +
+            "Write a thoughtful, complete reply to $sender's message/comment below. Address every point " +
+            "they actually raised, with real substance — but stay in your own natural human voice, warm " +
+            "and specific, not corporate or essay-like. A few sentences up to a short paragraph. " +
+            "Return ONLY the reply text, no quotes, no preamble."
+        val user = (if (threadContext.isNotBlank()) "Earlier in the conversation:\n$threadContext\n\n" else "") +
+            "Their latest message/comment:\n\"$message\""
+        val (code, text) = callContent(sys, user, 700)
+        return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
+    }
+
     /** Draft a reply to an incoming message (optionally seeing an attached image). */
     fun draftReply(sender: String, message: String, memory: String = "", imageB64: String? = null): String {
         val system = persona(memory) +

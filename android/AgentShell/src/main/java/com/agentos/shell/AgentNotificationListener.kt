@@ -68,6 +68,7 @@ class AgentNotificationListener : NotificationListenerService() {
         } catch (e: Exception) { null }
 
         val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture, sbn.packageName)
+        if (note.isLowValue) return null   // drop engagement-bait / digests — pure noise
         NotificationStore.put(note)
         // Record incoming messages per-conversation (only repliable = real messages).
         if (note.canReply && text.isNotBlank())
