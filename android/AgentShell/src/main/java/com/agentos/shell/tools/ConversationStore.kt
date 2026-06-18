@@ -43,6 +43,19 @@ object ConversationStore {
         prefs(ctx).edit().putString(KEY, r.toString()).apply()
     }
 
+    data class Stale(val app: String, val title: String, val lastTime: Long, val lastText: String)
+
+    /** People you haven't exchanged a message with in more than [days] days, longest-quiet first. */
+    fun staleContacts(ctx: Context, days: Int): List<Stale> {
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        return all(ctx).mapNotNull { (k, msgs) ->
+            val last = msgs.lastOrNull() ?: return@mapNotNull null
+            val app = k.substringBefore("|"); val title = k.substringAfter("|")
+            if (title.isBlank() || last.time == 0L || last.time > cutoff) return@mapNotNull null
+            Stale(app, title, last.time, last.text)
+        }.sortedBy { it.lastTime }
+    }
+
     fun all(ctx: Context): Map<String, List<Msg>> {
         val r = root(ctx); val out = LinkedHashMap<String, List<Msg>>()
         r.keys().forEach { k ->

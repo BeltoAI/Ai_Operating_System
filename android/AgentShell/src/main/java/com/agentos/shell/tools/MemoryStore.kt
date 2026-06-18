@@ -68,6 +68,10 @@ object MemoryStore {
         return autonomous(ctx)
     }
 
+    /** When true, a weekly "reach out to these people" nudge is posted. */
+    fun reconnectWeekly(ctx: Context): Boolean = prefs(ctx).getBoolean("reconnect_weekly", false)
+    fun setReconnectWeekly(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("reconnect_weekly", value).apply()
+
     /** When true, a spicy take is generated and notified once each morning. */
     fun spicyDaily(ctx: Context): Boolean = prefs(ctx).getBoolean("spicy_daily", false)
     fun setSpicyDaily(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("spicy_daily", value).apply()

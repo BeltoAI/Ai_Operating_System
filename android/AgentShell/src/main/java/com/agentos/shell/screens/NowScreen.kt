@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 
 /** Everything happening now — your real notifications, newest first, each replyable inline. */
 @Composable
-fun NowScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
+fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val notes = NotificationStore.notes
@@ -63,6 +63,9 @@ fun NowScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text("clear", fontSize = T.small, color = T.inkFaint,
                     modifier = Modifier.clickable { digest = "" })
             }
+            Spacer(Modifier.weight(1f))
+            Text("Reconnect", fontSize = T.small, color = T.inkSoft,
+                modifier = Modifier.clickable { onReconnect() })
         }
         if (digest.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))

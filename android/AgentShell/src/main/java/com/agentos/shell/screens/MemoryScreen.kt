@@ -214,6 +214,20 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(16.dp))
+        var reconnect by remember { mutableStateOf(MemoryStore.reconnectWeekly(ctx)) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Weekly reconnect nudge", fontSize = T.body, color = T.ink)
+                Text("Each Monday, surfaces a few people you've gone quiet on (>1 week) with a message ready to send.",
+                    fontSize = T.small, color = T.inkFaint)
+            }
+            Switch(checked = reconnect, onCheckedChange = {
+                reconnect = it; MemoryStore.setReconnectWeekly(ctx, it)
+                com.agentos.shell.ReconnectScheduler.set(ctx, it)
+            })
+        }
+
+        Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Daily spicy take", fontSize = T.body, color = T.ink)

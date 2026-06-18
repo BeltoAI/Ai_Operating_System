@@ -501,6 +501,17 @@ object AgentClient {
         return parseArchitect(code, text)
     }
 
+    /** A warm, genuine message to reconnect with someone you've gone quiet on. In the owner's voice. */
+    fun reconnectMessage(name: String, lastSnippet: String, daysSince: Int, memory: String = ""): String {
+        val sys = persona(memory) +
+            "You haven't spoken with $name in about $daysSince days. Write a short, warm, genuine message to " +
+            "reconnect — natural and human, not salesy or generic, light and easy to reply to. Reference your last " +
+            "exchange only if it helps. One or two lines, in your voice. Return ONLY the message."
+        val user = if (lastSnippet.isNotBlank()) "Your last exchange was: \"$lastSnippet\"" else "You don't have the last message saved."
+        val (code, text) = callContent(sys, user, 240)
+        return if (code == 200) text.trim() else "[couldn't draft: $code]"
+    }
+
     /** Backing AI call for a mini-app's SlyOS.ask(). Concise, returns plain text (or JSON if asked). */
     fun appAsk(prompt: String, memory: String = ""): String {
         val sys = (if (memory.isNotBlank()) "User context (use if relevant): $memory. " else "") +

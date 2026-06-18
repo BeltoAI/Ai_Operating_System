@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,9 +38,14 @@ class ShellActivity : ComponentActivity() {
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
             com.agentos.shell.tools.VoiceShortcut.post(this)
+        if (com.agentos.shell.tools.MemoryStore.reconnectWeekly(this))
+            ReconnectScheduler.set(this, true)
         val startVoice = intent?.getBooleanExtra("start_voice", false) == true
+        val openReconnect = intent?.getBooleanExtra("open_reconnect", false) == true
         setContent {
-            var screen by remember { mutableStateOf(if (startVoice) Screen.Home else Screen.Boot) }
+            var screen by remember {
+                mutableStateOf(when { startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
+            }
             var agentPaused by remember { mutableStateOf(false) }
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
@@ -87,7 +92,8 @@ class ShellActivity : ComponentActivity() {
                             onResearch = { t -> researchTopic = t; screen = Screen.Research },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
-                        Screen.Now    -> NowScreen(m) { screen = Screen.Home }
+                        Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }) { screen = Screen.Home }
+                        Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
                         Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings })
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
@@ -132,7 +138,7 @@ class ShellActivity : ComponentActivity() {
     // activity so it lands on Home and fires voice capture.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra("start_voice", false)) { setIntent(intent); recreate() }
+        if (intent.getBooleanExtra("start_voice", false) || intent.getBooleanExtra("open_reconnect", false)) { setIntent(intent); recreate() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
