@@ -57,21 +57,44 @@ object MessageStore {
 
     fun clear(ctx: Context) { try { db(ctx).execSQL("DELETE FROM messages") } catch (e: Exception) {} }
 
-    /** Keyword search across contacts + bodies. Returns the best-matching messages, newest first. */
+    private val STOP = setOf(
+        "the","and","you","your","with","have","has","had","for","that","this","what","who","whom",
+        "when","where","why","how","does","did","do","done","my","me","mine","is","are","was","were",
+        "a","an","of","to","in","on","at","about","from","conversation","conversations","chat","chats",
+        "message","messages","talk","talked","talking","know","knew","tell","find","there","any","some",
+        "did","can","could","would","should","i","we","our","us","he","she","they","them","it"
+    )
+
+    /**
+     * Smart keyword search. Drops filler words so a name like "Papa" isn't drowned out, matches the
+     * CONTACT name directly (so asking about a person pulls their thread), then adds body matches.
+     */
     fun search(ctx: Context, query: String, limit: Int = 60): List<Hit> {
-        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
+        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length > 2 && it !in STOP }
         if (terms.isEmpty()) return emptyList()
-        val match = terms.joinToString(" OR ") { "$it*" }
-        return try {
-            db(ctx).rawQuery(
-                "SELECT contact, role, body FROM messages WHERE messages MATCH ? ORDER BY rowid DESC LIMIT ?",
-                arrayOf(match, limit.toString())
-            ).use { c ->
-                val out = ArrayList<Hit>()
-                while (c.moveToNext()) out.add(Hit(c.getString(0), c.getString(1), c.getString(2)))
-                out
+        val d = db(ctx)
+        val out = LinkedHashMap<String, Hit>()
+        fun add(c: android.database.Cursor) { while (c.moveToNext()) {
+            val h = Hit(c.getString(0), c.getString(1), c.getString(2)); out["${h.contact}|${h.body}"] = h } }
+        try {
+            // 1) Contacts whose NAME matches a term → pull their recent thread.
+            val contactMatch = terms.joinToString(" OR ") { "contact:$it*" }
+            d.rawQuery("SELECT DISTINCT contact FROM messages WHERE messages MATCH ? LIMIT 10", arrayOf(contactMatch)).use { c ->
+                val names = ArrayList<String>(); while (c.moveToNext()) names.add(c.getString(0))
+                names.forEach { name ->
+                    d.rawQuery("SELECT contact, role, body FROM messages WHERE contact = ? ORDER BY rowid DESC LIMIT 12",
+                        arrayOf(name)).use(::add)
+                }
             }
-        } catch (e: Exception) { emptyList() }
+        } catch (e: Exception) {}
+        try {
+            // 2) Body matches, newest first.
+            val bodyMatch = terms.joinToString(" OR ") { "$it*" }
+            d.rawQuery("SELECT contact, role, body FROM messages WHERE messages MATCH ? ORDER BY rowid DESC LIMIT ?",
+                arrayOf(bodyMatch, limit.toString())).use(::add)
+        } catch (e: Exception) {}
+        return out.values.take(limit)
     }
 
     /** Recent messages with one contact (exact-ish), newest first — for grounding replies. */
