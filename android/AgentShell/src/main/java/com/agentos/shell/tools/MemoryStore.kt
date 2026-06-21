@@ -57,6 +57,21 @@ object MemoryStore {
     fun setStyleFor(ctx: Context, platformKey: String, value: String) =
         prefs(ctx).edit().putString("style_$platformKey", value.trim()).apply()
 
+    /** Accumulated samples of YOUR own messages across imports, for learning your voice. */
+    fun addVoiceSamples(ctx: Context, samples: List<String>) {
+        if (samples.isEmpty()) return
+        val cur = voiceSamples(ctx).toMutableList()
+        cur.addAll(samples.map { it.replace("\n", " ").trim() }.filter { it.length in 2..400 })
+        val capped = cur.takeLast(600)
+        val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
+        prefs(ctx).edit().putString("voice_samples", arr.toString()).apply()
+    }
+    fun voiceSamples(ctx: Context): List<String> = try {
+        val arr = org.json.JSONArray(prefs(ctx).getString("voice_samples", "[]"))
+        (0 until arr.length()).map { arr.getString(it) }
+    } catch (e: Exception) { emptyList() }
+    fun clearVoice(ctx: Context) = prefs(ctx).edit().remove("voice_samples").remove("style_profile").apply()
+
     /** A learned "this is how I write" profile, distilled from your real past messages. */
     fun styleProfile(ctx: Context): String = prefs(ctx).getString("style_profile", "") ?: ""
     fun setStyleProfile(ctx: Context, v: String) = prefs(ctx).edit().putString("style_profile", v.trim()).apply()

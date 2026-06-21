@@ -198,7 +198,7 @@ object ConnectionStore {
     }
 
     /** Robust CSV parser: handles quoted fields that contain commas AND newlines. */
-    private fun parseCsv(text: String): List<List<String>> {
+    internal fun parseCsv(text: String): List<List<String>> {
         val rows = ArrayList<List<String>>()
         var row = ArrayList<String>(); val sb = StringBuilder(); var inQ = false; var i = 0
         while (i < text.length) {

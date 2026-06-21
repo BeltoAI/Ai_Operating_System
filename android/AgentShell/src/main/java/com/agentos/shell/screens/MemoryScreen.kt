@@ -132,42 +132,51 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         // ---- Your voice (learned from real chats) ----
         Spacer(Modifier.height(18.dp))
         Text("Your writing voice", fontSize = T.body, color = T.ink)
-        Text("Import a chat export (e.g. WhatsApp ▸ a chat ▸ ⋮ ▸ Export chat ▸ Without media) and SlyOS " +
-            "learns exactly how you write — then mimics it everywhere.",
+        Text("Import chat exports from any platform — WhatsApp (.txt), LinkedIn (messages.csv), " +
+            "Instagram/Messenger (.json), Telegram (.json). Import as many as you like; SlyOS pools " +
+            "them and learns exactly how you write, then mimics it everywhere.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
         var styleProfile by remember { mutableStateOf(MemoryStore.styleProfile(ctx)) }
         var voiceStatus by remember { mutableStateOf("") }
-        val chatPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) {
-                voiceStatus = "Reading chat & learning your style…"
+        val chatPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNotEmpty()) {
+                voiceStatus = "Reading ${uris.size} file(s) & learning your style…"
                 scope.launch {
                     val owner = MemoryStore.ownerName(ctx)
-                    val res = withContext(Dispatchers.IO) { com.agentos.shell.tools.ChatImport.importWhatsApp(ctx, uri, owner) }
-                    if (res.messages == 0) { voiceStatus = "Couldn't read that file (export as .txt)."; return@launch }
-                    if (res.mySamples.isEmpty()) {
-                        voiceStatus = "Imported ${res.messages} msgs with ${res.contact}, but I couldn't tell which are yours — add 'My name is …' to your About first, then re-import to learn your voice."
+                    var msgs = 0; var chats = 0
+                    withContext(Dispatchers.IO) {
+                        uris.forEach { uri ->
+                            val r = com.agentos.shell.tools.ChatImport.importAny(ctx, uri, owner)
+                            msgs += r.messages; chats += r.contacts
+                            MemoryStore.addVoiceSamples(ctx, r.mySamples)
+                        }
+                    }
+                    if (msgs == 0) { voiceStatus = "Couldn't read those. Use WhatsApp .txt, LinkedIn messages.csv, or IG/Telegram .json exports."; return@launch }
+                    val pool = MemoryStore.voiceSamples(ctx)
+                    if (pool.isEmpty()) {
+                        voiceStatus = "Imported $msgs msgs / $chats chats, but couldn't tell which are yours — add 'My name is …' to About, then re-import."
                         return@launch
                     }
-                    val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.learnStyle(res.mySamples) }
+                    val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.learnStyle(pool) }
                     if (profile.isNotBlank()) {
                         styleProfile = profile
                         MemoryStore.setStyleProfile(ctx, profile)
                         com.agentos.shell.tools.AgentClient.styleProfile = profile
-                        voiceStatus = "Learned your voice from ${res.mySamples.size} of your messages ✓ (also saved your chat with ${res.contact})"
-                    } else voiceStatus = "Imported the chat, but couldn't summarize a style."
+                        voiceStatus = "Learned your voice from ${pool.size} of your messages ✓ (imported $chats chats, $msgs messages)"
+                    } else voiceStatus = "Imported $chats chats, but couldn't summarize a style yet."
                 }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Learn my voice (import chat)", fontSize = T.small, color = T.bgElevated,
+            Text("Import chats / learn my voice", fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                    .clickable { chatPicker.launch(arrayOf("text/plain", "*/*")) }
+                    .clickable { chatPicker.launch(arrayOf("text/plain", "text/csv", "application/json", "*/*")) }
                     .padding(horizontal = 16.dp, vertical = 9.dp))
             if (styleProfile.isNotBlank()) {
                 Spacer(Modifier.width(12.dp))
                 Text("Clear", fontSize = T.small, color = T.danger,
-                    modifier = Modifier.clickable { styleProfile = ""; MemoryStore.setStyleProfile(ctx, ""); com.agentos.shell.tools.AgentClient.styleProfile = "" })
+                    modifier = Modifier.clickable { styleProfile = ""; MemoryStore.clearVoice(ctx); com.agentos.shell.tools.AgentClient.styleProfile = "" })
             }
         }
         if (voiceStatus.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(voiceStatus, fontSize = T.caption, color = T.accent) }
