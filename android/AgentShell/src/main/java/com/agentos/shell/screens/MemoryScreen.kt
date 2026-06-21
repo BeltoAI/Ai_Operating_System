@@ -181,13 +181,14 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         if (voiceStatus.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(voiceStatus, fontSize = T.caption, color = T.accent) }
         var dbCount by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.count(ctx)) }
+        var dbPeople by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.topContacts(ctx, 100000).size) }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🧠 Memory DB: $dbCount messages", fontSize = T.caption, color = T.inkFaint)
+            Text("🧠 Memory DB: $dbCount messages · $dbPeople people", fontSize = T.caption, color = T.inkFaint)
             if (dbCount > 0) {
                 Spacer(Modifier.width(12.dp))
                 Text("Reset DB", fontSize = T.caption, color = T.danger,
-                    modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); dbCount = 0 })
+                    modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); dbCount = 0; dbPeople = 0 })
             }
         }
         if (styleProfile.isNotBlank()) {

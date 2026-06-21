@@ -74,12 +74,19 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current.density
     var version by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) { MemoryGraphStore.rebuild(ctx); version++ }
-
     val nodes = MemoryGraphStore.nodes
     val edges = MemoryGraphStore.edges
     var scale by remember { mutableStateOf(0.75f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    // Rebuild on entry, then auto-fit the zoom so ALL nodes are visible (otherwise a big graph
+    // spreads past the screen edges and only the center shows — looking like it never grew).
+    LaunchedEffect(Unit) {
+        MemoryGraphStore.rebuild(ctx)
+        val ext = MemoryGraphStore.nodes.maxOfOrNull { maxOf(kotlin.math.abs(it.x), kotlin.math.abs(it.y)) } ?: 1f
+        scale = (440f / (ext + 60f)).coerceIn(0.2f, 1f)
+        offset = Offset.Zero
+        version++
+    }
     var selected by remember { mutableStateOf<Int?>(null) }
     var query by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
@@ -133,7 +140,10 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
 
     Column(modifier) {
         ScreenHeader("Memory", onBack)
-        Spacer(Modifier.height(12.dp))
+        version.let { }
+        Text("${nodes.size} memories mapped", fontSize = T.caption, color = T.inkFaint,
+            modifier = Modifier.padding(top = 2.dp))
+        Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
                 value = query,
