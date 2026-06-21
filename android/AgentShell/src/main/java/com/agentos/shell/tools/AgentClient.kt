@@ -666,7 +666,7 @@ object AgentClient {
         while (merged.isNotEmpty() && merged.first().first == "assistant") merged.removeAt(0)
         if (merged.isEmpty()) return "hey! what's up?"
         val arr = JSONArray()
-        merged.forEach { (r, t) -> arr.put(JSONObject().put("role", r).put("content", t)) }
+        merged.takeLast(30).forEach { (r, t) -> arr.put(JSONObject().put("role", r).put("content", t)) }
         val (code, text) = callMessages(sys, arr, 500)
         return if (code == 200) text.trim() else "one sec, having trouble connecting ($code)."
     }
@@ -692,9 +692,10 @@ object AgentClient {
         }
         while (merged.isNotEmpty() && merged.first().first == "assistant") merged.removeAt(0)
         if (merged.isEmpty()) return draftReply(sender, "", memory, imageB64)
+        val recent = if (merged.size > 40) ArrayList(merged.takeLast(40)) else merged
         val arr = JSONArray()
-        merged.forEachIndexed { i, (r, t) ->
-            val content: Any = if (i == merged.size - 1 && r == "user" && imageB64 != null)
+        recent.forEachIndexed { i, (r, t) ->
+            val content: Any = if (i == recent.size - 1 && r == "user" && imageB64 != null)
                 JSONArray()
                     .put(JSONObject().put("type", "image").put("source",
                         JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))

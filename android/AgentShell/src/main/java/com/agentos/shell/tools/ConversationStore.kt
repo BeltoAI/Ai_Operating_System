@@ -14,7 +14,7 @@ object ConversationStore {
 
     private const val PREF = "slyos_convos"
     private const val KEY = "threads"
-    private const val CAP = 60
+    private const val CAP = 400   // keep deep per-contact history; replies only use the most recent slice
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     private fun root(ctx: Context): JSONObject =
         try { JSONObject(prefs(ctx).getString(KEY, "{}")) } catch (e: Exception) { JSONObject() }
