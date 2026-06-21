@@ -65,13 +65,20 @@ object ChatImport {
 
     private fun empty() = Result(0, 0, emptyList(), "")
 
-    /** Common write path: store per-contact history + collect the owner's own messages as samples. */
+    /** Common write path: bulk-insert ALL messages into the scalable DB, keep a recent slice per
+     *  contact in the live store for replies, and collect the owner's own messages as samples. */
     private fun ingest(ctx: Context, platform: String, lines: List<Line>, ownerName: String?): Result {
         val clean = lines.filter { it.body.isNotBlank() && it.contact.isNotBlank() }
         if (clean.isEmpty()) return Result(0, 0, emptyList(), platform)
-        clean.takeLast(2000).forEach { l ->
+        var ts = System.currentTimeMillis() - clean.size   // keep import order chronological
+        val rows = clean.map { l ->
             val role = if (ownerName != null && l.sender.equals(ownerName, true)) "me" else "them"
-            ConversationStore.add(ctx, platform, l.contact, role, l.body)
+            MessageStore.Row(l.contact, platform, l.sender, role, l.body, ts++)
+        }
+        MessageStore.insertBatch(ctx, rows)   // the full history → searchable DB
+        // Recent slice per contact → live store, so reply drafting has immediate thread context.
+        rows.groupBy { it.contact }.forEach { (contact, rs) ->
+            rs.takeLast(40).forEach { ConversationStore.add(ctx, platform, contact, it.role, it.body) }
         }
         val mine = if (ownerName != null) clean.filter { it.sender.equals(ownerName, true) }.map { it.body } else emptyList()
         return Result(clean.map { it.contact }.toSet().size, clean.size, mine, platform)

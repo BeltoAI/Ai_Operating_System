@@ -81,8 +81,10 @@ class AgentNotificationListener : NotificationListenerService() {
         // Record every real human message/comment into per-conversation memory (any platform), but
         // NOT transactional/system noise (orders, banks, rides, news). Skip own echoes.
         if (note.isConversational && text.isNotBlank() && title.isNotBlank()
-            && !NotificationStore.isOwnEcho(note))
+            && !NotificationStore.isOwnEcho(note)) {
             com.agentos.shell.tools.ConversationStore.add(applicationContext, appLabel, title, "them", text)
+            com.agentos.shell.tools.MessageStore.insertOne(applicationContext, title, appLabel, title, "them", text)
+        }
         return note
     }
 

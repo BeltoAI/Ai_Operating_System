@@ -175,6 +175,7 @@ object NotificationStore {
             markHandled(note)          // keep this conversation out of the inbox after replying
             recordSent(note, message)
             ConversationStore.add(ctx, note.app, note.title, "me", message)
+            MessageStore.insertOne(ctx, note.title, note.app, note.title, "me", message)
             remove(note.key)           // drop it from Now immediately
             MetricsStore.record(ctx, MetricsStore.secondsFor("reply"))
             true
