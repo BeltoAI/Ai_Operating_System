@@ -100,12 +100,22 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             // Pull relevant people from the imported network so questions like "interesting VCs" work.
             val conns = com.agentos.shell.tools.ConnectionStore.search(ctx, query, 40)
                 .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") }
-            val corpus = MemoryGraphStore.memoryLines() +
-                com.agentos.shell.tools.ConversationStore.all(ctx).flatMap { (k, msgs) ->
-                    val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
-                    msgs.map { (if (it.role == "me") "You to $who" else who) + ": " + it.text }
-                } + recall + conns
-            val a = withContext(Dispatchers.IO) { AgentClient.askMemory(query, corpus) }
+            val convo = com.agentos.shell.tools.ConversationStore.all(ctx).flatMap { (k, msgs) ->
+                val who = k.substringAfter("|").ifBlank { k.substringBefore("|") }
+                msgs.map { (if (it.role == "me") "You to $who" else who) + ": " + it.text }
+            }
+            // Relevance-filter the whole corpus to the query and hard-cap it — dumping every message
+            // (now up to 400 per contact) would blow past the model's input limit and 400-error.
+            val all = MemoryGraphStore.memoryLines() + convo + recall + conns
+            val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
+            val ranked = if (terms.isEmpty()) all.takeLast(150)
+                else all.map { it to terms.count { t -> it.lowercase().contains(t) } }
+                    .filter { it.second > 0 }.sortedByDescending { it.second }.take(200).map { it.first }
+            val corpus = ArrayList<String>(); var chars = 0
+            for (l in ranked) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
+            val a = withContext(Dispatchers.IO) {
+                if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
+            }
             answer = a
             // Light up the "synapse path": the memories most related to the question + answer.
             val toks = ("$query $a").lowercase().split(Regex("\\W+")).filter { it.length > 3 }.toSet()
