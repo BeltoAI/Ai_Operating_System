@@ -281,17 +281,16 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     Text("↳ ${n.source}", fontSize = T.caption, color = T.inkFaint)
 
                     if (n.type == "person" && n.key.startsWith("person:")) {
-                        val sKey = n.key.removePrefix("person:")
-                        val msgs = com.agentos.shell.tools.ConversationStore
-                            .thread(ctx, sKey.substringBefore("|"), sKey.substringAfter("|"))
+                        val contact = n.key.removePrefix("person:")
+                        val msgs = com.agentos.shell.tools.MessageStore.threadFor(ctx, contact, 8)
                         Spacer(Modifier.height(10.dp))
                         Text("RECENT", fontSize = T.caption, color = T.inkFaint)
-                        msgs.takeLast(6).forEach { m ->
+                        msgs.forEach { m ->
                             Row(Modifier.padding(top = 5.dp)) {
                                 Text(if (m.role == "me") "you" else "·", fontSize = T.caption,
                                     color = if (m.role == "me") ACCENT else T.inkFaint,
                                     modifier = Modifier.width(28.dp))
-                                Text(m.text, fontSize = T.small, color = T.inkSoft)
+                                Text(m.body, fontSize = T.small, color = T.inkSoft)
                             }
                         }
                     }

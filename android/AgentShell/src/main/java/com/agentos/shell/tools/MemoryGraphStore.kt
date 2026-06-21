@@ -47,22 +47,14 @@ object MemoryGraphStore {
         // Each conversation = ONE clean person node (sized by message count). The messages
         // themselves are revealed in the detail panel when you tap the person — keeping the
         // graph calm and Obsidian-like instead of an explosion of message dots.
-        // Cap the number of people drawn so the O(n²) force-layout never freezes after a big import.
-        // We show the TOP contacts by message volume; the rest still live in memory (Ask/voice/recall).
+        // People come from the message DB (imported + live) — top contacts by volume, capped so the
+        // O(n²) force-layout never freezes. Everyone else still lives in the DB (Ask finds them).
         val peopleByApp = HashMap<String, MutableList<Int>>()
-        ConversationStore.all(ctx)
-            .filterKeys { "person:$it" !in forg && it.substringAfter("|").isNotBlank() }
-            .entries.sortedByDescending { it.value.size }
-            .take(45)
-            .forEach { (sKey, msgs) ->
-                val app = sKey.substringBefore("|"); val title = sKey.substringAfter("|")
-                val last = msgs.lastOrNull()?.text?.take(60).orEmpty()
-                val label = title.ifBlank { app }
-                val content = "${msgs.size} message" + (if (msgs.size != 1) "s" else "") +
-                    (if (last.isNotBlank()) " · “$last”" else "")
-                val pid = n("person:$sKey", "person", label, content, app, (0.5f + 0.05f * msgs.size).coerceAtMost(0.95f), 0.9f, false)
-                e(hub, pid)
-                if (app.isNotBlank()) peopleByApp.getOrPut(app) { mutableListOf() }.add(pid)
+        MessageStore.topContacts(ctx, 45)
+            .filter { "person:${it.first}" !in forg && it.first.isNotBlank() }
+            .forEach { (contact, cnt) ->
+                val content = "$cnt message" + (if (cnt != 1) "s" else "")
+                e(hub, n("person:$contact", "person", contact, content, "Chats", (0.5f + 0.02f * cnt).coerceAtMost(0.95f), 0.9f, false))
             }
         // Facts the agent learned about you.
         MemoryStore.about(ctx).split("\n").map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { i, line ->

@@ -30,6 +30,12 @@ object ReplyContext {
             if (elsewhere.isNotEmpty())
                 sb.append("\nWhat you know about $name from other chats: ").append(elsewhere.joinToString(" · "))
 
+            // Deep history for this person straight from the message DB (imported + live).
+            val dbThread = MessageStore.threadFor(ctx, name, 16)
+                .map { (if (it.role == "me") "you" else name) + ": " + it.body }
+            if (dbThread.isNotEmpty())
+                sb.append("\nYour history with $name: ").append(dbThread.joinToString(" · "))
+
             // The REAL chat history we otherwise can't see: the conversation currently/recently on
             // screen in this app (captured by Total Recall). This is the biggest context win.
             if (MemoryStore.recallEnabled(ctx)) {

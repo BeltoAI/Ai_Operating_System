@@ -75,11 +75,10 @@ object ChatImport {
             val role = if (ownerName != null && l.sender.equals(ownerName, true)) "me" else "them"
             MessageStore.Row(l.contact, platform, l.sender, role, l.body, ts++)
         }
-        MessageStore.insertBatch(ctx, rows)   // the full history → searchable DB
-        // Recent slice per contact → live store, so reply drafting has immediate thread context.
-        rows.groupBy { it.contact }.forEach { (contact, rs) ->
-            rs.takeLast(40).forEach { ConversationStore.add(ctx, platform, contact, it.role, it.body) }
-        }
+        MessageStore.insertBatch(ctx, rows)   // the full history → fast searchable DB (single write)
+        // NOTE: we deliberately do NOT write imported history into the old per-key JSON store — that
+        // rewrites the whole blob per message (O(n²)) and was the cause of multi-minute imports.
+        // Replies + the graph read history straight from the DB now.
         val mine = if (ownerName != null) clean.filter { it.sender.equals(ownerName, true) }.map { it.body } else emptyList()
         return Result(clean.map { it.contact }.toSet().size, clean.size, mine, platform)
     }
