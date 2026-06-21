@@ -13,6 +13,11 @@ object ReplyContext {
         val about = MemoryStore.about(ctx)
         if (about.isNotBlank()) sb.append(about).append(" ")
 
+        // Per-platform persona: how you want to come across on THIS app (e.g. CEO on LinkedIn, funny on IG).
+        val style = MemoryStore.styleFor(ctx, app)
+        if (style.isNotBlank())
+            sb.append("\nYour persona/tone on $app (adopt it): $style ")
+
         val name = title.ifBlank { app }
         if (name.isNotBlank()) {
             val thisKey = ConversationStore.sKey(app, title)
@@ -25,11 +30,16 @@ object ReplyContext {
             if (elsewhere.isNotEmpty())
                 sb.append("\nWhat you know about $name from other chats: ").append(elsewhere.joinToString(" · "))
 
-            // What's been seen on screen about this person.
+            // The REAL chat history we otherwise can't see: the conversation currently/recently on
+            // screen in this app (captured by Total Recall). This is the biggest context win.
             if (MemoryStore.recallEnabled(ctx)) {
+                val live = InteractionStore.recentForApp(ctx, app, 12).map { it.text }
+                if (live.isNotEmpty())
+                    sb.append("\nThe recent on-screen conversation in $app (use this as the live thread): ")
+                        .append(live.joinToString(" · "))
                 val rec = InteractionStore.search(ctx, name, 6).map { it.text }.take(5)
                 if (rec.isNotEmpty())
-                    sb.append("\nSeen on your screen re $name: ").append(rec.joinToString(" · "))
+                    sb.append("\nOther things seen on screen about $name: ").append(rec.joinToString(" · "))
             }
         }
         return sb.toString().trim()

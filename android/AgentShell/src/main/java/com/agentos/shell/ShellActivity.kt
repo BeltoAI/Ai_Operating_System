@@ -34,6 +34,7 @@ class ShellActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         hideSystemBars()
         com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)
+        com.agentos.shell.tools.AgentClient.styleProfile = com.agentos.shell.tools.MemoryStore.styleProfile(this)
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
@@ -46,6 +47,7 @@ class ShellActivity : ComponentActivity() {
             var screen by remember {
                 mutableStateOf(when { startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
             }
+            var pendingVoice by remember { mutableStateOf(startVoice) }   // one-shot: cleared after the mic opens
             var agentPaused by remember { mutableStateOf(false) }
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
@@ -84,7 +86,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Home   -> HomeScreen(
                             m,
                             paused = agentPaused,
-                            autoVoice = startVoice,
+                            autoVoice = pendingVoice,
+                            onVoiceConsumed = { pendingVoice = false },
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },

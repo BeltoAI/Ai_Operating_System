@@ -17,9 +17,49 @@ object MemoryStore {
     fun about(ctx: Context): String = prefs(ctx).getString(KEY_ABOUT, "") ?: ""
     fun setAbout(ctx: Context, value: String) = prefs(ctx).edit().putString(KEY_ABOUT, value).apply()
 
+    /** Best-effort owner first name from the About text (for tagging imported chats). */
+    fun ownerName(ctx: Context): String {
+        val pats = listOf(
+            Regex("(?i)\\bmy name is\\s+([A-Z][\\p{L}'’-]+)"),
+            Regex("(?i)\\bI'?m\\s+([A-Z][\\p{L}'’-]+)"),
+            Regex("(?i)\\bI am\\s+([A-Z][\\p{L}'’-]+)")
+        )
+        for (p in pats) p.find(about(ctx))?.groupValues?.get(1)?.let { return it.trim() }
+        return ""
+    }
+
     /** A booking/scheduling link (e.g. Calendly) the agent shares when someone wants to talk live. */
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
+
+    /** Canonical platform key from an app label (so "WhatsApp Business" → whatsapp, etc.). */
+    fun platformKey(app: String): String {
+        val a = app.lowercase()
+        return when {
+            a.contains("linkedin") -> "linkedin"
+            a.contains("instagram") -> "instagram"
+            a.contains("twitter") || a == "x" || a.contains("x.com") -> "x"
+            a.contains("reddit") -> "reddit"
+            a.contains("whatsapp") -> "whatsapp"
+            a.contains("telegram") -> "telegram"
+            a.contains("messeng") || a.contains("orca") -> "messenger"
+            a.contains("slack") -> "slack"
+            a.contains("discord") -> "discord"
+            a.contains("sms") || a.contains("messag") || a.contains("mms") -> "sms"
+            a.contains("gmail") || a.contains("mail") -> "email"
+            else -> a.take(20)
+        }
+    }
+
+    /** Per-platform persona/tone, e.g. LinkedIn = "professional, warm CEO"; Instagram = "funny". */
+    fun styleFor(ctx: Context, app: String): String =
+        prefs(ctx).getString("style_${platformKey(app)}", "") ?: ""
+    fun setStyleFor(ctx: Context, platformKey: String, value: String) =
+        prefs(ctx).edit().putString("style_$platformKey", value.trim()).apply()
+
+    /** A learned "this is how I write" profile, distilled from your real past messages. */
+    fun styleProfile(ctx: Context): String = prefs(ctx).getString("style_profile", "") ?: ""
+    fun setStyleProfile(ctx: Context, v: String) = prefs(ctx).edit().putString("style_profile", v.trim()).apply()
 
     /** The booking link to actually use: the explicit field, else auto-detected from your About text. */
     fun effectiveBookingLink(ctx: Context): String {

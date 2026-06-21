@@ -129,6 +129,78 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             decorationBox = { inner -> if (booking.isEmpty()) Text("https://calendly.com/…", fontSize = T.small, color = T.inkFaint); inner() }
         )
 
+        // ---- Your voice (learned from real chats) ----
+        Spacer(Modifier.height(18.dp))
+        Text("Your writing voice", fontSize = T.body, color = T.ink)
+        Text("Import a chat export (e.g. WhatsApp ▸ a chat ▸ ⋮ ▸ Export chat ▸ Without media) and SlyOS " +
+            "learns exactly how you write — then mimics it everywhere.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var styleProfile by remember { mutableStateOf(MemoryStore.styleProfile(ctx)) }
+        var voiceStatus by remember { mutableStateOf("") }
+        val chatPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                voiceStatus = "Reading chat & learning your style…"
+                scope.launch {
+                    val owner = MemoryStore.ownerName(ctx)
+                    val res = withContext(Dispatchers.IO) { com.agentos.shell.tools.ChatImport.importWhatsApp(ctx, uri, owner) }
+                    if (res.messages == 0) { voiceStatus = "Couldn't read that file (export as .txt)."; return@launch }
+                    if (res.mySamples.isEmpty()) {
+                        voiceStatus = "Imported ${res.messages} msgs with ${res.contact}, but I couldn't tell which are yours — add 'My name is …' to your About first, then re-import to learn your voice."
+                        return@launch
+                    }
+                    val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.learnStyle(res.mySamples) }
+                    if (profile.isNotBlank()) {
+                        styleProfile = profile
+                        MemoryStore.setStyleProfile(ctx, profile)
+                        com.agentos.shell.tools.AgentClient.styleProfile = profile
+                        voiceStatus = "Learned your voice from ${res.mySamples.size} of your messages ✓ (also saved your chat with ${res.contact})"
+                    } else voiceStatus = "Imported the chat, but couldn't summarize a style."
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Learn my voice (import chat)", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable { chatPicker.launch(arrayOf("text/plain", "*/*")) }
+                    .padding(horizontal = 16.dp, vertical = 9.dp))
+            if (styleProfile.isNotBlank()) {
+                Spacer(Modifier.width(12.dp))
+                Text("Clear", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clickable { styleProfile = ""; MemoryStore.setStyleProfile(ctx, ""); com.agentos.shell.tools.AgentClient.styleProfile = "" })
+            }
+        }
+        if (voiceStatus.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(voiceStatus, fontSize = T.caption, color = T.accent) }
+        if (styleProfile.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            BasicTextField(
+                value = styleProfile,
+                onValueChange = { styleProfile = it; MemoryStore.setStyleProfile(ctx, it); com.agentos.shell.tools.AgentClient.styleProfile = it },
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp)
+            )
+        }
+
+        // ---- Per-platform persona ----
+        Spacer(Modifier.height(18.dp))
+        Text("Persona per platform", fontSize = T.body, color = T.ink)
+        Text("How you want to come across on each app — e.g. LinkedIn: professional, warm CEO · Instagram: funny & casual.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        listOf("linkedin" to "LinkedIn", "instagram" to "Instagram", "x" to "X", "reddit" to "Reddit",
+            "whatsapp" to "WhatsApp", "telegram" to "Telegram").forEach { (key, label) ->
+            var v by remember { mutableStateOf(MemoryStore.styleFor(ctx, key)) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Text(label, fontSize = T.small, color = T.inkSoft, modifier = Modifier.width(78.dp))
+                BasicTextField(
+                    value = v, onValueChange = { v = it; MemoryStore.setStyleFor(ctx, key, it) }, singleLine = true,
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(T.bgElevated).padding(horizontal = 10.dp, vertical = 8.dp),
+                    decorationBox = { inner -> if (v.isEmpty()) Text("tone for $label…", fontSize = T.small, color = T.inkFaint); inner() }
+                )
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

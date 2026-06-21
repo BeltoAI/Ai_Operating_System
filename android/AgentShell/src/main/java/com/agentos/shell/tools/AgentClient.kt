@@ -33,6 +33,9 @@ object AgentClient {
     /** Booking/scheduling link (Calendly etc.); set from MemoryStore so every reply can offer it. */
     @Volatile var bookingLink: String = ""
 
+    /** Learned "how I write" profile, applied to every outward message so it sounds like the owner. */
+    @Volatile var styleProfile: String = ""
+
     /** Best-effort owner name pulled from the memory blob ("my name is Emil", "I'm Emil", etc.). */
     private fun ownerName(memory: String): String {
         val pats = listOf(
@@ -66,6 +69,7 @@ object AgentClient {
             "punctuation, capitalization and message length, based on what you know about them and how " +
             "they text. Sound like a real human texting, never stiff, formal, corporate, or robotic; " +
             "no bullet points or lists unless they'd actually use them. " +
+            (if (styleProfile.isNotBlank()) "HOW YOU WRITE (mimic this precisely — your real texting style): $styleProfile. " else "") +
             (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "") +
             (if (bookingLink.isNotBlank()) "ONLY if the person themselves asks to schedule a call, book " +
                 "time, or get on a call (or explicitly asks how to reach you for one), THEN you may share " +
@@ -521,6 +525,18 @@ object AgentClient {
         return parseArchitect(code, text)
     }
 
+    /** Distill a concise "how I write" profile from real sample messages the user sent. */
+    fun learnStyle(samples: List<String>): String {
+        if (samples.isEmpty()) return ""
+        val sys = "Analyze these real messages the user has sent and write a tight profile of HOW THEY WRITE — " +
+            "tone, formality, sentence length, punctuation/capitalization habits, emoji use, slang, greetings/sign-offs, " +
+            "and any verbal tics. 4–6 sentences, concrete and imitable, second person ('You tend to…'). " +
+            "Describe ONLY their style, not the content."
+        val joined = samples.take(120).joinToString("\n").take(9000)
+        val (code, text) = callContent(sys, "MESSAGES:\n$joined", 500)
+        return if (code == 200) text.trim() else ""
+    }
+
     /** A warm, genuine message to reconnect with someone you've gone quiet on. In the owner's voice. */
     fun reconnectMessage(name: String, lastSnippet: String, daysSince: Int, memory: String = ""): String {
         val sys = persona(memory) +
@@ -659,12 +675,13 @@ object AgentClient {
     fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null): String {
         if (thread.isEmpty()) return draftReply(sender, "", memory, imageB64)
         val system = persona(memory) +
-            "You're texting with $sender in an ongoing conversation. Reply like a real person texting: " +
-            "short (usually a line or two), warm, casual, contractions, mirror their energy and length, " +
-            "emoji only if it fits. Use the earlier messages AND what you know about them (above) — stay " +
-            "consistent, remember names, plans and details already mentioned, and pick up where things left off. " +
-            "Don't sound like an assistant, don't over-explain, no sign-offs, no 'let me know if you need anything'. " +
-            "Write ONLY the next reply text — no quotes, no preamble."
+            "You're texting with $sender in an ongoing conversation. FIRST read the notes above — they contain " +
+            "your profile, what you know about $sender, and your prior + on-screen conversation history with them. " +
+            "Ground your reply in that history: stay consistent, remember names/plans/details already mentioned, " +
+            "reference what was actually said, and pick up exactly where things left off — never reset or ask " +
+            "something already answered. Then reply like a real person texting: short (a line or two), warm, casual, " +
+            "contractions, mirror their energy and length, emoji only if it fits. No assistant tone, no over-explaining, " +
+            "no sign-offs. Write ONLY the next reply text — no quotes, no preamble."
         // Normalize to alternating user/assistant turns, starting with user.
         val merged = ArrayList<Pair<String, String>>()
         thread.forEach { (role, text) ->

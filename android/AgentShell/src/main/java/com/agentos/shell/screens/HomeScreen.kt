@@ -82,6 +82,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     paused: Boolean,
     autoVoice: Boolean = false,
+    onVoiceConsumed: () -> Unit = {},
     onOpen: (Screen) -> Unit,
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
@@ -260,8 +261,9 @@ fun HomeScreen(
             )
         } catch (e: Exception) { reply = "No voice input available on this device." }
     }
-    // Launched from the lock-screen "Speak" shortcut → open the mic immediately, once.
-    LaunchedEffect(autoVoice) { if (autoVoice) startVoice() }
+    // Launched from the lock-screen "Speak" shortcut → open the mic immediately, ONCE, then clear
+    // it so returning to Home (e.g. via the nav bar) never re-opens the mic.
+    LaunchedEffect(autoVoice) { if (autoVoice) { startVoice(); onVoiceConsumed() } }
 
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
