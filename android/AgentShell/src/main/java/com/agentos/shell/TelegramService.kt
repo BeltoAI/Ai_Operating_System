@@ -82,16 +82,22 @@ class TelegramService : Service() {
             // Text → natural reply, white paper only when the question is Belto/SlyOS tech.
             u.text.isNotBlank() -> {
                 val chat = u.chatId.toString()
+                val who = u.senderName.ifBlank { "Telegram $chat" }   // file under a real name in the brain
                 ConversationStore.add(applicationContext, "Telegram", chat, "them", u.text)
+                // Into the searchable brain (so Telegram chats show in the graph + Ask + reply context).
+                com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "them", u.text)
                 val thread = ConversationStore.thread(applicationContext, "Telegram", chat).map { it.role to it.text }
                 // If a document is loaded, pull the excerpts most relevant to THIS message (RAG —
                 // not the whole file), so questions about a PDF someone sent get answered, while
                 // casual chatter still stays casual (the reply prompt decides whether to use them).
                 val doc = if (KnowledgeStore.hasDoc(applicationContext))
                     KnowledgeStore.retrieve(applicationContext, u.text, 6000) else ""
-                val ans = AgentClient.telegramSmartReply(thread, doc, mem)
+                // Pull EVERYTHING the brain knows about this person (cross-platform), not just your bio.
+                val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(applicationContext, "Telegram", who)
+                val ans = AgentClient.telegramSmartReply(thread, doc, ctxMem.ifBlank { mem })
                 TelegramClient.sendMessage(u.chatId, ans)
                 ConversationStore.add(applicationContext, "Telegram", chat, "me", ans)
+                com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "me", ans)
                 com.agentos.shell.tools.MetricsStore.record(applicationContext,
                     com.agentos.shell.tools.MetricsStore.secondsFor(if (doc.isNotBlank()) "doc_answer" else "reply"))
                 MemoryLog.add(applicationContext, "response", "Telegram: ${u.text.take(30)}", ans, "Telegram bot")

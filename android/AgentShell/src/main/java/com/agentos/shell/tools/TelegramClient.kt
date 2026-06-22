@@ -15,7 +15,7 @@ object TelegramClient {
     data class Update(
         val updateId: Long, val chatId: Long, val text: String, val caption: String,
         val photoFileId: String?, val docFileId: String?, val docName: String,
-        val docMime: String, val voiceFileId: String?
+        val docMime: String, val voiceFileId: String?, val senderName: String = ""
     ) {
         val isPdf: Boolean get() = docFileId != null &&
             (docName.endsWith(".pdf", true) || docMime.equals("application/pdf", true))
@@ -40,12 +40,20 @@ object TelegramClient {
                 val chat = msg.optJSONObject("chat") ?: return@mapNotNull null
                 val photo = msg.optJSONArray("photo")?.let { it.optJSONObject(it.length() - 1)?.optString("file_id") }
                 val doc = msg.optJSONObject("document")
+                // Who sent it — so the message can be filed in the brain under a real name, not a number.
+                val from = msg.optJSONObject("from")
+                val name = listOfNotNull(from?.optString("first_name")?.takeIf { it.isNotBlank() },
+                        from?.optString("last_name")?.takeIf { it.isNotBlank() })
+                    .joinToString(" ").ifBlank {
+                        from?.optString("username")?.takeIf { it.isNotBlank() }
+                            ?: chat.optString("title").takeIf { it.isNotBlank() } ?: ""
+                    }
                 Update(
                     u.getLong("update_id"), chat.getLong("id"),
                     msg.optString("text"), msg.optString("caption"),
                     photo, doc?.optString("file_id"), doc?.optString("file_name").orEmpty(),
                     doc?.optString("mime_type").orEmpty(),
-                    msg.optJSONObject("voice")?.optString("file_id")
+                    msg.optJSONObject("voice")?.optString("file_id"), name
                 )
             }
         } catch (e: Exception) { emptyList() }

@@ -191,9 +191,24 @@ fun HomeScreen(
                     .format(java.util.Date())
                 val recall = if (MemoryStore.recallEnabled(ctx))
                     com.agentos.shell.tools.InteractionStore.retrieve(ctx, q, 20) else ""
+                // Tap the brain directly so the Home agent can answer about people, chats and your
+                // network — not just your bio. (Cheap SQLite lookups; empty for plain commands.)
+                val chats = com.agentos.shell.tools.MessageStore.search(ctx, q, 10)
+                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                    .take(2200)
+                val net = com.agentos.shell.tools.ConnectionStore.search(ctx, q, 10)
+                    .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
+                    .take(1200)
+                val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 1600)
                 buildString {
                     if (mem.isNotBlank()) append(mem)
                     if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+                    if (chats.isNotBlank())
+                        append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
+                    if (net.isNotBlank())
+                        append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
+                    if (papers.isNotBlank())
+                        append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
                     if (recall.isNotBlank())
                         append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
                     append("\nCurrent time: ").append(now)

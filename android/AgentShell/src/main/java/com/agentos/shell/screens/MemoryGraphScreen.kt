@@ -128,6 +128,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 com.agentos.shell.tools.MessageStore.search(ctx, q, 70)
                     .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body }
             }
+            // Your written papers' CONTENT (not just titles) — so Ask can answer from your research.
+            val paperHits = withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 3000) }
+                .split("\n\n").map { it.trim() }.filter { it.isNotBlank() }
             // Connections first (people you know), then messages, then graph facts/recall.
             val extra = MemoryGraphStore.memoryLines() + recall
             val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
@@ -143,8 +146,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 .map { "Checklist task: ${it.text} — ${if (it.done) "done" else "to do"}" }
             val corpus = ArrayList<String>(); var chars = 0
             // For task-type questions, lead with the checklist; otherwise keep people/messages first.
-            val ordered = if (taskQuery) taskLines + conns + dbHits + rankedExtra
-                          else conns + dbHits + taskLines + rankedExtra
+            val ordered = if (taskQuery) taskLines + conns + dbHits + paperHits + rankedExtra
+                          else conns + dbHits + paperHits + taskLines + rankedExtra
             for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
             val a = withContext(Dispatchers.IO) {
                 if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)

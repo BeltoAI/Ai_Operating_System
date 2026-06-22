@@ -104,7 +104,9 @@ fun ReplyCard(note: NotificationStore.Note) {
             val d = withContext(Dispatchers.IO) {
                 if (note.isEmail) {
                     val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
-                    AgentClient.draftEmailReply(note.title, note.text, doc, MemoryStore.about(ctx))
+                    val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
+                        .ifBlank { MemoryStore.about(ctx) }
+                    AgentClient.draftEmailReply(note.title, note.text, doc, mem)
                 } else {
                     val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
                     val thread = com.agentos.shell.tools.ConversationStore.thread(ctx, note.app, note.title)
@@ -171,7 +173,9 @@ fun ReplyCard(note: NotificationStore.Note) {
                             val d = withContext(Dispatchers.IO) {
                                 if (note.isEmail) {
                                     val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
-                                    AgentClient.draftEmailReply(note.title, note.text, doc, memory)
+                                    val emem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
+                                        .ifBlank { memory }
+                                    AgentClient.draftEmailReply(note.title, note.text, doc, emem)
                                 } else {
                                     val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
                                     val thread = com.agentos.shell.tools.ConversationStore

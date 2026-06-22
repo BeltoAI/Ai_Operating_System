@@ -48,6 +48,14 @@ object ReplyContext {
                     sb.append("\nOther things seen on screen about $name: ").append(rec.joinToString(" · "))
             }
         }
+        // Your OWN research: if what you're discussing relates to a paper you've written, pull the
+        // relevant excerpts so replies can speak to your work (outward flow of papers into the brain).
+        val topic = sb.toString().takeLast(1200)
+        if (topic.length > 20) {
+            val papers = PaperStore.libraryContext(ctx, 0L, topic, 1400)
+            if (papers.isNotBlank())
+                sb.append("\nFrom your own research papers (cite/use ONLY if relevant): ").append(papers)
+        }
         return sb.toString().trim()
     }
 }

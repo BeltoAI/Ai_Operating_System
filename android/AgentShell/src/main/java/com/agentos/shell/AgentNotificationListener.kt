@@ -80,10 +80,13 @@ class AgentNotificationListener : NotificationListenerService() {
         NotificationStore.put(note)
         // Record every real human message/comment into per-conversation memory (any platform), but
         // NOT transactional/system noise (orders, banks, rides, news). Skip own echoes.
-        if (note.isConversational && text.isNotBlank() && title.isNotBlank()
+        // Emails count too (real ones, not no-reply/verification) so received mail feeds the brain.
+        val capture = note.isConversational || (note.isEmail && !note.isLikelyBot)
+        if (capture && text.isNotBlank() && title.isNotBlank()
             && !NotificationStore.isOwnEcho(note)) {
-            com.agentos.shell.tools.ConversationStore.add(applicationContext, appLabel, title, "them", text)
-            com.agentos.shell.tools.MessageStore.insertOne(applicationContext, title, appLabel, title, "them", text)
+            val platform = if (note.isEmail) "Email" else appLabel
+            com.agentos.shell.tools.ConversationStore.add(applicationContext, platform, title, "them", text)
+            com.agentos.shell.tools.MessageStore.insertOne(applicationContext, title, platform, title, "them", text)
         }
         return note
     }
@@ -122,7 +125,9 @@ class AgentNotificationListener : NotificationListenerService() {
                     docMode -> AgentClient.answerFromDoc(
                         note.text, com.agentos.shell.tools.KnowledgeStore.retrieve(applicationContext, note.text), memory
                     )
-                    note.isSocial -> AgentClient.draftCommentReply(note.text, memory)
+                    note.isSocial -> AgentClient.draftCommentReply(note.text,
+                        com.agentos.shell.tools.ReplyContext.forSender(applicationContext, note.app, note.title)
+                            .ifBlank { memory })
                     else -> {
                         val thread = com.agentos.shell.tools.ConversationStore
                             .thread(applicationContext, note.app, note.title).map { it.role to it.text }
