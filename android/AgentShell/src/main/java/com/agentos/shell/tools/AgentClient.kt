@@ -339,7 +339,9 @@ object AgentClient {
         f = Regex("(?s)\\*\\*(.+?)\\*\\*").replace(f) { "<strong>${it.groupValues[1]}</strong>" }  // leaked **bold**
         // Cut a trailing conversational note (only if it appears in the back half of the fragment).
         val markers = listOf("Note on the gap", "Want me to", "Shall I write", "Let me know if you",
-            "Do you want me", "Should I write", "Next, I can", "I can also write", "Would you like me")
+            "Do you want me", "Should I write", "Next, I can", "I can also write", "Would you like me",
+            "That's the chapter", "That's the section", "That's the new", "Here's the chapter",
+            "Here's the new", "The throughline", "To summarize what I", "In short, that")
         var cut = f.length
         for (m in markers) { val i = f.indexOf(m, ignoreCase = true); if (i in 1 until cut && i > f.length * 0.5) cut = i }
         if (cut < f.length) {
@@ -428,6 +430,7 @@ object AgentClient {
         }
         return genre +
             "Keep ONE consistent professional voice and genre throughout — no casual asides, no snark, no jokes, no first-person quips. " +
+            "Output ONLY publishable document content. NEVER address the reader or describe your own process — no closing remarks like \"That's the chapter\", \"the throughline is…\", \"grounded in real hardware\", or any summary of what you just wrote. End on the actual prose or the references, nothing else. " +
             "CITATIONS: cite ONLY sources you actually retrieved via web search. Every reference MUST be a real, " +
             "clickable hyperlink written as <a href=\"https://...\">title</a> RIGHT THERE in the References list — " +
             "never defer URLs to an appendix, never write 'URLs available elsewhere', never list a source without its link. " +
