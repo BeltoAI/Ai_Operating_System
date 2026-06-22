@@ -134,8 +134,18 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val rankedExtra = if (terms.isEmpty()) extra.takeLast(40)
                 else extra.map { it to terms.count { t -> it.lowercase().contains(t) } }
                     .filter { it.second > 0 }.sortedByDescending { it.second }.take(60).map { it.first }
+            // Checklist tasks: pulled in directly so "what's on my list / what tasks do I have" works
+            // even though task text rarely contains the words "task" or "checklist".
+            val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|what.*do|need.*do|outstanding|pending",
+                RegexOption.IGNORE_CASE).containsMatchIn(query)
+            val taskLines = withContext(Dispatchers.IO) { com.agentos.shell.tools.ChecklistStore.load(ctx) }
+                .filter { taskQuery || terms.any { t -> it.text.lowercase().contains(t) } }
+                .map { "Checklist task: ${it.text} — ${if (it.done) "done" else "to do"}" }
             val corpus = ArrayList<String>(); var chars = 0
-            for (l in (conns + dbHits + rankedExtra)) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
+            // For task-type questions, lead with the checklist; otherwise keep people/messages first.
+            val ordered = if (taskQuery) taskLines + conns + dbHits + rankedExtra
+                          else conns + dbHits + taskLines + rankedExtra
+            for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
             val a = withContext(Dispatchers.IO) {
                 if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
             }

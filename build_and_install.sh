@@ -28,8 +28,14 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 echo "ANDROID_HOME=$ANDROID_HOME"
 
 say "3/7  SDK components (licenses, platform 35, build-tools, platform-tools)"
-yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
-sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+# Skip entirely if everything's already installed (avoids sdkmanager hanging on a license prompt).
+if [ -d "$ANDROID_HOME/platforms/android-35" ] && [ -d "$ANDROID_HOME/build-tools/35.0.0" ] && [ -d "$ANDROID_HOME/platform-tools" ]; then
+  echo "SDK components already present — skipping."
+else
+  yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
+  # Pipe 'yes' so any per-component license prompt is auto-accepted (never blocks on input).
+  yes | sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+fi
 
 say "4/7  Point the project at the SDK"
 echo "sdk.dir=$ANDROID_HOME" > "$REPO/local.properties"
