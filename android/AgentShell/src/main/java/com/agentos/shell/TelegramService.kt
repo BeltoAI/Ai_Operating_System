@@ -58,12 +58,16 @@ class TelegramService : Service() {
 
     private fun handle(u: TelegramClient.Update) {
         val mem = MemoryStore.about(applicationContext)
+        val who = u.senderName.ifBlank { "Telegram ${u.chatId}" }   // brain contact name for any branch
+        fun brainIn(text: String) = com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "them", text)
+        fun brainOut(text: String) = com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "me", text)
         when {
             // PDF document → ingest as the knowledge base.
             u.isPdf -> {
                 val name = u.docName.ifBlank { "document.pdf" }
                 val bytes = u.docFileId?.let { TelegramClient.downloadFile(it) }
                 val chars = if (bytes != null) KnowledgeStore.loadFromBytes(applicationContext, bytes, name) else 0
+                brainIn("[sent a PDF: $name]")
                 TelegramClient.sendMessage(u.chatId,
                     when {
                         chars > 0 -> "Got “$name” — read it ($chars chars). Ask me anything about it."
@@ -77,15 +81,16 @@ class TelegramService : Service() {
                 val b64 = bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
                 val ask = u.caption.ifBlank { "What's in this image?" }
                 val ans = if (b64 != null) AgentClient.askVision(ask, listOf(b64), mem) else "I couldn't open that image."
+                brainIn("[sent a photo]" + (if (u.caption.isNotBlank()) " ${u.caption}" else "") + " — I saw: $ans")
                 TelegramClient.sendMessage(u.chatId, ans)
+                brainOut(ans)
             }
             // Text → natural reply, white paper only when the question is Belto/SlyOS tech.
             u.text.isNotBlank() -> {
                 val chat = u.chatId.toString()
-                val who = u.senderName.ifBlank { "Telegram $chat" }   // file under a real name in the brain
                 ConversationStore.add(applicationContext, "Telegram", chat, "them", u.text)
                 // Into the searchable brain (so Telegram chats show in the graph + Ask + reply context).
-                com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "them", u.text)
+                brainIn(u.text)
                 val thread = ConversationStore.thread(applicationContext, "Telegram", chat).map { it.role to it.text }
                 // If a document is loaded, pull the excerpts most relevant to THIS message (RAG —
                 // not the whole file), so questions about a PDF someone sent get answered, while

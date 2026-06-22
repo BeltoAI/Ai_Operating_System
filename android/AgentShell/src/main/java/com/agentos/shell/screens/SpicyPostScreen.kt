@@ -69,6 +69,11 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
     fun publish() {
         if (post.isBlank()) return
         com.agentos.shell.tools.MetricsStore.record(ctx, com.agentos.shell.tools.MetricsStore.secondsFor("spicy_post"))
+        // Feed the brain: your published posts are searchable + grow your learned voice.
+        val plat = if (isReddit) "Reddit" else "X"
+        com.agentos.shell.tools.MemoryLog.add(ctx, "response", "Posted to $plat", post, plat)
+        com.agentos.shell.tools.MessageStore.insertOne(ctx, "My $plat posts", plat, "me", "me", post)
+        com.agentos.shell.tools.MemoryStore.addVoiceSamples(ctx, listOf(post))
         if (isReddit) {
             val parts = post.split("\n", limit = 2)
             val title = parts[0].trim()

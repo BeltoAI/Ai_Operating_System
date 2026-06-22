@@ -142,6 +142,9 @@ object ToolRouter {
                 ctx.getSystemService(SmsManager::class.java) else SmsManager.getDefault()
             sms.sendTextMessage(contact.number, null, body, null, null)
             android.util.Log.i("SlyOS", "sms -> ${contact.name} (${contact.number})")
+            // Record what you sent so it feeds the brain (searchable + reply context with this person).
+            MessageStore.insertOne(ctx, contact.name, "SMS", contact.name, "me", body)
+            ConversationStore.add(ctx, "SMS", contact.name, "me", body)
             "Texted ${contact.name}: \"$body\""
         } catch (e: Exception) {
             android.util.Log.e("SlyOS", "sendSms failed", e); "Couldn't send the text."

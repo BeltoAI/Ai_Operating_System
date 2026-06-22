@@ -13,6 +13,11 @@ object ReplyContext {
         val about = MemoryStore.about(ctx)
         if (about.isNotBlank()) sb.append(about).append(" ")
 
+        // Your real schedule — so the agent can answer "are you free Thursday?" instead of guessing.
+        val cal = try { CalendarTool.upcoming(ctx) } catch (e: Exception) { "" }
+        if (cal.isNotBlank())
+            sb.append("\nYour upcoming calendar (use ONLY if they ask about timing/availability/meeting): ").append(cal).append(" ")
+
         // Per-platform persona: how you want to come across on THIS app (e.g. CEO on LinkedIn, funny on IG).
         val style = MemoryStore.styleFor(ctx, app)
         if (style.isNotBlank())
