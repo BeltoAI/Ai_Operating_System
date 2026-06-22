@@ -588,6 +588,20 @@ object AgentClient {
         return if (code == 200) text.trim() else "Couldn't check the document ($code)."
     }
 
+    /**
+     * Semantic-ish query expansion: turn a question into related keywords/synonyms/names that might
+     * actually appear in messages, so keyword search retrieves by meaning, not just exact words.
+     * (Until on-device embeddings exist, this is the lightweight semantic layer.)
+     */
+    fun expandQuery(query: String): List<String> {
+        val sys = "Expand this search into 6–12 related keywords, synonyms, and likely phrasings someone " +
+            "would have actually typed in casual chat messages about it. Include obvious variants. " +
+            "Reply with ONLY a comma-separated list of lowercase words/short phrases — no explanation."
+        val (code, text) = callContent(sys, query, 120)
+        if (code != 200) return emptyList()
+        return text.lowercase().split(",", "\n").map { it.trim() }.filter { it.length in 2..30 }.take(14)
+    }
+
     /** Natural-language Q&A over the user's memories. Returns an answer. */
     fun askMemory(query: String, memories: List<String>): String {
         if (memories.isEmpty()) return "Your memory is empty so far — as you chat, reply, and learn, it fills up."

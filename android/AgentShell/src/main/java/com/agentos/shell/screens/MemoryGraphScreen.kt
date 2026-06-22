@@ -107,9 +107,11 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             // Pull relevant people from the imported network so questions like "interesting VCs" work.
             val conns = com.agentos.shell.tools.ConnectionStore.search(ctx, query, 40)
                 .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") }
-            // Primary retrieval: full-text search over the whole message DB (scales to everything).
+            // Semantic-ish expansion → broader keyword retrieval over the whole message DB.
             val dbHits = withContext(Dispatchers.IO) {
-                com.agentos.shell.tools.MessageStore.search(ctx, query, 80)
+                val expanded = com.agentos.shell.tools.AgentClient.expandQuery(query)
+                val q = (listOf(query) + expanded).joinToString(" ")
+                com.agentos.shell.tools.MessageStore.search(ctx, q, 80)
                     .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body }
             }
             // Also fold in graph facts + recall + connections, relevance-ranked and hard-capped.

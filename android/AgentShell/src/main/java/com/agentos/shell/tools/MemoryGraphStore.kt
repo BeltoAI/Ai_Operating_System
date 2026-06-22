@@ -50,7 +50,7 @@ object MemoryGraphStore {
         // People come from the message DB (imported + live) — top contacts by volume, capped so the
         // O(n²) force-layout never freezes. Everyone else still lives in the DB (Ask finds them).
         val peopleByApp = HashMap<String, MutableList<Int>>()
-        MessageStore.topContacts(ctx, 45)
+        MessageStore.topContacts(ctx, 300)
             .filter { "person:${it.first}" !in forg && it.first.isNotBlank() }
             .forEach { (contact, cnt) ->
                 val content = "$cnt message" + (if (cnt != 1) "s" else "")
@@ -109,6 +109,9 @@ object MemoryGraphStore {
     }
 
     private fun layout() {
+        // Big graphs: O(n) golden-angle spiral (a dense neuron cloud) — the O(n²) force layout below
+        // would freeze past ~100 nodes. Hub centered, everything else fans out evenly.
+        if (nodes.size > 90) { spiralLayout(); return }
         val rnd = Random(7)
         nodes.forEach { it.x = (rnd.nextFloat() - .5f) * 460; it.y = (rnd.nextFloat() - .5f) * 460 }
         val minGap = 64f      // keep nodes from overlapping
@@ -136,6 +139,20 @@ object MemoryGraphStore {
         if (nodes.isNotEmpty()) {
             val cx = nodes.map { it.x }.average().toFloat(); val cy = nodes.map { it.y }.average().toFloat()
             nodes.forEach { it.x -= cx; it.y -= cy }
+        }
+    }
+
+    /** O(n) phyllotaxis (golden-angle) spiral — places hundreds of nodes instantly, evenly spread. */
+    private fun spiralLayout() {
+        val golden = 2.399963f
+        var k = 0
+        for (node in nodes) {
+            if (node.type == "hub") { node.x = 0f; node.y = 0f; continue }
+            k++
+            val r = 30f * sqrt(k.toFloat())
+            val a = k * golden
+            node.x = r * kotlin.math.cos(a)
+            node.y = r * kotlin.math.sin(a)
         }
     }
 }
