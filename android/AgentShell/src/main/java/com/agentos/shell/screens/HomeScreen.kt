@@ -175,8 +175,12 @@ fun HomeScreen(
                 } else {
                     val b64s = withContext(Dispatchers.IO) { attached.mapNotNull { ImageUtil.encode(ctx, it) } }
                     reply = withContext(Dispatchers.IO) {
-                        AgentClient.askVision(q, b64s, MemoryStore.about(ctx))
+                        AgentClient.askVision(q, b64s, MemoryStore.fullProfile(ctx))
                     }
+                    // Remember what you looked at + what it was, so vision Q&A feeds the brain too.
+                    if (reply.isNotBlank())
+                        com.agentos.shell.tools.MemoryLog.add(ctx, "response",
+                            "Looked at: ${q.take(40)}", reply, "Camera")
                 }
                 if (doSpeak) speak(reply)
                 thinking = false

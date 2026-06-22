@@ -36,8 +36,13 @@ object ReplyContext {
                 sb.append("\nWhat you know about $name from other chats: ").append(elsewhere.joinToString(" · "))
 
             // Deep history for this person straight from the message DB (imported + live).
-            val dbThread = MessageStore.threadFor(ctx, name, 16)
+            // Try exact contact first; if the notification name doesn't exactly match how they're
+            // stored (e.g. "Papa" vs "Dad Smith"), fall back to a name search so history still surfaces.
+            var dbThread = MessageStore.threadFor(ctx, name, 16)
                 .map { (if (it.role == "me") "you" else name) + ": " + it.body }
+            if (dbThread.isEmpty())
+                dbThread = MessageStore.search(ctx, name, 16)
+                    .map { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
             if (dbThread.isNotEmpty())
                 sb.append("\nYour history with $name: ").append(dbThread.joinToString(" · "))
 

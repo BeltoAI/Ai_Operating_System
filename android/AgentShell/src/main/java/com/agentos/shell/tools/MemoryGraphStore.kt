@@ -63,6 +63,12 @@ object MemoryGraphStore {
             if (key in forg) return@forEachIndexed
             e(hub, n(key, "idea", if (line.length > 34) line.take(33) + "…" else line, line, "About you", 0.6f, 0.5f, false))
         }
+        // Facts the agent LEARNED on its own from conversations — so they're visible + searchable too.
+        MemoryStore.learnedFacts(ctx).forEachIndexed { i, line ->
+            val key = "learned:$i"
+            if (key in forg || line.isBlank()) return@forEachIndexed
+            e(hub, n(key, "idea", if (line.length > 34) line.take(33) + "…" else line, line, "Learned", 0.55f, 0.7f, false))
+        }
         // Checklist items.
         ChecklistStore.load(ctx).forEach {
             val key = "task:${it.id}"
