@@ -55,6 +55,20 @@ private fun typeColor(t: String): Color = when (t) {
 }
 private val ACCENT = Color(0xFFE8642C)
 
+/** Color a person node by the platform they're from, so the brain reads as colorful lobes. */
+private fun platformColor(p: String): Color {
+    val s = p.lowercase()
+    return when {
+        s.contains("whatsapp") -> Color(0xFF1FA855)
+        s.contains("instagram") -> Color(0xFFC13584)
+        s.contains("linkedin") -> Color(0xFF2E6F9E)
+        s.contains("telegram") -> Color(0xFF2AABEE)
+        s.contains("messen") || s.contains("orca") -> Color(0xFF7B3FF2)
+        s.contains("signal") -> Color(0xFF3A76F0)
+        else -> Color(0xFF9A8B77)
+    }
+}
+
 /** Strip markdown so answers render as clean text (no **, #, backticks; tidy bullets). */
 private fun prettify(s: String): String {
     var t = s
@@ -101,27 +115,27 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         if (query.isBlank()) return
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
+            // Semantic-ish expansion: search by meaning across messages AND the LinkedIn network.
+            val expanded = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.expandQuery(query) }
+            val q = (listOf(query) + expanded).joinToString(" ")
             val recall = if (com.agentos.shell.tools.MemoryStore.recallEnabled(ctx))
-                com.agentos.shell.tools.InteractionStore.search(ctx, query, 40)
+                com.agentos.shell.tools.InteractionStore.search(ctx, q, 40)
                     .map { "Seen in ${it.app}: ${it.text}" } else emptyList()
-            // Pull relevant people from the imported network so questions like "interesting VCs" work.
-            val conns = com.agentos.shell.tools.ConnectionStore.search(ctx, query, 40)
+            // Your imported network (LinkedIn connections) — so "do I know any VCs" works.
+            val conns = withContext(Dispatchers.IO) { com.agentos.shell.tools.ConnectionStore.search(ctx, q, 60) }
                 .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") }
-            // Semantic-ish expansion → broader keyword retrieval over the whole message DB.
             val dbHits = withContext(Dispatchers.IO) {
-                val expanded = com.agentos.shell.tools.AgentClient.expandQuery(query)
-                val q = (listOf(query) + expanded).joinToString(" ")
-                com.agentos.shell.tools.MessageStore.search(ctx, q, 80)
+                com.agentos.shell.tools.MessageStore.search(ctx, q, 70)
                     .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body }
             }
-            // Also fold in graph facts + recall + connections, relevance-ranked and hard-capped.
-            val extra = MemoryGraphStore.memoryLines() + recall + conns
+            // Connections first (people you know), then messages, then graph facts/recall.
+            val extra = MemoryGraphStore.memoryLines() + recall
             val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
             val rankedExtra = if (terms.isEmpty()) extra.takeLast(40)
                 else extra.map { it to terms.count { t -> it.lowercase().contains(t) } }
                     .filter { it.second > 0 }.sortedByDescending { it.second }.take(60).map { it.first }
             val corpus = ArrayList<String>(); var chars = 0
-            for (l in (dbHits + rankedExtra)) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
+            for (l in (conns + dbHits + rankedExtra)) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
             val a = withContext(Dispatchers.IO) {
                 if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
             }
@@ -262,7 +276,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     val a = if (dim) 0.16f else 1f
                     // Color each memory by what it IS, so the brain reads at a glance instead of
                     // looking like an undifferentiated cluster. Selection/path still glow accent.
-                    val col = when { sel || inPath -> ACCENT; hub -> ACCENT; else -> typeColor(n.type) }
+                    val col = when {
+                        sel || inPath -> ACCENT
+                        hub -> ACCENT
+                        n.type == "person" -> platformColor(n.source)
+                        else -> typeColor(n.type)
+                    }
                     drawCircle(col.copy(alpha = a), r, Offset(X, Y))
                     drawCircle(Color(0xFF1A1714).copy(alpha = 0.12f * a), r, Offset(X, Y), style = Stroke(width = 0.8f))
                     if (sel || inPath) drawCircle(ACCENT, r + 5f, Offset(X, Y), style = Stroke(width = 1.6f))

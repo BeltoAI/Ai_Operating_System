@@ -52,9 +52,10 @@ object MemoryGraphStore {
         val peopleByApp = HashMap<String, MutableList<Int>>()
         MessageStore.topContacts(ctx, 300)
             .filter { "person:${it.first}" !in forg && it.first.isNotBlank() }
-            .forEach { (contact, cnt) ->
+            .forEach { (contact, cnt, platform) ->
                 val content = "$cnt message" + (if (cnt != 1) "s" else "")
-                e(hub, n("person:$contact", "person", contact, content, "Chats", (0.5f + 0.02f * cnt).coerceAtMost(0.95f), 0.9f, false))
+                // source = platform → drives the node color (WhatsApp/IG/LinkedIn… each its own hue).
+                e(hub, n("person:$contact", "person", contact, content, platform.ifBlank { "Chats" }, (0.5f + 0.02f * cnt).coerceAtMost(0.95f), 0.9f, false))
             }
         // Facts the agent learned about you.
         MemoryStore.about(ctx).split("\n").map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { i, line ->
@@ -109,13 +110,11 @@ object MemoryGraphStore {
     }
 
     private fun layout() {
-        // Big graphs: O(n) golden-angle spiral (a dense neuron cloud) — the O(n²) force layout below
-        // would freeze past ~100 nodes. Hub centered, everything else fans out evenly.
-        if (nodes.size > 90) { spiralLayout(); return }
         val rnd = Random(7)
-        nodes.forEach { it.x = (rnd.nextFloat() - .5f) * 460; it.y = (rnd.nextFloat() - .5f) * 460 }
-        val minGap = 64f      // keep nodes from overlapping
-        repeat(600) {
+        nodes.forEach { it.x = (rnd.nextFloat() - .5f) * 700; it.y = (rnd.nextFloat() - .5f) * 700 }
+        val minGap = 46f      // keep nodes from overlapping
+        val iters = if (nodes.size > 120) 70 else 600   // organic, but never freezes on big graphs
+        repeat(iters) {
             for (i in nodes.indices) {
                 val a = nodes[i]
                 for (j in i + 1 until nodes.size) {
@@ -140,19 +139,23 @@ object MemoryGraphStore {
             val cx = nodes.map { it.x }.average().toFloat(); val cy = nodes.map { it.y }.average().toFloat()
             nodes.forEach { it.x -= cx; it.y -= cy }
         }
+        addSynapses()
     }
 
-    /** O(n) phyllotaxis (golden-angle) spiral — places hundreds of nodes instantly, evenly spread. */
-    private fun spiralLayout() {
-        val golden = 2.399963f
-        var k = 0
-        for (node in nodes) {
-            if (node.type == "hub") { node.x = 0f; node.y = 0f; continue }
-            k++
-            val r = 30f * sqrt(k.toFloat())
-            val a = k * golden
-            node.x = r * kotlin.math.cos(a)
-            node.y = r * kotlin.math.sin(a)
+    /** Wire each node to its 2 nearest neighbors → an organic neural web (synapses), not a sunburst. */
+    private fun addSynapses() {
+        val pts = nodes.indices.filter { nodes[it].type != "hub" }
+        if (pts.size < 3) return
+        val seen = HashSet<Long>()
+        for (i in pts) {
+            val a = nodes[i]
+            val near = pts.asSequence().filter { it != i }
+                .sortedBy { val b = nodes[it]; (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) }
+                .take(2)
+            for (j in near) {
+                val key = (minOf(i, j).toLong() shl 20) or maxOf(i, j).toLong()
+                if (seen.add(key)) e(i, j)
+            }
         }
     }
 }

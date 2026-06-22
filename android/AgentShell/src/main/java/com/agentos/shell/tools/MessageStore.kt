@@ -94,10 +94,12 @@ object MessageStore {
         }
     } catch (e: Exception) { emptyList() }
 
-    fun topContacts(ctx: Context, limit: Int = 45): List<Pair<String, Int>> = try {
-        db(ctx).rawQuery("SELECT contact, count(*) c FROM messages GROUP BY contact ORDER BY c DESC LIMIT ?",
+    /** Top contacts with (name, messageCount, platform) — platform drives the node color. */
+    fun topContacts(ctx: Context, limit: Int = 45): List<Triple<String, Int, String>> = try {
+        db(ctx).rawQuery("SELECT contact, count(*) c, platform FROM messages GROUP BY contact ORDER BY c DESC LIMIT ?",
             arrayOf(limit.toString())).use { cur ->
-            val out = ArrayList<Pair<String, Int>>(); while (cur.moveToNext()) out.add(cur.getString(0) to cur.getInt(1))
+            val out = ArrayList<Triple<String, Int, String>>()
+            while (cur.moveToNext()) out.add(Triple(cur.getString(0), cur.getInt(1), cur.getString(2) ?: ""))
             out
         }
     } catch (e: Exception) { emptyList() }
