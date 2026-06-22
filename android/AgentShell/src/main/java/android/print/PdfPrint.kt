@@ -40,7 +40,7 @@ class PdfPrint(private val attributes: PrintAttributes) {
                     }
 
                     override fun onLayoutFailed(error: CharSequence?) { onDone(null) }
-                })
+                }, android.os.Bundle())
         } catch (e: Exception) { onDone(null) }
     }
 }
