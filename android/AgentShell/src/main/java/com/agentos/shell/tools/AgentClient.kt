@@ -305,6 +305,28 @@ object AgentClient {
         return if (code == 200) text.trim().trim('"') else "[couldn't revise: $code $text]"
     }
 
+    /**
+     * Build Zenodo publishing metadata for maximum discoverability: a polished plain-text description
+     * (abstract-style, no HTML) plus 6-10 specific search keywords. Returns Pair(description, keywords).
+     */
+    fun zenodoMeta(title: String, plainText: String): Pair<String, List<String>> {
+        val sys = "You prepare repository metadata for an academic paper so it ranks well in search. " +
+            "Reply with ONLY compact JSON: {\"description\":\"...\",\"keywords\":[\"...\"]}. " +
+            "description = a clear, compelling 3-5 sentence abstract-style summary in plain text (NO HTML, NO markdown). " +
+            "keywords = 6-10 specific, search-relevant terms (fields, methods, technologies, domain), no generic filler."
+        val u = "TITLE: $title\n\nPAPER TEXT (excerpt):\n" + plainText.take(6000)
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", u)), 600, MODEL)
+        if (code != 200) return "" to emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val o = JSONObject(text.substring(s, e + 1))
+            val desc = o.optString("description").trim()
+            val arr = o.optJSONArray("keywords")
+            val kws = if (arr != null) (0 until arr.length()).map { arr.getString(it).trim() }.filter { it.isNotEmpty() } else emptyList()
+            desc to kws
+        } catch (ex: Exception) { "" to emptyList() }
+    }
+
     /** Spicy-but-constructive reply to a comment/mention on a social post. */
     fun draftCommentReply(comment: String, memory: String = ""): String {
         val sys = persona(memory) +

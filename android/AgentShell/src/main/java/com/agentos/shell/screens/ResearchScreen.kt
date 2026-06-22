@@ -32,6 +32,7 @@ import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.MetricsStore
 import com.agentos.shell.tools.PaperStore
 import com.agentos.shell.tools.UsageLimiter
+import com.agentos.shell.tools.ZenodoClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,6 +128,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var thesis by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
+    var showPublish by remember { mutableStateOf(false) }
+    var zToken by remember { mutableStateOf(MemoryStore.zenodoToken(ctx)) }
+    var publishing by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var remaining by remember { mutableStateOf(UsageLimiter.remaining(ctx, "paper", CAP)) }
@@ -314,13 +318,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         } catch (e: Exception) { status = "Couldn't open PDF export." }
     }
 
-    fun sharePdf() {
-        val wv = webRef ?: return
-        try {
+    // Render the on-screen paper into a real A4-paginated PDF file (shared by Share + Publish).
+    fun buildPdf(): java.io.File? {
+        val wv = webRef ?: return null
+        return try {
             val density = ctx.resources.displayMetrics.density
             val w = if (wv.width > 0) wv.width else 1080
             val totalH = (wv.contentHeight * density).toInt().coerceIn(1, 200000)
-            // Slice the rendered paper into real A4-proportioned pages with a numbered footer.
             val pageH = (w * 842f / 595f).toInt()
             val footer = (pageH * 0.045f).toInt()
             val usableH = (pageH - footer).coerceAtLeast(1)
@@ -348,6 +352,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             full.recycle()
             val file = java.io.File(ctx.cacheDir, "paper_$currentId.pdf")
             java.io.FileOutputStream(file).use { doc.writeTo(it) }; doc.close()
+            file
+        } catch (e: Exception) { null }
+    }
+
+    fun sharePdf() {
+        try {
+            val file = buildPdf() ?: run { status = "Couldn't build PDF."; return }
             val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
             ctx.startActivity(
                 android.content.Intent.createChooser(
@@ -359,6 +370,43 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             )
             status = "Sharing PDF…"
         } catch (e: Exception) { status = "Couldn't build PDF: ${e.message}" }
+    }
+
+    // One-tap publish to Zenodo: build the PDF, generate rich metadata, create+upload+publish → DOI.
+    fun publishZenodo() {
+        if (publishing) return
+        val token = zToken.trim()
+        if (token.isBlank()) { status = "Paste your Zenodo token first."; return }
+        val file = buildPdf()
+        if (file == null) { status = "Couldn't build the PDF — open View paper first."; return }
+        MemoryStore.setZenodoToken(ctx, token)
+        showPublish = false; publishing = true
+        status = "Publishing to Zenodo…"
+        val titleNow = titleOf(html, "Untitled")
+        val author = MemoryStore.ownerName(ctx).ifBlank { "Anonymous" }
+        val pubType = when (docType) { "whitepaper" -> "report"; "memo" -> "report"; else -> "preprint" }
+        val plain = html.replace(Regex("(?is)<style.*?</style>"), " ").replace(Regex("(?is)<script.*?</script>"), " ")
+            .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+        scope.launch {
+            val (descAi, kws) = withContext(Dispatchers.IO) { AgentClient.zenodoMeta(titleNow, plain) }
+            val desc = descAi.ifBlank { plain.take(1200) }
+            val res = withContext(Dispatchers.IO) {
+                ZenodoClient.publish(token, file, titleNow, author, "Belto", desc, pubType, kws, true)
+            }
+            publishing = false
+            if (res.ok) {
+                val msg = "✅ Published to Zenodo!\nDOI: ${res.doi}\n${res.url}\n" +
+                    (if (kws.isNotEmpty()) "Keywords: ${kws.joinToString(", ")}\n" else "") +
+                    "Open-access · CC-BY-4.0 · listed as $pubType."
+                PaperStore.addChat(ctx, currentId, "ai", msg); chat = PaperStore.chatLog(ctx, currentId)
+                MemoryLog.add(ctx, "response", "Published: $titleNow", "Zenodo DOI ${res.doi}", "Research")
+                status = "Published ✓ DOI: ${res.doi}"
+            } else {
+                PaperStore.addChat(ctx, currentId, "ai", "Zenodo publish failed: ${res.error}. Check the token has deposit:write + deposit:actions scopes.")
+                chat = PaperStore.chatLog(ctx, currentId)
+                status = "Publish failed: ${res.error}"
+            }
+        }
     }
 
     Column(modifier) {
@@ -474,9 +522,14 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                         Spacer(Modifier.height(8.dp))
                     }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Share", fontSize = T.small, color = T.bgElevated,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                                .clickable { sharePdf() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                        Text(if (publishing) "Publishing…" else "↑ Zenodo", fontSize = T.small, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (publishing) T.hairline else T.accent)
+                                .clickable(enabled = !publishing) { zToken = MemoryStore.zenodoToken(ctx); showPublish = true }
+                                .padding(horizontal = 16.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { sharePdf() }.padding(horizontal = 12.dp, vertical = 9.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Print", fontSize = T.small, color = T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
@@ -566,6 +619,36 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                 Spacer(Modifier.height(10.dp))
                 Text("Close", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { showHistory = false })
+            }
+        }
+    }
+
+    if (showPublish) {
+        Dialog(onDismissRequest = { showPublish = false }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Publish to Zenodo", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(6.dp))
+                Text("This uploads the PDF and PUBLISHES it on zenodo.org — minting a permanent, public DOI. " +
+                    "I'll auto-fill an abstract, keywords, author, open-access & CC-BY-4.0 for visibility.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(12.dp))
+                Text("Your Zenodo access token (stored only on this phone)", fontSize = T.caption, color = T.inkSoft)
+                Spacer(Modifier.height(4.dp))
+                BasicTextField(value = zToken, onValueChange = { zToken = it },
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(10.dp),
+                    decorationBox = { inner -> if (zToken.isEmpty()) Text("paste token (needs deposit:write + deposit:actions)", fontSize = T.caption, color = T.inkFaint); inner() })
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Publish now", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(if (zToken.isBlank()) T.hairline else T.accent)
+                            .clickable(enabled = zToken.isNotBlank()) { publishZenodo() }
+                            .padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { showPublish = false }.padding(vertical = 10.dp))
+                }
             }
         }
     }

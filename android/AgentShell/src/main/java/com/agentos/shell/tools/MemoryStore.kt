@@ -32,6 +32,10 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    /** Zenodo personal access token — for one-tap publishing of papers. Stored ONLY on this device. */
+    fun zenodoToken(ctx: Context): String = prefs(ctx).getString("zenodo_token", "") ?: ""
+    fun setZenodoToken(ctx: Context, value: String) = prefs(ctx).edit().putString("zenodo_token", value.trim()).apply()
+
     /** Canonical platform key from an app label (so "WhatsApp Business" → whatsapp, etc.). */
     fun platformKey(app: String): String {
         val a = app.lowercase()
