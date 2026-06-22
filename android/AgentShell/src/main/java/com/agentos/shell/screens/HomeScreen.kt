@@ -185,7 +185,7 @@ fun HomeScreen(
 
             val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
             val context = withContext(Dispatchers.IO) {
-                val mem = MemoryStore.about(ctx)
+                val mem = MemoryStore.fullProfile(ctx)
                 val cal = CalendarTool.upcoming(ctx)
                 val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date())
@@ -200,6 +200,8 @@ fun HomeScreen(
                     .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
                     .take(1200)
                 val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 1600)
+                val docText = if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
+                    com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 1600) else ""
                 buildString {
                     if (mem.isNotBlank()) append(mem)
                     if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
@@ -209,12 +211,17 @@ fun HomeScreen(
                         append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
                     if (papers.isNotBlank())
                         append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
+                    if (docText.isNotBlank())
+                        append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
                     if (recall.isNotBlank())
                         append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
                     append("\nCurrent time: ").append(now)
                 }
             }
             val result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
+            // Auto-grow the brain: durable facts learned in conversation are saved automatically
+            // (to the separate learned-facts store, not your curated About).
+            if (result.remember.isNotBlank()) MemoryStore.addLearnedFact(ctx, result.remember)
             rememberSuggestion = result.remember
 
             // compose_post navigates to the post composer instead of executing inline.
@@ -420,10 +427,11 @@ fun HomeScreen(
         if (rememberSuggestion.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Remember: $rememberSuggestion", fontSize = T.small, color = T.inkSoft,
+                // Already auto-saved to the brain's learned facts; offer to also pin to your About.
+                Text("✓ Remembered: $rememberSuggestion", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.weight(1f))
                 Text(
-                    "Save", fontSize = T.small, color = T.accent,
+                    "Pin to About", fontSize = T.small, color = T.accent,
                     modifier = Modifier.clickable {
                         val cur = MemoryStore.about(ctx)
                         val updated = if (cur.isBlank()) rememberSuggestion else "$cur\n$rememberSuggestion"

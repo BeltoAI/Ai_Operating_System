@@ -17,6 +17,34 @@ object MemoryStore {
     fun about(ctx: Context): String = prefs(ctx).getString(KEY_ABOUT, "") ?: ""
     fun setAbout(ctx: Context, value: String) = prefs(ctx).edit().putString(KEY_ABOUT, value).apply()
 
+    /**
+     * Facts the agent LEARNS on its own from conversations — kept separate from the hand-written
+     * About so the brain can grow automatically without polluting what the user curated. Deduped,
+     * capped, newest last. Surfaced into reply/home context as "Things you've learned about me".
+     */
+    private const val KEY_LEARNED = "learned_facts"
+    fun learnedFacts(ctx: Context): List<String> = try {
+        org.json.JSONArray(prefs(ctx).getString(KEY_LEARNED, "[]")).let { a ->
+            (0 until a.length()).map { a.getString(it) }
+        }
+    } catch (e: Exception) { emptyList() }
+    fun addLearnedFact(ctx: Context, fact: String) {
+        val f = fact.trim(); if (f.length < 3) return
+        val cur = learnedFacts(ctx).toMutableList()
+        if (cur.any { it.equals(f, true) }) return            // dedup
+        cur.add(f); val capped = cur.takeLast(250)            // cap
+        val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
+        prefs(ctx).edit().putString(KEY_LEARNED, arr.toString()).apply()
+    }
+    /** About + learned facts — the full personal profile to feed the AI. */
+    fun fullProfile(ctx: Context): String {
+        val a = about(ctx); val l = learnedFacts(ctx)
+        return buildString {
+            if (a.isNotBlank()) append(a)
+            if (l.isNotEmpty()) { if (isNotEmpty()) append("\n"); append("Things you've learned about me: ").append(l.joinToString(" · ")) }
+        }
+    }
+
     /** Best-effort owner first name from the About text (for tagging imported chats). */
     fun ownerName(ctx: Context): String {
         val pats = listOf(
@@ -79,6 +107,10 @@ object MemoryStore {
     /** A learned "this is how I write" profile, distilled from your real past messages. */
     fun styleProfile(ctx: Context): String = prefs(ctx).getString("style_profile", "") ?: ""
     fun setStyleProfile(ctx: Context, v: String) = prefs(ctx).edit().putString("style_profile", v.trim()).apply()
+
+    /** How many voice samples existed last time the style profile was (re)learned — for auto-refresh. */
+    fun voiceLearnedCount(ctx: Context): Int = prefs(ctx).getInt("voice_learned_count", 0)
+    fun setVoiceLearnedCount(ctx: Context, n: Int) = prefs(ctx).edit().putInt("voice_learned_count", n).apply()
 
     /** The booking link to actually use: the explicit field, else auto-detected from your About text. */
     fun effectiveBookingLink(ctx: Context): String {

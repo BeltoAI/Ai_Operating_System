@@ -10,7 +10,7 @@ import android.content.Context
 object ReplyContext {
     fun forSender(ctx: Context, app: String, title: String): String {
         val sb = StringBuilder()
-        val about = MemoryStore.about(ctx)
+        val about = MemoryStore.fullProfile(ctx)   // About + facts the agent has learned on its own
         if (about.isNotBlank()) sb.append(about).append(" ")
 
         // Your real schedule — so the agent can answer "are you free Thursday?" instead of guessing.

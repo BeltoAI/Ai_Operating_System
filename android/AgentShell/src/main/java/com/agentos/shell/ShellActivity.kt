@@ -35,6 +35,23 @@ class ShellActivity : ComponentActivity() {
         hideSystemBars()
         com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)
         com.agentos.shell.tools.AgentClient.styleProfile = com.agentos.shell.tools.MemoryStore.styleProfile(this)
+        // Auto-relearn your writing voice as new samples accumulate (sent posts/replies grow the pool),
+        // so the profile keeps sharpening instead of going stale after the one-time learn.
+        run {
+            val app = applicationContext
+            val samples = com.agentos.shell.tools.MemoryStore.voiceSamples(app)
+            val learnedAt = com.agentos.shell.tools.MemoryStore.voiceLearnedCount(app)
+            if (samples.size >= 40 && samples.size - learnedAt >= 80) {
+                Thread {
+                    val profile = com.agentos.shell.tools.AgentClient.learnStyle(samples)
+                    if (profile.isNotBlank() && !profile.startsWith("[")) {
+                        com.agentos.shell.tools.MemoryStore.setStyleProfile(app, profile)
+                        com.agentos.shell.tools.AgentClient.styleProfile = profile
+                        com.agentos.shell.tools.MemoryStore.setVoiceLearnedCount(app, samples.size)
+                    }
+                }.start()
+            }
+        }
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
