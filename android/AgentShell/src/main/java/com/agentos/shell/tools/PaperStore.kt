@@ -27,6 +27,19 @@ object PaperStore {
     fun thesis(ctx: Context, id: Long): String = prefs(ctx).getString("thesis_$id", "") ?: ""
     fun setThesis(ctx: Context, id: Long, v: String) = prefs(ctx).edit().putString("thesis_$id", v.trim()).apply()
 
+    // ---- Per-paper conversation (chat thread between you and the writer) ----
+    data class Chat(val role: String, val text: String)   // role: "you" | "ai"
+    fun chatLog(ctx: Context, id: Long): List<Chat> = try {
+        val arr = JSONArray(prefs(ctx).getString("chat_$id", "[]"))
+        (0 until arr.length()).map { val o = arr.getJSONObject(it); Chat(o.getString("r"), o.getString("t")) }
+    } catch (e: Exception) { emptyList() }
+    fun addChat(ctx: Context, id: Long, role: String, text: String) {
+        val cur = chatLog(ctx, id).toMutableList()
+        cur.add(Chat(role, text)); val capped = cur.takeLast(80)
+        val arr = JSONArray(); capped.forEach { arr.put(JSONObject().put("r", it.role).put("t", it.text)) }
+        prefs(ctx).edit().putString("chat_$id", arr.toString()).apply()
+    }
+
     private fun writeIndex(ctx: Context, papers: List<Paper>) {
         val arr = JSONArray()
         papers.forEach { arr.put(JSONObject().put("id", it.id).put("title", it.title).put("updated", it.updated).put("docType", it.docType)) }

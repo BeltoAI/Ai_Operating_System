@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -100,13 +101,8 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var currentId by remember { mutableStateOf(0L) }
     var html by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf(initialTopic) }
-    var editPrompt by remember { mutableStateOf("") }
-    var lastInstr by remember { mutableStateOf("") }
-    var proposal by remember { mutableStateOf("") }     // suggested fragment, not yet added
-    var propKind by remember { mutableStateOf("") }     // add | edit | intro
-    var propLabel by remember { mutableStateOf("") }
-    var propStart by remember { mutableStateOf(0) }
-    var propEnd by remember { mutableStateOf(0) }
+    var chatInput by remember { mutableStateOf("") }
+    var chat by remember { mutableStateOf<List<PaperStore.Chat>>(emptyList()) }
     var showPaper by remember { mutableStateOf(false) } // full paper hidden by default
     var pendingHighlight by remember { mutableStateOf(false) }
     val web = true   // Opus ALWAYS researches the web + cites sources
@@ -128,7 +124,8 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     fun openPaper(id: Long) {
         currentId = id; html = PaperStore.html(ctx, id)
         docType = PaperStore.docType(ctx, id); thesis = PaperStore.thesis(ctx, id)
-        mode = "editor"; status = ""
+        chat = PaperStore.chatLog(ctx, id)
+        mode = "editor"; showPaper = false; status = ""
     }
 
     fun errText(out: String) = "Failed (" + out.removePrefix("ERR::").replace("::", "): ")
@@ -151,8 +148,22 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             PaperStore.snapshot(ctx, id, "Created")
             MemoryLog.add(ctx, "response", "Paper: $newTitle", "Wrote a research paper: $newTitle", "Research")
             MetricsStore.record(ctx, MetricsStore.secondsFor("paper_write"))
+            // Seed the conversation: your request + a real reply telling you what was drafted + sources.
+            val askedFor = prompt
+            PaperStore.addChat(ctx, id, "you", askedFor)
+            val sources0 = Regex("https?://[^\\s\"'<>)\\]]+").findAll(out).map { it.value }.distinct().take(8).toList()
+            val plain0 = out.replace(Regex("(?is)<style.*?</style>"), " ").replace(Regex("(?is)<script.*?</script>"), " ")
+                .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+            val chapN = Regex("(?is)<h2[^>]*>").findAll(out).count()
+            var note0 = withContext(Dispatchers.IO) { AgentClient.researchNote("Write this paper: $askedFor", newTitle, plain0, sources0) }
+            note0 += "\n\n📄 Drafted “$newTitle” — $chapN sections."
+            note0 += if (sources0.isNotEmpty()) "\n🌐 Sources cited (${sources0.size}): " + sources0.joinToString("  ·  ")
+                     else "\n⚠️ No source URLs came back — I couldn't web-verify citations this time."
+            note0 += "\nTap “View paper” to read it. Then just message me to expand or edit any part."
+            PaperStore.addChat(ctx, id, "ai", note0)
             papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
-            currentId = id; html = out; prompt = ""; mode = "editor"; busy = false; status = ""
+            currentId = id; html = out; chat = PaperStore.chatLog(ctx, id)
+            prompt = ""; mode = "editor"; showPaper = false; busy = false; status = ""
         }
     }
     // Headings already in the paper, so Opus continues the numbering and doesn't repeat itself.
@@ -208,17 +219,18 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         return if (b > 0) b else h.length
     }
 
-    // Render a fragment on its own (same clean style) so it can be previewed before it's added.
-    fun wrapFragment(frag: String): String =
-        "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-        "<script src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'></script>" +
-        PAPER_CSS + "</head><body>" + frag + "</body></html>"
-
-    // Step 1: ask Opus what to add/change. It SUGGESTS a fragment; nothing is committed yet.
-    fun propose() {
-        if (editPrompt.isBlank() || busy) return
-        if (UsageLimiter.remaining(ctx, "paper", CAP) <= 0) { status = "Daily Opus limit reached ($CAP/$CAP). Resets tomorrow."; return }
-        val instr = editPrompt; lastInstr = instr; busy = true; status = "Thinking it through…"; proposal = ""
+    // ONE conversational turn (like the Claude web app): you message → it routes, writes/edits the
+    // paper in place, then REPLIES in the chat telling you what it did + which web sources it used.
+    // Nothing chatty ever lands in the document; the doc just updates and the change is highlighted.
+    fun send() {
+        val instr = chatInput.trim()
+        if (instr.isBlank() || busy) return
+        if (UsageLimiter.remaining(ctx, "paper", CAP) <= 0) {
+            PaperStore.addChat(ctx, currentId, "ai", "You've hit today's Opus limit ($CAP/$CAP). It resets tomorrow.")
+            chat = PaperStore.chatLog(ctx, currentId); chatInput = ""; return
+        }
+        PaperStore.addChat(ctx, currentId, "you", instr); chat = PaperStore.chatLog(ctx, currentId)
+        chatInput = ""; busy = true; status = ""
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val title = titleOf(html, "")
@@ -230,62 +242,53 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                 chaps.firstOrNull { it.heading.equals(target, true) }
                     ?: chaps.firstOrNull { it.heading.lowercase().contains(tnorm) || tnorm.contains(it.heading.lowercase()) }
             else null
+            var frag: String; var kind: String; var label: String; var start = 0; var end = 0
             when {
                 action == "edit" && target.equals("INTRO", true) -> {
                     val head = html.substring(0, frontMatterEnd(html))
-                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseFrontMatter(head, instr, mem) }
-                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    proposal = frag; propKind = "intro"; propLabel = "Title / abstract / intro"
+                    frag = withContext(Dispatchers.IO) { AgentClient.reviseFrontMatter(head, instr, mem) }
+                    kind = "intro"; label = "Title / abstract / intro"
                 }
                 chap != null -> {
-                    val frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem, docType, thesis) }
-                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    proposal = frag; propKind = "edit"; propLabel = chap.heading; propStart = chap.start; propEnd = chap.end
+                    frag = withContext(Dispatchers.IO) { AgentClient.reviseChapter(title, chap.html, instr, web, mem, docType, thesis) }
+                    kind = "edit"; label = chap.heading; start = chap.start; end = chap.end
                 }
                 else -> {
                     val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, currentId, instr) }
-                    val frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib, docType, thesis) }
-                    if (frag.startsWith("ERR::")) { status = errText(frag); busy = false; return@launch }
-                    proposal = frag; propKind = "add"; propLabel = "New chapter"
+                    frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib, docType, thesis) }
+                    kind = "add"; label = "New chapter"
                 }
             }
-            // Each suggestion is a real Opus call → it counts against the daily cap.
+            if (frag.startsWith("ERR::")) {
+                PaperStore.addChat(ctx, currentId, "ai", "I couldn't complete that — ${errText(frag)}. Try rephrasing, or send it again.")
+                chat = PaperStore.chatLog(ctx, currentId); busy = false; return@launch
+            }
+            // Splice into the document (in place; nothing else touched). Demote old highlight first.
+            html = html.replace("id=\"slyosnew\"", "id=\"slyosold\"")
+            when (kind) {
+                "intro" -> { val e = frontMatterEnd(html); html = frag + "\n" + html.substring(e) }
+                "edit" -> { html = html.substring(0, start) + "<div id=\"slyosnew\">$frag</div>\n" + html.substring(end) }
+                else -> { html = insertBeforeBodyEnd(html, "<div id=\"slyosnew\">$frag</div>") }
+            }
+            PaperStore.save(ctx, currentId, html)
+            PaperStore.snapshot(ctx, currentId, "$label — ${instr.take(40)}")
             UsageLimiter.use(ctx, "paper", CAP)
-            remaining = UsageLimiter.remaining(ctx, "paper", CAP)
-            busy = false; status = "Here's a suggestion — add it, or ask for changes. ($remaining/$CAP Opus left)"
+            MetricsStore.record(ctx, MetricsStore.secondsFor(if (kind == "add") "paper_expand" else "paper_edit"))
+            MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$label — $instr", "Research")
+            // Build the conversational reply + show sources so you know if the web was used.
+            val sources = Regex("https?://[^\\s\"'<>)\\]]+").findAll(frag).map { it.value }.distinct().take(8).toList()
+            val plain = frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+            val words = plain.split(" ").count { it.isNotBlank() }
+            var note = withContext(Dispatchers.IO) { AgentClient.researchNote(instr, label, plain, sources) }
+            note += "\n\n📄 " + (if (kind == "add") "Added “$label”" else "Updated “$label”") + " (~$words words)."
+            note += if (sources.isNotEmpty()) "\n🌐 Sources cited (${sources.size}): " + sources.joinToString("  ·  ")
+                    else "\n⚠️ No source URLs came back — this section isn't web-verified."
+            note += "\nTap “View paper” to see it highlighted."
+            PaperStore.addChat(ctx, currentId, "ai", note); chat = PaperStore.chatLog(ctx, currentId)
+            papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
+            pendingHighlight = (kind != "intro"); busy = false
         }
     }
-
-    // Step 2: you approve → splice it into the paper (in place, nothing else touched), then jump to
-    // the paper with the new text highlighted + scrolled into view, and say exactly what changed.
-    fun commit() {
-        if (proposal.isBlank() || busy) return
-        val frag = proposal.trim()
-        val headingTxt = Regex("(?is)<h[1-4][^>]*>(.*?)</h[1-4]>").find(frag)
-            ?.groupValues?.get(1)?.replace(Regex("<[^>]+>"), " ")?.trim()
-        val words = frag.replace(Regex("<[^>]+>"), " ").split(Regex("\\s+")).count { it.isNotBlank() }
-        // Demote any previous highlight marker so only the newest change glows.
-        html = html.replace("id=\"slyosnew\"", "id=\"slyosold\"")
-        when (propKind) {
-            "intro" -> { val end = frontMatterEnd(html); html = frag + "\n" + html.substring(end) }
-            "edit" -> { html = html.substring(0, propStart) + "<div id=\"slyosnew\">$frag</div>\n" + html.substring(propEnd) }
-            else -> { html = insertBeforeBodyEnd(html, "<div id=\"slyosnew\">$frag</div>") }
-        }
-        PaperStore.save(ctx, currentId, html)
-        PaperStore.snapshot(ctx, currentId, "$propLabel — ${lastInstr.take(40)}")
-        MetricsStore.record(ctx, MetricsStore.secondsFor(if (propKind == "add") "paper_expand" else "paper_edit"))
-        MemoryLog.add(ctx, "response", "Paper: ${titleOf(html, "")}", "$propLabel — $lastInstr", "Research")
-        papers = PaperStore.list(ctx)
-        status = when (propKind) {
-            "add" -> "✓ Added new chapter “${headingTxt ?: "section"}” (~$words words) at the end — highlighted below."
-            "intro" -> "✓ Revised the title / abstract / intro — shown below."
-            else -> "✓ Updated “$propLabel” (~$words words) — highlighted below."
-        }
-        proposal = ""; editPrompt = ""
-        pendingHighlight = (propKind != "intro")
-        showPaper = true   // jump to the paper so you see the change immediately
-    }
-    fun discard() { proposal = ""; status = "Discarded." }
     fun exportPdf() {
         val wv = webRef ?: return
         try {
@@ -474,60 +477,45 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                         Text("Source", fontSize = T.small, color = T.inkSoft,
                             modifier = Modifier.clickable { showSource = !showSource }.padding(vertical = 9.dp))
                     }
-                } else if (proposal.isNotEmpty()) {
-                    // A suggestion is on the table — preview it, then approve or refine.
-                    Text("Suggestion · $propLabel", fontSize = T.caption, color = T.accent)
-                    Spacer(Modifier.height(6.dp))
-                    val preview = remember(proposal) { if (propKind == "intro") proposal else wrapFragment(proposal) }
-                    AndroidView(
-                        modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
-                        factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true
-                            loadDataWithBaseURL("https://localhost/", preview, "text/html", "utf-8", null) } },
-                        update = { wv -> if (wv.tag != preview) { wv.tag = preview; wv.loadDataWithBaseURL("https://localhost/", preview, "text/html", "utf-8", null) } }
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (busy) "…" else "✓ Add to paper", fontSize = T.small, color = T.bgElevated,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                                .clickable(enabled = !busy) { commit() }.padding(horizontal = 16.dp, vertical = 9.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text("↻ Redo", fontSize = T.small, color = T.ink,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                                .clickable(enabled = !busy) { editPrompt = lastInstr; propose() }.padding(horizontal = 14.dp, vertical = 9.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Text("✕ Discard", fontSize = T.small, color = T.inkSoft,
-                            modifier = Modifier.clickable(enabled = !busy) { discard() }.padding(vertical = 9.dp))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
-                            textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                            modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
-                                .background(T.bgElevated).padding(10.dp),
-                            decorationBox = { inner -> if (editPrompt.isEmpty()) Text("ask for changes, or something new…", fontSize = T.small, color = T.inkFaint); inner() })
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.ink)
-                                .clickable(enabled = !busy && editPrompt.isNotBlank()) { propose() }.padding(horizontal = 16.dp, vertical = 9.dp))
-                    }
                 } else {
-                    // Empty conversational state — just ask.
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                        Text(if (busy) "Thinking it through…"
-                             else "What should we add or change?\n\nI'll suggest it → you approve → it goes into the paper.\nThen tap View paper to review.",
-                            fontSize = T.small, color = T.inkFaint)
+                    // Conversational writing — like chatting with Claude about the paper. You get a real
+                    // reply each turn (what was written + sources used); the document updates beside it.
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(chat.size, busy) {
+                        val n = chat.size + (if (busy) 1 else 0)
+                        if (n > 0) listState.animateScrollToItem(n - 1)
+                    }
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
+                        if (chat.isEmpty()) item {
+                            Text("Message me to write or change anything — “add a chapter on thermal limits”, “expand section 3 with current sources”, “sharpen the abstract”. I'll write it, reply with what I did and the sources I used, and update the paper. Tap View paper anytime to read it.",
+                                fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                        items(chat) { m ->
+                            val you = m.role == "you"
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = if (you) Arrangement.End else Arrangement.Start) {
+                                Text(m.text, fontSize = T.small, color = if (you) T.bgElevated else T.ink,
+                                    modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(14.dp))
+                                        .background(if (you) T.accent else T.hairline).padding(horizontal = 12.dp, vertical = 9.dp))
+                            }
+                        }
+                        if (busy) item {
+                            Text("✍️  writing & researching…", fontSize = T.small, color = T.accent,
+                                modifier = Modifier.padding(vertical = 8.dp))
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicTextField(value = editPrompt, onValueChange = { editPrompt = it },
+                        BasicTextField(value = chatInput, onValueChange = { chatInput = it },
                             textStyle = TextStyle(color = T.ink, fontSize = T.small),
                             modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(10.dp))
                                 .background(T.bgElevated).padding(10.dp),
-                            decorationBox = { inner -> if (editPrompt.isEmpty()) Text("e.g. add a chapter on…, expand section 3, sharpen the abstract…", fontSize = T.small, color = T.inkFaint); inner() })
+                            decorationBox = { inner -> if (chatInput.isEmpty()) Text("Message your paper…", fontSize = T.small, color = T.inkFaint); inner() })
                         Spacer(Modifier.width(8.dp))
                         Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                                .clickable(enabled = !busy && editPrompt.isNotBlank()) { propose() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (busy || chatInput.isBlank()) T.hairline else T.accent)
+                                .clickable(enabled = !busy && chatInput.isNotBlank()) { send() }.padding(horizontal = 16.dp, vertical = 9.dp))
                     }
                 }
             }

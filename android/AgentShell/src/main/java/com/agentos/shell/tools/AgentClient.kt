@@ -328,6 +328,47 @@ object AgentClient {
         return h
     }
 
+    /**
+     * Keep the DOCUMENT clean: remove the model's conversational chatter and leaked markdown so it
+     * never ends up inside the paper. The "what I did / want me to…" talk belongs in the chat reply,
+     * not the PDF. Fixes the bug where notes like "Want me to write §10 next?" got appended to papers.
+     */
+    private fun stripChatter(frag: String): String {
+        var f = frag
+        f = Regex("(?im)^\\s*-{3,}\\s*$").replace(f, "")                       // markdown horizontal rules
+        f = Regex("(?s)\\*\\*(.+?)\\*\\*").replace(f) { "<strong>${it.groupValues[1]}</strong>" }  // leaked **bold**
+        // Cut a trailing conversational note (only if it appears in the back half of the fragment).
+        val markers = listOf("Note on the gap", "Want me to", "Shall I write", "Let me know if you",
+            "Do you want me", "Should I write", "Next, I can", "I can also write", "Would you like me")
+        var cut = f.length
+        for (m in markers) { val i = f.indexOf(m, ignoreCase = true); if (i in 1 until cut && i > f.length * 0.5) cut = i }
+        if (cut < f.length) {
+            val tail = f.lastIndexOf("</", cut)                              // back up to a clean tag boundary
+            if (tail > 0) { val gt = f.indexOf('>', tail); if (gt in 0 until cut) cut = gt + 1 }
+            f = f.substring(0, cut)
+        }
+        return f.trim().removeSuffix("---").trim()
+    }
+
+    /**
+     * The conversational REPLY shown in the chat beside the paper — so you get a real response (like
+     * the Claude web app) telling you what was written and which sources were used, separate from the
+     * document itself. Cheap Haiku call.
+     */
+    fun researchNote(instruction: String, label: String, fragmentText: String, sources: List<String>): String {
+        val sys = "You are the user's research-writing collaborator, replying in the chat next to their paper. " +
+            "They asked you to: \"$instruction\". You just completed it (section: \"$label\"). " +
+            "Reply the way Claude would in chat: 2-4 warm, specific sentences, FIRST PERSON, plain conversational " +
+            "prose (NO markdown, NO headers, NO bullet lists). Tell them concretely what you wrote and the key " +
+            "points or structure you added, so they know what happened without opening the document. " +
+            "Do NOT invent sources or claim web research that isn't reflected in the excerpt."
+        val u = "What I wrote (plain-text excerpt):\n" + fragmentText.take(2200) +
+            (if (sources.isNotEmpty()) "\n\nSources actually cited (with URLs): " + sources.joinToString(", ")
+             else "\n\n(No web sources with URLs were retrieved this time.)")
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", u)), 450, MODEL)
+        return if (code == 200) text.trim().trim('"') else "Done — I updated “$label”."
+    }
+
     /** Opus call with one retry on transient 5xx errors. Big token budget for long-form writing. */
     private fun paperCall(sys: String, userContent: String, web: Boolean, maxTokens: Int = 16000): Pair<Int, String> {
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", userContent))
@@ -387,8 +428,10 @@ object AgentClient {
         }
         return genre +
             "Keep ONE consistent professional voice and genre throughout — no casual asides, no snark, no jokes, no first-person quips. " +
-            "CITATIONS: cite ONLY sources you actually retrieved via web search, and include the real working URL for each in the references. " +
-            "Never invent papers, arXiv IDs, statistics, or quotes, and never attribute an estimate or quote to a named real person or company unless you genuinely found it with a link. If unsure, leave it out. " +
+            "CITATIONS: cite ONLY sources you actually retrieved via web search. Every reference MUST be a real, " +
+            "clickable hyperlink written as <a href=\"https://...\">title</a> RIGHT THERE in the References list — " +
+            "never defer URLs to an appendix, never write 'URLs available elsewhere', never list a source without its link. " +
+            "Never invent papers, arXiv IDs, statistics, or quotes, and never attribute an estimate or quote to a named real person or company unless you genuinely found it with a link. If you did not retrieve a real source for a claim, soften or drop the claim rather than fabricate a citation. " +
             (if (thesis.isNotBlank()) "CORE THESIS — stay anchored to this, do not drift into adjacent topics: $thesis. " else "")
     }
 
@@ -451,7 +494,7 @@ object AgentClient {
         var frag = cleanHtml(text)
         // Strip anything the model wrapped around the fragment, just in case.
         Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
-        return frag
+        return stripChatter(frag)
     }
 
     /**
@@ -472,7 +515,7 @@ object AgentClient {
         if (code != 200) return "ERR::$code::${text.take(400)}"
         var frag = cleanHtml(text)
         Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
-        return frag
+        return stripChatter(frag)
     }
 
     /** Shared Architect brief: design rules + the SlyOS bridge API available to every mini-app. */
