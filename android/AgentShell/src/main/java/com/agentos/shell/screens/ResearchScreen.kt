@@ -370,22 +370,26 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
         buildPdf { file ->
           if (file == null) { publishing = false; status = "Couldn't build the PDF — try again."; return@buildPdf }
-          status = "Publishing to Zenodo…"
+          val priorDep = PaperStore.zenodoId(ctx, currentId)
+          status = if (priorDep > 0) "Publishing new version to Zenodo…" else "Publishing to Zenodo…"
           scope.launch {
             val (descAi, kws) = withContext(Dispatchers.IO) { AgentClient.zenodoMeta(titleNow, plain) }
             val desc = descAi.ifBlank { plain.take(1200) }
             val res = withContext(Dispatchers.IO) {
-                ZenodoClient.publish(token, file, titleNow, author, "Belto", desc, pubType, kws, true)
+                ZenodoClient.publish(token, file, titleNow, author, "Belto", desc, pubType, kws, true, priorDep)
             }
             publishing = false
             if (res.ok) {
-                val msg = "✅ Published to Zenodo!\nDOI: ${res.doi}\n${res.url}\n" +
+                if (res.depId > 0) PaperStore.setZenodoId(ctx, currentId, res.depId)
+                val verb = if (priorDep > 0) "Published new version" else "Published to Zenodo"
+                val msg = "✅ $verb!\nDOI: ${res.doi}\n${res.url}\n" +
                     (if (kws.isNotEmpty()) "Keywords: ${kws.joinToString(", ")}\n" else "") +
                     "Open-access · CC-BY-4.0 · listed as $pubType."
                 PaperStore.addChat(ctx, currentId, "ai", msg); chat = PaperStore.chatLog(ctx, currentId)
                 MemoryLog.add(ctx, "response", "Published: $titleNow", "Zenodo DOI ${res.doi}", "Research")
-                status = "Published ✓ DOI: ${res.doi}"
+                status = "$verb ✓ DOI: ${res.doi}"
             } else {
+                if (res.depId > 0) PaperStore.setZenodoId(ctx, currentId, res.depId)
                 PaperStore.addChat(ctx, currentId, "ai", "Zenodo publish failed: ${res.error}. Check the token has deposit:write + deposit:actions scopes.")
                 chat = PaperStore.chatLog(ctx, currentId)
                 status = "Publish failed: ${res.error}"
@@ -610,11 +614,16 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
 
     if (showPublish) {
         Dialog(onDismissRequest = { showPublish = false }) {
+            val alreadyPublished = PaperStore.zenodoId(ctx, currentId) > 0
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
-                Text("Publish to Zenodo", fontSize = T.body, color = T.ink)
+                Text(if (alreadyPublished) "Publish new version to Zenodo" else "Publish to Zenodo", fontSize = T.body, color = T.ink)
                 Spacer(Modifier.height(6.dp))
-                Text("This uploads the PDF and PUBLISHES it on zenodo.org — minting a permanent, public DOI. " +
-                    "I'll auto-fill an abstract, keywords, author, open-access & CC-BY-4.0 for visibility.",
+                Text(if (alreadyPublished)
+                        "This paper is already on Zenodo. Publishing again creates a NEW VERSION of the same record " +
+                        "(shared concept-DOI, with a new version DOI) and replaces the file. Permanent and public."
+                     else
+                        "This uploads the PDF and PUBLISHES it on zenodo.org — minting a permanent, public DOI. " +
+                        "I'll auto-fill an abstract, keywords, author, open-access & CC-BY-4.0 for visibility.",
                     fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(12.dp))
                 Text("Your Zenodo access token (stored only on this phone)", fontSize = T.caption, color = T.inkSoft)

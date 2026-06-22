@@ -71,19 +71,43 @@ object ZenodoClient {
             val (c3, b3) = json("PUT", "$BASE/deposit/depositions/$id", token, meta.toString())
             if (c3 !in 200..299) return Result(false, error = "metadata failed ($c3): ${b3.take(200)}")
 
-            if (!doPublish) return Result(true, doi = "draft", url = "https://zenodo.org/uploads/$id")
+            if (!doPublish) return Result(true, doi = "draft", url = "https://zenodo.org/uploads/$id", depId = id)
 
-            // 4) Publish -> mints the DOI.
+            // 4) Publish -> mints (or versions) the DOI.
             val (c4, b4) = json("POST", "$BASE/deposit/depositions/$id/actions/publish", token, "")
-            if (c4 !in 200..299) return Result(false, error = "publish failed ($c4): ${b4.take(200)}")
+            if (c4 !in 200..299) return Result(false, error = "publish failed ($c4): ${b4.take(200)}", depId = id)
             val pub = JSONObject(b4)
             val doi = pub.optString("doi").ifBlank { pub.optJSONObject("metadata")?.optString("doi") ?: "" }
             val rec = pub.optJSONObject("links")?.optString("record_html")
                 ?: (if (doi.isNotBlank()) "https://doi.org/$doi" else "https://zenodo.org/records/$id")
-            return Result(true, doi = doi, url = rec)
+            return Result(true, doi = doi, url = rec, depId = id)
         } catch (e: Exception) {
             return Result(false, error = e.message ?: "network error")
         }
+    }
+
+    /**
+     * Start a new-version draft of a published record: POST actions/newversion → follow latest_draft →
+     * delete the files it inherited (we replace the PDF). Returns (newId, bucketUrl, errorOrNull).
+     */
+    private fun startNewVersion(token: String, existingId: Long): Triple<Long, String, String?> {
+        val (c, b) = json("POST", "$BASE/deposit/depositions/$existingId/actions/newversion", token, "")
+        if (c !in 200..299) return Triple(0L, "", "new-version failed ($c): ${b.take(200)}")
+        val draftUrl = JSONObject(b).optJSONObject("links")?.optString("latest_draft") ?: ""
+        if (draftUrl.isBlank()) return Triple(0L, "", "no draft link returned")
+        val (cg, bg) = json("GET", draftUrl, token, "")
+        if (cg !in 200..299) return Triple(0L, "", "draft fetch failed ($cg)")
+        val draft = JSONObject(bg)
+        val newId = draft.optLong("id")
+        val bucket = draft.optJSONObject("links")?.optString("bucket") ?: ""
+        // Remove inherited files so the version contains only the freshly built PDF.
+        draft.optJSONArray("files")?.let { files ->
+            for (i in 0 until files.length()) {
+                val fid = files.getJSONObject(i).optString("id")
+                if (fid.isNotBlank()) json("DELETE", "$BASE/deposit/depositions/$newId/files/$fid", token, "")
+            }
+        }
+        return Triple(newId, bucket, null)
     }
 
     private fun sanitize(s: String) = s.replace(Regex("[^A-Za-z0-9 _-]"), "").replace(Regex("\\s+"), "_")
