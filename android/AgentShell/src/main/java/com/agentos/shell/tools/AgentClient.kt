@@ -431,9 +431,11 @@ object AgentClient {
         return genre +
             "Keep ONE consistent professional voice and genre throughout — no casual asides, no snark, no jokes, no first-person quips. " +
             "Output ONLY publishable document content. NEVER address the reader or describe your own process — no closing remarks like \"That's the chapter\", \"the throughline is…\", \"grounded in real hardware\", or any summary of what you just wrote. End on the actual prose or the references, nothing else. " +
-            "CITATIONS: cite ONLY sources you actually retrieved via web search. Every reference MUST be a real, " +
-            "clickable hyperlink written as <a href=\"https://...\">title</a> RIGHT THERE in the References list — " +
-            "never defer URLs to an appendix, never write 'URLs available elsewhere', never list a source without its link. " +
+            "CITATIONS: cite ONLY sources you actually retrieved via web search. Put references in an <ol class=\"references\"> " +
+            "list. Every entry MUST name the source AND show its full URL as VISIBLE text wrapped in a real link, e.g. " +
+            "<li>Author/Org. Title. <a href=\"https://example.com/x\">https://example.com/x</a></li> — the printed URL must " +
+            "be visible on the page, not just a hidden hyperlink, and never deferred to an appendix or written as 'URL available'. " +
+            "Never list a source without its working link. " +
             "Never invent papers, arXiv IDs, statistics, or quotes, and never attribute an estimate or quote to a named real person or company unless you genuinely found it with a link. If you did not retrieve a real source for a claim, soften or drop the claim rather than fabricate a citation. " +
             (if (thesis.isNotBlank()) "CORE THESIS — stay anchored to this, do not drift into adjacent topics: $thesis. " else "")
     }
@@ -443,8 +445,9 @@ object AgentClient {
         val src = if (web) source.take(2500) else source.take(12000)
         val sys = docBrief(docType, thesis) +
             "You are an expert research writer. Write a well-structured document IN THE USER'S NAME on their topic. " +
-            "Output a COMPLETE self-contained HTML " +
-            "document: clean academic style (serif body, centered title, author line, abstract). " +
+            "Output a COMPLETE self-contained HTML document in a clean LaTeX-article style: a centered <h1> title, a " +
+            "centered author/affiliation line directly under it (use <p class=\"author\">), then the abstract wrapped " +
+            "in <div class=\"abstract\"> with a bold run-in 'Abstract.' label. " +
             "Structure the body as MULTIPLE NUMBERED CHAPTERS, each one an <h2> heading like " +
             "<h2>1. Introduction</h2>, with <h3> subsections, detailed multi-paragraph prose, examples, and a " +
             "<h2>References</h2> section last. Write thoroughly — aim for many pages of real content, not a summary. " +

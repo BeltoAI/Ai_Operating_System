@@ -45,26 +45,42 @@ private const val CAP = 6   // daily Opus paper operations (new paper + each sug
 // readable column with real margins and never breaks across pages mid-element.
 private const val PAPER_CSS = """
 <style id="slyos-print">
-@page { size: A4; margin: 22mm 18mm; }
+@page { size: A4; margin: 24mm 20mm; }
 * { box-sizing: border-box; }
 html, body { background:#fff !important; }
-body { font-family: Georgia,'Times New Roman',serif !important; font-size:11.5pt !important;
-  line-height:1.55 !important; color:#1A1714 !important; max-width:170mm !important;
-  margin:0 auto !important; padding:14mm 6mm !important; text-rendering:optimizeLegibility;
-  -webkit-print-color-adjust:exact; }
-h1 { font-size:20pt; text-align:center; line-height:1.25; margin:0 0 6pt; }
-h2 { font-size:14.5pt; margin:20pt 0 7pt; break-after:avoid; page-break-after:avoid; }
-h3 { font-size:12pt; margin:13pt 0 4pt; break-after:avoid; page-break-after:avoid; }
+/* LaTeX 'article'-like typesetting: Computer-Modern-ish serif, justified, indented paragraphs,
+   tight leading, centered scholarly title block. Falls back gracefully where CM isn't installed. */
+body { font-family:'Latin Modern Roman','CMU Serif','Latin Modern','Nimbus Roman',
+  'TeX Gyre Termes','Times New Roman',Georgia,serif !important; font-size:10.8pt !important;
+  line-height:1.34 !important; color:#111 !important; max-width:165mm !important;
+  margin:0 auto !important; padding:12mm 4mm !important; text-rendering:optimizeLegibility;
+  font-feature-settings:"liga","kern"; -webkit-print-color-adjust:exact; }
+h1 { font-size:19pt; font-weight:700; text-align:center; line-height:1.2; margin:0 0 4pt;
+  letter-spacing:.1px; }
+/* author / affiliation line right under the title */
+h1 + p, .author, .affil { text-align:center; }
+h2 { font-size:13pt; font-weight:700; margin:17pt 0 5pt; break-after:avoid; page-break-after:avoid; }
+h3 { font-size:11.3pt; font-weight:700; font-style:italic; margin:11pt 0 3pt; break-after:avoid; page-break-after:avoid; }
 h1,h2,h3,h4 { break-inside:avoid; page-break-inside:avoid; }
-p { margin:0 0 9pt; text-align:justify; orphans:3; widows:3; }
-ul,ol { margin:0 0 9pt 18pt; }
-li { margin:0 0 4pt; }
+/* Justified body with first-line indent; no indent on the first paragraph after a heading (LaTeX rule). */
+p { margin:0 0 2pt; text-align:justify; text-indent:1.4em; orphans:3; widows:3; hyphens:auto; }
+h1+p, h2+p, h3+p, h4+p, blockquote p, li p, .abstract p:first-of-type { text-indent:0; }
+/* Abstract: narrower measure, smaller, like a real paper. */
+.abstract, #abstract { font-size:10pt; margin:10pt 7mm 14pt; }
+ul,ol { margin:3pt 0 6pt 20pt; }
+li { margin:0 0 2pt; }
 pre,table,figure,blockquote { break-inside:avoid; page-break-inside:avoid; max-width:100%; overflow-x:auto; }
+blockquote { margin:6pt 7mm; font-size:10.2pt; }
 img { max-width:100%; height:auto; }
-table { width:100%; border-collapse:collapse; font-size:10.5pt; }
-th,td { border:1px solid #d8d0c2; padding:5px 8px; text-align:left; }
+table { width:100%; border-collapse:collapse; font-size:9.6pt; margin:6pt 0; }
+th,td { border:1px solid #bbb; padding:4px 7px; text-align:left; }
+caption, figcaption { font-size:9.4pt; font-style:italic; text-align:center; margin-top:3pt; }
+a { color:#111; text-decoration:none; }
 mjx-container { overflow-x:auto; max-width:100%; }
-.references li, .references p { font-size:10.5pt; }
+/* References: hanging indent, smaller, with the URL shown beneath each entry. */
+.references, #references { font-size:9.8pt; }
+.references li, #references li { margin:0 0 4pt; padding-left:1.4em; text-indent:-1.4em; }
+.references a, #references a { color:#1a3e6e; word-break:break-all; }
 </style>
 """
 
