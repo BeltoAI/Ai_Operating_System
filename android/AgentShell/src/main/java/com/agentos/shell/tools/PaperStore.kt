@@ -27,6 +27,11 @@ object PaperStore {
     fun thesis(ctx: Context, id: Long): String = prefs(ctx).getString("thesis_$id", "") ?: ""
     fun setThesis(ctx: Context, id: Long, v: String) = prefs(ctx).edit().putString("thesis_$id", v.trim()).apply()
 
+    // Zenodo deposition id this paper was last published as — so re-publishing makes a NEW VERSION
+    // of the same record (shared concept-DOI) instead of a duplicate record.
+    fun zenodoId(ctx: Context, id: Long): Long = prefs(ctx).getLong("zenodo_dep_$id", 0L)
+    fun setZenodoId(ctx: Context, id: Long, dep: Long) = prefs(ctx).edit().putLong("zenodo_dep_$id", dep).apply()
+
     // ---- Per-paper conversation (chat thread between you and the writer) ----
     data class Chat(val role: String, val text: String)   // role: "you" | "ai"
     fun chatLog(ctx: Context, id: Long): List<Chat> = try {

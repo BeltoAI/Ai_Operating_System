@@ -326,35 +326,13 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         val wv = webRef ?: return onDone(null)
         try {
             val file = java.io.File(ctx.cacheDir, "paper_$currentId.pdf")
-            if (file.exists()) file.delete()
             val adapter = wv.createPrintDocumentAdapter("SlyOS Paper")
             val attrs = PrintAttributes.Builder()
                 .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
                 .setResolution(PrintAttributes.Resolution("pdf", "pdf", 600, 600))
                 .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
                 .build()
-            adapter.onLayout(null, attrs, null, object : android.print.PrintDocumentAdapter.LayoutResultCallback() {
-                override fun onLayoutFinished(info: android.print.PrintDocumentInfo?, changed: Boolean) {
-                    try {
-                        val pfd = android.os.ParcelFileDescriptor.open(file,
-                            android.os.ParcelFileDescriptor.MODE_CREATE or
-                            android.os.ParcelFileDescriptor.MODE_READ_WRITE or
-                            android.os.ParcelFileDescriptor.MODE_TRUNCATE)
-                        adapter.onWrite(arrayOf(android.print.PageRange.ALL_PAGES), pfd,
-                            android.os.CancellationSignal(),
-                            object : android.print.PrintDocumentAdapter.WriteResultCallback() {
-                                override fun onWriteFinished(pages: Array<out android.print.PageRange>?) {
-                                    try { pfd.close() } catch (e: Exception) {}
-                                    onDone(if (file.exists() && file.length() > 0) file else null)
-                                }
-                                override fun onWriteFailed(error: CharSequence?) {
-                                    try { pfd.close() } catch (e: Exception) {}; onDone(null)
-                                }
-                            })
-                    } catch (e: Exception) { onDone(null) }
-                }
-                override fun onLayoutFailed(error: CharSequence?) { onDone(null) }
-            })
+            android.print.PdfPrint(attrs).print(adapter, file, onDone)
         } catch (e: Exception) { onDone(null) }
     }
 

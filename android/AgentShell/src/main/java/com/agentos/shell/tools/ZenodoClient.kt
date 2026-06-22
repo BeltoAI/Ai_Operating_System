@@ -15,23 +15,35 @@ import java.net.URL
 object ZenodoClient {
     private const val BASE = "https://zenodo.org/api"
 
-    data class Result(val ok: Boolean, val doi: String = "", val url: String = "", val error: String = "")
+    data class Result(val ok: Boolean, val doi: String = "", val url: String = "", val error: String = "", val depId: Long = 0L)
 
-    /** publicationType: Zenodo subtype, e.g. "preprint", "report", "workingpaper". */
+    /**
+     * publicationType: Zenodo subtype, e.g. "preprint", "report".
+     * existingDepositId: if > 0, publish a NEW VERSION of that record (shared concept-DOI) instead of a
+     * brand-new record. Returns the new deposition id in Result.depId so the caller can remember it.
+     */
     fun publish(
         token: String, pdf: File, title: String, author: String, affiliation: String,
-        description: String, publicationType: String, keywords: List<String>, doPublish: Boolean
+        description: String, publicationType: String, keywords: List<String>, doPublish: Boolean,
+        existingDepositId: Long = 0L
     ): Result {
         if (token.isBlank()) return Result(false, error = "No Zenodo token set.")
         if (!pdf.exists() || pdf.length() == 0L) return Result(false, error = "PDF wasn't built.")
         try {
-            // 1) Create an empty deposition.
-            val (c1, b1) = json("POST", "$BASE/deposit/depositions", token, "{}")
-            if (c1 !in 200..299) return Result(false, error = "create failed ($c1): ${b1.take(300)}")
-            val dep = JSONObject(b1)
-            val id = dep.getLong("id")
-            val links = dep.optJSONObject("links")
-            val bucket = links?.optString("bucket") ?: ""
+            val id: Long; val bucket: String
+            if (existingDepositId > 0L) {
+                // New version of an existing record: start a draft, then clear its inherited files.
+                val (nid, nbucket, err) = startNewVersion(token, existingDepositId)
+                if (err != null) return Result(false, error = err)
+                id = nid; bucket = nbucket
+            } else {
+                // Brand-new record.
+                val (c1, b1) = json("POST", "$BASE/deposit/depositions", token, "{}")
+                if (c1 !in 200..299) return Result(false, error = "create failed ($c1): ${b1.take(300)}")
+                val dep = JSONObject(b1)
+                id = dep.getLong("id")
+                bucket = dep.optJSONObject("links")?.optString("bucket") ?: ""
+            }
 
             // 2) Upload the PDF (new bucket API if present, else legacy multipart-less PUT).
             val fname = sanitize(title).take(80).ifBlank { "paper" } + ".pdf"
