@@ -71,10 +71,11 @@ object AgentClient {
             "no bullet points or lists unless they'd actually use them. " +
             (if (styleProfile.isNotBlank()) "HOW YOU WRITE (mimic this precisely — your real texting style): $styleProfile. " else "") +
             (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "") +
-            (if (bookingLink.isNotBlank()) "ONLY if the person themselves asks to schedule a call, book " +
-                "time, or get on a call (or explicitly asks how to reach you for one), THEN you may share " +
-                "your booking link: $bookingLink. Never volunteer it otherwise, never steer the chat toward " +
-                "it, never paste it into normal conversation — it's a just-in-case, not a pitch. " else "")
+            (if (bookingLink.isNotBlank()) "Your booking link is $bookingLink. Share it when it's genuinely " +
+                "useful and welcome: when the person asks to schedule/call, OR when they show real interest in " +
+                "your work, your product, or working together — then warmly invite them to a quick call and " +
+                "include the link, naturally and at most once. Do NOT paste it into unrelated or personal " +
+                "conversations, do NOT lead with it, and never spam it — earn the call first, then offer it. " else "")
     }
 
     /** Text-only call. */
