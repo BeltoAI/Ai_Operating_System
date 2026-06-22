@@ -71,6 +71,28 @@ bash build_and_install.sh
 
 ---
 
+## Already have SlyOS? Update to the latest version
+
+If a friend installed SlyOS before and you've pushed new changes, here's how they pull the
+update onto their phone. **Your settings, memory, imported chats, and API key all stay** —
+updating is just reinstalling the app over the old one.
+
+1. Plug the phone into the Mac (USB debugging on, tap **Allow** if it asks).
+2. In Terminal:
+```bash
+cd ~/Downloads/Ai_Operating_System/agentos   # wherever you cloned it
+git pull                                       # get the newest code
+bash build_and_install.sh                      # rebuild + reinstall over the old app
+```
+3. On the phone, press **Home → SlyOS → Always** if it asks again. Done — same data, new features.
+
+*Notes:* your `apikey.properties` is never touched by `git pull` (it's private to your machine).
+If `git pull` ever complains about local changes, run `git stash` first, then `git pull`. If the
+app refuses to install over the old one, `adb uninstall com.agentos.shell` then re-run the build
+(this clears on-device data, so only do it as a last resort).
+
+---
+
 ## Load your LinkedIn network (optional but powerful)
 
 This lets SlyOS reach your whole LinkedIn network and draft personalized openers.
@@ -92,11 +114,33 @@ adb push ~/Downloads/Profile.csv    /sdcard/Download/
 
 ---
 
-## Optional extras
-- **Telegram bot:** create a bot with **@BotFather** on Telegram, copy the token into
-  `apikey.properties` (`TELEGRAM_BOT_TOKEN=`), rebuild, then turn on "Telegram bot brain" in
-  Brain → About.
-- **Post to X/Twitter:** add your four X API keys to `apikey.properties` and rebuild.
+## Adding API keys & tokens
+
+SlyOS uses two kinds of keys. Know which goes where:
+
+**A) Build-time keys — in `agentos/android/apikey.properties`** (private file, never uploaded,
+git-ignored). After editing this file you must **rebuild** (`bash build_and_install.sh`) for
+changes to take effect. Each person uses their **own** keys.
+```
+ANTHROPIC_API_KEY=sk-ant-...        # REQUIRED — the brain. https://console.anthropic.com
+TELEGRAM_BOT_TOKEN=...              # optional — from @BotFather, enables the Telegram bot brain
+TWITTER_API_KEY=...                # optional — the 4 X keys below enable direct posting to X
+TWITTER_API_SECRET=...
+TWITTER_ACCESS_TOKEN=...
+TWITTER_ACCESS_SECRET=...
+```
+Start from the template: `cp android/apikey.properties.example android/apikey.properties`, then
+`open -e android/apikey.properties` and paste your values after each `=`.
+
+**B) In-app keys — typed on the phone, stored only on that device** (no rebuild needed):
+- **Zenodo (publish papers):** Zenodo → account → **Applications → Personal access tokens →
+  New token**, tick scopes **`deposit:write`** and **`deposit:actions`**, copy it. In SlyOS open a
+  paper → **View paper → ↑ Zenodo** and paste the token once. After that, one tap publishes the
+  paper (open-access, with auto-generated abstract + keywords) and returns a real **DOI**;
+  re-publishing the same paper creates a **new version** of the same record.
+
+> Security: never commit `apikey.properties` or paste live keys into chats/screenshots. If a key
+> is ever exposed, revoke/regenerate it (Anthropic console / Zenodo applications / X portal).
 
 ---
 
@@ -143,10 +187,14 @@ AOSP Cuttlefish or an unlockable Pixel (see `docs/`), never the locked S25.
   node for details + recent messages, **Ask** (natural-language Q&A over memory) which lights
   up the **synapse path** of memories behind the answer, and **Forget** to delete.
 - **Research workspace.** Multi-paper library (create / open / delete). Opus writes a full
-  academic paper in your name — abstract, numbered sections, references, real equations
-  (MathJax). Toggle **web research** (Anthropic web-search tool, with citations) and **use your
-  PDF** as source. Edit by prompt or by hand, **Export PDF** (print) or **Share** the PDF to any
-  app. A daily Opus **usage cap** guards credits.
+  academic paper / white paper / investor memo in your name — abstract, numbered sections,
+  references, real equations (MathJax), LaTeX-style typesetting. Works like the Claude web app:
+  you **chat** with each paper ("add a chapter on…", "sharpen the abstract"), and it **replies**
+  telling you what it wrote and **which web sources it used** (with URLs) — chatter never leaks
+  into the document. Always web-researches with real cited links; can also use your loaded PDF as
+  source. Full **version history** (restore any prior version). **Share** a clean, selectable-text
+  PDF, or **publish to Zenodo** in one tap for a real DOI (see "Adding API keys"). A daily Opus
+  **usage cap** guards credits.
 - **Social.** Photo post composer (themed LinkedIn/Instagram preview, edit-by-prompt). Spicy
   tech takes for X/Reddit (platform-tuned), optional daily morning draft as a notification with
   one-tap Post-to-X / Post-to-Reddit. Real X API posting if keys are set.
