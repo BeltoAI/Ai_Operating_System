@@ -318,58 +318,63 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         } catch (e: Exception) { status = "Couldn't open PDF export." }
     }
 
-    // Render the on-screen paper into a real A4-paginated PDF file (shared by Share + Publish).
-    fun buildPdf(): java.io.File? {
-        val wv = webRef ?: return null
-        return try {
-            val density = ctx.resources.displayMetrics.density
-            val w = if (wv.width > 0) wv.width else 1080
-            val totalH = (wv.contentHeight * density).toInt().coerceIn(1, 200000)
-            val pageH = (w * 842f / 595f).toInt()
-            val footer = (pageH * 0.045f).toInt()
-            val usableH = (pageH - footer).coerceAtLeast(1)
-            val pageCount = ((totalH + usableH - 1) / usableH).coerceAtLeast(1)
-            val full = android.graphics.Bitmap.createBitmap(w, totalH, android.graphics.Bitmap.Config.ARGB_8888)
-            android.graphics.Canvas(full).apply { drawColor(android.graphics.Color.WHITE); wv.draw(this) }
-            val foot = android.graphics.Paint().apply {
-                color = android.graphics.Color.parseColor("#8A8076"); textSize = w * 0.020f
-                textAlign = android.graphics.Paint.Align.CENTER; isAntiAlias = true
-            }
-            val doc = android.graphics.pdf.PdfDocument()
-            for (i in 0 until pageCount) {
-                val page = doc.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, pageH, i + 1).create())
-                val canvas = page.canvas; canvas.drawColor(android.graphics.Color.WHITE)
-                val top = i * usableH
-                val sliceH = minOf(usableH, totalH - top)
-                if (sliceH > 0) {
-                    val src = android.graphics.Rect(0, top, w, top + sliceH)
-                    val dst = android.graphics.Rect(0, 0, w, sliceH)
-                    canvas.drawBitmap(full, src, dst, null)
-                }
-                canvas.drawText("Page ${i + 1} of $pageCount", w / 2f, pageH - footer / 2f, foot)
-                doc.finishPage(page)
-            }
-            full.recycle()
+    // Render the on-screen paper into a real A4 PDF using Android's NATIVE print pipeline (the same
+    // engine as the Print button). This produces a properly paginated, full-length, selectable-text
+    // PDF — unlike rasterizing the WebView, which left long papers blank past the first screen.
+    // Async: the print adapter works via callbacks; result is delivered to [onDone] on the main thread.
+    fun buildPdf(onDone: (java.io.File?) -> Unit) {
+        val wv = webRef ?: return onDone(null)
+        try {
             val file = java.io.File(ctx.cacheDir, "paper_$currentId.pdf")
-            java.io.FileOutputStream(file).use { doc.writeTo(it) }; doc.close()
-            file
-        } catch (e: Exception) { null }
+            if (file.exists()) file.delete()
+            val adapter = wv.createPrintDocumentAdapter("SlyOS Paper")
+            val attrs = PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setResolution(PrintAttributes.Resolution("pdf", "pdf", 600, 600))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                .build()
+            adapter.onLayout(null, attrs, null, object : android.print.PrintDocumentAdapter.LayoutResultCallback() {
+                override fun onLayoutFinished(info: android.print.PrintDocumentInfo?, changed: Boolean) {
+                    try {
+                        val pfd = android.os.ParcelFileDescriptor.open(file,
+                            android.os.ParcelFileDescriptor.MODE_CREATE or
+                            android.os.ParcelFileDescriptor.MODE_READ_WRITE or
+                            android.os.ParcelFileDescriptor.MODE_TRUNCATE)
+                        adapter.onWrite(arrayOf(android.print.PageRange.ALL_PAGES), pfd,
+                            android.os.CancellationSignal(),
+                            object : android.print.PrintDocumentAdapter.WriteResultCallback() {
+                                override fun onWriteFinished(pages: Array<out android.print.PageRange>?) {
+                                    try { pfd.close() } catch (e: Exception) {}
+                                    onDone(if (file.exists() && file.length() > 0) file else null)
+                                }
+                                override fun onWriteFailed(error: CharSequence?) {
+                                    try { pfd.close() } catch (e: Exception) {}; onDone(null)
+                                }
+                            })
+                    } catch (e: Exception) { onDone(null) }
+                }
+                override fun onLayoutFailed(error: CharSequence?) { onDone(null) }
+            })
+        } catch (e: Exception) { onDone(null) }
     }
 
     fun sharePdf() {
-        try {
-            val file = buildPdf() ?: run { status = "Couldn't build PDF."; return }
-            val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
-            ctx.startActivity(
-                android.content.Intent.createChooser(
-                    android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/pdf")
-                        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                    "Share paper"
-                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-            status = "Sharing PDF…"
-        } catch (e: Exception) { status = "Couldn't build PDF: ${e.message}" }
+        status = "Building PDF…"
+        buildPdf { file ->
+            if (file == null) { status = "Couldn't build PDF."; return@buildPdf }
+            try {
+                val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
+                ctx.startActivity(
+                    android.content.Intent.createChooser(
+                        android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/pdf")
+                            .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                        "Share paper"
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                status = "Sharing PDF…"
+            } catch (e: Exception) { status = "Couldn't share PDF: ${e.message}" }
+        }
     }
 
     // One-tap publish to Zenodo: build the PDF, generate rich metadata, create+upload+publish → DOI.
@@ -377,17 +382,18 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         if (publishing) return
         val token = zToken.trim()
         if (token.isBlank()) { status = "Paste your Zenodo token first."; return }
-        val file = buildPdf()
-        if (file == null) { status = "Couldn't build the PDF — open View paper first."; return }
         MemoryStore.setZenodoToken(ctx, token)
         showPublish = false; publishing = true
-        status = "Publishing to Zenodo…"
+        status = "Building PDF…"
         val titleNow = titleOf(html, "Untitled")
         val author = MemoryStore.ownerName(ctx).ifBlank { "Anonymous" }
         val pubType = when (docType) { "whitepaper" -> "report"; "memo" -> "report"; else -> "preprint" }
         val plain = html.replace(Regex("(?is)<style.*?</style>"), " ").replace(Regex("(?is)<script.*?</script>"), " ")
             .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
-        scope.launch {
+        buildPdf { file ->
+          if (file == null) { publishing = false; status = "Couldn't build the PDF — try again."; return@buildPdf }
+          status = "Publishing to Zenodo…"
+          scope.launch {
             val (descAi, kws) = withContext(Dispatchers.IO) { AgentClient.zenodoMeta(titleNow, plain) }
             val desc = descAi.ifBlank { plain.take(1200) }
             val res = withContext(Dispatchers.IO) {
@@ -406,6 +412,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                 chat = PaperStore.chatLog(ctx, currentId)
                 status = "Publish failed: ${res.error}"
             }
+          }
         }
     }
 
