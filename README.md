@@ -93,6 +93,33 @@ app refuses to install over the old one, `adb uninstall com.agentos.shell` then 
 
 ---
 
+## Share it with friends (no terminal for them)
+
+You build once on your Mac and hand friends a single file — they don't touch a terminal, and they
+never need your keys (they paste their own Anthropic key on first launch).
+
+```bash
+cd ~/Downloads/MADSCIENTIST/agentos
+bash package_apk.sh
+```
+
+This produces **`SlyOS-latest.apk`** in the `agentos` folder, built with **no keys inside it** (your
+`apikey.properties` is moved aside during the build, then restored). Send that APK to anyone
+(AirDrop, email, Drive). They:
+
+1. Open it on their Android phone and allow "install unknown apps" when prompted.
+2. On first launch, a setup wizard asks for their **own Anthropic API key** (from
+   https://console.anthropic.com), then optionally their About, Calendly, Zenodo token, and their
+   chat/LinkedIn imports.
+3. Press **Home → SlyOS → Always**.
+
+**Republishing after you add features is effortless:** just run `bash package_apk.sh` again and resend
+`SlyOS-latest.apk`. The version number auto-bumps every build, so it installs as an update over the
+old one. (Note: keep handing out builds from the *same Mac* — Android requires updates to be signed by
+the same machine's key; a fresh install on a new phone is always fine.)
+
+---
+
 ## Load your LinkedIn network (optional but powerful)
 
 This lets SlyOS reach your whole LinkedIn network and draft personalized openers.

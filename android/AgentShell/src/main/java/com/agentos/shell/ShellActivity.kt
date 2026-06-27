@@ -27,12 +27,14 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
+        // Your Anthropic key, pasted in-app and stored on-device (so a prebuilt APK needs no compiled key).
+        com.agentos.shell.tools.AgentClient.apiKeyOverride = com.agentos.shell.tools.MemoryStore.anthropicKey(this)
         com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)
         com.agentos.shell.tools.AgentClient.styleProfile = com.agentos.shell.tools.MemoryStore.styleProfile(this)
         // Auto-relearn your writing voice as new samples accumulate (sent posts/replies grow the pool),
@@ -62,7 +64,9 @@ class ShellActivity : ComponentActivity() {
         val openReconnect = intent?.getBooleanExtra("open_reconnect", false) == true
         setContent {
             var screen by remember {
-                mutableStateOf(when { startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
+                mutableStateOf(when {
+                    !com.agentos.shell.tools.AgentClient.hasKey() -> Screen.Setup   // first run: paste your key
+                    startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
             }
             var pendingVoice by remember { mutableStateOf(startVoice) }   // one-shot: cleared after the mic opens
             var agentPaused by remember { mutableStateOf(false) }
@@ -98,6 +102,7 @@ class ShellActivity : ComponentActivity() {
                 ) { s ->
                     val m = Modifier.fillMaxSize().background(T.bg).padding(24.dp)
                     when (s) {
+                        Screen.Setup  -> SetupScreen(m) { screen = Screen.Home }
                         Screen.Boot   -> BootScreen(m)
                         Screen.Lock   -> LockScreen(m, onEnter = { screen = Screen.Home })
                         Screen.Home   -> HomeScreen(

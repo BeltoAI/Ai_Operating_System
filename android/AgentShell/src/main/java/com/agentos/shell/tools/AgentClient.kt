@@ -28,7 +28,14 @@ object AgentClient {
     // The Architect runs on the most capable model.
     private const val OPUS = "claude-opus-4-8"
 
-    fun hasKey(): Boolean = BuildConfig.ANTHROPIC_API_KEY.isNotBlank()
+    /**
+     * API key the user pasted in-app (stored on-device). Set at startup from MemoryStore. Lets us ship
+     * a prebuilt APK with NO key compiled in — each person brings their own. Falls back to the build-time
+     * key (apikey.properties) so developer builds keep working unchanged.
+     */
+    @Volatile var apiKeyOverride: String = ""
+    private fun key(): String = apiKeyOverride.ifBlank { BuildConfig.ANTHROPIC_API_KEY }
+    fun hasKey(): Boolean = key().isNotBlank()
 
     /** Booking/scheduling link (Calendly etc.); set from MemoryStore so every reply can offer it. */
     @Volatile var bookingLink: String = ""
@@ -93,8 +100,8 @@ object AgentClient {
 
     /** Low-level call with a full messages array (supports multi-turn history). */
     private fun callMessages(system: String, messages: JSONArray, maxTokens: Int, model: String = MODEL, readMs: Int = 60000, tools: JSONArray? = null): Pair<Int, String> {
-        val key = BuildConfig.ANTHROPIC_API_KEY
-        if (key.isBlank()) return -1 to "No API key set."
+        val key = key()
+        if (key.isBlank()) return -1 to "No API key set. Open Brain → About and paste your Anthropic API key."
 
         val obj = JSONObject()
             .put("model", model)

@@ -20,8 +20,10 @@ android {
         applicationId = "com.agentos.shell"
         minSdk = 29   // Android 10+ — covers Note 20 (max Android 13) and most Samsungs since ~2019
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.0"
+        // Auto-bump: every build gets a higher versionCode (minutes since 2024) so a rebuilt APK always
+        // installs OVER the old one as an update. Makes republishing effortless — just rebuild.
+        versionCode = ((System.currentTimeMillis() / 60000) - 28_900_000).toInt()
+        versionName = "0.3." + (((System.currentTimeMillis() / 86_400_000) - 19_700)).toString()
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "TWITTER_API_KEY", "\"${apiKeyProps.getProperty("TWITTER_API_KEY", "")}\"")
         buildConfigField("String", "TWITTER_API_SECRET", "\"${apiKeyProps.getProperty("TWITTER_API_SECRET", "")}\"")
