@@ -96,6 +96,11 @@
   .ftext p{ font-size:18px; color:var(--soft); margin:0; max-width:27em; line-height:1.55; }
   .alsoline{ padding:18px 0 0; color:var(--soft); font-size:16px; line-height:1.9; }
   .alsoline b{ color:var(--faint); font-weight:600; }
+  /* imports — plain editorial list, no cards */
+  .imports{ display:grid; grid-template-columns:1fr 1fr; gap:26px 56px; margin-top:6px; }
+  .imp b{ font-size:17px; } .imp p{ margin:5px 0 0; font-size:15px; color:var(--soft); line-height:1.55; }
+  code{ background:#efe7da; padding:1px 6px; border-radius:5px; font-size:.86em; }
+  @media (max-width:880px){ .imports{ grid-template-columns:1fr; } }
   /* in-phone bits for the feature shots */
   .res{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--soft); margin-top:9px; }
   .res .ok{ color:var(--wa); font-weight:700; }
@@ -303,11 +308,30 @@
     </div>
   </section>
 
+  <!-- IMPORTS -->
+  <section>
+    <p class="eyebrow">Make it yours</p>
+    <h2>Feed it your history</h2>
+    <p class="muted">Optional, but it's what makes the brain actually <em>you</em>. Export your chats from each
+      app, then load them in the setup wizard — or anytime under Brain → About (chats) and Now → Reconnect (LinkedIn).</p>
+    <div class="imports">
+      <div class="imp"><b>WhatsApp</b><p>Open a chat → ⋮ menu → <em>More → Export chat → Without media</em>. Share the <code>.txt</code> to your phone. Repeat per chat.</p></div>
+      <div class="imp"><b>LinkedIn</b><p>linkedin.com → <em>Settings → Data privacy → Get a copy of your data</em> → tick <em>Connections</em> &amp; <em>Messages</em>. They email a <code>.zip</code>.</p></div>
+      <div class="imp"><b>Instagram</b><p>App or web → <em>Accounts Center → Your information and permissions → Download your information</em> → choose <em>Messages</em>, format <em>JSON</em>.</p></div>
+      <div class="imp"><b>Telegram</b><p>Telegram <em>Desktop</em> → <em>Settings → Advanced → Export Telegram data</em> → format <em>Machine-readable JSON</em>.</p></div>
+      <div class="imp"><b>Messenger / Facebook</b><p>facebook.com → <em>Settings → Your information → Download your information</em> → <em>Messages</em>, format <em>JSON</em>.</p></div>
+      <div class="imp"><b>SMS &amp; the rest</b><p>Incoming texts and any app with a reply box are learned live as you use SlyOS — no export needed.</p></div>
+    </div>
+    <p class="alsoline" style="border-top:1px solid var(--line);margin-top:30px;padding-top:18px">
+      Drop the exported files on your phone (the requested <code>.zip</code>/<code>.txt</code>/<code>.json</code>), then pick them in
+      <b>setup → "Bring in your data"</b>. SlyOS detects each format, imports the messages, and learns your writing voice from them.</p>
+  </section>
+
   <footer>
     <div style="margin-bottom:12px">
       <a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a>
       <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
-      <a href="mailto:eshir010@ucr.edu">Contact</a>
+      <a href="mailto:support@belto.world">Contact</a>
     </div>
     <strong>SlyOS</strong> by Belto · Android only (no iPhone) · uses notification &amp; accessibility permissions to
     read and reply to your messages — everything stays on-device, on your own key. Reversible anytime via
@@ -323,18 +347,28 @@
     var v = document.getElementById('savedStat'); if (v && (s.savedHoursWeek != null)) v.textContent = s.savedHoursWeek + 'h';
   }).catch(function(){});
 
-  // Live download count, straight from GitHub Releases (real, no backend). Sums every SlyOS.apk asset.
-  fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
+  // Downloads counter. Prefer the LIVE counter (/api/count, ticks instantly on click); if its store
+  // isn't set up yet it returns null and we fall back to GitHub's (lagged) download_count.
+  function setDL(n){ var el = document.getElementById('dlcount'); if (el) el.textContent = (n > 0 ? n.toLocaleString() : '0'); }
+  function githubFallback(){
+    fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
+      .then(function(r){ return r.json(); })
+      .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); setDL(n); })
+      .catch(function(){ var el = document.getElementById('dlcount'); if (el) el.textContent = '—'; });
+  }
+  fetch('/api/count')
     .then(function(r){ return r.json(); })
-    .then(function(rs){
-      var n = 0;
-      (rs || []).forEach(function(rel){
-        (rel.assets || []).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count || 0); });
-      });
-      var el = document.getElementById('dlcount');
-      if (el) el.textContent = n > 0 ? n.toLocaleString() : '0';
-    })
-    .catch(function(){ var el = document.getElementById('dlcount'); if (el) el.textContent = '—'; });
+    .then(function(j){ if (j && typeof j.downloads === 'number') setDL(j.downloads); else githubFallback(); })
+    .catch(githubFallback);
+
+  // Count each real download click instantly (fire-and-forget; never blocks the download).
+  document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
+    a.addEventListener('click', function(){
+      try { fetch('/api/count', { method: 'POST', keepalive: true })
+        .then(function(r){ return r.json(); })
+        .then(function(j){ if (j && typeof j.downloads === 'number') setDL(j.downloads); }); } catch (e) {}
+    });
+  });
 </script>
 </body>
 </html>
