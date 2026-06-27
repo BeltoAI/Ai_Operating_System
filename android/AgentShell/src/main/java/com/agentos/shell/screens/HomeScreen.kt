@@ -218,6 +218,9 @@ fun HomeScreen(
                     .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
                     .take(1200)
                 val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 1600)
+                // If they're asking ABOUT their papers, also list every paper by title (content-match alone misses this).
+                val paperList = if (Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi", RegexOption.IGNORE_CASE).containsMatchIn(q))
+                    com.agentos.shell.tools.PaperStore.list(ctx).joinToString("\n") { "- “${it.title}” (${it.docType})" } else ""
                 val docText = if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
                     com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 1600) else ""
                 buildString {
@@ -227,6 +230,8 @@ fun HomeScreen(
                         append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
                     if (net.isNotBlank())
                         append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
+                    if (paperList.isNotBlank())
+                        append("\nYour research papers (these are the papers you have):\n").append(paperList)
                     if (papers.isNotBlank())
                         append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
                     if (docText.isNotBlank())

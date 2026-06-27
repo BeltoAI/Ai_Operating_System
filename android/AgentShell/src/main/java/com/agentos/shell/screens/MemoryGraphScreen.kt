@@ -155,11 +155,20 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val schedQ = Regex("free|busy|schedule|calendar|meeting|available|blocked|book|when am i", RegexOption.IGNORE_CASE).containsMatchIn(query)
             val calLines = if (schedQ) withContext(Dispatchers.IO) { com.agentos.shell.tools.CalendarTool.upcoming(ctx) }
                 .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "Schedule: $it" } else emptyList()
+            // Direct list of your papers by TITLE — so "what papers do I have / what did I write" reliably
+            // lists them (content keyword-matching alone misses a generic 'what papers' question).
+            val paperQuery = Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi",
+                RegexOption.IGNORE_CASE).containsMatchIn(query)
+            val paperTitles = if (paperQuery) withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.list(ctx) }
+                .map { "Your paper: “${it.title}” (${it.docType})" } else emptyList()
             val corpus = ArrayList<String>(); var chars = 0
-            // For task-type questions, lead with the checklist; otherwise keep people/messages first.
-            val ordered = if (schedQ) calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                          else if (taskQuery) taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                          else conns + dbHits + paperHits + docHits + taskLines + rankedExtra
+            // Lead with whatever the question is really about.
+            val ordered = when {
+                paperQuery -> paperTitles + paperHits + conns + dbHits + docHits + taskLines + rankedExtra
+                schedQ     -> calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
+                taskQuery  -> taskLines + conns + dbHits + paperHits + docHits + rankedExtra
+                else       -> conns + dbHits + paperHits + docHits + taskLines + rankedExtra
+            }
             for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
             val a = withContext(Dispatchers.IO) {
                 if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
