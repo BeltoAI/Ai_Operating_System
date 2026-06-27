@@ -103,6 +103,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     }
     var selected by remember { mutableStateOf<Int?>(null) }
     var query by remember { mutableStateOf("") }
+    var searchHist by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.searchHistory(ctx)) }
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -113,6 +114,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
     fun ask() {
         if (query.isBlank()) return
+        com.agentos.shell.tools.MemoryStore.addSearch(ctx, query)
+        searchHist = com.agentos.shell.tools.MemoryStore.searchHistory(ctx)
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
             // Semantic-ish expansion: search by meaning across messages AND the LinkedIn network.
@@ -198,6 +201,30 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     .clickable { ask() }.padding(horizontal = 14.dp, vertical = 9.dp))
             Spacer(Modifier.width(8.dp))
             Text("About", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { onSettings() })
+        }
+
+        // Recent searches: visible while the box is empty / being typed and before an answer shows.
+        // Filtered live as you type; tap to re-run, or Clear to wipe the history.
+        if (answer.isEmpty() && !searching && searchHist.isNotEmpty()) {
+            val shown = searchHist.filter { query.isBlank() || it.contains(query.trim(), true) }.take(6)
+            if (shown.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Recent", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+                    Text("Clear", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable {
+                        com.agentos.shell.tools.MemoryStore.clearSearchHistory(ctx); searchHist = emptyList()
+                    })
+                }
+                Spacer(Modifier.height(4.dp))
+                shown.forEach { h ->
+                    Row(Modifier.fillMaxWidth().clickable { query = h; ask() }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("↺", fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.width(8.dp))
+                        Text(h, fontSize = T.small, color = T.inkSoft, maxLines = 1, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
 
         if (searching || answer.isNotEmpty()) {

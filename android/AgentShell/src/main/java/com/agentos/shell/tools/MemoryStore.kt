@@ -112,6 +112,21 @@ object MemoryStore {
     fun voiceLearnedCount(ctx: Context): Int = prefs(ctx).getInt("voice_learned_count", 0)
     fun setVoiceLearnedCount(ctx: Context, n: Int) = prefs(ctx).edit().putInt("voice_learned_count", n).apply()
 
+    /** Recent Memory-tab searches, newest first — so you can re-run or clear them. */
+    fun searchHistory(ctx: Context): List<String> = try {
+        org.json.JSONArray(prefs(ctx).getString("search_history", "[]")).let { a ->
+            (0 until a.length()).map { a.getString(it) }
+        }
+    } catch (e: Exception) { emptyList() }
+    fun addSearch(ctx: Context, q: String) {
+        val s = q.trim(); if (s.length < 2) return
+        val cur = searchHistory(ctx).filterNot { it.equals(s, true) }.toMutableList()
+        cur.add(0, s); val capped = cur.take(20)
+        val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
+        prefs(ctx).edit().putString("search_history", arr.toString()).apply()
+    }
+    fun clearSearchHistory(ctx: Context) = prefs(ctx).edit().remove("search_history").apply()
+
     /** The booking link to actually use: the explicit field, else auto-detected from your About text. */
     fun effectiveBookingLink(ctx: Context): String {
         val explicit = bookingLink(ctx)

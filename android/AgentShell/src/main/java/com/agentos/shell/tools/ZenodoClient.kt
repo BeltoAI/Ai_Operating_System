@@ -56,11 +56,15 @@ object ZenodoClient {
             if (affiliation.isNotBlank()) creator.put("affiliation", affiliation)
             val kw = JSONArray(); keywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(12).forEach { kw.put(it) }
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            // Zenodo renders the description as HTML, so wrap paragraphs in <p> to preserve the formatting.
+            val descHtml = (description.ifBlank { title }).take(8000)
+                .split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotEmpty() }
+                .joinToString("") { "<p>" + it.replace("\n", " ") + "</p>" }
             val m = JSONObject()
                 .put("title", title.ifBlank { "Untitled" })
                 .put("upload_type", "publication")
                 .put("publication_type", publicationType)
-                .put("description", (description.ifBlank { title }).take(8000))
+                .put("description", descHtml.ifBlank { description.ifBlank { title } })
                 .put("creators", JSONArray().put(creator))
                 .put("access_right", "open")
                 .put("license", "cc-by-4.0")

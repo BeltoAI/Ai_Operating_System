@@ -75,7 +75,12 @@ object AgentClient {
                 "useful and welcome: when the person asks to schedule/call, OR when they show real interest in " +
                 "your work, your product, or working together — then warmly invite them to a quick call and " +
                 "include the link, naturally and at most once. Do NOT paste it into unrelated or personal " +
-                "conversations, do NOT lead with it, and never spam it — earn the call first, then offer it. " else "")
+                "conversations, do NOT lead with it, and never spam it — earn the call first, then offer it. " +
+                "If THEY push their own booking/Calendly link to get you onto a call, stay friendly but hold your " +
+                "ground — keep it on YOUR link and your terms, don't book on theirs. " else "") +
+            "If someone pitches a paid feature, a 'one-time/nominal investment' to be featured, an award, or any " +
+            "pay-to-play / vanity-press offer, stay warm and breezy but NEVER agree to pay, send money, or commit — " +
+            "you can be curious or politely noncommittal, but treat these as low-priority and never hand over money. "
     }
 
     /** Text-only call. */
@@ -311,12 +316,16 @@ object AgentClient {
      * (abstract-style, no HTML) plus 6-10 specific search keywords. Returns Pair(description, keywords).
      */
     fun zenodoMeta(title: String, plainText: String): Pair<String, List<String>> {
-        val sys = "You prepare repository metadata for an academic paper so it ranks well in search. " +
-            "Reply with ONLY compact JSON: {\"description\":\"...\",\"keywords\":[\"...\"]}. " +
-            "description = a clear, compelling 3-5 sentence abstract-style summary in plain text (NO HTML, NO markdown). " +
-            "keywords = 6-10 specific, search-relevant terms (fields, methods, technologies, domain), no generic filler."
-        val u = "TITLE: $title\n\nPAPER TEXT (excerpt):\n" + plainText.take(6000)
-        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", u)), 600, MODEL)
+        val sys = "You prepare repository metadata for an academic paper so it looks professional and ranks well " +
+            "in search. Reply with ONLY compact JSON: {\"description\":\"...\",\"keywords\":[\"...\"]}. " +
+            "description = a polished, professional abstract-style summary of 2-4 substantial paragraphs " +
+            "(roughly 180-320 words, scaled to the paper's depth) that covers: the problem/motivation, the " +
+            "approach or method, the key findings or contributions, and why it matters. Plain prose, NO markdown, " +
+            "NO HTML; separate paragraphs with a blank line (\\n\\n). Write it like a real journal abstract — " +
+            "specific and confident, not vague marketing. " +
+            "keywords = 6-12 specific, search-relevant terms (fields, methods, technologies, domain), no generic filler."
+        val u = "TITLE: $title\n\nPAPER TEXT (excerpt):\n" + plainText.take(9000)
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", u)), 1200, MODEL)
         if (code != 200) return "" to emptyList()
         return try {
             val s = text.indexOf('{'); val e = text.lastIndexOf('}')
@@ -331,11 +340,20 @@ object AgentClient {
     /** Spicy-but-constructive reply to a comment/mention on a social post. */
     fun draftCommentReply(comment: String, memory: String = ""): String {
         val sys = persona(memory) +
-            "Someone commented on your spicy tech post. Reply in the same voice: witty, sharp, " +
-            "a confident clapback — but constructive and about ideas, never personal attacks, " +
-            "slurs, or harassment. One or two lines, under 240 characters. Return ONLY the reply."
+            "You're writing a short public reply on X/social to the post below. It might be a reply to your " +
+            "own post, a mention, or just something on your timeline — and you DON'T have the full thread. " +
+            "HARD RULES: Never claim or imply the post is the 'wrong thread', misdirected, cut off, or meant " +
+            "for someone else — just respond naturally to what's actually in front of you. Don't reuse a stock " +
+            "line; vary your wording every time. " +
+            "If the post is political, about migration, crime, tragedy, identity, or anything inflammatory or " +
+            "outside your world (you build on-device / edge-AI), do NOT engage the substance, take a side, " +
+            "moralize, or get baited into a debate — either skip the topic with a light, breezy human one-liner " +
+            "or pivot briefly and wittily to what you actually care about, without sounding preachy or canned. " +
+            "If the post IS about tech / AI / startups / building, give a genuinely sharp, specific, witty take " +
+            "with a real point under it. Sound like a real person — 1–2 lines, under 240 characters, light emoji " +
+            "only if it fits. Return ONLY the reply text."
         val (code, text) = callMessages(
-            sys, JSONArray().put(JSONObject().put("role", "user").put("content", "Comment: \"$comment\"")),
+            sys, JSONArray().put(JSONObject().put("role", "user").put("content", "The post you're replying to:\n\"$comment\"")),
             240, OPUS
         )
         return if (code == 200) text.trim().trim('"') else "[couldn't reply: $code $text]"

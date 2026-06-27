@@ -93,6 +93,7 @@ fun HomeScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val allApps = remember { ToolRouter.installedApps(ctx) }
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
@@ -360,6 +361,26 @@ fun HomeScreen(
         Spacer(Modifier.weight(1f))
         Text("what should happen?", fontSize = T.prompt, color = T.ink)
         Spacer(Modifier.height(14.dp))
+
+        // App-name autocomplete: as you type, surface matching installed apps to open instantly.
+        val appMatches = remember(text, allApps) {
+            val t = text.trim().lowercase()
+            if (t.length < 2 || t.contains(" ")) emptyList()
+            else allApps.filter { it.label.lowercase().startsWith(t) }
+                .ifEmpty { allApps.filter { it.label.lowercase().contains(t) } }
+                .take(3)
+        }
+        if (appMatches.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                appMatches.forEach { app ->
+                    Text("↗ ${app.label}", fontSize = T.small, color = T.ink, maxLines = 1,
+                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { text = ""; ToolRouter.launchApp(ctx, app.pkg) }
+                            .padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
