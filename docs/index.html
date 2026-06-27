@@ -101,6 +101,29 @@
   .imp b{ font-size:17px; } .imp p{ margin:5px 0 0; font-size:15px; color:var(--soft); line-height:1.55; }
   code{ background:#efe7da; padding:1px 6px; border-radius:5px; font-size:.86em; }
   @media (max-width:880px){ .imports{ grid-template-columns:1fr; } }
+  /* feedback wall */
+  .fbwrap{ overflow:hidden; margin:22px 0 30px;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent); }
+  .fbtrack{ display:flex; gap:16px; width:max-content; animation:marquee 50s linear infinite; }
+  .fbwrap:hover .fbtrack{ animation-play-state:paused; }
+  @keyframes marquee{ from{ transform:translateX(0);} to{ transform:translateX(-50%);} }
+  .fbq{ width:300px; flex:none; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px 20px; }
+  .fbq .qs{ color:var(--accent); font-size:13px; letter-spacing:3px; }
+  .fbq .qt{ font-family:var(--script); font-style:italic; font-size:21px; line-height:1.25; margin:8px 0 10px; color:var(--ink); }
+  .fbq .qn{ font-size:13px; color:var(--faint); }
+  .fbempty{ color:var(--faint); font-size:15px; padding:14px 0; }
+  .fbform{ max-width:520px; }
+  .stars-in{ font-size:30px; color:var(--line); user-select:none; line-height:1; }
+  .stars-in span{ cursor:pointer; transition:color .1s; }
+  .stars-in span.on{ color:var(--accent); }
+  .fbform input, .fbform textarea{ width:100%; margin-top:10px; font:inherit; font-size:15px; color:var(--ink);
+    background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; resize:vertical; }
+  .fbform input:focus, .fbform textarea:focus{ outline:none; border-color:var(--accent); }
+  .fbrow{ display:flex; align-items:center; gap:14px; margin-top:12px; }
+  .fbrow .btn{ box-shadow:none; font-size:16px; padding:12px 22px; border:none; cursor:pointer; }
+  .fbmsg{ font-size:13.5px; color:var(--soft); }
+  .fbnote{ font-size:12.5px; color:var(--faint); margin-top:10px; }
   /* in-phone bits for the feature shots */
   .res{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--soft); margin-top:9px; }
   .res .ok{ color:var(--wa); font-weight:700; }
@@ -284,6 +307,27 @@
       identity guard · a lock-screen daily brief · checklist · autonomous auto-reply.</p>
   </section>
 
+  <!-- LIVE WALL -->
+  <section>
+    <p class="eyebrow">The live wall</p>
+    <h2>What did you use it for today?</h2>
+    <div class="fbwrap"><div class="fbtrack" id="fbtrack">
+      <div class="fbempty" id="fbempty">Nothing here yet — be the first to share below ↓</div>
+    </div></div>
+    <div class="fbform">
+      <div class="stars-in" id="starsIn" aria-label="Your rating">
+        <span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span>
+      </div>
+      <input id="fbName" maxlength="40" placeholder="Your name (optional)">
+      <textarea id="fbText" maxlength="280" rows="2" placeholder="What did you use SlyOS for today?"></textarea>
+      <div class="fbrow">
+        <button id="fbSend" class="btn" type="button">Share it</button>
+        <span id="fbMsg" class="fbmsg"></span>
+      </div>
+      <p class="fbnote">Rate it 5★ and your note joins the rotating wall above — anyone can read it, so keep it kind.</p>
+    </div>
+  </section>
+
   <!-- GET IT -->
   <section id="get">
     <p class="eyebrow">Get it</p>
@@ -370,6 +414,67 @@
         .then(function(j){ if (j && typeof j.value === 'number') setDL(j.value); }); } catch (e) {}
     });
   });
+
+  // ---- Live feedback wall (Supabase REST — paste your 2 public values below; no server code) ----
+  var SB_URL = 'YOUR_SUPABASE_URL';        // e.g. https://abcdefgh.supabase.co
+  var SB_KEY = 'YOUR_SUPABASE_ANON_KEY';   // the public "anon" key (safe in the browser, guarded by RLS)
+  var sbReady = SB_URL.indexOf('http') === 0 && SB_KEY.length > 20;
+  var rating = 0;
+  var BAD = /\b(fuck|shit|bitch|cunt|nigger|faggot|asshole|retard|whore|slut)\b/i;
+  function esc(t){ var d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+
+  (function(){
+    var box = document.getElementById('starsIn'); if (!box) return;
+    box.querySelectorAll('span').forEach(function(s){
+      s.addEventListener('click', function(){
+        rating = +s.getAttribute('data-v');
+        box.querySelectorAll('span').forEach(function(x){ x.classList.toggle('on', +x.getAttribute('data-v') <= rating); });
+      });
+    });
+  })();
+
+  function loadFB(){
+    if (!sbReady) return;
+    fetch(SB_URL + '/rest/v1/feedback?select=name,comment&rating=gte.5&order=id.desc&limit=24',
+      { headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY } })
+      .then(function(r){ return r.json(); })
+      .then(function(rows){
+        if (!Array.isArray(rows) || !rows.length) return;
+        var html = rows.map(function(f){
+          return '<div class="fbq"><div class="qs">★★★★★</div><div class="qt">“' + esc(f.comment) +
+                 '”</div><div class="qn">— ' + esc(f.name || 'Anonymous') + '</div></div>';
+        }).join('');
+        document.getElementById('fbtrack').innerHTML = html + html;  // duplicate → seamless loop
+      }).catch(function(){});
+  }
+  loadFB();
+
+  (function(){
+    var btn = document.getElementById('fbSend'); if (!btn) return;
+    btn.addEventListener('click', function(){
+      var msg = document.getElementById('fbMsg');
+      var name = (document.getElementById('fbName').value || '').trim().slice(0, 40);
+      var text = (document.getElementById('fbText').value || '').trim();
+      if (!rating){ msg.textContent = 'Pick a star rating first.'; return; }
+      if (text.length < 3){ msg.textContent = 'Add a short comment.'; return; }
+      if (BAD.test(text) || BAD.test(name)){ msg.textContent = "Let's keep it kind 🙏"; return; }
+      if (!sbReady){ msg.textContent = 'Thanks! (wall goes live once configured)'; return; }
+      btn.disabled = true; msg.textContent = 'Posting…';
+      fetch(SB_URL + '/rest/v1/feedback', {
+        method: 'POST',
+        headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ name: name, rating: rating, comment: text.slice(0, 280) })
+      }).then(function(r){
+        if (r.ok){
+          msg.textContent = rating >= 5 ? 'Thanks! 🎉 yours is now on the wall' : 'Thanks for the feedback! 🙏';
+          document.getElementById('fbText').value = ''; document.getElementById('fbName').value = ''; rating = 0;
+          document.querySelectorAll('#starsIn span').forEach(function(s){ s.classList.remove('on'); });
+          setTimeout(loadFB, 700);
+        } else { msg.textContent = "Couldn't post — try again."; }
+        btn.disabled = false;
+      }).catch(function(){ msg.textContent = 'Network error.'; btn.disabled = false; });
+    });
+  })();
 </script>
 </body>
 </html>
