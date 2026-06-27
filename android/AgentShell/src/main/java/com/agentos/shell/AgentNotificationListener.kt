@@ -82,13 +82,49 @@ class AgentNotificationListener : NotificationListenerService() {
         // NOT transactional/system noise (orders, banks, rides, news). Skip own echoes.
         // Emails count too (real ones, not no-reply/verification) so received mail feeds the brain.
         val capture = note.isConversational || (note.isEmail && !note.isLikelyBot)
-        if (capture && text.isNotBlank() && title.isNotBlank()
-            && !NotificationStore.isOwnEcho(note)) {
+        if (capture && title.isNotBlank()) {
             val platform = if (note.isEmail) "Email" else appLabel
-            com.agentos.shell.tools.ConversationStore.add(applicationContext, platform, title, "them", text)
-            com.agentos.shell.tools.MessageStore.insertOne(applicationContext, title, platform, title, "them", text)
+            val contact = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
+                ?.takeIf { it.isNotBlank() } ?: title
+            // Modern chat notifications (MessagingStyle) carry the whole recent thread with senders —
+            // capture EVERY message (both directions), not just the latest line. De-duped so repeated
+            // notification updates don't double-store.
+            var storedAny = false
+            try {
+                val msgs = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                if (msgs != null) {
+                    for (p in msgs) {
+                        val b = p as? android.os.Bundle ?: continue
+                        val mt = b.getCharSequence("text")?.toString().orEmpty()
+                        if (mt.isBlank()) continue
+                        val sender = b.getCharSequence("sender")?.toString()
+                            ?: (b.getParcelable("sender_person") as? android.app.Person)?.name?.toString()
+                        val role = if (sender.isNullOrBlank()) "me" else "them"   // no sender = you
+                        if (!firstTime("$contact|$role|$mt")) continue
+                        com.agentos.shell.tools.ConversationStore.add(applicationContext, platform, contact, role, mt)
+                        com.agentos.shell.tools.MessageStore.insertOne(applicationContext, contact, platform, sender ?: contact, role, mt)
+                        storedAny = true
+                    }
+                }
+            } catch (e: Exception) {}
+            // Fallback (no MessagingStyle, e.g. email/SMS): store the single message, de-duped.
+            if (!storedAny && text.isNotBlank() && !NotificationStore.isOwnEcho(note) && firstTime("$contact|them|$text")) {
+                com.agentos.shell.tools.ConversationStore.add(applicationContext, platform, contact, "them", text)
+                com.agentos.shell.tools.MessageStore.insertOne(applicationContext, contact, platform, contact, "them", text)
+            }
         }
         return note
+    }
+
+    // Small LRU so the same message in repeated notification updates is stored only once.
+    private val seenKeys = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+    private fun firstTime(key: String): Boolean {
+        synchronized(seenKeys) {
+            if (seenKeys.contains(key)) return false
+            seenKeys.add(key)
+            if (seenKeys.size > 800) { val it = seenKeys.iterator(); repeat(200) { if (it.hasNext()) { it.next(); it.remove() } } }
+            return true
+        }
     }
 
     /** A draft is only safe to auto-send if it's real text — not an error, placeholder, or empty. */
