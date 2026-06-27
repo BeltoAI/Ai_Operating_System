@@ -103,6 +103,7 @@ object ToolRouter {
                 "settings" -> { start(ctx, Intent(Settings.ACTION_SETTINGS)); "" }
                 "add_event" -> addEvent(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
+                "message" -> sendMessage(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
@@ -187,20 +188,64 @@ object ToolRouter {
             val title = o.optString("title", "Busy")
             val startMs = parseLocal(o.optString("start"))
             val endMs = parseLocal(o.optString("end"))
-            Log.i("SlyOS", "addEvent arg=$arg start=$startMs end=$endMs canWrite=${CalendarTool.canWrite(ctx)}")
             if (startMs <= 0 || endMs <= 0) return "I couldn't read those times."
-            if (CalendarTool.canWrite(ctx) && CalendarTool.addEvent(ctx, title, startMs, endMs))
-                return "Added \"$title\" to your calendar."
+            val attendees = ArrayList<String>()
+            o.optJSONArray("attendees")?.let { for (i in 0 until it.length()) attendees.add(it.optString(i)) }
+            if (CalendarTool.canWrite(ctx)) {
+                val r = CalendarTool.addEvent(ctx, title, startMs, endMs, attendees)
+                if (r.startsWith("OK::")) {
+                    val where = r.removePrefix("OK::")
+                    // Feed the brain so the agent knows about the block when it answers later.
+                    MemoryLog.add(ctx, "response", "Calendar: $title", "Blocked “$title” in $where (${o.optString("start")}–${o.optString("end")})", "Calendar")
+                    MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
+                        "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" + (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else ""))
+                    val who = if (attendees.isNotEmpty()) " and invited ${attendees.joinToString(", ")}" else ""
+                    return "Added “$title” to your $where$who."
+                }
+            }
             // Fallback: open the calendar's new-event screen pre-filled (always works).
             start(ctx, Intent(Intent.ACTION_INSERT)
                 .setData(CalendarContract.Events.CONTENT_URI)
                 .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
                 .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
                 .putExtra(CalendarContract.Events.TITLE, title))
-            "Opening your calendar to confirm \"$title\"."
+            "Opened your calendar to confirm “$title” — I couldn't write it directly (no synced calendar found)."
         } catch (e: Exception) {
             Log.e("SlyOS", "addEvent failed", e); "I couldn't read those times."
         }
+    }
+
+    /** Send/draft a message on a SPECIFIC app. SMS sends directly; WhatsApp opens pre-filled (one tap);
+     *  Telegram copies + opens (paste). All are recorded to the brain. */
+    private fun sendMessage(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val name = o.optString("name")
+            val body = o.optString("body")
+            val app = o.optString("app").lowercase()
+            if (body.isBlank()) return "What should the message say?"
+            when {
+                app.contains("whatsapp") -> {
+                    if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find ${name.ifBlank { "them" }}."
+                    val c = ContactsTool.findContact(ctx, name) ?: return "No contact found for \"$name\"."
+                    val digits = c.number.filter { it.isDigit() }
+                    start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=" + Uri.encode(body))))
+                    MessageStore.insertOne(ctx, c.name, "WhatsApp", c.name, "me", body)
+                    ConversationStore.add(ctx, "WhatsApp", c.name, "me", body)
+                    "Opened WhatsApp to ${c.name} with your message — just tap send."
+                }
+                app.contains("telegram") -> {
+                    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)
+                        ?.setPrimaryClip(android.content.ClipData.newPlainText("msg", body))
+                    val intent = ctx.packageManager.getLaunchIntentForPackage("org.telegram.messenger")
+                        ?: Intent(Intent.ACTION_VIEW, Uri.parse("tg://"))
+                    start(ctx, intent)
+                    if (name.isNotBlank()) { MessageStore.insertOne(ctx, name, "Telegram", name, "me", body); ConversationStore.add(ctx, "Telegram", name, "me", body) }
+                    "Copied your message and opened Telegram — open ${name.ifBlank { "the chat" }} and paste."
+                }
+                else -> sendSms(ctx, JSONObject().put("name", name).put("body", body).toString())
+            }
+        } catch (e: Exception) { "I couldn't send that." }
     }
 
     private fun parseLocal(s: String): Long = try {

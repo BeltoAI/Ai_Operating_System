@@ -151,9 +151,14 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val taskLines = withContext(Dispatchers.IO) { com.agentos.shell.tools.ChecklistStore.load(ctx) }
                 .filter { taskQuery || terms.any { t -> it.text.lowercase().contains(t) } }
                 .map { "Checklist task: ${it.text} — ${if (it.done) "done" else "to do"}" }
+            // Your schedule — so "am I free / what's blocked" answers from the real calendar.
+            val schedQ = Regex("free|busy|schedule|calendar|meeting|available|blocked|book|when am i", RegexOption.IGNORE_CASE).containsMatchIn(query)
+            val calLines = if (schedQ) withContext(Dispatchers.IO) { com.agentos.shell.tools.CalendarTool.upcoming(ctx) }
+                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "Schedule: $it" } else emptyList()
             val corpus = ArrayList<String>(); var chars = 0
             // For task-type questions, lead with the checklist; otherwise keep people/messages first.
-            val ordered = if (taskQuery) taskLines + conns + dbHits + paperHits + docHits + rankedExtra
+            val ordered = if (schedQ) calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
+                          else if (taskQuery) taskLines + conns + dbHits + paperHits + docHits + rankedExtra
                           else conns + dbHits + paperHits + docHits + taskLines + rankedExtra
             for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
             val a = withContext(Dispatchers.IO) {
