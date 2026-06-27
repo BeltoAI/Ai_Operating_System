@@ -104,6 +104,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var selected by remember { mutableStateOf<Int?>(null) }
     var query by remember { mutableStateOf("") }
     var searchHist by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.searchHistory(ctx)) }
+    var typeFilter by remember { mutableStateOf<String?>(null) }   // tap a legend color to isolate that type
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -265,14 +266,21 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             return@Column
         }
 
-        // Legend — what each color means, so the brain reads at a glance.
+        // Legend — tap a color to isolate that kind on the brain; tap again (or "All") to clear.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            if (typeFilter != null) {
+                Text("✕ All", fontSize = T.caption, color = ACCENT,
+                    modifier = Modifier.clickable { typeFilter = null }.padding(end = 12.dp))
+            }
             listOf("Person" to "person", "Fact" to "idea", "Task" to "task",
                 "Paper" to "paper", "Recall" to "recall", "Network" to "network", "Note" to "prompt").forEach { (label, type) ->
-                Box(Modifier.size(8.dp).clip(CircleShape).background(typeColor(type)))
-                Spacer(Modifier.width(4.dp))
-                Text(label, fontSize = T.caption, color = T.inkFaint)
-                Spacer(Modifier.width(12.dp))
+                val active = typeFilter == type
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { typeFilter = if (active) null else type }.padding(end = 12.dp)) {
+                    Box(Modifier.size(if (active) 10.dp else 8.dp).clip(CircleShape).background(typeColor(type)))
+                    Spacer(Modifier.width(4.dp))
+                    Text(label, fontSize = T.caption, color = if (active) typeColor(type) else T.inkFaint)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -326,6 +334,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     val inPath = pathNodes.contains(n.id)
                     val r = (4f + n.strength * 7f) * scale
                     val dim = when {
+                        typeFilter != null -> !hub && n.type != typeFilter   // legend filter takes precedence
                         pathNodes.isNotEmpty() -> !inPath
                         selected != null -> conn?.contains(n.id) != true
                         query.isNotBlank() -> !(n.label + n.content).contains(query, true) && !sel
