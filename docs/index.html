@@ -347,8 +347,9 @@
     var v = document.getElementById('savedStat'); if (v && (s.savedHoursWeek != null)) v.textContent = s.savedHoursWeek + 'h';
   }).catch(function(){});
 
-  // Downloads counter. Prefer the LIVE counter (/api/count, ticks instantly on click); if its store
-  // isn't set up yet it returns null and we fall back to GitHub's (lagged) download_count.
+  // Downloads counter — zero-setup: a free hosted counter (Abacus, no account/DB). Ticks instantly on
+  // each download click. If it's ever unreachable, we fall back to GitHub's (lagged) download_count.
+  var COUNTER = 'https://abacus.jasoncameron.dev', NS = 'slyos-world', KEY = 'downloads';
   function setDL(n){ var el = document.getElementById('dlcount'); if (el) el.textContent = (n > 0 ? n.toLocaleString() : '0'); }
   function githubFallback(){
     fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
@@ -356,17 +357,17 @@
       .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); setDL(n); })
       .catch(function(){ var el = document.getElementById('dlcount'); if (el) el.textContent = '—'; });
   }
-  fetch('/api/count')
+  fetch(COUNTER + '/get/' + NS + '/' + KEY)
     .then(function(r){ return r.json(); })
-    .then(function(j){ if (j && typeof j.downloads === 'number') setDL(j.downloads); else githubFallback(); })
+    .then(function(j){ if (j && typeof j.value === 'number') setDL(j.value); else githubFallback(); })
     .catch(githubFallback);
 
-  // Count each real download click instantly (fire-and-forget; never blocks the download).
+  // Increment instantly on each download click (also creates the counter on first hit).
   document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
     a.addEventListener('click', function(){
-      try { fetch('/api/count', { method: 'POST', keepalive: true })
+      try { fetch(COUNTER + '/hit/' + NS + '/' + KEY)
         .then(function(r){ return r.json(); })
-        .then(function(j){ if (j && typeof j.downloads === 'number') setDL(j.downloads); }); } catch (e) {}
+        .then(function(j){ if (j && typeof j.value === 'number') setDL(j.value); }); } catch (e) {}
     });
   });
 </script>
