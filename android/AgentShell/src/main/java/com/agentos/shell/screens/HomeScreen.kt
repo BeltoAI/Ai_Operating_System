@@ -22,7 +22,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
@@ -72,6 +75,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Load a real installed-app launcher icon as a Compose bitmap (cached by the caller). */
+private fun appIconBitmap(ctx: android.content.Context, pkg: String): androidx.compose.ui.graphics.ImageBitmap? = try {
+    val d = ctx.packageManager.getApplicationIcon(pkg)
+    val w = d.intrinsicWidth.coerceIn(1, 192); val h = d.intrinsicHeight.coerceIn(1, 192)
+    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp); d.setBounds(0, 0, w, h); d.draw(c)
+    bmp.asImageBitmap()
+} catch (e: Exception) { null }
+
 /**
  * Home = the heart. "what should happen?" goes to the real agent (AgentClient -> Claude),
  * which replies and decides an action that ToolRouter executes. Send button + tap-to-talk.
@@ -94,6 +106,7 @@ fun HomeScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val allApps = remember { ToolRouter.installedApps(ctx) }
+    var editMode by remember { mutableStateOf(false) }   // long-press a widget to show remove badges
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
@@ -296,6 +309,10 @@ fun HomeScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
             Spacer(Modifier.weight(1f))
+            if (editMode) {
+                Text("Done", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable { editMode = false }.padding(end = 12.dp))
+            }
             Icon(Icons.Filled.Add, contentDescription = "Add shortcut", tint = T.inkSoft,
                 modifier = Modifier.size(26.dp).clickable { showAdd = true })
         }
@@ -314,7 +331,7 @@ fun HomeScreen(
                             .graphicsLayer { val sc = if (isDragged) 1.12f else 1f; scaleX = sc; scaleY = sc }
                             .pointerInput(s.id) {
                                 detectDragGesturesAfterLongPress(
-                                    onDragStart = { draggingId = s.id },
+                                    onDragStart = { draggingId = s.id; editMode = true },
                                     onDragEnd = {
                                         draggingId = null
                                         ShortcutStore.savePositions(ctx, shortcuts.toList())
@@ -333,22 +350,32 @@ fun HomeScreen(
                             }
                     ) {
                         Box(contentAlignment = Alignment.TopEnd) {
+                            val icon = if (s.kind == "app") remember(s.ref) { appIconBitmap(ctx, s.ref) } else null
                             Box(
-                                Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-                                    .background(if (s.kind == "app") T.bgElevated else T.accent)
+                                Modifier.size(52.dp).clip(RoundedCornerShape(16.dp))
+                                    .background(if (s.kind == "app" && icon == null) T.bgElevated
+                                                else if (s.kind != "app") T.accent else androidx.compose.ui.graphics.Color.Transparent)
                                     .clickable {
-                                        if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
+                                        if (editMode) editMode = false
+                                        else if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
                                         else s.ref.toLongOrNull()?.let { onOpenApp(it) }
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(if (s.kind == "app") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
-                                    fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated)
+                                if (icon != null)
+                                    Image(bitmap = icon, contentDescription = s.label, contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)))
+                                else
+                                    Text(if (s.kind == "app") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
+                                        fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated)
                             }
-                            Box(Modifier.size(17.dp).clip(CircleShape).background(T.hairline)
-                                .clickable { ShortcutStore.remove(ctx, s.id); refreshShortcuts() },
-                                contentAlignment = Alignment.Center) {
-                                Text("✕", fontSize = T.caption, color = T.inkSoft)
+                            // Remove badge: only while in edit mode (after a long-press), like a launcher.
+                            if (editMode) {
+                                Box(Modifier.size(18.dp).offset(6.dp, (-6).dp).clip(CircleShape).background(T.ink)
+                                    .clickable { ShortcutStore.remove(ctx, s.id); refreshShortcuts() },
+                                    contentAlignment = Alignment.Center) {
+                                    Text("✕", fontSize = T.caption, color = T.bgElevated)
+                                }
                             }
                         }
                         Spacer(Modifier.height(4.dp))
