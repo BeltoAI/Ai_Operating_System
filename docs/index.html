@@ -86,13 +86,20 @@
   .demo .cap{ text-align:center; margin-top:14px; font-size:14px; color:var(--soft); }
   .demo .cap b{ color:var(--ink); display:block; font-size:15px; }
 
-  /* full feature breakdown */
-  .group{ margin-bottom:34px; }
-  .group h3{ font-size:14px; text-transform:uppercase; letter-spacing:.8px; color:var(--faint); border-bottom:1px solid var(--line); padding-bottom:8px; margin:0 0 16px; }
-  .grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
-  .item{ display:flex; gap:12px; align-items:flex-start; }
-  .item .ic{ font-size:18px; line-height:1.4; }
-  .item b{ font-size:15px; } .item p{ margin:2px 0 0; font-size:14px; color:var(--soft); }
+  /* features — bento grid */
+  .bento{ display:grid; grid-template-columns:repeat(3,1fr); grid-auto-rows:1fr; gap:14px; }
+  .bcard{ background:var(--card); border:1px solid var(--line); border-radius:22px; padding:24px;
+    display:flex; flex-direction:column; justify-content:flex-end; min-height:150px;
+    transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease; }
+  .bcard:hover{ transform:translateY(-4px); box-shadow:0 16px 34px rgba(26,23,20,.10); border-color:#d6ccb8; }
+  .bcard.big{ grid-column:span 2; }
+  .bcard.accent{ background:linear-gradient(150deg,#FCEFE7,#FBF8F2); border-color:#F1D2BF; }
+  .bic{ font-size:30px; margin-bottom:auto; }
+  .bcard h3{ font-size:19px; margin:14px 0 0; letter-spacing:-.2px; }
+  .bcard p{ font-size:14.5px; color:var(--soft); margin:8px 0 0; line-height:1.45; }
+  .more{ margin-top:18px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .more > span:first-child{ color:var(--faint); font-size:14px; margin-right:4px; }
+  .mpill{ border:1px solid var(--line); color:var(--soft); font-size:13.5px; padding:7px 14px; border-radius:999px; background:var(--card); }
 
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:24px; }
@@ -107,7 +114,8 @@
 
   @media (max-width:880px){
     .hero{ grid-template-columns:1fr; } h1{ font-size:52px; } .hero .phonewrap{ order:-1; }
-    .demos{ grid-template-columns:1fr; } .grid{ grid-template-columns:1fr; } .row2{ grid-template-columns:1fr; }
+    .demos{ grid-template-columns:1fr; } .row2{ grid-template-columns:1fr; }
+    .bento{ grid-template-columns:1fr 1fr; } .bcard.big{ grid-column:span 2; }
     .navdl{ display:none; } h2{ font-size:38px; }
   }
 </style>
@@ -130,10 +138,11 @@
       <a class="btn" href="#get">↓ Download for Android</a>
       <p class="sub">Free app · bring your own Anthropic key · Android 10+ &nbsp;<span class="pill">Samsung &amp; most phones</span></p>
       <div class="stats">
+        <div><b id="msgsStat">—</b><span>messages handled</span></div>
+        <div><b id="savedStat">—</b><span>hours saved / week</span></div>
         <div><b id="dlcount">—</b><span>downloads</span></div>
-        <div><b>60+</b><span>features, one app</span></div>
-        <div><b>100%</b><span>on your device</span></div>
       </div>
+      <div style="font-size:11px;color:var(--faint);margin-top:8px">measured from real daily use</div>
     </div>
     <div class="phonewrap">
       <div class="phone"><div class="screen"><div class="notch"></div>
@@ -201,66 +210,44 @@
     </div>
   </section>
 
-  <!-- FULL FEATURE BREAKDOWN -->
+  <!-- FEATURES — bento -->
   <section>
     <p class="eyebrow">Everything it does</p>
-    <h2>The whole feature set</h2>
-    <p class="muted">SlyOS is a lot of apps collapsed into one agent. Here's the full breakdown.</p>
+    <h2>A dozen apps, one agent</h2>
+    <p class="muted">The highlights — tap-light, no manual required.</p>
 
-    <div class="group">
-      <h3>The agent</h3>
-      <div class="grid">
-        <div class="item"><span class="ic">⌨️</span><div><b>One-prompt home</b><p>Type or speak "what should happen?" — it understands and runs the right action(s) in order.</p></div></div>
-        <div class="item"><span class="ic">🎙️</span><div><b>Voice &amp; tap-to-talk</b><p>Hold to speak; replies can be read back aloud with on-device text-to-speech.</p></div></div>
-        <div class="item"><span class="ic">🚀</span><div><b>App autocomplete</b><p>Start typing an app name and open it instantly, no full agent call.</p></div></div>
-        <div class="item"><span class="ic">📷</span><div><b>Camera vision Q&amp;A</b><p>Point the camera and ask — it answers, and remembers what you looked at.</p></div></div>
+    <div class="bento">
+      <div class="bcard big accent">
+        <div class="bic">🧠</div>
+        <h3>A brain that grows</h3>
+        <p>Every chat, contact, email &amp; note becomes searchable memory — and it keeps learning you.</p>
       </div>
+      <div class="bcard"><div class="bic">💬</div><h3>Replies in your voice</h3></div>
+      <div class="bcard"><div class="bic">🎙️</div><h3>Talk to it</h3></div>
+      <div class="bcard"><div class="bic">🔗</div><h3>Networks for you</h3></div>
+      <div class="bcard big">
+        <div class="bic">⚡</div>
+        <h3>Acts, doesn't just chat</h3>
+        <p>Texts people, opens apps, sets reminders, posts — all from one prompt.</p>
+      </div>
+      <div class="bcard"><div class="bic">📄</div><h3>Writes &amp; publishes papers</h3></div>
+      <div class="bcard"><div class="bic">📅</div><h3>Books your calls</h3></div>
+      <div class="bcard"><div class="bic">📷</div><h3>Camera vision</h3></div>
+      <div class="bcard"><div class="bic">🔒</div><h3>On-device &amp; yours</h3></div>
     </div>
 
-    <div class="group">
-      <h3>The memory brain</h3>
-      <div class="grid">
-        <div class="item"><span class="ic">🧠</span><div><b>Imports your history</b><p>WhatsApp, LinkedIn, Instagram, Telegram exports — tens of thousands of messages, searchable.</p></div></div>
-        <div class="item"><span class="ic">🕸️</span><div><b>Living synapse graph</b><p>People, topics, papers and notes as a pan/zoom brain that lights up the path behind each answer.</p></div></div>
-        <div class="item"><span class="ic">🔎</span><div><b>Ask your memory</b><p>"What did Papa say about the trip?" "Do I know any VCs?" — answered from everything you've fed it.</p></div></div>
-        <div class="item"><span class="ic">🌱</span><div><b>Grows on its own</b><p>Auto-saves facts it learns in conversation and re-learns your writing voice as you go.</p></div></div>
-        <div class="item"><span class="ic">📥</span><div><b>Everything feeds it</b><p>Live messages, sent texts, emails, calendar, checklist, papers and published posts all flow in.</p></div></div>
-        <div class="item"><span class="ic">👁️</span><div><b>Total Recall (opt-in)</b><p>An on-device service reads on-screen text into private memory — passwords never captured.</p></div></div>
-      </div>
-    </div>
-
-    <div class="group">
-      <h3>Messaging &amp; outreach</h3>
-      <div class="grid">
-        <div class="item"><span class="ic">💬</span><div><b>Replies in your voice</b><p>Full thread context + learned style across WhatsApp, Telegram, SMS, Signal, Instagram and more.</p></div></div>
-        <div class="item"><span class="ic">🎭</span><div><b>Per-platform personas</b><p>Professional on LinkedIn, funny on Instagram — a tone you set per app.</p></div></div>
-        <div class="item"><span class="ic">🤖</span><div><b>Autonomous mode</b><p>Optional auto-reply with an undo window and a night schedule — covers every app with a reply box.</p></div></div>
-        <div class="item"><span class="ic">✈️</span><div><b>Telegram bot brain</b><p>Runs your Telegram bot: reads images &amp; PDFs, answers, and replies with no notification limits.</p></div></div>
-        <div class="item"><span class="ic">🔗</span><div><b>LinkedIn networking</b><p>Reaches your whole network, drafts warm openers, and proposes who to reconnect with weekly.</p></div></div>
-        <div class="item"><span class="ic">📅</span><div><b>Books your calls</b><p>Shares your Calendly when there's genuine interest, and answers availability from your calendar.</p></div></div>
-      </div>
-    </div>
-
-    <div class="group">
-      <h3>Create &amp; publish</h3>
-      <div class="grid">
-        <div class="item"><span class="ic">📄</span><div><b>Research workspace</b><p>Write full papers by chatting — real cited sources, equations, LaTeX-style typeset PDFs, version history.</p></div></div>
-        <div class="item"><span class="ic">🎓</span><div><b>One-tap Zenodo publish</b><p>Publish a paper to a real DOI with auto-generated abstract, keywords and open-access licensing.</p></div></div>
-        <div class="item"><span class="ic">📸</span><div><b>Social post composer</b><p>Photos → an on-brand caption with a themed LinkedIn/Instagram preview, editable by prompt.</p></div></div>
-        <div class="item"><span class="ic">🌶️</span><div><b>Spicy takes for X/Reddit</b><p>Platform-tuned hot takes, with optional daily drafts and one-tap posting.</p></div></div>
-        <div class="item"><span class="ic">🛠️</span><div><b>The Architect</b><p>Describe an app and it builds a working mini-app live in a sandboxed view.</p></div></div>
-        <div class="item"><span class="ic">📑</span><div><b>Document Q&amp;A</b><p>Load a PDF and ask about it — chunked retrieval handles big documents.</p></div></div>
-      </div>
-    </div>
-
-    <div class="group">
-      <h3>Stays yours</h3>
-      <div class="grid">
-        <div class="item"><span class="ic">🔒</span><div><b>On-device &amp; your key</b><p>Runs on your own Anthropic key; memory and keys live on the phone, not a server.</p></div></div>
-        <div class="item"><span class="ic">🪪</span><div><b>Identity guard</b><p>Every outward message goes out as you — it never breaks character or announces it's an AI.</p></div></div>
-        <div class="item"><span class="ic">↩️</span><div><b>Fully reversible</b><p>No root, no flashing — switch your launcher back or uninstall anytime.</p></div></div>
-        <div class="item"><span class="ic">✅</span><div><b>Checklist &amp; briefs</b><p>Tasks the brain can read, plus a lock-screen daily brief and time-saved tracking.</p></div></div>
-      </div>
+    <div class="more">
+      <span>Plus</span>
+      <span class="mpill">Per-platform personas</span>
+      <span class="mpill">Telegram bot</span>
+      <span class="mpill">Total Recall</span>
+      <span class="mpill">Spicy takes for X</span>
+      <span class="mpill">Mini-app builder</span>
+      <span class="mpill">PDF Q&amp;A</span>
+      <span class="mpill">Identity guard</span>
+      <span class="mpill">Daily brief</span>
+      <span class="mpill">Checklist</span>
+      <span class="mpill">Auto-reply mode</span>
     </div>
   </section>
 
@@ -301,6 +288,13 @@
 
 </div>
 <script>
+  // Real usage stats, refreshed from the phone via pull_stats.sh (writes stats.json).
+  fetch('/stats.json').then(function(r){ return r.json(); }).then(function(s){
+    function fmt(n){ return n >= 1000 ? (n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'') + 'k' : '' + n; }
+    var m = document.getElementById('msgsStat'); if (m && s.messages) m.textContent = fmt(s.messages) + '+';
+    var v = document.getElementById('savedStat'); if (v && (s.savedHoursWeek != null)) v.textContent = s.savedHoursWeek + 'h';
+  }).catch(function(){});
+
   // Live download count, straight from GitHub Releases (real, no backend). Sums every SlyOS.apk asset.
   fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
     .then(function(r){ return r.json(); })
