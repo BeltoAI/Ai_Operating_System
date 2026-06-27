@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlyOS — your phone, as one agent</title>
+<meta name="description" content="SlyOS turns your Android phone into a single AI agent — it reads your messages, learns your voice, and acts for you. Bring your own Anthropic key.">
+<style>
+  :root{
+    --bg:#F4EFE6; --ink:#1A1714; --soft:#5b5347; --faint:#9A9085; --accent:#E8642C;
+    --card:#FBF8F2; --line:#E2DACB;
+    --wa:#1FA855; --ig:#C13584; --li:#2E6F9E; --tg:#2AABEE; --msg:#7B3FF2;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); scroll-behavior:smooth;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.5; }
+  .wrap{ max-width:1040px; margin:0 auto; padding:0 22px; }
+  a{ color:inherit; }
+
+  /* nav */
+  nav{ display:flex; align-items:center; justify-content:space-between; padding:22px 0; }
+  .logo{ font-size:24px; font-weight:800; letter-spacing:-0.5px; } .logo b{ color:var(--accent); }
+  .navdl{ background:var(--ink); color:#fff; text-decoration:none; font-size:14px; font-weight:700;
+    padding:10px 16px; border-radius:999px; }
+
+  /* hero */
+  .hero{ display:grid; grid-template-columns:1.1fr .9fr; gap:30px; align-items:center; padding:36px 0 20px; }
+  h1{ font-size:46px; line-height:1.08; letter-spacing:-1px; margin:0 0 16px; }
+  .lede{ font-size:18px; color:var(--soft); margin:0 0 26px; max-width:30em; }
+  .btn{ display:inline-block; background:var(--accent); color:#fff; font-size:18px; font-weight:700;
+    text-decoration:none; padding:16px 26px; border-radius:14px; box-shadow:0 10px 26px rgba(232,100,44,.3);
+    transition:transform .08s ease; }
+  .btn:active{ transform:scale(.98); }
+  .sub{ color:var(--faint); font-size:13px; margin:12px 0 0; }
+  .pill{ display:inline-block; background:var(--line); color:var(--soft); font-size:12px; padding:3px 10px; border-radius:999px; }
+
+  /* phone mockups */
+  .phone{ width:268px; background:#0d0b0a; border-radius:38px; padding:10px; box-shadow:0 24px 60px rgba(26,23,20,.28);
+    margin:0 auto; }
+  .screen{ background:var(--bg); border-radius:30px; height:540px; padding:18px 16px; overflow:hidden; position:relative;
+    display:flex; flex-direction:column; }
+  .notch{ width:108px; height:22px; background:#0d0b0a; border-radius:0 0 14px 14px; position:absolute; top:0; left:50%;
+    transform:translateX(-50%); }
+  .pw{ font-weight:800; font-size:17px; margin-top:10px; } .pw b{ color:var(--accent); }
+  .navdots{ position:absolute; bottom:16px; left:0; right:0; display:flex; justify-content:center; gap:18px; }
+  .navdots span{ width:7px; height:7px; border-radius:999px; background:var(--line); }
+  .navdots span.on{ background:var(--accent); }
+
+  /* home screen bits */
+  .spacer{ flex:1; }
+  .ask{ font-size:24px; font-weight:600; }
+  .inputline{ border-bottom:2px solid var(--ink); padding:8px 0; color:var(--faint); margin-top:10px; font-size:14px; }
+  .chips{ display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
+  .chip{ background:var(--line); color:var(--soft); font-size:12px; padding:5px 11px; border-radius:999px; }
+
+  /* chat reply screen */
+  .bubble{ max-width:78%; padding:10px 13px; border-radius:16px; font-size:13.5px; margin-bottom:10px; }
+  .them{ background:var(--card); border:1px solid var(--line); align-self:flex-start; border-bottom-left-radius:5px; }
+  .me{ background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:5px; }
+  .tag{ font-size:11px; color:var(--faint); margin:0 0 8px; }
+
+  /* section */
+  section{ padding:54px 0; }
+  .eyebrow{ text-transform:uppercase; letter-spacing:1px; font-size:12px; font-weight:700; color:var(--accent); margin:0 0 8px; }
+  h2{ font-size:32px; letter-spacing:-.5px; margin:0 0 8px; }
+  .muted{ color:var(--soft); font-size:17px; max-width:40em; margin:0 0 30px; }
+
+  /* look-inside row */
+  .demos{ display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+  .demo .cap{ text-align:center; margin-top:14px; font-size:14px; color:var(--soft); }
+  .demo .cap b{ color:var(--ink); display:block; font-size:15px; }
+
+  /* features */
+  .feat{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .fcard{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:22px; }
+  .fcard .ic{ font-size:22px; } .fcard h3{ font-size:17px; margin:12px 0 6px; }
+  .fcard p{ font-size:14px; color:var(--soft); margin:0; }
+
+  /* steps + key */
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:24px; }
+  .card h3{ margin:0 0 14px; font-size:16px; }
+  ol{ margin:0; padding-left:20px; } li{ margin:0 0 12px; font-size:15px; }
+  .key{ background:#FCEFE7; border:1px solid #F3CDB8; border-radius:18px; padding:22px; font-size:15px; color:#7a3d22; }
+  .key a{ color:var(--accent); font-weight:700; }
+
+  footer{ border-top:1px solid var(--line); padding:30px 0 50px; color:var(--faint); font-size:13px; }
+
+  @media (max-width:880px){
+    .hero{ grid-template-columns:1fr; } h1{ font-size:36px; } .hero .phonewrap{ order:-1; }
+    .demos{ grid-template-columns:1fr; } .feat{ grid-template-columns:1fr; } .row2{ grid-template-columns:1fr; }
+    .navdl{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo">Sly<b>OS</b></div>
+    <a class="navdl" href="#get">Download</a>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div>
+      <h1>Your phone, rebuilt as one agent.</h1>
+      <p class="lede">No app grid — just one prompt. SlyOS reads your messages, learns your voice, builds a
+        memory of your whole life, and acts for you across your apps. Runs as an Android launcher. No root.
+        Reversible anytime.</p>
+      <a class="btn" href="#get">↓ Download for Android</a>
+      <p class="sub">Free app · bring your own Anthropic key · Android 10+ &nbsp;<span class="pill">Samsung &amp; most phones</span></p>
+    </div>
+    <div class="phonewrap">
+      <!-- Home mockup -->
+      <div class="phone"><div class="screen"><div class="notch"></div>
+        <div class="pw">Sly<b>OS</b></div>
+        <div class="spacer"></div>
+        <div class="ask">what should happen?</div>
+        <div class="inputline">text mom I'm running late…</div>
+        <div class="chips"><span class="chip">↗ Instagram</span><span class="chip">↗ Spotify</span></div>
+        <div class="spacer"></div>
+        <div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- LOOK INSIDE / DEMOS -->
+  <section>
+    <p class="eyebrow">A look inside</p>
+    <h2>See what it actually does</h2>
+    <p class="muted">Three of the screens you'll live in — the prompt, the memory brain, and replies written in your voice.</p>
+    <div class="demos">
+
+      <div class="demo">
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="pw">Sly<b>OS</b></div>
+          <div class="spacer"></div>
+          <div class="ask">what should happen?</div>
+          <div class="inputline">draft a paper on edge inference</div>
+          <div class="chips"><span class="chip">📄 Research</span><span class="chip">🧠 Brain</span></div>
+          <div class="spacer"></div>
+          <div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
+        </div></div>
+        <div class="cap"><b>One prompt, any action</b>Type or speak — it opens apps, texts people, writes papers, posts.</div>
+      </div>
+
+      <div class="demo">
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="pw" style="margin-bottom:6px">Memory</div>
+          <div style="font-size:11px;color:var(--faint);margin-bottom:6px">1,240 memories mapped</div>
+          <!-- brain graph -->
+          <svg viewBox="0 0 240 360" width="100%" height="100%" style="flex:1">
+            <g stroke="#d9cfbd" stroke-width="1" opacity=".7">
+              <line x1="120" y1="180" x2="62" y2="96"/><line x1="120" y1="180" x2="186" y2="86"/>
+              <line x1="120" y1="180" x2="60" y2="250"/><line x1="120" y1="180" x2="196" y2="244"/>
+              <line x1="120" y1="180" x2="118" y2="300"/><line x1="62" y1="96" x2="36" y2="160"/>
+              <line x1="186" y1="86" x2="210" y2="150"/><line x1="60" y1="250" x2="118" y2="300"/>
+              <line x1="196" y1="244" x2="118" y2="300"/><line x1="36" y1="160" x2="60" y2="250"/>
+              <line x1="186" y1="86" x2="120" y2="180"/>
+            </g>
+            <circle cx="120" cy="180" r="16" fill="#1A1714"/>
+            <circle cx="62"  cy="96"  r="9" fill="var(--wa)"/>
+            <circle cx="186" cy="86"  r="10" fill="var(--ig)"/>
+            <circle cx="60"  cy="250" r="9" fill="var(--li)"/>
+            <circle cx="196" cy="244" r="8" fill="var(--tg)"/>
+            <circle cx="36"  cy="160" r="7" fill="var(--msg)"/>
+            <circle cx="210" cy="150" r="7" fill="var(--wa)"/>
+            <circle cx="118" cy="300" r="9" fill="var(--accent)"/>
+          </svg>
+          <div class="navdots"><span></span><span></span><span class="on"></span><span></span></div>
+        </div></div>
+        <div class="cap"><b>A brain that grows</b>Every chat, contact, email &amp; note becomes connected memory you can ask.</div>
+      </div>
+
+      <div class="demo">
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="pw" style="margin-bottom:14px">Chris · WhatsApp</div>
+          <div style="display:flex;flex-direction:column;flex:1">
+            <div class="bubble them">yo you still on for the demo friday?</div>
+            <div class="tag" style="align-self:flex-end">drafted in your voice ✓</div>
+            <div class="bubble me">yeah locked in 🙏 friday 2pm works — i'll send the deck morning of 👀</div>
+          </div>
+          <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
+        </div></div>
+        <div class="cap"><b>Replies that sound like you</b>Full thread context + your learned style — across every app.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section>
+    <p class="eyebrow">Capabilities</p>
+    <h2>One agent, your whole phone</h2>
+    <div class="feat">
+      <div class="fcard"><div class="ic">🧠</div><h3>A memory of everything</h3><p>Imports your chats, learns your contacts, captures emails &amp; notes — and keeps learning your voice as you go.</p></div>
+      <div class="fcard"><div class="ic">💬</div><h3>Replies in your voice</h3><p>Per-platform personas and full history mean answers that read like you wrote them — WhatsApp, Telegram, SMS, LinkedIn.</p></div>
+      <div class="fcard"><div class="ic">📄</div><h3>Research &amp; publish</h3><p>Write full papers by chatting, with real cited sources — then publish to Zenodo for a real DOI in one tap.</p></div>
+      <div class="fcard"><div class="ic">🔗</div><h3>Networks for you</h3><p>Reaches your LinkedIn network, drafts warm openers, and books calls on your Calendly when there's real interest.</p></div>
+      <div class="fcard"><div class="ic">⚡</div><h3>Acts, doesn't just chat</h3><p>Opens apps, sends texts, sets reminders, drafts posts, answers from a PDF — from one prompt or your voice.</p></div>
+      <div class="fcard"><div class="ic">🔒</div><h3>Yours, on your device</h3><p>Runs on your own Anthropic key. Memory and keys stay on the phone. No root, fully reversible.</p></div>
+    </div>
+  </section>
+
+  <!-- GET IT -->
+  <section id="get">
+    <p class="eyebrow">Get it</p>
+    <h2>Install in 3 steps</h2>
+    <p class="muted">No computer needed on your end — just the file and your own key.</p>
+    <a class="btn" href="https://github.com/BeltoAI/Ai_Operating_System/releases/latest/download/SlyOS.apk">↓ Download SlyOS.apk</a>
+    <p class="sub" style="margin-bottom:30px">Android 10+ · ~50 MB</p>
+    <div class="row2">
+      <div class="card"><h3>On your Android phone</h3>
+        <ol>
+          <li>Tap <strong>Download</strong>, then open the file. Allow "install from unknown apps" once, then <strong>Install</strong>.</li>
+          <li>Open SlyOS → the setup wizard takes your <strong>Anthropic key</strong>, then optional profile &amp; imports.</li>
+          <li>Press <strong>Home → SlyOS → Always</strong>. It's now your home screen.</li>
+        </ol>
+      </div>
+      <div class="key">
+        🔑 <strong>You bring your own Anthropic API key.</strong><br><br>
+        Get one free at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a> →
+        API Keys → Create Key (starts with <code>sk-ant-</code>). Usage runs on your own account, and SlyOS
+        stores the key only on your phone — never shared.
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>SlyOS</strong> by Belto · Android only (no iPhone) · uses notification &amp; accessibility permissions to
+    read and reply to your messages — everything stays on-device. Reversible anytime via Settings → Default apps → Home.
+  </footer>
+
+</div>
+</body>
+</html>
