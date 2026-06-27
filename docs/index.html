@@ -86,20 +86,30 @@
   .demo .cap{ text-align:center; margin-top:14px; font-size:14px; color:var(--soft); }
   .demo .cap b{ color:var(--ink); display:block; font-size:15px; }
 
-  /* features — bento grid */
-  .bento{ display:grid; grid-template-columns:repeat(3,1fr); grid-auto-rows:1fr; gap:14px; }
-  .bcard{ background:var(--card); border:1px solid var(--line); border-radius:22px; padding:24px;
-    display:flex; flex-direction:column; justify-content:flex-end; min-height:150px;
-    transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease; }
-  .bcard:hover{ transform:translateY(-4px); box-shadow:0 16px 34px rgba(26,23,20,.10); border-color:#d6ccb8; }
-  .bcard.big{ grid-column:span 2; }
-  .bcard.accent{ background:linear-gradient(150deg,#FCEFE7,#FBF8F2); border-color:#F1D2BF; }
-  .bic{ font-size:30px; margin-bottom:auto; }
-  .bcard h3{ font-size:19px; margin:14px 0 0; letter-spacing:-.2px; }
-  .bcard p{ font-size:14.5px; color:var(--soft); margin:8px 0 0; line-height:1.45; }
-  .more{ margin-top:18px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  .more > span:first-child{ color:var(--faint); font-size:14px; margin-right:4px; }
-  .mpill{ border:1px solid var(--line); color:var(--soft); font-size:13.5px; padding:7px 14px; border-radius:999px; background:var(--card); }
+  /* features — editorial alternating rows (YC style, no cards) */
+  .frow{ display:grid; grid-template-columns:1fr 1fr; gap:70px; align-items:center; padding:60px 0; }
+  .frow + .frow{ border-top:1px solid var(--line); }
+  .frow:nth-child(even) .fvisual{ order:2; }
+  .fvisual{ display:flex; justify-content:center; }
+  .fnum{ font-size:13px; letter-spacing:2px; color:var(--accent); font-weight:700; }
+  .ftext h3{ font-family:var(--script); font-style:italic; font-weight:600; font-size:46px; line-height:1.0; margin:10px 0 16px; }
+  .ftext p{ font-size:18px; color:var(--soft); margin:0; max-width:27em; line-height:1.55; }
+  .alsoline{ padding:18px 0 0; color:var(--soft); font-size:16px; line-height:1.9; }
+  .alsoline b{ color:var(--faint); font-weight:600; }
+  /* in-phone bits for the feature shots */
+  .res{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--soft); margin-top:9px; }
+  .res .ok{ color:var(--wa); font-weight:700; }
+  .paper{ background:#fff; border-radius:8px; flex:1; padding:16px 15px; display:flex; flex-direction:column; gap:8px; box-shadow:inset 0 0 0 1px #efe9df; overflow:hidden; }
+  .paper .pt{ font-family:var(--script); font-style:italic; font-size:19px; text-align:center; color:#1a1714; line-height:1.05; }
+  .paper .au{ font-size:9px; text-align:center; color:#888; margin-top:-3px; }
+  .pln{ height:6px; background:#ece7dd; border-radius:3px; }
+  .pln.s{ width:55%; } .pln.m{ width:80%; }
+  .phead{ font-size:10px; font-weight:700; color:#444; margin-top:4px; }
+  .doi{ align-self:center; margin-top:auto; font-size:9.5px; background:#FCEFE7; color:#7a3d22; padding:5px 11px; border-radius:999px; }
+  .prow{ display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--line); }
+  .av{ width:32px; height:32px; border-radius:999px; flex:none; }
+  .prow .nm{ font-size:13px; font-weight:600; color:var(--ink); } .prow .rl{ font-size:10px; color:var(--faint); }
+  .rpill{ margin-left:auto; font-size:9px; background:var(--accent); color:#fff; padding:5px 9px; border-radius:999px; white-space:nowrap; }
 
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:24px; }
@@ -115,7 +125,8 @@
   @media (max-width:880px){
     .hero{ grid-template-columns:1fr; } h1{ font-size:52px; } .hero .phonewrap{ order:-1; }
     .demos{ grid-template-columns:1fr; } .row2{ grid-template-columns:1fr; }
-    .bento{ grid-template-columns:1fr 1fr; } .bcard.big{ grid-column:span 2; }
+    .frow{ grid-template-columns:1fr; gap:30px; padding:40px 0; }
+    .frow:nth-child(even) .fvisual{ order:0; } .ftext h3{ font-size:36px; }
     .navdl{ display:none; } h2{ font-size:38px; }
   }
 </style>
@@ -157,98 +168,115 @@
     </div>
   </div>
 
-  <!-- DEMOS -->
+  <!-- FEATURES — editorial rows -->
   <section>
-    <p class="eyebrow">A look inside</p>
-    <h2>See what it actually does</h2>
-    <p class="muted">Three of the screens you'll live in — the prompt, the memory brain, and replies written in your voice.</p>
-    <div class="demos">
-      <div class="demo">
-        <div class="phone"><div class="screen"><div class="notch"></div>
-          <div class="pw">Sly<b>OS</b></div><div class="spacer"></div>
-          <div class="ask">what should happen?</div>
-          <div class="inputline">draft a paper on edge inference</div>
-          <div class="chips"><span class="chip">📄 Research</span><span class="chip">🧠 Brain</span></div>
-          <div class="spacer"></div><div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
-        </div></div>
-        <div class="cap"><b>One prompt, any action</b>Type or speak — it opens apps, texts people, writes papers, posts.</div>
-      </div>
-      <div class="demo">
-        <div class="phone"><div class="screen"><div class="notch"></div>
-          <div class="pw" style="font-family:inherit;font-style:normal;font-size:17px;font-weight:800;margin-bottom:4px">Memory</div>
-          <div style="font-size:11px;color:var(--faint);margin-bottom:6px">1,240 memories mapped</div>
-          <svg viewBox="0 0 240 360" width="100%" height="100%" style="flex:1">
-            <g stroke="#d9cfbd" stroke-width="1" opacity=".7">
-              <line x1="120" y1="180" x2="62" y2="96"/><line x1="120" y1="180" x2="186" y2="86"/>
-              <line x1="120" y1="180" x2="60" y2="250"/><line x1="120" y1="180" x2="196" y2="244"/>
-              <line x1="120" y1="180" x2="118" y2="300"/><line x1="62" y1="96" x2="36" y2="160"/>
-              <line x1="186" y1="86" x2="210" y2="150"/><line x1="60" y1="250" x2="118" y2="300"/>
-              <line x1="196" y1="244" x2="118" y2="300"/><line x1="36" y1="160" x2="60" y2="250"/>
-            </g>
-            <circle cx="120" cy="180" r="16" fill="#1A1714"/>
-            <circle cx="62" cy="96" r="9" fill="var(--wa)"/><circle cx="186" cy="86" r="10" fill="var(--ig)"/>
-            <circle cx="60" cy="250" r="9" fill="var(--li)"/><circle cx="196" cy="244" r="8" fill="var(--tg)"/>
-            <circle cx="36" cy="160" r="7" fill="var(--msg)"/><circle cx="210" cy="150" r="7" fill="var(--wa)"/>
-            <circle cx="118" cy="300" r="9" fill="var(--accent)"/>
-          </svg>
-          <div class="navdots"><span></span><span></span><span class="on"></span><span></span></div>
-        </div></div>
-        <div class="cap"><b>A brain that grows</b>Every chat, contact, email &amp; note becomes connected memory you can ask.</div>
-      </div>
-      <div class="demo">
-        <div class="phone"><div class="screen"><div class="notch"></div>
-          <div class="pw" style="font-family:inherit;font-style:normal;font-size:17px;font-weight:800;margin-bottom:14px">Chris · WhatsApp</div>
-          <div style="display:flex;flex-direction:column;flex:1">
-            <div class="bubble them">yo you still on for the demo friday?</div>
-            <div class="tag" style="align-self:flex-end">drafted in your voice ✓</div>
-            <div class="bubble me">yeah locked in 🙏 friday 2pm works — i'll send the deck morning of 👀</div>
-          </div>
-          <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
-        </div></div>
-        <div class="cap"><b>Replies that sound like you</b>Full thread context + your learned style — across every app.</div>
+    <p class="eyebrow">How it works</p>
+    <h2>See it for yourself</h2>
+
+    <!-- 01 One prompt -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div class="pw">Sly<b>OS</b></div><div class="spacer"></div>
+        <div class="ask">what should happen?</div>
+        <div class="inputline">text mom I'm late &amp; remind me to call the bank at 4</div>
+        <div class="res"><span class="ok">✓</span>&nbsp;Texted Mom</div>
+        <div class="res"><span class="ok">✓</span>&nbsp;Reminder set · 4:00 PM</div>
+        <div class="spacer"></div>
+        <div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">01</div>
+        <h3>One prompt.<br>Anything.</h3>
+        <p>Type or talk. SlyOS works out what you mean and just does it — texts people, sets reminders, opens apps, writes, posts — often several things at once.</p>
       </div>
     </div>
-  </section>
 
-  <!-- FEATURES — bento -->
-  <section>
-    <p class="eyebrow">Everything it does</p>
-    <h2>A dozen apps, one agent</h2>
-    <p class="muted">The highlights — tap-light, no manual required.</p>
-
-    <div class="bento">
-      <div class="bcard big accent">
-        <div class="bic">🧠</div>
-        <h3>A brain that grows</h3>
-        <p>Every chat, contact, email &amp; note becomes searchable memory — and it keeps learning you.</p>
+    <!-- 02 The brain -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div style="font-size:16px;font-weight:800;margin-top:8px">Memory</div>
+        <div style="font-size:11px;color:var(--faint);margin-bottom:4px">3,858 people · 86k memories</div>
+        <svg viewBox="0 0 240 380" width="100%" height="100%" style="flex:1">
+          <g stroke="#d9cfbd" stroke-width="1" opacity=".7">
+            <line x1="120" y1="190" x2="62" y2="100"/><line x1="120" y1="190" x2="186" y2="92"/>
+            <line x1="120" y1="190" x2="58" y2="262"/><line x1="120" y1="190" x2="198" y2="256"/>
+            <line x1="120" y1="190" x2="120" y2="320"/><line x1="62" y1="100" x2="34" y2="166"/>
+            <line x1="186" y1="92" x2="212" y2="158"/><line x1="58" y1="262" x2="120" y2="320"/>
+            <line x1="198" y1="256" x2="120" y2="320"/><line x1="34" y1="166" x2="58" y2="262"/>
+          </g>
+          <circle cx="120" cy="190" r="17" fill="#1A1714"/>
+          <circle cx="62" cy="100" r="9" fill="var(--wa)"/><circle cx="186" cy="92" r="10" fill="var(--ig)"/>
+          <circle cx="58" cy="262" r="9" fill="var(--li)"/><circle cx="198" cy="256" r="8" fill="var(--tg)"/>
+          <circle cx="34" cy="166" r="7" fill="var(--msg)"/><circle cx="212" cy="158" r="7" fill="var(--wa)"/>
+          <circle cx="120" cy="320" r="9" fill="var(--accent)"/>
+        </svg>
+        <div class="navdots"><span></span><span></span><span class="on"></span><span></span></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">02</div>
+        <h3>Your whole life,<br>remembered.</h3>
+        <p>It imports your chats and learns your people, weaving everything into a living memory you can simply ask — "what did Papa say about the trip?" "Do I know any VCs?"</p>
       </div>
-      <div class="bcard"><div class="bic">💬</div><h3>Replies in your voice</h3></div>
-      <div class="bcard"><div class="bic">🎙️</div><h3>Talk to it</h3></div>
-      <div class="bcard"><div class="bic">🔗</div><h3>Networks for you</h3></div>
-      <div class="bcard big">
-        <div class="bic">⚡</div>
-        <h3>Acts, doesn't just chat</h3>
-        <p>Texts people, opens apps, sets reminders, posts — all from one prompt.</p>
-      </div>
-      <div class="bcard"><div class="bic">📄</div><h3>Writes &amp; publishes papers</h3></div>
-      <div class="bcard"><div class="bic">📅</div><h3>Books your calls</h3></div>
-      <div class="bcard"><div class="bic">📷</div><h3>Camera vision</h3></div>
-      <div class="bcard"><div class="bic">🔒</div><h3>On-device &amp; yours</h3></div>
     </div>
 
-    <div class="more">
-      <span>Plus</span>
-      <span class="mpill">Per-platform personas</span>
-      <span class="mpill">Telegram bot</span>
-      <span class="mpill">Total Recall</span>
-      <span class="mpill">Spicy takes for X</span>
-      <span class="mpill">Mini-app builder</span>
-      <span class="mpill">PDF Q&amp;A</span>
-      <span class="mpill">Identity guard</span>
-      <span class="mpill">Daily brief</span>
-      <span class="mpill">Checklist</span>
-      <span class="mpill">Auto-reply mode</span>
+    <!-- 03 Replies in your voice -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 14px">Chris · WhatsApp</div>
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div class="bubble them">yo you still on for the demo friday?</div>
+          <div class="tag" style="align-self:flex-end">drafted in your voice ✓</div>
+          <div class="bubble me">yeah locked in 🙏 friday 2pm works — i'll send the deck morning of 👀</div>
+        </div>
+        <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">03</div>
+        <h3>It answers<br>as you.</h3>
+        <p>Every reply pulls the full thread and your learned writing style, so messages on WhatsApp, Telegram, SMS or LinkedIn read like you actually wrote them.</p>
+      </div>
     </div>
+
+    <!-- 04 Research & publish -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 10px">Research</div>
+        <div class="paper">
+          <div class="pt">On Edge-Distributed Inference</div>
+          <div class="au">E. Shirokikh · Belto</div>
+          <div class="phead">Abstract</div>
+          <div class="pln m"></div><div class="pln"></div><div class="pln s"></div>
+          <div class="phead">1&nbsp;&nbsp;Introduction</div>
+          <div class="pln"></div><div class="pln m"></div>
+          <div class="phead">References</div>
+          <div class="pln s"></div>
+          <div class="doi">🎓 Published · DOI 10.5281/zenodo…</div>
+        </div>
+        <div class="navdots"><span></span><span></span><span></span><span class="on"></span></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">04</div>
+        <h3>Write real research.<br>Publish it.</h3>
+        <p>Draft full papers just by chatting — real cited sources, equations, typeset PDFs — then publish straight to Zenodo for a genuine DOI in one tap.</p>
+      </div>
+    </div>
+
+    <!-- 05 Networking -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 4px">Reconnect</div>
+        <div style="font-size:11px;color:var(--faint);margin-bottom:8px">Haven't spoken in 30+ days</div>
+        <div class="prow"><div class="av" style="background:var(--li)"></div><div><div class="nm">Sarah Chen</div><div class="rl">Partner · Accel</div></div><div class="rpill">Draft ready</div></div>
+        <div class="prow"><div class="av" style="background:var(--ig)"></div><div><div class="nm">Marcus Lee</div><div class="rl">Founder · Lumen AI</div></div><div class="rpill">Draft ready</div></div>
+        <div class="prow"><div class="av" style="background:var(--wa)"></div><div><div class="nm">Priya N.</div><div class="rl">GP · Backed</div></div><div class="rpill">Draft ready</div></div>
+        <div class="spacer"></div>
+        <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">05</div>
+        <h3>It networks<br>while you sleep.</h3>
+        <p>SlyOS watches your whole network, surfaces people worth reaching, and writes warm openers in your voice — then offers your Calendly when there's real interest.</p>
+      </div>
+    </div>
+
+    <p class="alsoline"><b>And:</b> per-platform personas · voice &amp; tap-to-talk · Telegram bot brain ·
+      Total Recall · camera vision · spicy takes for X &amp; Reddit · a mini-app builder · PDF Q&amp;A ·
+      identity guard · a lock-screen daily brief · checklist · autonomous auto-reply.</p>
   </section>
 
   <!-- GET IT -->
