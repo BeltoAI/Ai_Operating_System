@@ -122,7 +122,7 @@ class AgentNotificationListener : NotificationListenerService() {
         synchronized(seenKeys) {
             if (seenKeys.contains(key)) return false
             seenKeys.add(key)
-            if (seenKeys.size > 800) { val it = seenKeys.iterator(); repeat(200) { if (it.hasNext()) { it.next(); it.remove() } } }
+            if (seenKeys.size > 800) { val iter = seenKeys.iterator(); repeat(200) { if (iter.hasNext()) { iter.next(); iter.remove() } } }
             return true
         }
     }
