@@ -120,6 +120,25 @@ the same machine's key; a fresh install on a new phone is always fine.)
 
 ---
 
+## The website & public download (slyos.world)
+
+The landing page lives in **`docs/`** (`index.html`, `privacy.html`, `terms.html`, favicons, `og.png`).
+It's a plain static site — no build step.
+
+- **Hosting (Vercel):** import the repo in Vercel, set **Root Directory = `docs`**, framework **Other**, no
+  build command. Custom domain **slyos.world** is pointed at Vercel via GoDaddy DNS (A `@` → Vercel IP,
+  CNAME `www` → Vercel). It redeploys on every `git push`.
+- **The download button → GitHub Releases.** Run **`bash publish_release.sh`** (needs `gh` CLI, one-time
+  `gh auth login`). It builds the keyless APK and publishes it as the latest release named `SlyOS.apk`; the
+  button links to the stable `releases/latest/download/SlyOS.apk`, so republishing = re-run the script.
+  **The repo must be public** for that download to work without a login.
+- **Live stats.** **`bash pull_stats.sh`** reads your real numbers off the connected phone (message DB +
+  time-saved metrics) into `docs/stats.json`, which the page shows. Download count is a zero-setup hosted
+  counter; the "what did you use it for today?" wall is backed by Supabase (a public *publishable* key sits
+  in `index.html` — the secret key never does).
+
+---
+
 ## Load your LinkedIn network (optional but powerful)
 
 This lets SlyOS reach your whole LinkedIn network and draft personalized openers.
@@ -268,7 +287,11 @@ agentos/
     build.gradle.kts ; settings.gradle.kts ; build.gradle.kts ; gradle/
   scripts/     device interrogation, Device Owner provisioning, build notes
   kernel/      portable-track custom-kernel demo (Cuttlefish/Pixel only)
-  build_and_install.sh
+  docs/        the slyos.world landing page (index/privacy/terms + assets) — deployed on Vercel
+  build_and_install.sh    build + install to your own connected phone
+  package_apk.sh          build a shareable, keyless SlyOS-latest.apk
+  publish_release.sh      build + publish the APK as the latest GitHub Release (download button)
+  pull_stats.sh           read real usage stats off the phone into docs/stats.json
 ```
 
 ---
