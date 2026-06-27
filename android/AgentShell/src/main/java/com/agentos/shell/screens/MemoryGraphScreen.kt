@@ -328,6 +328,19 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                         drawCircle(ACCENT, 3f, Offset(ax + (bx - ax) * flow, ay + (by - ay) * flow))
                     }
                 }
+                // When a legend filter is on, lightly web the surviving nodes of that type together —
+                // each to its 2 nearest same-type neighbors — so the isolated set reads as one constellation.
+                typeFilter?.let { tf ->
+                    val fil = nodes.filter { it.type == tf }
+                    val tint = typeColor(tf)
+                    for (a in fil) {
+                        val near = fil.asSequence().filter { it !== a }
+                            .sortedBy { (a.x - it.x) * (a.x - it.x) + (a.y - it.y) * (a.y - it.y) }.take(2)
+                        for (b in near) drawLine(tint.copy(alpha = 0.28f),
+                            Offset(cx + a.x * scale, cy + a.y * scale), Offset(cx + b.x * scale, cy + b.y * scale),
+                            strokeWidth = 1.1f)
+                    }
+                }
                 nodes.forEach { n ->
                     val X = cx + n.x * scale; val Y = cy + n.y * scale
                     val sel = n.id == selected; val hub = n.type == "hub"
