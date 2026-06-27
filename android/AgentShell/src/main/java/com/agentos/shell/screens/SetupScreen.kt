@@ -96,10 +96,28 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
         }
     }
 
+    // Runtime permissions that make the agent actually work (calendar, contacts, SMS, mic, camera, notif).
+    var permsStatus by remember { mutableStateOf("") }
+    val perms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        val g = res.values.count { it }; permsStatus = "Granted $g of ${res.size} ✓"
+    }
+    fun askPerms() {
+        val want = mutableListOf(
+            android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR,
+            android.Manifest.permission.READ_CONTACTS, android.Manifest.permission.SEND_SMS,
+            android.Manifest.permission.RECORD_AUDIO)
+        if (android.os.Build.VERSION.SDK_INT >= 33) want.add("android.permission.POST_NOTIFICATIONS")
+        perms.launch(want.toTypedArray())
+    }
+    fun openNotif() { try { ctx.startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+    fun openAccessibility() { try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+
     Column(modifier.verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(18.dp))
         Text("Welcome to SlyOS", fontSize = T.prompt, color = T.ink)
-        Text("Step ${step + 1} of 3", fontSize = T.caption, color = T.inkFaint)
+        Text("Step ${step + 1} of 4", fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(16.dp))
 
         when (step) {
@@ -155,6 +173,30 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                     Spacer(Modifier.height(12.dp)); Text(importStatus, fontSize = T.caption, color = T.accent)
                 }
             }
+            3 -> {
+                Text("Turn it on", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(4.dp))
+                Text("A few Android permissions so the agent can actually read & reply to messages, check your " +
+                    "calendar, and text people. All revocable in Settings anytime.", fontSize = T.small, color = T.inkSoft)
+                Spacer(Modifier.height(14.dp))
+                Text("Grant core permissions", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { askPerms() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("Calendar · Contacts · SMS · Microphone · Camera · Notifications",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(16.dp))
+                Text("Enable message reading →", fontSize = T.small, color = T.ink,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                        .clickable { openNotif() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("Opens Settings → turn on SlyOS under Notification access. This is what lets it reply across " +
+                    "WhatsApp, Telegram, SMS and the rest.", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(16.dp))
+                Text("Screen memory (Total Recall) — optional →", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.clickable { openAccessibility() })
+                if (permsStatus.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(permsStatus, fontSize = T.caption, color = T.accent) }
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -164,7 +206,7 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                     modifier = Modifier.clickable { step-- }.padding(end = 16.dp))
             }
             val canNext = step != 0 || key.trim().startsWith("sk-")
-            val label = if (step < 2) "Next" else "Finish"
+            val label = if (step < 3) "Next" else "Finish"
             Text(label, fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp))
                     .background(if (canNext) T.accent else T.hairline)
@@ -177,15 +219,15 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                             AgentClient.bookingLink = MemoryStore.effectiveBookingLink(ctx)
                             if (zenodo.isNotBlank()) MemoryStore.setZenodoToken(ctx, zenodo.trim())
                         }
-                        if (step < 2) step++ else onDone()
+                        if (step < 3) step++ else onDone()
                     }.padding(horizontal = 22.dp, vertical = 11.dp))
             if (step in 1..2) {
                 Text("Skip", fontSize = T.small, color = T.inkFaint,
-                    modifier = Modifier.clickable { if (step < 2) step++ else onDone() }.padding(start = 16.dp))
+                    modifier = Modifier.clickable { step++ }.padding(start = 16.dp))
             }
         }
 
-        if (step == 2) {
+        if (step == 3) {
             Spacer(Modifier.height(20.dp))
             Text("After Finish: press Home → choose SlyOS → Always to make it your launcher. " +
                 "Change anything later in Brain → About.", fontSize = T.caption, color = T.inkFaint)
