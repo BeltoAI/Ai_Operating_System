@@ -51,9 +51,11 @@
   .anim section > .eyebrow.in, .anim section > h2.in, .anim section > .muted.in, .anim .vbody.in{ opacity:1; transform:none; }
   .script, .logo, h1, h2, .pw{ font-family:var(--script); font-style:italic; font-weight:400; }
   h1{ font-weight:300; }
-  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body{ margin:0; background:var(--bg); color:var(--ink); scroll-behavior:smooth;
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; min-width:0; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); scroll-behavior:smooth; overflow-x:hidden; max-width:100%;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.5; }
+  img, svg{ max-width:100%; }
+  .phone{ max-width:100%; }
   .wrap{ max-width:1040px; margin:0 auto; padding:0 22px; }
   a{ color:inherit; }
 
@@ -119,7 +121,7 @@
   code{ background:rgba(240,112,58,.16); color:var(--soft); padding:1px 6px; border-radius:5px; font-size:.86em; }
   @media (max-width:880px){ .imports{ grid-template-columns:1fr; } }
   /* connect-your-apps launcher grid */
-  .apps{ display:grid; grid-template-columns:repeat(7,1fr); gap:22px 14px; margin-top:8px; }
+  .apps{ display:grid; grid-template-columns:repeat(auto-fit, minmax(72px, 1fr)); gap:22px 14px; margin-top:8px; }
   .apptile{ display:flex; flex-direction:column; align-items:center; gap:9px; }
   .apptile .ico{ width:56px; height:56px; border-radius:16px; display:flex; align-items:center; justify-content:center;
     color:#fff; font-size:23px; font-weight:700; box-shadow:0 8px 20px rgba(0,0,0,.35); transition:transform .16s ease; }
@@ -127,14 +129,14 @@
   .vemoji img{ width:24px; height:24px; }
   .apptile:hover .ico{ transform:translateY(-5px) scale(1.04); }
   .apptile .nm{ font-size:12.5px; color:var(--faint); }
-  @media (max-width:880px){ .apps{ grid-template-columns:repeat(4,1fr); } }
   /* vote-next leaderboard */
   .vote{ display:flex; flex-direction:column; gap:10px; margin-top:10px; max-width:660px; }
   .vrow{ display:flex; align-items:center; gap:14px; padding:13px 16px; border:1px solid var(--line);
     border-radius:14px; background:var(--card); position:relative; overflow:hidden; transition:transform .12s ease; }
   .vrow:hover{ transform:translateY(-2px); }
-  .vbar{ position:absolute; left:0; top:0; bottom:0; background:rgba(240,112,58,.12); width:0; transition:width .7s cubic-bezier(.2,.7,.2,1); z-index:0; }
   .vrow > *{ position:relative; z-index:1; }
+  .vrow .vbar{ position:absolute; left:0; top:0; bottom:0; background:rgba(240,112,58,.12); width:0; transition:width .7s cubic-bezier(.2,.7,.2,1); z-index:0; }
+  .vtext{ flex:1; min-width:0; }
   .vemoji{ width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:21px; flex:none; }
   .vname{ font-weight:700; font-size:15px; } .vtag{ font-size:12.5px; color:var(--faint); }
   .vcount{ min-width:30px; text-align:right; font-weight:700; font-size:15px; color:var(--ink); }
@@ -511,7 +513,7 @@
         var n = counts[a.key] || 0, w = Math.round((n / max) * 100), vd = voted(a.key);
         return '<div class="vrow"><div class="vbar" style="width:' + w + '%"></div>' +
           '<div class="vemoji" style="background:' + a.color + '"><img src="https://cdn.simpleicons.org/' + a.slug + '/white" alt=""></div>' +
-          '<div style="flex:1"><div class="vname">' + esc(a.name) + '</div><div class="vtag">' + esc(a.tag) + '</div></div>' +
+          '<div class="vtext"><div class="vname">' + esc(a.name) + '</div><div class="vtag">' + esc(a.tag) + '</div></div>' +
           '<div class="vcount">' + n + '</div>' +
           '<button class="vbtn ' + (vd ? 'voted' : '') + '" data-k="' + a.key + '" ' + (vd ? 'disabled' : '') + '>' + (vd ? 'Voted ✓' : 'Vote') + '</button></div>';
       }).join('');
