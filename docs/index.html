@@ -16,7 +16,8 @@
 <meta name="twitter:title" content="SlyOS — your phone, as one agent">
 <meta name="twitter:description" content="No app grid — just one prompt. It reads your messages, learns your voice, and acts for you.">
 <meta name="twitter:image" content="https://slyos.world/og.png">
-<meta name="theme-color" content="#F4EFE6">
+<meta name="theme-color" content="#15120E">
+<script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
 
 <!-- Favicons -->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -28,11 +29,26 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,600;1,500;1,600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#F4EFE6; --ink:#1A1714; --soft:#5b5347; --faint:#9A9085; --accent:#E8642C;
-    --card:#FBF8F2; --line:#E2DACB;
-    --wa:#1FA855; --ig:#C13584; --li:#2E6F9E; --tg:#2AABEE; --msg:#7B3FF2;
+    /* warm dark theme — distinct from the YC cream look, orange brand still pops */
+    --bg:#15120E; --ink:#F4EFE6; --soft:#C7BEB0; --faint:#8C8275; --accent:#F0703A;
+    --card:#211C16; --line:#352D24;
+    --wa:#1FA855; --ig:#C13584; --li:#3F86C4; --tg:#2AABEE; --msg:#7B3FF2;
     --script:'Cormorant', Georgia, 'Times New Roman', serif;
   }
+  /* The phone mockups represent the (light) app — keep them ivory regardless of the dark page. */
+  .phone{ --bg:#F4EFE6; --ink:#1A1714; --soft:#5b5347; --faint:#9A9085; --card:#FBF8F2; --line:#E2DACB; }
+
+  /* ── minimal motion: gentle fade-up on scroll, soft hero entrance, button lift ── */
+  .btn{ transition:transform .14s ease, box-shadow .14s ease; }
+  .btn:hover{ transform:translateY(-2px); box-shadow:0 14px 30px rgba(240,112,58,.34); }
+  .anim .hero{ animation:heroIn .85s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes heroIn{ from{ opacity:0; transform:translateY(18px); } to{ opacity:1; transform:none; } }
+  .anim .frow, .anim .imports, .anim .row2, .anim .fbform, .anim .fbwrap, .anim .stats,
+  .anim section > .eyebrow, .anim section > h2, .anim section > .muted{
+    opacity:0; transform:translateY(18px);
+    transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+  .anim .frow.in, .anim .imports.in, .anim .row2.in, .anim .fbform.in, .anim .fbwrap.in, .anim .stats.in,
+  .anim section > .eyebrow.in, .anim section > h2.in, .anim section > .muted.in{ opacity:1; transform:none; }
   .script, .logo, h1, h2, .pw{ font-family:var(--script); font-style:italic; font-weight:600; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; background:var(--bg); color:var(--ink); scroll-behavior:smooth;
@@ -43,7 +59,7 @@
   nav{ display:flex; align-items:center; justify-content:space-between; padding:22px 0; }
   .logo{ font-family:var(--script); font-size:36px; font-weight:700; letter-spacing:0; line-height:1; }
   .logo b{ color:var(--accent); }
-  .navdl{ background:var(--ink); color:#fff; text-decoration:none; font-size:14px; font-weight:700;
+  .navdl{ background:var(--ink); color:var(--bg); text-decoration:none; font-size:14px; font-weight:700;
     padding:10px 16px; border-radius:999px; }
 
   .hero{ display:grid; grid-template-columns:1.1fr .9fr; gap:30px; align-items:center; padding:30px 0 20px; }
@@ -99,7 +115,7 @@
   /* imports — plain editorial list, no cards */
   .imports{ display:grid; grid-template-columns:1fr 1fr; gap:26px 56px; margin-top:6px; }
   .imp b{ font-size:17px; } .imp p{ margin:5px 0 0; font-size:15px; color:var(--soft); line-height:1.55; }
-  code{ background:#efe7da; padding:1px 6px; border-radius:5px; font-size:.86em; }
+  code{ background:rgba(240,112,58,.16); color:var(--soft); padding:1px 6px; border-radius:5px; font-size:.86em; }
   @media (max-width:880px){ .imports{ grid-template-columns:1fr; } }
   /* feedback wall */
   .fbwrap{ overflow:hidden; margin:22px 0 30px;
@@ -143,8 +159,8 @@
   .card{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:24px; }
   .card h3{ margin:0 0 14px; font-size:16px; }
   ol{ margin:0; padding-left:20px; } li{ margin:0 0 12px; font-size:15px; }
-  .key{ background:#FCEFE7; border:1px solid #F3CDB8; border-radius:18px; padding:22px; font-size:15px; color:#7a3d22; }
-  .key a{ color:var(--accent); font-weight:700; }
+  .key{ background:rgba(240,112,58,.09); border:1px solid rgba(240,112,58,.28); border-radius:18px; padding:22px; font-size:15px; color:var(--soft); }
+  .key strong{ color:var(--ink); } .key a{ color:var(--accent); font-weight:700; }
 
   footer{ border-top:1px solid var(--line); padding:30px 0 50px; color:var(--faint); font-size:13px; }
   footer a{ color:var(--soft); text-decoration:none; margin-right:18px; }
@@ -384,6 +400,15 @@
 
 </div>
 <script>
+  // Minimal scroll-reveal: fade elements up as they enter view (motion-safe; one-shot).
+  if (document.documentElement.classList.contains('anim') && 'IntersectionObserver' in window) {
+    var reveal = document.querySelectorAll('.frow, .imports, .row2, .fbform, .fbwrap, .stats, section > .eyebrow, section > h2, section > .muted');
+    var io = new IntersectionObserver(function(ents){
+      ents.forEach(function(en){ if (en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    reveal.forEach(function(e){ io.observe(e); });
+  }
+
   // Real usage stats, refreshed from the phone via pull_stats.sh (writes stats.json).
   fetch('/stats.json').then(function(r){ return r.json(); }).then(function(s){
     function fmt(n){ return n >= 1000 ? (n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'') + 'k' : '' + n; }

@@ -104,6 +104,8 @@ object ToolRouter {
                 "add_event" -> addEvent(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
+                "navigate" -> navigate(ctx, arg)
+                "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
@@ -246,6 +248,34 @@ object ToolRouter {
                 else -> sendSms(ctx, JSONObject().put("name", name).put("body", body).toString())
             }
         } catch (e: Exception) { "I couldn't send that." }
+    }
+
+    /** Open Google Maps directions to a destination, optionally with a waypoint/stop + travel mode. */
+    private fun navigate(ctx: Context, arg: String): String {
+        return try {
+            val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("destination", arg) }
+            val dest = listOf(o.optString("destination"), o.optString("to"), arg).firstOrNull { it.isNotBlank() } ?: ""
+            if (dest.isBlank()) return "Where do you want to go?"
+            val stop = listOf(o.optString("stop"), o.optString("waypoint"), o.optString("via")).firstOrNull { it.isNotBlank() } ?: ""
+            val mode = o.optString("mode").ifBlank { "driving" }
+            val url = StringBuilder("https://www.google.com/maps/dir/?api=1&destination=")
+                .append(Uri.encode(dest)).append("&travelmode=").append(Uri.encode(mode))
+            if (stop.isNotBlank()) url.append("&waypoints=").append(Uri.encode(stop))
+            start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+            "Opening Maps to $dest" + (if (stop.isNotBlank()) " via $stop" else "") + "."
+        } catch (e: Exception) { "I couldn't open navigation." }
+    }
+
+    /** Open Spotify to play/find a song or artist (app if installed, else web). */
+    private fun playMusic(ctx: Context, arg: String): String {
+        return try {
+            val query = (try { JSONObject(arg).optString("query") } catch (e: Exception) { "" }).ifBlank { arg }.trim()
+            if (query.isBlank()) return "What should I play?"
+            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:" + Uri.encode(query))).setPackage("com.spotify.music")
+            if (ctx.packageManager.resolveActivity(appIntent, 0) != null) start(ctx, appIntent)
+            else start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com/search/" + Uri.encode(query))))
+            "Opening Spotify for “$query” — tap play."
+        } catch (e: Exception) { "I couldn't open Spotify." }
     }
 
     private fun parseLocal(s: String): Long = try {
