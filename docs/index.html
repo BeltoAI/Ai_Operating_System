@@ -201,6 +201,7 @@
     color:#fff; font-size:23px; font-weight:700; box-shadow:0 8px 20px rgba(0,0,0,.35); transition:transform .16s ease; }
   .apptile .ico img, .vemoji img{ width:27px; height:27px; display:block; }
   .vemoji img{ width:24px; height:24px; }
+  .icofb{ color:#fff; font-weight:700; font-size:13px; line-height:1; letter-spacing:-.3px; }
   .apptile:hover .ico{ transform:translateY(-5px) scale(1.04); }
   .apptile .nm{ font-size:12.5px; color:var(--faint); }
   /* vote-next leaderboard */
@@ -571,6 +572,25 @@
 
 </div>
 <script>
+  // Brand-icon fallback: some logos (LinkedIn, Instagram, Messenger…) were pulled from the icon CDN,
+  // so any <img> that fails to load is swapped for a clean lettered tile — no broken images, ever.
+  (function(){
+    var FB = { linkedin:'in', instagram:'IG', messenger:'M', facebook:'f', x:'𝕏', whatsapp:'WA', telegram:'TG',
+      reddit:'R', signal:'S', spotify:'♪', gmail:'@', googlemaps:'◎', googlecalendar:'31', googlemessages:'✉',
+      tinder:'♥', uber:'Uber', notion:'N', venmo:'venmo', doordash:'D' };
+    function fbFor(img){
+      if (img.dataset.fbDone) return; img.dataset.fbDone = '1';
+      var m = (img.src || '').match(/simpleicons\.org\/([a-z0-9]+)/i);
+      var slug = m ? m[1].toLowerCase() : '';
+      var t = img.getAttribute('data-fb') || FB[slug] || (img.getAttribute('alt') || '').slice(0, 2) || '•';
+      var s = document.createElement('span'); s.className = 'icofb'; s.textContent = t;
+      if (img.parentNode) img.replaceWith(s);
+    }
+    document.addEventListener('error', function(e){ var img = e.target; if (img && img.tagName === 'IMG' && /simpleicons\.org/.test(img.src || '')) fbFor(img); }, true);
+    function sweep(){ document.querySelectorAll('img[src*="simpleicons.org"]').forEach(function(img){ if (img.complete && img.naturalWidth === 0) fbFor(img); }); }
+    sweep(); setTimeout(sweep, 1500); setTimeout(sweep, 4000); setTimeout(sweep, 8000);
+  })();
+
   // Minimal scroll-reveal: fade elements up as they enter view (motion-safe; one-shot).
   if (document.documentElement.classList.contains('anim') && 'IntersectionObserver' in window) {
     var reveal = document.querySelectorAll('.frow, .imports, .row2, .fbform, .fbwrap, .stats, .apps, .vbody, section > .eyebrow, section > h2, section > .muted');
@@ -782,27 +802,26 @@
     var v = document.getElementById('savedStat'); if (v && (s.savedHoursWeek != null)) v.textContent = s.savedHoursWeek + 'h';
   }).catch(function(){});
 
-  // Downloads counter — zero-setup: a free hosted counter (Abacus, no account/DB). Ticks instantly on
-  // each download click. If it's ever unreachable, we fall back to GitHub's (lagged) download_count.
+  // Downloads counter — show the HIGHER of GitHub's real APK download_count (the true number) and the
+  // live click counter (Abacus), so it never reads below your actual downloads but still ticks instantly.
   var COUNTER = 'https://abacus.jasoncameron.dev', NS = 'slyos-world', KEY = 'downloads';
-  function setDL(n){ var el = document.getElementById('dlcount'); if (el) el.textContent = (n > 0 ? n.toLocaleString() : '0'); }
-  function githubFallback(){
-    fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
-      .then(function(r){ return r.json(); })
-      .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); setDL(n); })
-      .catch(function(){ var el = document.getElementById('dlcount'); if (el) el.textContent = '—'; });
-  }
+  var gh = 0, ab = 0, haveAny = false;
+  function showDL(){ var el = document.getElementById('dlcount'); if (!el) return; var n = Math.max(gh, ab); el.textContent = haveAny ? (n > 0 ? n.toLocaleString() : '0') : '—'; }
+  fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
+    .then(function(r){ return r.json(); })
+    .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); gh = n; haveAny = true; showDL(); })
+    .catch(function(){ showDL(); });
   fetch(COUNTER + '/get/' + NS + '/' + KEY)
     .then(function(r){ return r.json(); })
-    .then(function(j){ if (j && typeof j.value === 'number') setDL(j.value); else githubFallback(); })
-    .catch(githubFallback);
+    .then(function(j){ if (j && typeof j.value === 'number') { ab = j.value; haveAny = true; showDL(); } })
+    .catch(function(){});
 
-  // Increment instantly on each download click (also creates the counter on first hit).
+  // Each download click ticks the live counter (and the display, if it now leads GitHub's count).
   document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
     a.addEventListener('click', function(){
       try { fetch(COUNTER + '/hit/' + NS + '/' + KEY)
         .then(function(r){ return r.json(); })
-        .then(function(j){ if (j && typeof j.value === 'number') setDL(j.value); }); } catch (e) {}
+        .then(function(j){ if (j && typeof j.value === 'number') { ab = j.value; haveAny = true; showDL(); } }); } catch (e) {}
     });
   });
 
