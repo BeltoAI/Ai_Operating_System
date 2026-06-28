@@ -86,11 +86,49 @@
   .pw{ font-family:var(--script); font-weight:500; font-size:26px; margin-top:8px; line-height:1; } .pw b{ color:var(--accent); }
   .navdots{ position:absolute; bottom:16px; left:0; right:0; display:flex; justify-content:center; gap:18px; }
   .navdots span{ width:7px; height:7px; border-radius:999px; background:var(--line); } .navdots span.on{ background:var(--accent); }
+  /* real bottom nav (mirrors the app: 5 panels, brain in the centre) */
+  .navbar{ position:absolute; bottom:0; left:0; right:0; height:58px; display:flex; align-items:center;
+    justify-content:space-around; padding:0 16px; border-top:1px solid #e6ddcd; background:#F4EFE6; }
+  .ni{ color:#bcb1a0; display:flex; align-items:center; justify-content:center; }
+  .ni svg{ width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  .ni.on{ color:#1A1714; }
+  .ni.brain{ width:42px; height:42px; border-radius:999px; background:var(--accent); color:#fff; margin-top:-16px;
+    box-shadow:0 6px 16px rgba(232,100,44,.45); }
+  .ni.brain svg{ width:22px; height:22px; stroke:#fff; }
   .spacer{ flex:1; }
   .ask{ font-size:24px; font-weight:600; }
   .inputline{ border-bottom:2px solid var(--ink); padding:8px 0; color:var(--faint); margin-top:10px; font-size:14px; }
   .chips{ display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
   .chip{ background:var(--line); color:var(--soft); font-size:12px; padding:5px 11px; border-radius:999px; }
+  /* animated hero phone */
+  .hero-stage{ flex:1; display:flex; flex-direction:column; transition:transform .8s cubic-bezier(.3,.7,.3,1), opacity .5s; transform-origin:center 42%; }
+  .hero-stage.zoom{ transform:scale(1.06); }
+  .inputrow{ border-bottom:2px solid var(--ink); padding:8px 0; min-height:46px; font-size:14.5px; color:var(--ink); }
+  .typed{ white-space:pre-wrap; word-break:break-word; }
+  .caret{ display:inline-block; width:2px; height:16px; background:var(--accent); margin-left:1px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+  .results{ margin-top:14px; display:flex; flex-direction:column; gap:9px; opacity:0; transform:translateY(8px); transition:opacity .45s ease, transform .45s ease; }
+  .results.show{ opacity:1; transform:none; }
+  .working{ font-size:13px; color:var(--accent); }
+  .rcard{ background:var(--card); border:1px solid var(--line); border-radius:11px; padding:9px 12px; font-size:12.5px; color:var(--ink); display:flex; gap:8px; align-items:flex-start; }
+  .rcard .ck{ color:#1FA855; font-weight:700; }
+  .speak{ align-self:flex-start; margin-top:12px; font-size:12px; color:var(--soft); background:var(--card);
+    border:1px solid var(--line); border-radius:999px; padding:7px 13px; display:flex; align-items:center; gap:6px; }
+  .speak .mic{ width:8px; height:8px; border-radius:999px; background:var(--accent); }
+  /* keep every demo phone alive (motion-safe via .anim) */
+  .anim .inputline{ position:relative; }
+  .anim .inputline::after{ content:''; display:inline-block; width:2px; height:13px; background:var(--accent);
+    margin-left:3px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+  .anim .frow .bubble.them{ animation:bubbleIn 7s ease-in-out infinite; }
+  .anim .frow .tag{ animation:tagIn 7s ease-in-out infinite; }
+  .anim .frow .bubble.me{ animation:bubbleIn 7s ease-in-out infinite; animation-delay:.5s; }
+  @keyframes bubbleIn{ 0%,6%{ opacity:0; transform:translateY(8px); } 14%,94%{ opacity:1; transform:none; } 100%{ opacity:1; } }
+  @keyframes tagIn{ 0%,10%{ opacity:0; } 18%,94%{ opacity:1; } 100%{ opacity:1; } }
+  .anim .rpill{ animation:softPulse 2.6s ease-in-out infinite; }
+  .anim .prow:nth-of-type(3) .rpill{ animation-delay:.3s; }
+  .anim .prow:nth-of-type(4) .rpill{ animation-delay:.6s; }
+  .anim .doi{ animation:softPulse 3s ease-in-out infinite; }
+  @keyframes softPulse{ 0%,100%{ transform:scale(1); opacity:.9; } 50%{ transform:scale(1.04); opacity:1; } }
   .bubble{ max-width:80%; padding:10px 13px; border-radius:16px; font-size:13.5px; margin-bottom:10px; }
   .them{ background:var(--card); border:1px solid var(--line); align-self:flex-start; border-bottom-left-radius:5px; }
   .me{ background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:5px; }
@@ -234,12 +272,15 @@
     <div class="phonewrap">
       <div class="phone"><div class="screen"><div class="notch"></div>
         <div class="pw">Sly<b>OS</b></div>
-        <div class="spacer"></div>
-        <div class="ask">what should happen?</div>
-        <div class="inputline">text mom I'm running late…</div>
-        <div class="chips"><span class="chip">↗ Instagram</span><span class="chip">↗ Spotify</span></div>
-        <div class="spacer"></div>
-        <div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
+        <div class="hero-stage" id="heroStage">
+          <div class="spacer"></div>
+          <div class="ask">what should happen?</div>
+          <div class="inputrow"><span class="typed" id="heroType"></span><span class="caret"></span></div>
+          <div class="results" id="heroResults"></div>
+          <div class="spacer"></div>
+          <div class="speak"><span class="mic"></span> hold to speak</div>
+        </div>
+        <div class="navbar" data-active="home"></div>
       </div></div>
     </div>
   </div>
@@ -258,7 +299,7 @@
         <div class="res"><span class="ok">✓</span>&nbsp;Texted Mom</div>
         <div class="res"><span class="ok">✓</span>&nbsp;Reminder set · 4:00 PM</div>
         <div class="spacer"></div>
-        <div class="navdots"><span class="on"></span><span></span><span></span><span></span></div>
+        <div class="navbar" data-active="home"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">01</div>
         <h3>One prompt.<br>Anything.</h3>
@@ -295,7 +336,7 @@
           <circle cx="212" cy="158" r="7" fill="var(--wa)"><animate attributeName="r" values="6;8;6" dur="3.3s" begin="1.4s" repeatCount="indefinite"/></circle>
           <circle cx="120" cy="320" r="9" fill="var(--accent)"><animate attributeName="r" values="8;10.5;8" dur="2.9s" begin="0.9s" repeatCount="indefinite"/></circle>
         </svg>
-        <div class="navdots"><span></span><span></span><span class="on"></span><span></span></div>
+        <div class="navbar" data-active="brain"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">02</div>
         <h3>Your whole life,<br>remembered.</h3>
@@ -312,7 +353,7 @@
           <div class="tag" style="align-self:flex-end">drafted in your voice ✓</div>
           <div class="bubble me">yeah locked in 🙏 friday 2pm works — i'll send the deck morning of 👀</div>
         </div>
-        <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
+        <div class="navbar" data-active="msg"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">03</div>
         <h3>It answers<br>as you.</h3>
@@ -335,7 +376,7 @@
           <div class="pln s"></div>
           <div class="doi">🎓 Published · DOI 10.5281/zenodo…</div>
         </div>
-        <div class="navdots"><span></span><span></span><span></span><span class="on"></span></div>
+        <div class="navbar" data-active="apps"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">04</div>
         <h3>Write real research.<br>Publish it.</h3>
@@ -352,7 +393,7 @@
         <div class="prow"><div class="av" style="background:var(--ig)"></div><div><div class="nm">Marcus Lee</div><div class="rl">Founder · Lumen AI</div></div><div class="rpill">Draft ready</div></div>
         <div class="prow"><div class="av" style="background:var(--wa)"></div><div><div class="nm">Priya N.</div><div class="rl">GP · Backed</div></div><div class="rpill">Draft ready</div></div>
         <div class="spacer"></div>
-        <div class="navdots"><span></span><span class="on"></span><span></span><span></span></div>
+        <div class="navbar" data-active="me"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">05</div>
         <h3>It networks<br>while you sleep.</h3>
@@ -490,6 +531,50 @@
     }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
     reveal.forEach(function(e){ io.observe(e); });
   }
+
+  // ── Build the real bottom nav (5 panels, brain in the centre) into every phone mockup ──
+  (function(){
+    var ICONS = {
+      home:'<path d="M3 11l9-8 9 8"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+      msg:'<path d="M4 5h16v11H9l-4 4V16H4z"/>',
+      brain:'<circle cx="12" cy="7.5" r="2.1"/><circle cx="7" cy="15" r="2.1"/><circle cx="17" cy="15" r="2.1"/><path d="M11 9L8.4 13M13 9l2.6 4M9 15h6"/>',
+      apps:'<rect x="4.5" y="4.5" width="6" height="6" rx="1.4"/><rect x="13.5" y="4.5" width="6" height="6" rx="1.4"/><rect x="4.5" y="13.5" width="6" height="6" rx="1.4"/><rect x="13.5" y="13.5" width="6" height="6" rx="1.4"/>',
+      me:'<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c0-3.6 2.9-6.5 6.5-6.5S18.5 16.4 18.5 20"/>'
+    };
+    var ORDER = ['home','msg','brain','apps','me'];
+    document.querySelectorAll('.navbar').forEach(function(bar){
+      var active = bar.getAttribute('data-active');
+      bar.innerHTML = ORDER.map(function(k){
+        var cls = 'ni' + (k === 'brain' ? ' brain' : '') + (k === active ? ' on' : '');
+        return '<span class="' + cls + '"><svg viewBox="0 0 24 24">' + ICONS[k] + '</svg></span>';
+      }).join('');
+    });
+  })();
+
+  // ── Animated hero: types a command, zooms in, then shows it execute ──
+  (function(){
+    var t = document.getElementById('heroType'), r = document.getElementById('heroResults'), stage = document.getElementById('heroStage');
+    if (!t || !r) return;
+    var cmd = 'create a Google Meet tomorrow 4pm with Anna, then post on LinkedIn about edge-AI inference';
+    var res = '<div class="rcard"><span class="ck">✓</span><div><b>Google Meet</b> · tomorrow 4:00 PM — Anna &amp; you, invite sent</div></div>' +
+              '<div class="rcard"><span class="ck">✓</span><div><b>Posted to LinkedIn</b> — “Why edge-AI inference wins”</div></div>';
+    if (!matchMedia('(prefers-reduced-motion: no-preference)').matches) { t.textContent = cmd; r.innerHTML = res; r.classList.add('show'); return; }
+    var sleep = function(ms){ return new Promise(function(x){ setTimeout(x, ms); }); };
+    (async function loop(){
+      while (true) {
+        t.textContent = ''; r.innerHTML = ''; r.classList.remove('show'); if (stage) stage.classList.remove('zoom');
+        await sleep(1300);
+        if (stage) stage.classList.add('zoom');                 // zoom into the prompt
+        for (var k = 1; k <= cmd.length; k++) { t.textContent = cmd.slice(0, k); await sleep(33); }
+        await sleep(600);
+        r.innerHTML = '<div class="working">✦ working…</div>'; r.classList.add('show');
+        await sleep(1100);
+        if (stage) stage.classList.remove('zoom');               // zoom back out…
+        r.innerHTML = res;                                        // …to reveal what it did
+        await sleep(3600);
+      }
+    })();
+  })();
 
   // ── Vote-the-next-app leaderboard (zero-setup hosted counters; one tally per app) ──
   (function(){
