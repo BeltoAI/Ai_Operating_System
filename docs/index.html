@@ -96,18 +96,19 @@
     box-shadow:0 6px 16px rgba(232,100,44,.45); }
   .ni.brain svg{ width:22px; height:22px; stroke:#fff; }
   .spacer{ flex:1; }
-  .ask{ font-size:24px; font-weight:600; }
+  .ask{ font-size:23px; font-weight:600; flex:none; }
   .inputline{ border-bottom:2px solid var(--ink); padding:8px 0; color:var(--faint); margin-top:10px; font-size:14px; }
   .chips{ display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; }
   .chip{ background:var(--line); color:var(--soft); font-size:12px; padding:5px 11px; border-radius:999px; }
   /* animated hero phone */
   .hero-stage{ flex:1; display:flex; flex-direction:column; transition:transform .8s cubic-bezier(.3,.7,.3,1), opacity .5s; transform-origin:center 42%; }
   .hero-stage.zoom{ transform:scale(1.06); }
-  .inputrow{ border-bottom:2px solid var(--ink); padding:8px 0; min-height:40px; font-size:14.5px; line-height:1.55; color:var(--ink); margin-bottom:6px; }
+  .inputrow{ border-bottom:2px solid var(--ink); padding:8px 0; font-size:14.5px; line-height:1.55; color:var(--ink); margin-bottom:8px; flex:none; }
   .typed{ white-space:pre-wrap; word-break:break-word; }
   .caret{ display:inline-block; width:2px; height:16px; background:var(--accent); margin-left:1px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
   @keyframes blink{ 50%{ opacity:0; } }
-  .results{ margin-top:18px; display:flex; flex-direction:column; gap:9px; opacity:0; transform:translateY(8px); transition:opacity .45s ease, transform .45s ease; }
+  .results{ margin-top:16px; display:flex; flex-direction:column; gap:8px; flex:none; opacity:0; transform:translateY(8px); transition:opacity .45s ease, transform .45s ease; }
+  .rcard{ flex:none; }
   .results.show{ opacity:1; transform:none; }
   .working{ font-size:13px; color:var(--accent); }
   .rcard{ background:var(--card); border:1px solid var(--line); border-radius:11px; padding:9px 12px; font-size:12.5px; color:var(--ink); display:flex; gap:8px; align-items:flex-start; }
@@ -635,10 +636,10 @@
     function run(id, fn){ var el = $(id); if (el) whenVisible(el.closest('.phone'), fn); }
 
     // content
-    var MAP = '<div class="mapmini"><svg viewBox="0 0 200 80"><rect width="200" height="80" fill="#e9efe6"/><path d="M0 52H200M64 0V80M132 0V80" stroke="#d6ddd0" stroke-width="7"/><path d="M22 66Q66 60 92 42T172 16" stroke="#F0703A" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="172" cy="16" r="5" fill="#F0703A"/><circle cx="22" cy="66" r="4" fill="#1A1714"/></svg></div>';
-    var d1cmd = 'play my focus playlist, text mom I’m 10 late, navigate home';
-    var d1res = '<div class="rcard"><span class="ck">✓</span><div>Spotify — Focus playlist playing</div></div>' +
-                '<div class="rcard"><span class="ck">✓</span><div>Texted Mom — “running 10 late”</div></div>' +
+    var MAP = '<div class="mapmini"><svg viewBox="0 0 200 56"><rect width="200" height="56" fill="#e9efe6"/><path d="M0 37H200M64 0V56M132 0V56" stroke="#d6ddd0" stroke-width="7"/><path d="M22 47Q66 41 92 29T172 12" stroke="#F0703A" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="172" cy="12" r="5" fill="#F0703A"/><circle cx="22" cy="47" r="4" fill="#1A1714"/></svg></div>';
+    var d1cmd = 'play my focus playlist, text mom I’m late, navigate home';
+    var d1res = '<div class="rcard"><span class="ck">✓</span><div>Spotify — playing Focus</div></div>' +
+                '<div class="rcard"><span class="ck">✓</span><div>Texted Mom — “running late”</div></div>' +
                 '<div class="rcard"><span class="ck">✓</span><div>Google Maps — routing home' + MAP + '</div></div>';
     var d2q = 'what did Papa say about the trip?';
     var d2ansHtml = '<b>Papa</b> — flights booked for the 14th, landing 9am. He asked you to bring the charger 🔌';
