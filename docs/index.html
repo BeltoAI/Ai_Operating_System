@@ -81,7 +81,7 @@
   .stats span{ font-size:13px; color:var(--faint); margin-top:4px; }
 
   .phone{ width:268px; background:#0d0b0a; border-radius:38px; padding:10px; box-shadow:0 24px 60px rgba(26,23,20,.28); margin:0 auto; }
-  .screen{ background:var(--bg); color:var(--ink); border-radius:30px; height:540px; padding:18px 16px; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+  .screen{ background:var(--bg); color:var(--ink); border-radius:30px; height:540px; padding:18px 16px 66px; overflow:hidden; position:relative; display:flex; flex-direction:column; }
   .notch{ width:108px; height:22px; background:#0d0b0a; border-radius:0 0 14px 14px; position:absolute; top:0; left:50%; transform:translateX(-50%); }
   .pw{ font-family:var(--script); font-weight:500; font-size:26px; margin-top:8px; line-height:1; } .pw b{ color:var(--accent); }
   .navdots{ position:absolute; bottom:16px; left:0; right:0; display:flex; justify-content:center; gap:18px; }
@@ -103,11 +103,11 @@
   /* animated hero phone */
   .hero-stage{ flex:1; display:flex; flex-direction:column; transition:transform .8s cubic-bezier(.3,.7,.3,1), opacity .5s; transform-origin:center 42%; }
   .hero-stage.zoom{ transform:scale(1.06); }
-  .inputrow{ border-bottom:2px solid var(--ink); padding:8px 0; min-height:46px; font-size:14.5px; color:var(--ink); }
+  .inputrow{ border-bottom:2px solid var(--ink); padding:8px 0; min-height:40px; font-size:14.5px; line-height:1.55; color:var(--ink); margin-bottom:6px; }
   .typed{ white-space:pre-wrap; word-break:break-word; }
   .caret{ display:inline-block; width:2px; height:16px; background:var(--accent); margin-left:1px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
   @keyframes blink{ 50%{ opacity:0; } }
-  .results{ margin-top:14px; display:flex; flex-direction:column; gap:9px; opacity:0; transform:translateY(8px); transition:opacity .45s ease, transform .45s ease; }
+  .results{ margin-top:18px; display:flex; flex-direction:column; gap:9px; opacity:0; transform:translateY(8px); transition:opacity .45s ease, transform .45s ease; }
   .results.show{ opacity:1; transform:none; }
   .working{ font-size:13px; color:var(--accent); }
   .rcard{ background:var(--card); border:1px solid var(--line); border-radius:11px; padding:9px 12px; font-size:12.5px; color:var(--ink); display:flex; gap:8px; align-items:flex-start; }
@@ -129,6 +129,39 @@
   .anim .prow:nth-of-type(4) .rpill{ animation-delay:.6s; }
   .anim .doi{ animation:softPulse 3s ease-in-out infinite; }
   @keyframes softPulse{ 0%,100%{ transform:scale(1); opacity:.9; } 50%{ transform:scale(1.04); opacity:1; } }
+  /* staged-demo elements */
+  .askbar, .prompt{ border-bottom:2px solid var(--ink); padding:7px 0; min-height:30px; font-size:13.5px; color:var(--ink); margin:6px 0; }
+  .mic.live{ animation:micPulse 1s ease-in-out infinite; }
+  @keyframes micPulse{ 0%,100%{ transform:scale(1); opacity:1; } 50%{ transform:scale(1.9); opacity:.55; } }
+  .anscard{ background:var(--card); border:1px solid var(--line); border-radius:11px; padding:9px 12px; font-size:12.5px; color:var(--ink); margin-bottom:8px; opacity:0; transform:translateY(8px); transition:opacity .45s, transform .45s; }
+  .anscard.show{ opacity:1; transform:none; }
+  .sent{ align-self:flex-end; font-size:10px; color:#1FA855; margin-top:4px; }
+  .draftbubble{ align-self:flex-start; max-width:92%; background:var(--accent); color:#fff; border-radius:14px; border-bottom-left-radius:5px; padding:9px 12px; font-size:12.5px; margin-top:6px; opacity:0; transform:translateY(6px); transition:opacity .4s, transform .4s; }
+  .draftbubble.show{ opacity:1; transform:none; }
+  .d4add{ font-size:10.5px; color:#1FA855; margin-top:5px; }
+  .miniapp{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:6px; opacity:0; transform:scale(.95); transition:opacity .5s, transform .5s; }
+  .miniapp.show{ opacity:1; transform:none; }
+  .calc-disp{ background:#F4EFE6; border-radius:8px; padding:9px 11px; text-align:right; font-size:16px; font-weight:700; color:#1A1714; margin-bottom:9px; }
+  .calc-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .calc-grid span{ background:#F1ECE2; border-radius:8px; padding:9px 0; text-align:center; font-size:13px; color:#1A1714; }
+  .calc-grid span.acc{ background:var(--accent); color:#fff; }
+  .runtag{ font-size:10px; color:#1FA855; margin-top:9px; text-align:center; }
+  .mapmini{ margin-top:7px; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  .mapmini svg{ width:100%; display:block; }
+  .pdfwrap{ flex:1; display:flex; min-height:0; margin-top:4px; }
+  .pdfwrap .paper{ flex:1; opacity:0; transform:translateY(8px); transition:opacity .5s ease, transform .5s ease; }
+  .pdfwrap .paper.show{ opacity:1; transform:none; }
+  .pubstat{ font-size:11.5px; margin-top:8px; min-height:15px; }
+  .pubstat .pub{ color:var(--accent); } .pubstat .done{ color:#1FA855; }
+  .sbtn{ display:inline-block; align-self:flex-start; background:var(--accent); color:#fff; border-radius:999px; padding:7px 15px; font-size:12px; font-weight:700; margin-top:9px; }
+  .sentpill{ display:inline-block; font-size:11px; color:#1FA855; margin-top:9px; }
+  /* auto-reply feed */
+  .chanrow{ display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--line); opacity:0; transform:translateX(10px); transition:opacity .4s ease, transform .4s ease; }
+  .chanrow.show{ opacity:1; transform:none; }
+  .chanrow .ci{ width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex:none; }
+  .chanrow .ci img{ width:17px; height:17px; }
+  .chanrow .ct{ flex:1; min-width:0; } .chanrow .ct b{ font-size:12.5px; } .chanrow .ct div{ font-size:11px; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chanrow .cs{ font-size:10px; color:#1FA855; white-space:nowrap; }
   .bubble{ max-width:80%; padding:10px 13px; border-radius:16px; font-size:13.5px; margin-bottom:10px; }
   .them{ background:var(--card); border:1px solid var(--line); align-self:flex-start; border-bottom-left-radius:5px; }
   .me{ background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:5px; }
@@ -295,10 +328,10 @@
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
         <div class="pw">Sly<b>OS</b></div><div class="spacer"></div>
         <div class="ask">what should happen?</div>
-        <div class="inputline">text mom I'm late &amp; remind me to call the bank at 4</div>
-        <div class="res"><span class="ok">✓</span>&nbsp;Texted Mom</div>
-        <div class="res"><span class="ok">✓</span>&nbsp;Reminder set · 4:00 PM</div>
+        <div class="inputrow"><span class="typed" id="d1type"></span><span class="caret"></span></div>
+        <div class="results" id="d1res"></div>
         <div class="spacer"></div>
+        <div class="speak"><span class="mic" id="d1mic"></span> <span id="d1label">hold to speak</span></div>
         <div class="navbar" data-active="home"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">01</div>
@@ -311,8 +344,10 @@
     <div class="frow">
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
         <div style="font-size:16px;font-weight:800;margin-top:8px">Memory</div>
-        <div style="font-size:11px;color:var(--faint);margin-bottom:4px">3,858 people · 86k memories</div>
+        <div class="askbar"><span class="typed" id="d2q"></span><span class="caret"></span></div>
         <svg viewBox="0 0 240 380" width="100%" height="100%" style="flex:1">
+          <polyline id="d2path" points="120,190 58,262 120,320" fill="none" stroke="var(--accent)" stroke-width="2.4"
+            stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" opacity="0"/>
           <g stroke="#d9cfbd" stroke-width="1">
             <animate attributeName="opacity" values="0.5;0.85;0.5" dur="5s" repeatCount="indefinite"/>
             <line x1="120" y1="190" x2="62" y2="100"/><line x1="120" y1="190" x2="186" y2="92"/>
@@ -336,6 +371,7 @@
           <circle cx="212" cy="158" r="7" fill="var(--wa)"><animate attributeName="r" values="6;8;6" dur="3.3s" begin="1.4s" repeatCount="indefinite"/></circle>
           <circle cx="120" cy="320" r="9" fill="var(--accent)"><animate attributeName="r" values="8;10.5;8" dur="2.9s" begin="0.9s" repeatCount="indefinite"/></circle>
         </svg>
+        <div class="anscard" id="d2ans"></div>
         <div class="navbar" data-active="brain"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">02</div>
@@ -344,38 +380,27 @@
       </div>
     </div>
 
-    <!-- 03 Replies in your voice -->
+    <!-- 03 Auto-reply everywhere -->
     <div class="frow">
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
-        <div style="font-size:16px;font-weight:800;margin:8px 0 14px">Chris · WhatsApp</div>
-        <div style="display:flex;flex-direction:column;flex:1">
-          <div class="bubble them">yo you still on for the demo friday?</div>
-          <div class="tag" style="align-self:flex-end">drafted in your voice ✓</div>
-          <div class="bubble me">yeah locked in 🙏 friday 2pm works — i'll send the deck morning of 👀</div>
-        </div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 2px">Auto-reply</div>
+        <div style="font-size:11px;color:var(--faint);margin-bottom:8px">on · in your voice</div>
+        <div id="d7feed" style="display:flex;flex-direction:column;flex:1"></div>
         <div class="navbar" data-active="msg"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">03</div>
-        <h3>It answers<br>as you.</h3>
-        <p>Every reply pulls the full thread and your learned writing style, so messages on WhatsApp, Telegram, SMS or LinkedIn read like you actually wrote them.</p>
+        <h3>It replies<br>to everything.</h3>
+        <p>Flip it on and your inbox answers itself — friends on WhatsApp, work emails, LinkedIn DMs, even a spicy clapback on X. Every reply pulls the full thread and goes out in <em>your</em> character, with an undo window so you stay in control.</p>
       </div>
     </div>
 
     <!-- 04 Research & publish -->
     <div class="frow">
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
-        <div style="font-size:16px;font-weight:800;margin:8px 0 10px">Research</div>
-        <div class="paper">
-          <div class="pt">On Edge-Distributed Inference</div>
-          <div class="au">E. Shirokikh · Belto</div>
-          <div class="phead">Abstract</div>
-          <div class="pln m"></div><div class="pln"></div><div class="pln s"></div>
-          <div class="phead">1&nbsp;&nbsp;Introduction</div>
-          <div class="pln"></div><div class="pln m"></div>
-          <div class="phead">References</div>
-          <div class="pln s"></div>
-          <div class="doi">🎓 Published · DOI 10.5281/zenodo…</div>
-        </div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 8px">Research</div>
+        <div class="prompt"><span class="typed" id="d4type"></span><span class="caret"></span></div>
+        <div class="pdfwrap" id="d4pdf"></div>
+        <div class="pubstat" id="d4stat"></div>
         <div class="navbar" data-active="apps"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">04</div>
@@ -389,15 +414,32 @@
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
         <div style="font-size:16px;font-weight:800;margin:8px 0 4px">Reconnect</div>
         <div style="font-size:11px;color:var(--faint);margin-bottom:8px">Haven't spoken in 30+ days</div>
-        <div class="prow"><div class="av" style="background:var(--li)"></div><div><div class="nm">Sarah Chen</div><div class="rl">Partner · Accel</div></div><div class="rpill">Draft ready</div></div>
+        <div class="prow"><div class="av" style="background:var(--li)"></div><div><div class="nm">Sarah Chen</div><div class="rl">Partner · Accel</div></div><div class="rpill" id="d5pill">Draft ready</div></div>
         <div class="prow"><div class="av" style="background:var(--ig)"></div><div><div class="nm">Marcus Lee</div><div class="rl">Founder · Lumen AI</div></div><div class="rpill">Draft ready</div></div>
         <div class="prow"><div class="av" style="background:var(--wa)"></div><div><div class="nm">Priya N.</div><div class="rl">GP · Backed</div></div><div class="rpill">Draft ready</div></div>
+        <div class="draftbubble" id="d5draft"></div>
+        <div id="d5send"></div>
         <div class="spacer"></div>
         <div class="navbar" data-active="me"></div>
       </div></div></div>
       <div class="ftext"><div class="fnum">05</div>
         <h3>It networks<br>while you sleep.</h3>
         <p>SlyOS watches your whole network, surfaces people worth reaching, and writes warm openers in your voice — then offers your Calendly when there's real interest.</p>
+      </div>
+    </div>
+
+    <!-- 06 The Architect -->
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div style="font-size:16px;font-weight:800;margin:8px 0 10px">Architect</div>
+        <div class="prompt"><span class="typed" id="d6type"></span><span class="caret"></span></div>
+        <div class="miniapp" id="d6app"></div>
+        <div class="spacer"></div>
+        <div class="navbar" data-active="apps"></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">06</div>
+        <h3>Describe an app.<br>It builds it.</h3>
+        <p>Long-press the wordmark and say what you want — the Architect writes a real, working mini-app and runs it live on your phone, in a sandbox, in seconds.</p>
       </div>
     </div>
 
@@ -574,6 +616,115 @@
         await sleep(3600);
       }
     })();
+  })();
+
+  // ── Staged demo animations (each mirrors the real feature; static fallback for reduced-motion) ──
+  (function(){
+    var motion = matchMedia('(prefers-reduced-motion: no-preference)').matches;
+    var $ = function(id){ return document.getElementById(id); };
+    var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+    async function type(el, txt, sp){ el.textContent = ''; for (var i = 1; i <= txt.length; i++){ el.textContent = txt.slice(0, i); await sleep(sp || 32); } }
+
+    // start each demo only when its phone scrolls into view
+    function whenVisible(el, cb){
+      if (!el) return;
+      if (!('IntersectionObserver' in window)) { cb(); return; }
+      var io = new IntersectionObserver(function(ents){ ents.forEach(function(e){ if (e.isIntersecting){ io.disconnect(); cb(); } }); }, { threshold: 0.3 });
+      io.observe(el);
+    }
+    function run(id, fn){ var el = $(id); if (el) whenVisible(el.closest('.phone'), fn); }
+
+    // content
+    var MAP = '<div class="mapmini"><svg viewBox="0 0 200 80"><rect width="200" height="80" fill="#e9efe6"/><path d="M0 52H200M64 0V80M132 0V80" stroke="#d6ddd0" stroke-width="7"/><path d="M22 66Q66 60 92 42T172 16" stroke="#F0703A" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="172" cy="16" r="5" fill="#F0703A"/><circle cx="22" cy="66" r="4" fill="#1A1714"/></svg></div>';
+    var d1cmd = 'play my focus playlist, text mom I’m 10 late, navigate home';
+    var d1res = '<div class="rcard"><span class="ck">✓</span><div>Spotify — Focus playlist playing</div></div>' +
+                '<div class="rcard"><span class="ck">✓</span><div>Texted Mom — “running 10 late”</div></div>' +
+                '<div class="rcard"><span class="ck">✓</span><div>Google Maps — routing home' + MAP + '</div></div>';
+    var d2q = 'what did Papa say about the trip?';
+    var d2ansHtml = '<b>Papa</b> — flights booked for the 14th, landing 9am. He asked you to bring the charger 🔌';
+    var d3reply = 'yeah locked in 🙏 friday 2pm works — i’ll send the deck the morning of 👀';
+    var d4paper = '<div class="paper"><div class="pt">On Edge-AI Inference</div><div class="au">E. Shirokikh · Belto</div><div class="phead">Abstract</div><div class="pln m"></div><div class="pln"></div><div class="pln s"></div><div class="phead">1&nbsp;&nbsp;Introduction</div><div class="pln"></div><div class="pln m"></div><div class="phead">2&nbsp;&nbsp;Method</div><div class="pln"></div><div class="pln s"></div></div>';
+    var d5opener = 'Hey Sarah — been a minute! Saw Accel’s edge-AI thesis 👀 would love to compare notes.';
+    var d6calc = '<div class="calc-disp">$ 86.40</div><div class="calc-grid"><span>15%</span><span class="acc">18%</span><span>20%</span><span>$72</span><span>split 4</span><span>=</span></div>';
+    var chans = [
+      { slug:'whatsapp', color:'#25D366', who:'Anna · WhatsApp',      msg:'you free this weekend?', st:'✓ replied as you' },
+      { slug:'gmail',    color:'#EA4335', who:'Investor · Email',     msg:'can we reschedule?',     st:'✓ drafted as you' },
+      { slug:'linkedin', color:'#0A66C2', who:'Recruiter · LinkedIn', msg:'open to a chat?',        st:'✓ replied' },
+      { slug:'x',        color:'#0d0d0d', who:'@troll · X',           msg:'your take is mid 🥱',    st:'✓ clapback 🔥' }
+    ];
+    function chanRow(c, show){ return '<div class="chanrow' + (show ? ' show' : '') + '"><div class="ci" style="background:' + c.color + '"><img src="https://cdn.simpleicons.org/' + c.slug + '/white"></div><div class="ct"><b>' + c.who + '</b><div>' + c.msg + '</div></div><div class="cs">' + (show ? c.st : '') + '</div></div>'; }
+
+    if (!motion) {  // static end-states so reduced-motion visitors still see full mockups
+      if ($('d1type')) { $('d1type').textContent = d1cmd; $('d1res').innerHTML = d1res; $('d1res').classList.add('show'); }
+      if ($('d2q')) { $('d2q').textContent = d2q; var p=$('d2path'); p.style.opacity='1'; p.style.strokeDashoffset='0'; $('d2ans').innerHTML = d2ansHtml; $('d2ans').classList.add('show'); }
+      if ($('d3thread')) $('d3thread').innerHTML = '<div class="bubble them">yo you still on for the demo friday?</div><div class="bubble me">' + d3reply + '</div><div class="sent">sent ✓</div>';
+      if ($('d4pdf')) { $('d4pdf').innerHTML = d4paper; $('d4pdf').querySelector('.paper').classList.add('show'); $('d4stat').innerHTML = '<span class="done">✓ Published to Zenodo · DOI 10.5281/zenodo.14872</span>'; }
+      if ($('d5draft')) { $('d5draft').textContent = d5opener; $('d5draft').classList.add('show'); $('d5send').innerHTML = '<span class="sentpill">✓ Sent to Sarah</span>'; }
+      if ($('d6app')) { $('d6app').innerHTML = d6calc; $('d6app').classList.add('show'); }
+      if ($('d7feed')) $('d7feed').innerHTML = chans.map(function(c){ return chanRow(c, true); }).join('');
+      return;
+    }
+
+    // 01 Home — voice → multi-action
+    run('d1type', async function(){ var t=$('d1type'), r=$('d1res'), mic=$('d1mic'), lab=$('d1label');
+      while(true){ t.textContent=''; r.innerHTML=''; r.classList.remove('show'); lab.textContent='listening…'; mic.classList.add('live');
+        await sleep(1700); mic.classList.remove('live'); lab.textContent='hold to speak';
+        await type(t,d1cmd,30); await sleep(450);
+        r.innerHTML='<div class="working">✦ working…</div>'; r.classList.add('show'); await sleep(950);
+        r.innerHTML=d1res; await sleep(4400); } });
+
+    // 02 Brain — Ask lights the synapse path
+    run('d2q', async function(){ var q=$('d2q'), path=$('d2path'), ans=$('d2ans');
+      while(true){ q.textContent=''; ans.textContent=''; ans.classList.remove('show'); path.style.transition='none'; path.style.opacity='0'; path.style.strokeDashoffset='1';
+        await sleep(1300); await type(q,d2q,32); await sleep(350);
+        path.style.opacity='1'; path.style.transition='stroke-dashoffset 1.1s ease'; path.style.strokeDashoffset='0'; await sleep(1250);
+        ans.innerHTML=d2ansHtml; ans.classList.add('show'); await sleep(3800); } });
+
+    // 03 Reply — autonomous draft + undo
+    run('d3thread', async function(){ var th=$('d3thread');
+      while(true){ th.innerHTML=''; await sleep(900);
+        th.innerHTML='<div class="bubble them">yo you still on for the demo friday?</div>'; await sleep(850);
+        th.insertAdjacentHTML('beforeend','<div class="tag" style="align-self:flex-end">✍ drafting in your voice…</div>'); await sleep(1300);
+        var tag=th.querySelector('.tag'); if(tag) tag.remove();
+        var me=document.createElement('div'); me.className='bubble me'; th.appendChild(me);
+        await type(me,d3reply,24); await sleep(450);
+        th.insertAdjacentHTML('beforeend','<div class="sent">sent ✓ · undo 5</div>'); var u=th.querySelector('.sent');
+        for(var s=4;s>=1;s--){ await sleep(650); u.textContent='sent ✓ · undo '+s; }
+        await sleep(800); u.textContent='sent ✓'; await sleep(1700); } });
+
+    // 04 Research — write a paper, then publish to Zenodo
+    run('d4type', async function(){ var t=$('d4type'), pdf=$('d4pdf'), stat=$('d4stat');
+      while(true){ t.textContent=''; pdf.innerHTML=''; stat.innerHTML='';
+        await sleep(1200); await type(t,'write a paper on edge-AI inference, then publish to Zenodo',28); await sleep(450);
+        t.textContent='✦ writing the paper…'; await sleep(1400);
+        t.textContent=''; pdf.innerHTML=d4paper; var pg=pdf.querySelector('.paper'); await sleep(40); pg.classList.add('show'); await sleep(1700);
+        stat.innerHTML='<span class="pub">⟳ publishing to Zenodo…</span>'; await sleep(1500);
+        stat.innerHTML='<span class="done">✓ Published to Zenodo · DOI 10.5281/zenodo.14872</span>'; await sleep(3200); } });
+
+    // 05 Reconnect — draft an opener, then send
+    run('d5draft', async function(){ var pill=$('d5pill'), draft=$('d5draft'), send=$('d5send');
+      while(true){ draft.textContent=''; draft.classList.remove('show'); send.innerHTML=''; if(pill) pill.textContent='Draft ready';
+        await sleep(1800); if(pill) pill.textContent='drafting…'; await sleep(1000);
+        draft.classList.add('show'); await type(draft,d5opener,22); await sleep(500);
+        send.innerHTML='<span class="sbtn">Send ›</span>'; await sleep(1500);
+        send.innerHTML='<span class="sentpill">✓ Sent to Sarah</span>'; if(pill) pill.textContent='Sent ✓'; await sleep(3000); } });
+
+    // 06 Architect — builds a mini-app live
+    run('d6type', async function(){ var t=$('d6type'), app=$('d6app');
+      while(true){ t.textContent=''; app.innerHTML=''; app.classList.remove('show');
+        await sleep(1300); await type(t,'build me a tip calculator',32); await sleep(450);
+        t.textContent='✦ building…'; await sleep(1300); t.textContent=''; app.innerHTML=d6calc; app.classList.add('show'); await sleep(3800); } });
+
+    // 07 Auto-reply — answers every channel in your voice
+    run('d7feed', async function(){ var feed=$('d7feed');
+      while(true){ feed.innerHTML=''; await sleep(700);
+        for (var i=0;i<chans.length;i++){
+          var c=chans[i];
+          feed.insertAdjacentHTML('beforeend', chanRow(c, false));
+          var row=feed.lastElementChild; await sleep(80); row.classList.add('show');
+          await sleep(650); row.querySelector('.cs').textContent=c.st; await sleep(650);
+        }
+        await sleep(2800); } });
   })();
 
   // ── Vote-the-next-app leaderboard (zero-setup hosted counters; one tally per app) ──
