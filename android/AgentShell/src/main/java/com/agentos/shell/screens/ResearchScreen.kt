@@ -78,6 +78,11 @@ th,td { border:1px solid #bbb; padding:4px 7px; text-align:left; }
 caption, figcaption { font-size:9.4pt; font-style:italic; text-align:center; margin-top:3pt; }
 a { color:#111; text-decoration:none; }
 mjx-container { overflow-x:auto; max-width:100%; }
+/* Table of contents: compact, boxed-off, never split across a page. */
+nav.toc { break-inside:avoid; page-break-inside:avoid; margin:10pt 0 14pt; padding:6pt 0; border-top:.5pt solid #ccc; border-bottom:.5pt solid #ccc; }
+nav.toc h2 { font-size:12pt; margin:0 0 4pt; text-align:left; }
+nav.toc ol { margin:0 0 0 20pt; font-size:10pt; }
+nav.toc li { margin:0 0 1pt; }
 /* References: hanging indent, smaller, with the URL shown beneath each entry. */
 .references, #references { font-size:9.8pt; }
 .references li, #references li { margin:0 0 4pt; padding-left:1.4em; text-indent:-1.4em; }
@@ -213,24 +218,68 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         return out
     }
 
-    // Local cleanup: strip highlight markers and renumber chapters sequentially (skips
-    // Abstract/References/Appendix). Safe — only heading numbers change, no prose is rewritten.
-    fun finalize() {
+    // Deterministic structural cleanup (no AI, never truncates): removes meta/placeholder lines,
+    // forces a white background, pulls EVERY scattered reference into one References section at the
+    // end, rebuilds the table of contents from the real headings, and renumbers chapters. Safe —
+    // it only moves/renumbers existing content, it never rewrites prose.
+    fun cleanup(): String {
         var h = html.replace("id=\"slyosnew\"", "").replace("id=\"slyosold\"", "")
+        // 1. Drop meta/placeholder paragraphs ("I'll research…", "In this section I will…", etc.).
+        h = Regex("(?is)<p[^>]*>\\s*(i'?ll research|i will research|in this section i will|i'?m going to|let me research|here'?s what i)[^<]*</p>")
+            .replace(h, "")
+        // 2. Neutralize any non-white background colour (the "brown"/cream the user flagged).
+        h = Regex("(?i)background(-color)?\\s*:\\s*(?!#fff|#ffffff|white|transparent|none)[^;\"}]+;?").replace(h, "")
+        // 3. Remove any existing table-of-contents block so we can rebuild it cleanly.
+        h = Regex("(?is)<nav[^>]*class=\"[^\"]*toc[^\"]*\"[^>]*>.*?</nav>").replace(h, "")
+        // 4. Gather every reference <li> from all reference lists, de-duped.
+        val refLis = StringBuilder(); val seen = HashSet<String>()
+        val refOl = Regex("(?is)<ol[^>]*class=\"[^\"]*references[^\"]*\"[^>]*>(.*?)</ol>")
+        refOl.findAll(h).forEach { m ->
+            Regex("(?is)<li[^>]*>.*?</li>").findAll(m.groupValues[1]).forEach { li ->
+                val key = li.value.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().lowercase()
+                if (key.length > 4 && seen.add(key)) refLis.append(li.value).append("\n")
+            }
+        }
+        val refCount = seen.size
+        // Remove the old reference lists and their headings (we'll re-add one at the end).
+        h = refOl.replace(h, "")
+        h = Regex("(?is)<h2[^>]*>\\s*\\d*\\.?\\s*references\\s*</h2>").replace(h, "")
+        // 5. Renumber chapters sequentially (skip front/back-matter headings).
         var n = 0
         h = Regex("(?is)(<h2[^>]*>)(.*?)(</h2>)").replace(h) { m ->
             val open = m.groupValues[1]; var txt = m.groupValues[2].trim(); val close = m.groupValues[3]
-            val plain = txt.replace(Regex("<[^>]+>"), "").trim()
-            val skip = listOf("reference", "appendix", "acknowledg", "abstract", "bibliography")
-                .any { plain.lowercase().startsWith(it) }
+            val plain = txt.replace(Regex("<[^>]+>"), "").trim().lowercase()
+            val skip = listOf("reference", "appendix", "acknowledg", "abstract", "bibliography", "contents")
+                .any { plain.startsWith(it) }
             if (skip) "$open$txt$close"
             else { n++; txt = txt.replace(Regex("^\\s*\\d+[.).]?\\s+"), ""); "$open$n. $txt$close" }
         }
+        // 6. Rebuild the TOC from the real chapter headings and insert it before the first chapter.
+        val heads = Regex("(?is)<h2[^>]*>(.*?)</h2>").findAll(h)
+            .map { it.groupValues[1].replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim() }
+            .filter { it.isNotBlank() && !it.lowercase().startsWith("contents") && !it.lowercase().startsWith("reference") }
+            .toList()
+        if (heads.size >= 3) {
+            val toc = "<nav class=\"toc\"><h2>Contents</h2><ol>" +
+                heads.joinToString("") { "<li>$it</li>" } + "</ol></nav>"
+            val firstH2 = Regex("(?is)<h2[^>]*>").find(h)?.range?.first
+            h = if (firstH2 != null) h.substring(0, firstH2) + toc + "\n" + h.substring(firstH2) else h
+        }
+        // 7. Append the single consolidated References section at the very end.
+        if (refLis.isNotEmpty()) {
+            val block = "<h2>References</h2>\n<ol class=\"references\">\n$refLis</ol>"
+            val idx = h.lastIndexOf("</body>", ignoreCase = true)
+            h = if (idx >= 0) h.substring(0, idx) + block + "\n" + h.substring(idx) else h + block
+        }
         html = h
         PaperStore.save(ctx, currentId, html)
-        PaperStore.snapshot(ctx, currentId, "Finalized (renumbered)")
-        status = "Renumbered $n chapters & cleaned markers ✓"
+        PaperStore.snapshot(ctx, currentId, "Cleaned up & structured")
+        val parts = mutableListOf("renumbered $n chapters")
+        if (refCount > 0) parts.add("merged $refCount references into one section")
+        if (heads.size >= 3) parts.add("rebuilt the table of contents")
+        return "Cleaned up: " + parts.joinToString(", ") + ", white background ✓"
     }
+    fun finalize() { status = cleanup() }
 
     fun frontMatterEnd(h: String): Int {
         val firstH2 = Regex("(?is)<h2[^>]*>").find(h)?.range?.first
@@ -254,6 +303,22 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val title = titleOf(html, "")
+            // Common "fix the whole paper" asks are handled DETERMINISTICALLY (no AI, never truncates):
+            // pull references into one section, remove the colored background, rebuild the TOC, renumber.
+            val low = instr.lowercase()
+            val structural = low.contains("table of contents") || low.contains("renumber") ||
+                (low.contains("background") && (low.contains("remove") || low.contains("white") || low.contains("brown"))) ||
+                (low.contains("reference") && (low.contains("appendix") || low.contains("scatter") || low.contains("consolidat") || low.contains("one section") || low.contains("at the bottom") || low.contains("at the end"))) ||
+                low.contains("clean up the paper") || low.contains("clean up the whole") ||
+                low.contains("clean it all up") || low.contains("tidy up the paper") || low.contains("clean up the structure")
+            if (structural) {
+                val msg = cleanup()
+                PaperStore.addChat(ctx, currentId, "ai",
+                    "Done — $msg\nI applied this straight to your document (no AI rewrite, so nothing got truncated or changed in wording). Tap “View paper” to check it.")
+                chat = PaperStore.chatLog(ctx, currentId)
+                papers = PaperStore.list(ctx); pendingHighlight = true; busy = false
+                return@launch
+            }
             val outline = outlineOf(html)
             val chaps = chapters(html)
             val (action, target) = withContext(Dispatchers.IO) { AgentClient.routePaperEdit(title, outline, instr) }
@@ -278,6 +343,14 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     frag = withContext(Dispatchers.IO) { AgentClient.expandPaper(title, outline, instr, web, mem, lib, docType, thesis) }
                     kind = "add"; label = "New chapter"
                 }
+            }
+            if (frag.startsWith("REFUSAL::")) {
+                // The model replied conversationally instead of writing content — show it in chat,
+                // never splice it into the paper, and don't burn a daily credit.
+                PaperStore.addChat(ctx, currentId, "ai", frag.removePrefix("REFUSAL::").trim() +
+                    "\n\n(Tip: for structural fixes — references, table of contents, background — just say " +
+                    "“clean up the paper” and I'll do it directly.)")
+                chat = PaperStore.chatLog(ctx, currentId); busy = false; return@launch
             }
             if (frag.startsWith("ERR::")) {
                 PaperStore.addChat(ctx, currentId, "ai", "I couldn't complete that — ${errText(frag)}. Try rephrasing, or send it again.")
@@ -524,7 +597,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                                 .clickable { exportPdf() }.padding(horizontal = 12.dp, vertical = 9.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Finalize", fontSize = T.small, color = T.ink,
+                        Text("Clean up", fontSize = T.small, color = T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                                 .clickable { finalize() }.padding(horizontal = 12.dp, vertical = 9.dp))
                         Spacer(Modifier.width(8.dp))

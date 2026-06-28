@@ -142,7 +142,8 @@ class ShellActivity : ComponentActivity() {
                 if (screen in mainScreens) {
                     Surface(color = T.bg, modifier = Modifier.fillMaxWidth()) {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-                            SlyBottomNav(current = screen) { target -> screen = target }
+                            SlyBottomNav(current = screen,
+                                nowCount = com.agentos.shell.tools.NotificationStore.notes.size) { target -> screen = target }
                         }
                     }
                 }

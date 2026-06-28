@@ -278,25 +278,27 @@ object AgentClient {
 
     /** Generate a spicy-but-constructive tech post (Opus for sharper wit), tuned per platform. */
     fun spicyPost(topic: String, platform: String = "x", memory: String = ""): String {
-        val author = if (memory.isNotBlank()) "About the author: $memory. " else ""
+        val author = if (memory.isNotBlank()) "You ARE the author; write in first person as them. About you: $memory. " else ""
+        val voice = if (styleProfile.isNotBlank()) "Match this exact writing voice: $styleProfile. " else ""
         val reddit = platform.lowercase().contains("reddit")
-        val sys = author + if (reddit) {
-            "You write savage, very funny, contrarian tech posts for Reddit. Format EXACTLY: a " +
-            "punchy HEADLINE on the first line, then a blank line, then a meaty body of 4–8 " +
-            "sentences across 2–3 short paragraphs that actually argues the point. Go hard at " +
-            "hype, cargo-cult trends, bloated frameworks, VC buzzword soup and lazy conventional " +
-            "wisdom — roast IDEAS and TRENDS, never real named people or groups; no slurs, " +
-            "harassment, or protected-class jabs. Conversational Reddit voice, no hashtags. " +
-            "Return ONLY the headline + body."
+        val sys = author + voice + if (reddit) {
+            "Write a sharp, contrarian tech post for Reddit. Format EXACTLY: a punchy HEADLINE on the " +
+            "first line, then a blank line, then a meaty body of 4–8 sentences across 2–3 short " +
+            "paragraphs that actually argues a real point with a concrete example or two. Be confident " +
+            "and a little funny, but the insight comes first — go after hype, cargo-cult trends, bloated " +
+            "frameworks and buzzword soup, not real named people or groups; no slurs or harassment. " +
+            "Plain conversational Reddit voice, no hashtags, no emoji spam. Return ONLY the headline + body."
         } else {
-            "You write savage, very funny, contrarian tech takes for X. Go hard: hot takes, " +
-            "ratio-bait energy, sharp burns on hype, cargo-cult trends, bloated frameworks and " +
-            "VC buzzword soup — roast IDEAS and TRENDS, never real named people; no slurs, " +
-            "harassment, or protected-class jabs. There must be a genuinely sharp point under " +
-            "the heat. One punchy line, under 260 characters, at most one hashtag. " +
-            "Return ONLY the post text."
+            "Write ONE great post for X in the author's own voice. Rules that make it good, not cringe: " +
+            "lead with a specific, concrete claim or observation — never a generic 'hot take', never the " +
+            "words 'hot take' or 'unpopular opinion'. Say something only someone who actually builds would " +
+            "say; there must be a real, defensible point under it. Confident and dry — wit comes from the " +
+            "specificity, not from trying hard. No hashtags. No emoji unless one genuinely lands. Don't " +
+            "explain the joke or add a second sentence that softens it. Under 260 characters, one tight " +
+            "thought. Punch up at ideas, hype and trends — never real named people, no slurs or harassment. " +
+            "Return ONLY the post text, no quotes around it."
         }
-        val user = if (topic.isBlank()) "Write a savage tech take." else "Topic: $topic"
+        val user = if (topic.isBlank()) "Write a sharp tech take in your voice." else "Topic: $topic"
         val (code, text) = callMessages(
             sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)),
             if (reddit) 700 else 300, OPUS
@@ -355,13 +357,18 @@ object AgentClient {
             "HARD RULES: Never claim or imply the post is the 'wrong thread', misdirected, cut off, or meant " +
             "for someone else — just respond naturally to what's actually in front of you. Don't reuse a stock " +
             "line; vary your wording every time. " +
+            "WHAT MAKES IT GOOD (this matters — most AI replies read as cringe): say something SPECIFIC to the " +
+            "actual post, not a generic agreeable filler. No 'hot take', no 'this 👏 is 👏 it', no hashtags, no " +
+            "starting with 'Honestly' or 'Real'. At most one emoji and only if it truly fits. Confident and dry; " +
+            "the wit comes from the specific point, never from trying hard. One clean thought — don't tack on a " +
+            "second sentence that explains or softens it. " +
             "If the post is political, about migration, crime, tragedy, identity, or anything inflammatory or " +
             "outside your world (you build on-device / edge-AI), do NOT engage the substance, take a side, " +
-            "moralize, or get baited into a debate — either skip the topic with a light, breezy human one-liner " +
-            "or pivot briefly and wittily to what you actually care about, without sounding preachy or canned. " +
-            "If the post IS about tech / AI / startups / building, give a genuinely sharp, specific, witty take " +
-            "with a real point under it. Sound like a real person — 1–2 lines, under 240 characters, light emoji " +
-            "only if it fits. Return ONLY the reply text."
+            "moralize, or get baited into a debate — either skip it with a light human one-liner or pivot briefly " +
+            "and wittily to what you actually care about, without sounding preachy or canned. " +
+            "If the post IS about tech / AI / startups / building, give a genuinely sharp, specific take with a " +
+            "real point under it. Sound like a real person — 1 line, ideally well under 200 characters. " +
+            "Return ONLY the reply text, no surrounding quotes."
         val (code, text) = callMessages(
             sys, JSONArray().put(JSONObject().put("role", "user").put("content", "The post you're replying to:\n\"$comment\"")),
             240, OPUS
@@ -420,6 +427,30 @@ object AgentClient {
              else "\n\n(No web sources with URLs were retrieved this time.)")
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", u)), 450, MODEL)
         return if (code == 200) text.trim().trim('"') else "Done — I updated “$label”."
+    }
+
+    /**
+     * Detect when the model returned a conversational REFUSAL / apology / "I can't touch your
+     * document" meta-reply instead of real paper content — so we show it in the chat and NEVER
+     * splice it into the document (the bug where an apology became a "New chapter").
+     */
+    private fun looksLikeRefusal(frag: String): Boolean {
+        // A real paper fragment ALWAYS contains an <h2> chapter heading (that's what expandPaper and
+        // reviseChapter are required to produce). A conversational apology/refusal won't. That gate
+        // alone is enough to keep genuine content — only a short, heading-less, first-person "I can't
+        // touch your document" reply is treated as a refusal. (Never match generic phrases like
+        // "as an AI", which appear constantly in legitimate AI/ML papers.)
+        if (Regex("(?i)<h2[ >]").containsMatchIn(frag)) return false
+        val plain = frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+        if (plain.length > 900) return false
+        val s = plain.lowercase()
+        val tells = listOf(
+            "i can't actually", "i cannot actually", "i can't touch your", "i can't edit your",
+            "i can't see what's on", "i can't retroactively", "i should've been clearer",
+            "i can't directly edit", "i don't have access to your", "i'm not able to edit",
+            "what i can do is help you", "paste me the", "share the formatting markup",
+            "what works best for you")
+        return tells.any { s.contains(it) }
     }
 
     /** Opus call with one retry on transient 5xx errors. Big token budget for long-form writing. */
@@ -499,12 +530,17 @@ object AgentClient {
             "Output a COMPLETE self-contained HTML document in a clean LaTeX-article style: a centered <h1> title, a " +
             "centered author/affiliation line directly under it (use <p class=\"author\">), then the abstract wrapped " +
             "in <div class=\"abstract\"> with a bold run-in 'Abstract.' label. " +
+            "After the abstract, include a Table of Contents: <nav class=\"toc\"><h2>Contents</h2><ol>…</ol></nav> " +
+            "listing each chapter title (no page numbers). " +
             "Structure the body as MULTIPLE NUMBERED CHAPTERS, each one an <h2> heading like " +
-            "<h2>1. Introduction</h2>, with <h3> subsections, detailed multi-paragraph prose, examples, and a " +
-            "<h2>References</h2> section last. Write thoroughly — aim for many pages of real content, not a summary. " +
+            "<h2>1. Introduction</h2>, with <h3> subsections, detailed multi-paragraph prose, examples. " +
+            "Put EVERY citation in ONE <h2>References</h2> section at the very END as an <ol class=\"references\"> — " +
+            "never scatter reference lists inside chapters. Write thoroughly — many pages of real content, not a summary. " +
+            "Do NOT open the document or any chapter with meta/placeholder lines like \"I'll research…\", \"In this " +
+            "section I will…\", or notes to the reader about your process — start directly with substantive prose. " +
             "Render math with MathJax — include exactly this in <head>: " +
             "<script src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script> and write " +
-            "math as \\( inline \\) and $$ display $$. Use ivory #F4EFE6 background, near-black text, generous margins. " +
+            "math as \\( inline \\) and $$ display $$. Use a plain WHITE #ffffff background, near-black text, generous margins. " +
             (if (memory.isNotBlank()) "About the author (reflect their context/voice): $memory. " else "") +
             (if (web) "Use web search to find current, real sources and CITE them with links in the references. " else "") +
             (if (src.isNotBlank()) "Also ground it in this source material:\n$src\n" else "") +
@@ -551,6 +587,7 @@ object AgentClient {
         var frag = cleanHtml(text)
         // Strip anything the model wrapped around the fragment, just in case.
         Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
+        if (looksLikeRefusal(frag)) return "REFUSAL::" + frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
         return stripChatter(frag)
     }
 
@@ -572,6 +609,7 @@ object AgentClient {
         if (code != 200) return "ERR::$code::${text.take(400)}"
         var frag = cleanHtml(text)
         Regex("(?is)<body[^>]*>(.*)</body>").find(frag)?.let { frag = it.groupValues[1].trim() }
+        if (looksLikeRefusal(frag)) return "REFUSAL::" + frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
         return stripChatter(frag)
     }
 

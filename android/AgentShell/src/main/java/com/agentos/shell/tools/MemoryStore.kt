@@ -179,6 +179,24 @@ object MemoryStore {
         prefs(ctx).edit().putStringSet("auto_disabled_apps", cur).apply()
     }
 
+    /**
+     * Per-app automation level: "off" | "draft" | "full".
+     *   off   — nothing automatic; you still tap "agent reply" by hand.
+     *   draft — the agent auto-WRITES a reply the moment a message lands and STAGES it on the Now
+     *           card (the exact text, to the exact person) so all you do is tap Send. Never sends itself.
+     *   full  — auto-writes AND auto-sends after an 8-second undo window.
+     * If never set explicitly we derive a sensible default from the legacy switches so existing
+     * users keep their behavior: a previously-disabled app stays "off"; otherwise "full" when the
+     * global auto-reply master is on, else "draft" (pre-write & stage — the new helpful default).
+     */
+    fun appMode(ctx: Context, pkg: String): String {
+        prefs(ctx).getString("app_mode_$pkg", null)?.let { return it }
+        if (!appAutoEnabled(ctx, pkg)) return "off"
+        return if (autonomous(ctx)) "full" else "draft"
+    }
+    fun setAppMode(ctx: Context, pkg: String, mode: String) =
+        prefs(ctx).edit().putString("app_mode_$pkg", mode).apply()
+
     /** The effective auto-reply state right now: forced on by the night window, else the toggle. */
     fun autonomousEffective(ctx: Context): Boolean {
         if (nightAuto(ctx)) {

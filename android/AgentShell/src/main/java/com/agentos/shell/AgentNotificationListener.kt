@@ -140,19 +140,26 @@ class AgentNotificationListener : NotificationListenerService() {
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) return
         if (note.isEmail) return   // email is always human-reviewed, never autonomous
-        if (!MemoryStore.appAutoEnabled(applicationContext, note.pkg)) return   // per-app opt-out
         val telegram = note.pkg.startsWith("org.telegram")
         val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
-        // Telegram document-answering is its own lane; otherwise require autonomous (toggle OR
-        // night schedule). Covers EVERY messaging/social app that exposes a reply action.
-        if (!MemoryStore.autonomousEffective(applicationContext) && !docMode) return
+        // Per-app automation level: off / draft / full. Telegram doc-answering always sends.
+        var mode = MemoryStore.appMode(applicationContext, note.pkg)
+        // Night schedule forces full-auto inside its window (unless the app is explicitly off).
+        if (mode != "off" && MemoryStore.nightAuto(applicationContext)) {
+            val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
+        }
+        if (!docMode && mode == "off") return
+        val autoSend = docMode || mode == "full"
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
+        // In draft mode, a staged draft already present means we've handled this message.
+        if (!autoSend && NotificationStore.stagedDrafts.containsKey(note.key)) return
         if (NotificationStore.isOwnEcho(note)) { Log.i("SlyOS", "auto skip: own echo"); return }
         if (NotificationStore.repliedWithin(note, cooldownMs)) { Log.i("SlyOS", "auto skip: cooldown ${note.title}"); return }
         NotificationStore.markReplied(note)
-        NotificationStore.pendingAuto.add(note.key)
-        Log.i("SlyOS", "auto reply scheduled for ${note.title}: \"${note.text}\"")
+        if (autoSend) NotificationStore.pendingAuto.add(note.key)
+        Log.i("SlyOS", "auto $mode for ${note.title}: \"${note.text}\"")
         scope.launch {
             try {
                 val memory = MemoryStore.about(applicationContext)
@@ -171,6 +178,14 @@ class AgentNotificationListener : NotificationListenerService() {
                             .forSender(applicationContext, note.app, note.title)
                         AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
                     }
+                }
+                if (!autoSend) {
+                    // Half-automatic: stage the exact reply on the Now card; the user taps Send.
+                    if (isSendable(draft)) {
+                        NotificationStore.stageDraft(note.key, draft)
+                        Log.i("SlyOS", "draft staged for ${note.title}: \"$draft\"")
+                    }
+                    return@launch
                 }
                 delay(undoWindowMs)
                 if (NotificationStore.pendingAuto.contains(note.key)) {

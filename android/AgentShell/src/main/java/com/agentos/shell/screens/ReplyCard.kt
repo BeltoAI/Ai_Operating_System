@@ -119,6 +119,16 @@ fun ReplyCard(note: NotificationStore.Note) {
         }
     }
 
+    // Half-automatic: the listener pre-wrote a reply and staged it. Surface it instantly in the
+    // approve box (exact text, to the exact person) so the user just taps Send.
+    var fromStaged by remember { mutableStateOf(false) }
+    val stagedDraft = NotificationStore.stagedDrafts[note.key]
+    LaunchedEffect(stagedDraft) {
+        if (!stagedDraft.isNullOrBlank() && sent.isEmpty() && !approving) {
+            draft = stagedDraft; approving = true; fromStaged = true
+        }
+    }
+
     val appCol = appColor(note.pkg)
     Column(Modifier.padding(vertical = 11.dp)) {
         Row(verticalAlignment = Alignment.Top) {
@@ -248,7 +258,9 @@ fun ReplyCard(note: NotificationStore.Note) {
 
         if (approving) {
             Spacer(Modifier.height(8.dp))
-            Text("Review reply — edit if needed:", fontSize = T.caption, color = T.inkFaint)
+            Text(if (fromStaged) "✨ Auto-drafted for ${note.title.ifBlank { note.app }} — review & send:"
+                 else "Review reply — edit if needed:", fontSize = T.caption,
+                 color = if (fromStaged) T.accent else T.inkFaint)
             Spacer(Modifier.height(6.dp))
             BasicTextField(
                 value = draft,

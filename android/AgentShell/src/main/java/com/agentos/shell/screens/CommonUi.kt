@@ -127,15 +127,27 @@ fun BusyDog() {
     }
 }
 
-/** One bottom-nav tab with a clear active state. */
+/** One bottom-nav tab with a clear active state, plus an optional unread-count badge. */
 @Composable
-private fun NavTab(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) =
+private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) =
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(24.dp))
+        Box {
+            Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(24.dp))
+            if (badge > 0) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-5).dp)
+                        .size(if (badge > 9) 16.dp else 14.dp).clip(CircleShape).background(T.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (badge > 9) "9+" else badge.toString(),
+                        fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
         Spacer(Modifier.height(3.dp))
         Text(label, fontSize = 10.sp, color = if (active) T.accent else T.inkFaint,
             fontWeight = if (active) FontWeight.Medium else FontWeight.Normal)
@@ -146,14 +158,14 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, onClick: (
  * always emphasized, with a clear indicator for the panel you're on.
  */
 @Composable
-fun SlyBottomNav(current: Screen, onNav: (Screen) -> Unit) =
+fun SlyBottomNav(current: Screen, nowCount: Int = 0, onNav: (Screen) -> Unit) =
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         NavTab(Icons.Filled.Home, "Home", current == Screen.Home) { onNav(Screen.Home) }
-        NavTab(Icons.Filled.Bolt, "Now", current == Screen.Now) { onNav(Screen.Now) }
+        NavTab(Icons.Filled.Bolt, "Now", current == Screen.Now, badge = nowCount) { onNav(Screen.Now) }
 
         // The brain — center, always emphasized.
         val memActive = current == Screen.Memory || current == Screen.MemorySettings

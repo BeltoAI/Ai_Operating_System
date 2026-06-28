@@ -224,10 +224,10 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Auto-reply to messages", fontSize = T.body, color = T.ink)
+                Text("Default to full auto-send", fontSize = T.body, color = T.ink)
                 Text(
-                    "Replies on its own to every messaging & social app (WhatsApp, Messages, " +
-                        "Signal, Instagram, Telegram…) after an 8-second window you can cancel from Now.",
+                    "Sets the default for apps you haven't customized below: ON = auto-send, OFF = " +
+                        "pre-draft & wait for your tap. Override any app individually under Per-app responses.",
                     fontSize = T.small, color = T.inkFaint
                 )
             }
@@ -262,8 +262,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(18.dp))
-        Text("Which apps", fontSize = T.body, color = T.ink)
-        Text("Auto-reply applies to these. Switch any off to keep it manual.",
+        Text("Per-app responses", fontSize = T.body, color = T.ink)
+        Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
+            "just tap Send. Auto sends it for you after an 8-second undo window.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
         val apps = remember { com.agentos.shell.tools.AppScanner.installed(ctx) }
@@ -271,9 +272,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Text("No messaging or social apps detected yet. They'll appear here once installed " +
                 "or after their first message.", fontSize = T.small, color = T.inkFaint)
         } else {
-            val enabledMap = remember {
-                mutableStateMapOf<String, Boolean>().apply {
-                    apps.forEach { put(it.pkg, MemoryStore.appAutoEnabled(ctx, it.pkg)) }
+            val modeMap = remember {
+                mutableStateMapOf<String, String>().apply {
+                    apps.forEach { put(it.pkg, MemoryStore.appMode(ctx, it.pkg)) }
                 }
             }
             apps.forEach { app ->
@@ -282,7 +283,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)
                 ) {
                     if (icon != null) {
                         Image(bitmap = icon, contentDescription = app.label,
@@ -295,13 +296,21 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Text(app.label, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = enabledMap[app.pkg] ?: true,
-                        onCheckedChange = {
-                            enabledMap[app.pkg] = it
-                            MemoryStore.setAppAuto(ctx, app.pkg, it)
+                    val cur = modeMap[app.pkg] ?: "draft"
+                    Row(
+                        Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).padding(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf("off" to "Off", "draft" to "Draft", "full" to "Auto").forEach { (id, label) ->
+                            val sel = cur == id
+                            Text(label, fontSize = T.caption,
+                                color = if (sel) T.bgElevated else T.inkSoft,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                    .background(if (sel) T.accent else androidx.compose.ui.graphics.Color.Transparent)
+                                    .clickable { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
+                                    .padding(horizontal = 11.dp, vertical = 6.dp))
                         }
-                    )
+                    }
                 }
             }
         }

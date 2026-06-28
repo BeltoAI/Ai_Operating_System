@@ -94,6 +94,14 @@ object NotificationStore {
     /** Keys currently scheduled for autonomous auto-reply (shown with a cancel option). */
     val pendingAuto = mutableStateListOf<String>()
 
+    /**
+     * Half-automatic drafts: the agent pre-wrote a reply for this notification (keyed by note.key)
+     * but is NOT sending it — the Now card surfaces the exact text with a Send button so you tap once.
+     */
+    val stagedDrafts = androidx.compose.runtime.mutableStateMapOf<String, String>()
+    fun stageDraft(key: String, text: String) { stagedDrafts[key] = text }
+    fun clearDraft(key: String) { stagedDrafts.remove(key) }
+
     /** Set by the listener service so we can dismiss real notifications. */
     @Volatile var listener: NotificationListenerService? = null
 
@@ -154,6 +162,7 @@ object NotificationStore {
 
     fun remove(key: String) {
         notes.removeAll { it.key == key }
+        stagedDrafts.remove(key)
     }
 
     /** Fire the notification's own reply action with [message] — a real reply, no root. */
