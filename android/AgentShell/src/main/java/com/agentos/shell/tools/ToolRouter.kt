@@ -137,8 +137,14 @@ object ToolRouter {
             val o = JSONObject(arg)
             val name = o.optString("name")
             val body = o.optString("body")
-            if (!ContactsTool.canRead(ctx)) return "Contacts access is off."
-            val contact = ContactsTool.findContact(ctx, name) ?: return "No contact found for \"$name\"."
+            if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find ${name.ifBlank { "them" }}."
+            val contact = when (val r = ContactsTool.resolve(ctx, name)) {
+                is ContactsTool.Resolution.Found -> r.contact
+                is ContactsTool.Resolution.Ambiguous ->
+                    return "I know a few people like “$name”: ${r.options.joinToString(", ") { it.name }}. Which one should I text? (tell me the full name)"
+                ContactsTool.Resolution.None ->
+                    return "I couldn't find a contact called “$name”. What's their full name or number?"
+            }
             if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.SEND_SMS) !=
                 PackageManager.PERMISSION_GRANTED) return "SMS permission is off."
             val sms = if (Build.VERSION.SDK_INT >= 31)
@@ -193,6 +199,31 @@ object ToolRouter {
             if (startMs <= 0 || endMs <= 0) return "I couldn't read those times."
             val attendees = ArrayList<String>()
             o.optJSONArray("attendees")?.let { for (i in 0 until it.length()) attendees.add(it.optString(i)) }
+            val wantsMeet = o.optBoolean("meet", false) || o.optString("location").contains("meet", true)
+            val hasEmails = attendees.any { it.contains("@") && it.contains(".") }
+
+            // Real Google path: if connected, create the event via the Calendar API so we get an actual
+            // Google Meet link and email invites — something CalendarContract simply can't do.
+            if (GoogleAuth.isConnected(ctx) && (wantsMeet || hasEmails)) {
+                val r = GoogleCalendarClient.createEvent(ctx, title, startMs, endMs, attendees, wantsMeet)
+                if (r.ok) {
+                    val link = r.meetLink.ifBlank { r.htmlLink }
+                    MemoryLog.add(ctx, "response", "Calendar: $title",
+                        "Created “$title” on Google Calendar (${o.optString("start")}–${o.optString("end")})" +
+                            (if (attendees.isNotEmpty()) " with ${attendees.joinToString(", ")}" else "") +
+                            (if (r.meetLink.isNotBlank()) " · Meet: ${r.meetLink}" else ""), "Calendar")
+                    MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
+                        "Created: $title · ${o.optString("start")} to ${o.optString("end")}" +
+                            (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else "") +
+                            (if (r.meetLink.isNotBlank()) " · Meet ${r.meetLink}" else ""))
+                    val who = if (attendees.isNotEmpty()) ", invited ${attendees.joinToString(", ")}" else ""
+                    return if (r.meetLink.isNotBlank())
+                        "Created “$title” on your Google Calendar$who. Google Meet link: ${r.meetLink}"
+                    else "Created “$title” on your Google Calendar$who."
+                }
+                if (r.error == "not-connected") { /* token expired/revoked — fall through to local */ }
+                else Log.w("SlyOS", "Google Calendar failed (${r.error}); falling back to local")
+            }
             if (CalendarTool.canWrite(ctx)) {
                 val r = CalendarTool.addEvent(ctx, title, startMs, endMs, attendees)
                 if (r.startsWith("OK::")) {
@@ -202,7 +233,9 @@ object ToolRouter {
                     MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
                         "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" + (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else ""))
                     val who = if (attendees.isNotEmpty()) " and invited ${attendees.joinToString(", ")}" else ""
-                    return "Added “$title” to your $where$who."
+                    val meetHint = if (wantsMeet && !GoogleAuth.isConnected(ctx))
+                        " (Connect Google in settings and I'll add a real Meet link + email the invite.)" else ""
+                    return "Added “$title” to your $where$who.$meetHint"
                 }
             }
             // Fallback: open the calendar's new-event screen pre-filled (always works).
@@ -229,7 +262,13 @@ object ToolRouter {
             when {
                 app.contains("whatsapp") -> {
                     if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find ${name.ifBlank { "them" }}."
-                    val c = ContactsTool.findContact(ctx, name) ?: return "No contact found for \"$name\"."
+                    val c = when (val r = ContactsTool.resolve(ctx, name)) {
+                        is ContactsTool.Resolution.Found -> r.contact
+                        is ContactsTool.Resolution.Ambiguous ->
+                            return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one on WhatsApp? (tell me the full name)"
+                        ContactsTool.Resolution.None ->
+                            return "I couldn't find a contact called “$name”. What's their full name or number?"
+                    }
                     val digits = c.number.filter { it.isDigit() }
                     start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=" + Uri.encode(body))))
                     MessageStore.insertOne(ctx, c.name, "WhatsApp", c.name, "me", body)

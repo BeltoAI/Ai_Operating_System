@@ -4,6 +4,12 @@
 # REQUIRED — the agent does nothing without this:
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
+# OPTIONAL — Google Meet links + calendar invites. See GOOGLE_OAUTH_SETUP.md for the 10-min setup.
+# This is the app's PUBLIC client ID (not a secret, not your account). Each user signs in with
+# their OWN Google account. Must be an "Android" OAuth client. Looks like:
+#   1234567890-abcdefg.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_ID=
+
 # OPTIONAL — only if you want the Telegram bot brain:
 TELEGRAM_BOT_TOKEN=
 

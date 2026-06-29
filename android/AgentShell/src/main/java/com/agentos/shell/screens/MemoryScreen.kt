@@ -262,6 +262,36 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(18.dp))
+        Text("Connections", fontSize = T.body, color = T.ink)
+        var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }
+        val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Google Calendar & Meet", fontSize = T.body, color = T.ink)
+                Text(
+                    when {
+                        gConnected -> "Connected" + (if (gAccount.isNotBlank()) " · $gAccount" else "") +
+                            " — meetings get a real Meet link and email invites."
+                        com.agentos.shell.tools.GoogleAuth.configured() ->
+                            "Sign in with your Google account to auto-create Google Meet links and send calendar invites. One tap."
+                        else -> "Not available in this build yet."
+                    },
+                    fontSize = T.small, color = T.inkFaint
+                )
+            }
+            if (gConnected) {
+                Text("Disconnect", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clickable { com.agentos.shell.tools.GoogleAuth.disconnect(ctx); gConnected = false }
+                        .padding(8.dp))
+            } else if (com.agentos.shell.tools.GoogleAuth.configured()) {
+                Text("Connect", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { com.agentos.shell.tools.GoogleAuth.connect(ctx) }
+                        .padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
         Text("Per-app responses", fontSize = T.body, color = T.ink)
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
             "just tap Send. Auto sends it for you after an 8-second undo window.",

@@ -108,12 +108,12 @@ object CalendarTool {
         } catch (e: Exception) { emptyList() }
     }
 
-    /** Your schedule over the next week, as plain text — so the agent knows when you're blocked. */
+    /** Your schedule over the next month, as plain text — so the agent knows when you're blocked. */
     fun upcoming(ctx: Context): String {
         if (!hasPermission(ctx)) return ""
         return try {
             val now = System.currentTimeMillis()
-            val end = now + 1000L * 60 * 60 * 24 * 7
+            val end = now + 1000L * 60 * 60 * 24 * 30
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
                 ContentUris.appendId(it, now); ContentUris.appendId(it, end); it.build()
             }
@@ -122,12 +122,56 @@ object CalendarTool {
             val sb = StringBuilder()
             ctx.contentResolver.query(uri, projection, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
                 var n = 0
-                while (c.moveToNext() && n < 15) {
+                while (c.moveToNext() && n < 30) {
                     val title = c.getString(0) ?: "(busy)"; val begin = c.getLong(1)
                     sb.append("- ${fmt.format(Date(begin))}: $title\n"); n++
                 }
             }
             sb.toString().trim()
         } catch (e: Exception) { "" }
+    }
+
+    /**
+     * Ingest EVERY event — years of past appointments and everything scheduled ahead — into the brain's
+     * searchable message store, so the agent can recall any appointment ever made. Incremental: each run
+     * only writes events it hasn't stored before (tracked by event-instance key), so new future events
+     * get picked up automatically on later runs. Safe to call on every app start (off the main thread).
+     */
+    fun syncAllToBrain(ctx: Context) {
+        if (!hasPermission(ctx)) return
+        try {
+            val now = System.currentTimeMillis()
+            val span = 1000L * 60 * 60 * 24 * 365 * 3   // ±3 years
+            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
+                ContentUris.appendId(it, now - span); ContentUris.appendId(it, now + span); it.build()
+            }
+            val proj = arrayOf(
+                CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.BEGIN, CalendarContract.Instances.EVENT_LOCATION
+            )
+            val fmt = SimpleDateFormat("EEE MMM d yyyy, h:mm a", Locale.getDefault())
+            val prefs = ctx.getSharedPreferences("slyos_cal_sync", Context.MODE_PRIVATE)
+            val seen = HashSet(prefs.getStringSet("keys", emptySet()) ?: emptySet())
+            val added = ArrayList<String>()
+            ctx.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
+                var n = 0
+                while (c.moveToNext() && n < 3000) {
+                    val eid = c.getLong(0); val title = c.getString(1) ?: "(busy)"
+                    val begin = c.getLong(2); val loc = c.getString(3)
+                    val key = "$eid|$begin"
+                    if (seen.contains(key)) continue
+                    val rel = if (begin < now) "past" else "upcoming"
+                    val text = "[$rel] ${fmt.format(Date(begin))} — $title" + (if (!loc.isNullOrBlank()) " @ $loc" else "")
+                    MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me", text)
+                    seen.add(key); added.add(key); n++
+                }
+            }
+            if (added.isNotEmpty()) {
+                // Keep the dedup set bounded.
+                val capped = if (seen.size > 8000) seen.toList().takeLast(8000).toSet() else seen
+                prefs.edit().putStringSet("keys", capped).apply()
+                android.util.Log.i("SlyOS", "calendar synced ${added.size} new events to brain")
+            }
+        } catch (e: Exception) { android.util.Log.e("SlyOS", "calendar sync failed", e) }
     }
 }

@@ -45,6 +45,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Catches the Google OAuth redirect (reversed-client-id scheme) back into the app. -->
+        <activity
+            android:name=".GoogleAuthRedirectActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <!-- Match on scheme only (reversed client ID); path matching without a host is unreliable. -->
+                <data android:scheme="${googleRedirectScheme}"/>
+            </intent-filter>
+        </activity>
+
         <!-- Device Owner entry point (granted later via adb dpm; see scripts/). -->
         <receiver
             android:name=".AdminReceiver"

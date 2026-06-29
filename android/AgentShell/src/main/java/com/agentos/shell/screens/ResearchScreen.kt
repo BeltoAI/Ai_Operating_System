@@ -133,6 +133,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     var thesis by remember { mutableStateOf("") }
     var showHistory by remember { mutableStateOf(false) }
     var showSource by remember { mutableStateOf(false) }
+    var editMode by remember { mutableStateOf(false) }
     var showPublish by remember { mutableStateOf(false) }
     var zToken by remember { mutableStateOf(MemoryStore.zenodoToken(ctx)) }
     var publishing by remember { mutableStateOf(false) }
@@ -224,13 +225,19 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     // it only moves/renumbers existing content, it never rewrites prose.
     fun cleanup(): String {
         var h = html.replace("id=\"slyosnew\"", "").replace("id=\"slyosold\"", "")
-        // 1. Drop meta/placeholder paragraphs ("I'll research…", "In this section I will…", etc.).
-        h = Regex("(?is)<p[^>]*>\\s*(i'?ll research|i will research|in this section i will|i'?m going to|let me research|here'?s what i)[^<]*</p>")
-            .replace(h, "")
+        // 1. Drop meta/placeholder lines ("I'll research…", "In this section I will…") wherever they
+        //    appear — paragraphs, list items, or a heading that's just a placeholder.
+        val ph = "i'?ll research|i will research|in this section i will|i'?m going to|let me research|here'?s what i"
+        h = Regex("(?is)<p[^>]*>\\s*($ph)[^<]*</p>").replace(h, "")
+        h = Regex("(?is)<li[^>]*>\\s*($ph)[^<]*</li>").replace(h, "")
+        h = Regex("(?is)<h[1-4][^>]*>\\s*($ph)[^<]*</h[1-4]>").replace(h, "")
         // 2. Neutralize any non-white background colour (the "brown"/cream the user flagged).
         h = Regex("(?i)background(-color)?\\s*:\\s*(?!#fff|#ffffff|white|transparent|none)[^;\"}]+;?").replace(h, "")
-        // 3. Remove any existing table-of-contents block so we can rebuild it cleanly.
-        h = Regex("(?is)<nav[^>]*class=\"[^\"]*toc[^\"]*\"[^>]*>.*?</nav>").replace(h, "")
+        // 3. Remove EVERY existing table of contents, in any form (a <nav>, a div/ul/ol.toc, or a
+        //    "Contents"/"Table of Contents" heading + its following list), so we rebuild ONE clean copy.
+        h = Regex("(?is)<nav[^>]*>.*?</nav>").replace(h) { if (it.value.lowercase().contains("content")) "" else it.value }
+        h = Regex("(?is)<(div|ul|ol)[^>]*class=\"[^\"]*toc[^\"]*\"[^>]*>.*?</\\1>").replace(h, "")
+        h = Regex("(?is)<h[1-3][^>]*>\\s*(?:table of\\s+)?contents\\s*</h[1-3]>\\s*(?:<(ul|ol)\\b[^>]*>.*?</\\1>)?").replace(h, "")
         // 4. Gather every reference <li> from all reference lists, de-duped.
         val refLis = StringBuilder(); val seen = HashSet<String>()
         val refOl = Regex("(?is)<ol[^>]*class=\"[^\"]*references[^\"]*\"[^>]*>(.*?)</ol>")
@@ -257,7 +264,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         // 6. Rebuild the TOC from the real chapter headings and insert it before the first chapter.
         val heads = Regex("(?is)<h2[^>]*>(.*?)</h2>").findAll(h)
             .map { it.groupValues[1].replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim() }
-            .filter { it.isNotBlank() && !it.lowercase().startsWith("contents") && !it.lowercase().startsWith("reference") }
+            .filter { val l = it.lowercase()
+                it.isNotBlank() && !l.startsWith("contents") && !l.startsWith("table of contents") &&
+                    !l.startsWith("reference") && !l.startsWith("i'll research") && !l.startsWith("i will research") }
             .toList()
         if (heads.size >= 3) {
             val toc = "<nav class=\"toc\"><h2>Contents</h2><ol>" +
@@ -282,8 +291,14 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     fun finalize() { status = cleanup() }
 
     fun frontMatterEnd(h: String): Int {
-        val firstH2 = Regex("(?is)<h2[^>]*>").find(h)?.range?.first
-        if (firstH2 != null) return firstH2
+        // The front matter runs up to the first REAL chapter — skip headings that are themselves part
+        // of the front matter (a "Contents" TOC heading, "Abstract", "Keywords") so an intro edit can
+        // actually reach and rewrite the title/abstract/table-of-contents.
+        val skip = listOf("contents", "table of contents", "abstract", "keywords")
+        Regex("(?is)<h2[^>]*>(.*?)</h2>").findAll(h).forEach { m ->
+            val plain = m.groupValues[1].replace(Regex("<[^>]+>"), "").trim().lowercase()
+            if (skip.none { plain.startsWith(it) }) return m.range.first
+        }
         val b = h.lastIndexOf("</body>", ignoreCase = true)
         return if (b > 0) b else h.length
     }
@@ -303,22 +318,6 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val title = titleOf(html, "")
-            // Common "fix the whole paper" asks are handled DETERMINISTICALLY (no AI, never truncates):
-            // pull references into one section, remove the colored background, rebuild the TOC, renumber.
-            val low = instr.lowercase()
-            val structural = low.contains("table of contents") || low.contains("renumber") ||
-                (low.contains("background") && (low.contains("remove") || low.contains("white") || low.contains("brown"))) ||
-                (low.contains("reference") && (low.contains("appendix") || low.contains("scatter") || low.contains("consolidat") || low.contains("one section") || low.contains("at the bottom") || low.contains("at the end"))) ||
-                low.contains("clean up the paper") || low.contains("clean up the whole") ||
-                low.contains("clean it all up") || low.contains("tidy up the paper") || low.contains("clean up the structure")
-            if (structural) {
-                val msg = cleanup()
-                PaperStore.addChat(ctx, currentId, "ai",
-                    "Done — $msg\nI applied this straight to your document (no AI rewrite, so nothing got truncated or changed in wording). Tap “View paper” to check it.")
-                chat = PaperStore.chatLog(ctx, currentId)
-                papers = PaperStore.list(ctx); pendingHighlight = true; busy = false
-                return@launch
-            }
             val outline = outlineOf(html)
             val chaps = chapters(html)
             val (action, target) = withContext(Dispatchers.IO) { AgentClient.routePaperEdit(title, outline, instr) }
@@ -380,6 +379,30 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             PaperStore.addChat(ctx, currentId, "ai", note); chat = PaperStore.chatLog(ctx, currentId)
             papers = PaperStore.list(ctx); remaining = UsageLimiter.remaining(ctx, "paper", CAP)
             pendingHighlight = (kind != "intro"); busy = false
+        }
+    }
+    // Pull the user's hand-edits back out of the live (contenteditable) WebView and save them. We
+    // keep the original <head> and swap in the edited <body> so MathJax source and styling survive.
+    fun saveEdits() {
+        val wv = webRef ?: run { editMode = false; return }
+        wv.evaluateJavascript("(function(){return document.body.innerHTML;})();") { res ->
+            try {
+                val bodyInner = org.json.JSONTokener(res).nextValue() as? String
+                if (bodyInner.isNullOrBlank()) { status = "Nothing to save."; editMode = false; return@evaluateJavascript }
+                val openM = Regex("(?i)<body[^>]*>").find(html)
+                val closeIdx = html.lastIndexOf("</body>", ignoreCase = true)
+                var newHtml = if (openM != null && closeIdx > openM.range.last)
+                    html.substring(0, openM.range.last + 1) + "\n" + bodyInner + "\n" + html.substring(closeIdx)
+                else html
+                // Strip artifacts that may have ridden along from the editable render.
+                newHtml = newHtml.replace(Regex("(?is)<style id=\"slyos-print\">.*?</style>"), "")
+                    .replace(" contenteditable=\"true\"", "")
+                PaperStore.snapshot(ctx, currentId, "Before manual edit")
+                html = newHtml
+                PaperStore.save(ctx, currentId, html)
+                editMode = false
+                status = "Saved your edits ✓"
+            } catch (e: Exception) { status = "Couldn't save edits."; editMode = false }
         }
     }
     fun exportPdf() {
@@ -565,15 +588,31 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                     val styled = remember(html, pendingHighlight) {
                         val s = ensureStyle(html); if (pendingHighlight) injectHighlight(s) else s
                     }
+                    // Editable render: MathJax stripped (so \( \) stays literal, not rendered) + the
+                    // whole body made directly tap-to-edit.
+                    val editableStyled = remember(html, editMode) {
+                        if (!editMode) "" else {
+                            var s = ensureStyle(html)
+                            s = Regex("(?is)<script[^>]*(mathjax|tex-mml)[^>]*>\\s*</script>").replace(s, "")
+                            s = s.replaceFirst(Regex("(?i)<body"), "<body contenteditable=\"true\" style=\"caret-color:#E8642C\" ")
+                            s
+                        }
+                    }
+                    val shown = if (editMode) editableStyled else styled
                     // Highlight glows briefly, then stop re-triggering on later renders.
                     LaunchedEffect(pendingHighlight) {
                         if (pendingHighlight) { kotlinx.coroutines.delay(5000); pendingHighlight = false }
                     }
+                    if (editMode) {
+                        Text("✎ Tap any text to edit it directly. Math shows as code (\\(…\\)) while editing. Hit Save when done.",
+                            fontSize = T.caption, color = T.accent)
+                        Spacer(Modifier.height(6.dp))
+                    }
                     AndroidView(
                         modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
                         factory = { c -> WebView(c).apply { settings.javaScriptEnabled = true; webRef = this
-                            loadDataWithBaseURL("https://localhost/", styled, "text/html", "utf-8", null) } },
-                        update = { wv -> if (wv.tag != styled) { wv.tag = styled; wv.loadDataWithBaseURL("https://localhost/", styled, "text/html", "utf-8", null) } }
+                            loadDataWithBaseURL("https://localhost/", shown, "text/html", "utf-8", null) } },
+                        update = { wv -> if (wv.tag != shown) { wv.tag = shown; wv.loadDataWithBaseURL("https://localhost/", shown, "text/html", "utf-8", null) } }
                     )
                     Spacer(Modifier.height(8.dp))
                     if (showSource) {
@@ -584,6 +623,18 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                         Spacer(Modifier.height(8.dp))
                     }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                      if (editMode) {
+                        Text("✓ Save edits", fontSize = T.small, color = T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                .clickable { saveEdits() }.padding(horizontal = 16.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clickable { editMode = false; status = "" }.padding(horizontal = 10.dp, vertical = 9.dp))
+                      } else {
+                        Text("✎ Edit", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { showSource = false; status = ""; editMode = true }.padding(horizontal = 14.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(if (publishing) "Publishing…" else "↑ Zenodo", fontSize = T.small, color = T.bgElevated,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (publishing) T.hairline else T.accent)
                                 .clickable(enabled = !publishing) { zToken = MemoryStore.zenodoToken(ctx); showPublish = true }
@@ -607,6 +658,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                         Spacer(Modifier.width(8.dp))
                         Text("Source", fontSize = T.small, color = T.inkSoft,
                             modifier = Modifier.clickable { showSource = !showSource }.padding(vertical = 9.dp))
+                      }
                     }
                 } else {
                     // Conversational writing — like chatting with Claude about the paper. You get a real

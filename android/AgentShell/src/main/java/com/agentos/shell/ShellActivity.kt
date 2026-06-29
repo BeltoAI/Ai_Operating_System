@@ -54,6 +54,8 @@ class ShellActivity : ComponentActivity() {
                 }.start()
             }
         }
+        // Pull the whole calendar (past + future) into the brain so the agent knows every appointment.
+        Thread { com.agentos.shell.tools.CalendarTool.syncAllToBrain(applicationContext) }.start()
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))

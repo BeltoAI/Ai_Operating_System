@@ -34,6 +34,17 @@ object NotificationStore {
             "com.linkedin.android", "com.zhiliaoapp.musically"
         )
         val isEmail: Boolean get() = pkg == "com.google.android.gm"
+        /**
+         * Auto-generated meeting notes / recaps (e.g. "Notes by Gemini", Google Meet records). These are
+         * automated senders we'd normally skip, but their content is genuinely worth remembering — so we
+         * capture them into the brain anyway.
+         */
+        val isMeetingNotes: Boolean get() {
+            val s = "$title $text".lowercase()
+            return listOf("notes by gemini", "gemini took notes", "took notes for", "meeting notes",
+                "meeting records", "notes from your meeting", "meet-recordings", "recap of your meeting",
+                "summary of your meeting").any { s.contains(it) }
+        }
         val isLikelyBot: Boolean get() {
             val s = "$title $text".lowercase()
             return listOf("no-reply", "noreply", "no reply", "do not reply", "donotreply",

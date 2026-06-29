@@ -12,6 +12,14 @@ val apiKeyFile = rootProject.file("apikey.properties")
 if (apiKeyFile.exists()) apiKeyProps.load(apiKeyFile.inputStream())
 val anthropicKey: String = apiKeyProps.getProperty("ANTHROPIC_API_KEY", "")
 
+// Google OAuth (for creating Google Meet links on real Calendar events). The client ID is the app's
+// public identity to Google — NOT a secret, and NOT your account: each user signs into their own
+// Google account. The redirect scheme is the reversed client ID, required statically in the manifest.
+val googleClientId: String = apiKeyProps.getProperty("GOOGLE_OAUTH_CLIENT_ID", "")
+val googleRedirectScheme: String = if (googleClientId.endsWith(".apps.googleusercontent.com"))
+    "com.googleusercontent.apps." + googleClientId.substringBefore(".apps.googleusercontent.com")
+else "com.agentos.shell.noauth"
+
 android {
     namespace = "com.agentos.shell"
     compileSdk = 35
@@ -30,6 +38,9 @@ android {
         buildConfigField("String", "TWITTER_ACCESS_TOKEN", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_TOKEN", "")}\"")
         buildConfigField("String", "TWITTER_ACCESS_SECRET", "\"${apiKeyProps.getProperty("TWITTER_ACCESS_SECRET", "")}\"")
         buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${apiKeyProps.getProperty("TELEGRAM_BOT_TOKEN", "")}\"")
+        buildConfigField("String", "GOOGLE_OAUTH_CLIENT_ID", "\"$googleClientId\"")
+        buildConfigField("String", "GOOGLE_REDIRECT_SCHEME", "\"$googleRedirectScheme\"")
+        manifestPlaceholders["googleRedirectScheme"] = googleRedirectScheme
     }
     buildFeatures {
         compose = true
@@ -55,4 +66,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // Chrome Custom Tabs for the in-app Google sign-in flow.
+    implementation("androidx.browser:browser:1.8.0")
 }

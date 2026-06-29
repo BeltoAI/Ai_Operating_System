@@ -81,9 +81,9 @@ class AgentNotificationListener : NotificationListenerService() {
         // Record every real human message/comment into per-conversation memory (any platform), but
         // NOT transactional/system noise (orders, banks, rides, news). Skip own echoes.
         // Emails count too (real ones, not no-reply/verification) so received mail feeds the brain.
-        val capture = note.isConversational || (note.isEmail && !note.isLikelyBot)
+        val capture = note.isConversational || (note.isEmail && !note.isLikelyBot) || note.isMeetingNotes
         if (capture && title.isNotBlank()) {
-            val platform = if (note.isEmail) "Email" else appLabel
+            val platform = when { note.isMeetingNotes -> "Meeting notes"; note.isEmail -> "Email"; else -> appLabel }
             val contact = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
                 ?.takeIf { it.isNotBlank() } ?: title
             // Modern chat notifications (MessagingStyle) carry the whole recent thread with senders —

@@ -132,14 +132,15 @@ fun BusyDog() {
 private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) =
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+        // No clip here — a rounded clip would crop the notification badge that sits above the icon.
+        modifier = Modifier.clickable { onClick() }
+            .padding(horizontal = 8.dp, top = 8.dp, bottom = 4.dp)
     ) {
         Box {
             Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(24.dp))
             if (badge > 0) {
                 Box(
-                    Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-5).dp)
+                    Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-7).dp)
                         .size(if (badge > 9) 16.dp else 14.dp).clip(CircleShape).background(T.accent),
                     contentAlignment = Alignment.Center
                 ) {

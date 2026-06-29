@@ -180,10 +180,19 @@ object AgentClient {
             append("message={\"name\":\"Alex\",\"body\":\"on my way\",\"app\":\"whatsapp\"} — use when the user names a SPECIFIC app; app is one of whatsapp|telegram|sms. Draft the body in the user's voice. ")
             append("navigate={\"destination\":\"SFO airport\",\"stop\":\"Blue Bottle Coffee\",\"mode\":\"driving\"} — for directions/navigation; 'stop' is an OPTIONAL waypoint, mode is driving|walking|transit|bicycling. ")
             append("play_music={\"query\":\"Bohemian Rhapsody Queen\"} — to play or find a song/artist on Spotify. ")
-            append("add_event={\"title\":\"Deep work\",\"start\":\"2026-06-15T17:00\",\"end\":\"2026-06-15T19:00\",\"attendees\":[\"a@x.com\"]} — 'attendees' is OPTIONAL emails to invite (for a meeting between people); omit it for a personal blocker. Use the Current time to resolve 'today/tomorrow/Friday 2pm'. ")
+            append("add_event={\"title\":\"Deep work\",\"start\":\"2026-06-15T17:00\",\"end\":\"2026-06-15T19:00\",\"attendees\":[\"a@x.com\"],\"meet\":true} — 'attendees' is OPTIONAL emails to invite (for a meeting between people); omit it for a personal blocker. Set 'meet':true when the user wants a video call / Google Meet / online meeting (a real Meet link is created if their Google is connected). Use the Current time to resolve 'today/tomorrow/Friday 2pm'. ")
             append("timer=seconds (e.g. 3600); alarm=\"HH:MM\" 24h. ")
             append("Empty array if nothing to do.), ")
-            append("\"remember\" (a durable personal fact worth saving, e.g. name/preference/relationship — or empty).")
+            append("\"remember\" (a durable personal fact worth saving, e.g. name/preference/relationship — or empty). ")
+            append("ASSISTANT BEHAVIOR: act like a sharp personal assistant, not just a command runner. ")
+            append("If the request is ambiguous or missing something you need to act well — which person, " +
+                "what time, which app, or which of several possible matches — put ONE brief clarifying " +
+                "question in \"say\" and return an EMPTY actions array. Never guess on anything that sends a " +
+                "message, books time, spends money, or posts publicly; ask first. ")
+            append("When you DO complete something and a follow-up would genuinely help, add a short, " +
+                "relevant offer to \"say\" (e.g. \"Want a reminder an hour before?\" or \"Should I invite anyone?\"). " +
+                "Keep it to at most ONE question or offer — never pepper the user, and skip the follow-up entirely " +
+                "when the task is obviously finished. Be warm and concise, like a great human assistant.")
         }
         val messages = JSONArray()
         history.takeLast(4).forEach { (u, a) ->
@@ -476,7 +485,8 @@ object AgentClient {
             "instruction, reply with ONLY compact JSON: {\"action\":\"add\"|\"edit\",\"target\":\"...\"}. " +
             "Use \"add\" when they want NEW material or a new chapter/section not already present (target=\"\"). " +
             "Use \"edit\" to change/expand/shorten/rewrite/fix an EXISTING part: set target to the EXACT heading " +
-            "text from the list it refers to, or \"INTRO\" for the title/abstract/introduction. If unsure, prefer add.\n" +
+            "text from the list it refers to, or \"INTRO\" for the title/abstract/introduction/table of contents " +
+            "(any request to fix, clean, rebuild or remove the table of contents → target \"INTRO\"). If unsure, prefer add.\n" +
             "HEADINGS:\n" + outline.ifBlank { "(none yet)" }
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", instruction)), 150, MODEL)
         if (code != 200) return "add" to ""
@@ -491,12 +501,15 @@ object AgentClient {
     /** Revise a paper's FRONT MATTER (everything before the first chapter) in place. Returns HTML or ERR. */
     fun reviseFrontMatter(headHtml: String, instruction: String, memory: String = ""): String {
         val sys = "You are editing the FRONT MATTER of an HTML research paper — the part before the first " +
-            "chapter: the <head> (with its MathJax <script> tag), the <title>, the centered paper title, the " +
-            "author line, and the abstract. Apply the instruction to that front matter only. " +
+            "real chapter: the <head> (with its MathJax <script> tag), the <title>, the centered paper title, " +
+            "the author line, the abstract, and (if present) a table of contents. Apply the instruction to that " +
+            "front matter only. If the user asks to fix/clean/remove the table of contents, do exactly that here " +
+            "(rebuild it as a clean <nav class=\"toc\"><h2>Contents</h2><ol>…</ol></nav> listing the chapter " +
+            "titles, or remove it). Drop any stray placeholder lines (e.g. \"I'll research…\"). " +
             (if (memory.isNotBlank()) "Author: $memory. " else "") +
             "Return the SAME front matter as HTML: it MUST begin with <!DOCTYPE or <html, KEEP the full <head> " +
             "with the MathJax script unchanged, include the opening <body ...> tag, the title/author/abstract — " +
-            "and MUST NOT include any <h2> chapters or a closing </body>/</html>. Return ONLY that HTML."
+            "and MUST NOT include any numbered <h2> chapter or a closing </body>/</html>. Return ONLY that HTML."
         val (code, text) = paperCall(sys, "INSTRUCTION: $instruction\n\nFRONT MATTER:\n${headHtml.take(20000)}", false, 8000)
         if (code != 200) return "ERR::$code::${text.take(400)}"
         val frag = cleanHtml(text)
