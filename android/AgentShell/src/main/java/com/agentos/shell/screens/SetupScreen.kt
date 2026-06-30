@@ -40,8 +40,18 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
 
-    var key by remember { mutableStateOf(MemoryStore.anthropicKey(ctx)) }
+    // Provider choice — Gemini default because it has a free tier (no paywall to start).
+    var provider by remember { mutableStateOf(MemoryStore.preferredProvider(ctx).ifBlank { "gemini" }) }
+    var keyAnthropic by remember { mutableStateOf(MemoryStore.anthropicKey(ctx)) }
+    var keyOpenai by remember { mutableStateOf(MemoryStore.openaiKey(ctx)) }
+    var keyGemini by remember { mutableStateOf(MemoryStore.geminiKey(ctx)) }
     var showKey by remember { mutableStateOf(false) }
+    // label, key hint, where to get one
+    val provMeta = mapOf(
+        "gemini" to Triple("Gemini · free", "AIza… (free tier)", "https://aistudio.google.com/app/apikey"),
+        "anthropic" to Triple("Claude", "sk-ant-…", "https://console.anthropic.com/settings/keys"),
+        "openai" to Triple("OpenAI", "sk-…", "https://platform.openai.com/api-keys")
+    )
     var about by remember { mutableStateOf(MemoryStore.about(ctx)) }
     var booking by remember { mutableStateOf(MemoryStore.bookingLink(ctx)) }
     var zenodo by remember { mutableStateOf(MemoryStore.zenodoToken(ctx)) }
@@ -122,20 +132,37 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
 
         when (step) {
             0 -> {
-                Text("Your Anthropic API key", fontSize = T.body, color = T.ink)
+                Text("Pick your brain", fontSize = T.body, color = T.ink)
                 Spacer(Modifier.height(4.dp))
-                Text("This is the brain. Stored only on this phone, never shared. Each person uses their own key.",
-                    fontSize = T.small, color = T.inkSoft)
+                Text("SlyOS runs on your own model key — stored only on this phone. Gemini has a free tier, " +
+                    "so you can start free and switch anytime.", fontSize = T.small, color = T.inkSoft)
                 Spacer(Modifier.height(14.dp))
-                field(key, { key = it }, "sk-ant-…", secret = true)
+                Row {
+                    listOf("gemini", "anthropic", "openai").forEach { p ->
+                        val sel = provider == p
+                        Text(provMeta[p]!!.first, fontSize = T.caption,
+                            color = if (sel) T.bgElevated else T.inkSoft,
+                            modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                                .background(if (sel) T.accent else T.hairline)
+                                .clickable { provider = p }.padding(horizontal = 14.dp, vertical = 8.dp))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                val curKey = when (provider) { "anthropic" -> keyAnthropic; "openai" -> keyOpenai; else -> keyGemini }
+                field(curKey, { v -> when (provider) { "anthropic" -> keyAnthropic = v; "openai" -> keyOpenai = v; else -> keyGemini = v } },
+                    provMeta[provider]!!.second, secret = true)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (showKey) "Hide" else "Show", fontSize = T.caption, color = T.inkSoft,
                         modifier = Modifier.clickable { showKey = !showKey })
                     Spacer(Modifier.width(16.dp))
-                    Text("Get a key →", fontSize = T.caption, color = T.accent, modifier = Modifier.clickable {
-                        open(ctx, "https://console.anthropic.com/settings/keys") })
+                    Text("Get a ${provMeta[provider]!!.first.substringBefore(" ·")} key →", fontSize = T.caption,
+                        color = T.accent, modifier = Modifier.clickable { open(ctx, provMeta[provider]!!.third) })
                 }
+                Spacer(Modifier.height(10.dp))
+                Text("Add the other providers later in Brain → settings to orchestrate — a cheap model for everyday " +
+                    "replies, a powerful one for papers. SlyOS predicts your monthly cost as you go.",
+                    fontSize = T.caption, color = T.inkFaint)
             }
             1 -> {
                 Text("About you", fontSize = T.body, color = T.ink)
@@ -205,14 +232,21 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Text("Back", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { step-- }.padding(end = 16.dp))
             }
-            val canNext = step != 0 || key.trim().startsWith("sk-")
+            val curKey0 = when (provider) { "anthropic" -> keyAnthropic; "openai" -> keyOpenai; else -> keyGemini }
+            val canNext = step != 0 || curKey0.trim().length > 8
             val label = if (step < 3) "Next" else "Finish"
             Text(label, fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp))
                     .background(if (canNext) T.accent else T.hairline)
                     .clickable(enabled = canNext) {
                         // Persist as we go.
-                        if (step == 0) { val k = key.trim(); MemoryStore.setAnthropicKey(ctx, k); AgentClient.apiKeyOverride = k }
+                        if (step == 0) {
+                            MemoryStore.setAnthropicKey(ctx, keyAnthropic.trim())
+                            MemoryStore.setOpenaiKey(ctx, keyOpenai.trim())
+                            MemoryStore.setGeminiKey(ctx, keyGemini.trim())
+                            MemoryStore.setPreferredProvider(ctx, provider)
+                            AgentClient.apiKeyOverride = keyAnthropic.trim()
+                        }
                         if (step == 1) {
                             MemoryStore.setAbout(ctx, about.trim())
                             MemoryStore.setBookingLink(ctx, booking.trim())

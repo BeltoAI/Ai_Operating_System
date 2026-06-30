@@ -69,6 +69,41 @@ object MemoryStore {
     fun anthropicKey(ctx: Context): String = prefs(ctx).getString("anthropic_key", "") ?: ""
     fun setAnthropicKey(ctx: Context, value: String) = prefs(ctx).edit().putString("anthropic_key", value.trim()).apply()
 
+    /** Effective Anthropic key: the one pasted in-app, else the build-time key (dev builds). */
+    fun anthropicKeyEffective(ctx: Context): String =
+        anthropicKey(ctx).ifBlank { com.agentos.shell.BuildConfig.ANTHROPIC_API_KEY }
+
+    /** Other model providers — each user can bring whichever they like (Gemini has a free tier). */
+    fun openaiKey(ctx: Context): String = prefs(ctx).getString("openai_key", "") ?: ""
+    fun setOpenaiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("openai_key", value.trim()).apply()
+    fun geminiKey(ctx: Context): String = prefs(ctx).getString("gemini_key", "") ?: ""
+    fun setGeminiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("gemini_key", value.trim()).apply()
+
+    /** True if ANY provider has a usable key — so a Gemini-only (free) user is fully set up. */
+    fun anyProviderKey(ctx: Context): Boolean =
+        anthropicKeyEffective(ctx).isNotBlank() || openaiKey(ctx).isNotBlank() || geminiKey(ctx).isNotBlank()
+
+    /**
+     * Preferred provider to try first ("anthropic"|"openai"|"gemini"). If unset, auto-prefers whichever
+     * key exists (Anthropic → OpenAI → Gemini); the router still falls back to any keyed provider.
+     */
+    fun preferredProvider(ctx: Context): String {
+        prefs(ctx).getString("pref_provider", "")?.takeIf { it.isNotBlank() }?.let { return it }
+        return when {
+            anthropicKeyEffective(ctx).isNotBlank() -> "anthropic"
+            openaiKey(ctx).isNotBlank() -> "openai"
+            geminiKey(ctx).isNotBlank() -> "gemini"
+            else -> ""
+        }
+    }
+    fun setPreferredProvider(ctx: Context, p: String) = prefs(ctx).edit().putString("pref_provider", p).apply()
+
+    /** Optional per-tier model id override (advanced). Empty → router uses its default for that tier. */
+    fun modelOverride(ctx: Context, provider: String, tier: ModelRouter.Tier): String =
+        prefs(ctx).getString("model_${provider}_${tier.name}", "") ?: ""
+    fun setModelOverride(ctx: Context, provider: String, tier: ModelRouter.Tier, model: String) =
+        prefs(ctx).edit().putString("model_${provider}_${tier.name}", model.trim()).apply()
+
     /** Canonical platform key from an app label (so "WhatsApp Business" → whatsapp, etc.). */
     fun platformKey(app: String): String {
         val a = app.lowercase()

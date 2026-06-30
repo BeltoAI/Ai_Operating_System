@@ -33,6 +33,8 @@ class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
+        // Lets every model call read provider keys + record cost, and route across Claude/OpenAI/Gemini.
+        com.agentos.shell.tools.AgentClient.appContext = applicationContext
         // Your Anthropic key, pasted in-app and stored on-device (so a prebuilt APK needs no compiled key).
         com.agentos.shell.tools.AgentClient.apiKeyOverride = com.agentos.shell.tools.MemoryStore.anthropicKey(this)
         com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)

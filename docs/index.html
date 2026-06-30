@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SlyOS — What if we gave AGI a phone?</title>
-<meta name="description" content="SlyOS is what happens when you give AGI a phone: it answers your texts, runs your calendar, writes your posts and publishes your papers — every message in and out routed through one mind that's becoming you. Android, your own Anthropic key.">
+<meta name="description" content="SlyOS is what happens when you give AGI a phone: it answers your texts, runs your calendar, writes your posts and publishes your papers — every message in and out routed through one mind that's becoming you. Android — runs free on Gemini, or your Claude/OpenAI key.">
 
 <!-- Open Graph / Twitter -->
 <meta property="og:type" content="website">
@@ -315,7 +315,7 @@
     </div>
     <div class="hcta">
       <a class="btn" href="#get">↓ Download for Android</a>
-      <p class="sub">Free app · bring your own Anthropic key · Android 10+ &nbsp;<span class="pill">Samsung &amp; most phones</span></p>
+      <p class="sub">Free app · runs on Claude, GPT, or free Gemini (your key) · Android 10+ &nbsp;<span class="pill">Samsung &amp; most phones</span></p>
       <p class="sub" style="margin-top:6px;color:var(--faint)">macOS · Linux · Windows · iPhone &nbsp;<span class="pill">coming soon</span></p>
       <div class="stats">
         <div><b id="msgsStat">—</b><span>messages handled</span></div>
@@ -479,6 +479,70 @@
     </div>
   </section>
 
+  <!-- ORCHESTRATION -->
+  <section>
+    <p class="eyebrow">One brain, every model</p>
+    <h2>Inbound and outbound,<br>through one brain.</h2>
+    <p class="muted">Every message in and every reply out flows through your memory brain — which routes each task to the right model. Cheap and fast for everyday replies, powerful for papers. Same memory, same voice, whichever runs. Run it free on Gemini, or mix in Claude and GPT.</p>
+    <div style="max-width:960px;margin:26px auto 0">
+      <svg viewBox="0 0 1000 440" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" role="img" aria-label="Messages flow through the SlyOS brain, which routes to Claude, OpenAI or Gemini">
+        <defs>
+          <path id="inA" d="M162,110 C300,120 360,190 438,212" fill="none"/>
+          <path id="inB" d="M162,190 C300,196 372,214 438,224" fill="none"/>
+          <path id="inC" d="M162,270 C300,262 372,244 438,240" fill="none"/>
+          <path id="inD" d="M162,350 C300,338 360,272 438,252" fill="none"/>
+          <path id="outA" d="M562,212 C660,196 742,160 834,146" fill="none"/>
+          <path id="outB" d="M564,230 C660,230 742,230 834,230" fill="none"/>
+          <path id="outC" d="M562,250 C660,266 742,300 834,314" fill="none"/>
+        </defs>
+        <!-- connector lines -->
+        <g stroke="var(--line)" stroke-width="1.5" fill="none">
+          <use href="#inA"/><use href="#inB"/><use href="#inC"/><use href="#inD"/>
+          <use href="#outA"/><use href="#outB"/><use href="#outC"/>
+        </g>
+        <!-- flowing dots: inbound (apps -> brain), routing (brain -> models), and the reply back out -->
+        <g>
+          <circle r="4" fill="var(--accent)"><animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#inA"/></animateMotion></circle>
+          <circle r="4" fill="var(--accent)"><animateMotion dur="2.6s" begin="0.6s" repeatCount="indefinite"><mpath href="#inB"/></animateMotion></circle>
+          <circle r="4" fill="var(--accent)"><animateMotion dur="2.6s" begin="1.1s" repeatCount="indefinite"><mpath href="#inC"/></animateMotion></circle>
+          <circle r="4" fill="var(--accent)"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite"><mpath href="#inD"/></animateMotion></circle>
+          <circle r="4" fill="#D97757"><animateMotion dur="2.4s" begin="0.3s" repeatCount="indefinite"><mpath href="#outA"/></animateMotion></circle>
+          <circle r="4" fill="var(--soft)"><animateMotion dur="2.4s" begin="0.9s" repeatCount="indefinite"><mpath href="#outB"/></animateMotion></circle>
+          <circle r="4" fill="#1C69FF"><animateMotion dur="2.4s" begin="1.4s" repeatCount="indefinite"><mpath href="#outC"/></animateMotion></circle>
+          <!-- reply out: dots travelling back brain -> apps -->
+          <circle r="3.4" fill="var(--soft)"><animateMotion dur="3s" begin="1.3s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#inA"/></animateMotion></circle>
+          <circle r="3.4" fill="var(--soft)"><animateMotion dur="3s" begin="2.1s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear"><mpath href="#inC"/></animateMotion></circle>
+        </g>
+        <!-- inbound app nodes -->
+        <g font-family="system-ui,sans-serif">
+          <g><circle cx="140" cy="110" r="22" fill="#25D366"/><image href="https://cdn.simpleicons.org/whatsapp/white" x="126" y="96" width="28" height="28"/></g>
+          <g><circle cx="140" cy="190" r="22" fill="#DD2A7B"/><image href="https://cdn.simpleicons.org/instagram/white" x="126" y="176" width="28" height="28"/></g>
+          <g><circle cx="140" cy="270" r="22" fill="#EA4335"/><image href="https://cdn.simpleicons.org/gmail/white" x="126" y="256" width="28" height="28"/></g>
+          <g><circle cx="140" cy="350" r="22" fill="#0d0d0d"/><image href="https://cdn.simpleicons.org/x/white" x="127" y="337" width="26" height="26"/></g>
+          <text x="140" y="404" text-anchor="middle" font-size="15" fill="var(--faint)">every message in</text>
+        </g>
+        <!-- the brain -->
+        <g>
+          <circle cx="500" cy="230" r="70" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>
+          <circle cx="500" cy="230" r="70" fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.35">
+            <animate attributeName="r" values="70;80;70" dur="3.4s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="0.35;0;0.35" dur="3.4s" repeatCount="indefinite"/>
+          </circle>
+          <text x="500" y="224" text-anchor="middle" font-size="20" font-style="italic" font-family="Cormorant,Georgia,serif" fill="var(--ink)">the brain</text>
+          <text x="500" y="246" text-anchor="middle" font-size="11" fill="var(--faint)">memory · becoming you</text>
+          <text x="500" y="328" text-anchor="middle" font-size="13" fill="var(--soft)">routes every task to the right model</text>
+        </g>
+        <!-- model nodes -->
+        <g font-family="system-ui,sans-serif">
+          <g><circle cx="860" cy="140" r="27" fill="#D97757"/><image href="https://cdn.simpleicons.org/claude/white" x="844" y="124" width="32" height="32"/><text x="860" y="184" text-anchor="middle" font-size="13" fill="var(--soft)">Claude</text></g>
+          <g><circle cx="860" cy="230" r="27" fill="#0d0d0d"/><image href="https://cdn.simpleicons.org/openai/white" x="845" y="215" width="30" height="30"/><text x="860" y="274" text-anchor="middle" font-size="13" fill="var(--soft)">OpenAI</text></g>
+          <g><circle cx="860" cy="320" r="27" fill="#1C69FF"/><image href="https://cdn.simpleicons.org/googlegemini/white" x="845" y="305" width="30" height="30"/><text x="860" y="364" text-anchor="middle" font-size="13" fill="var(--soft)">Gemini · free</text></g>
+        </g>
+        <text x="500" y="424" text-anchor="middle" font-size="15" fill="var(--accent)" font-family="system-ui,sans-serif">every reply out — in your voice</text>
+      </svg>
+    </div>
+  </section>
+
   <!-- VOTE NEXT -->
   <section>
     <p class="eyebrow">You decide</p>
@@ -520,15 +584,17 @@
       <div class="card"><h3>On your Android phone</h3>
         <ol>
           <li>Tap <strong>Download</strong>, then open the file. Allow "install from unknown apps" once, then <strong>Install</strong>.</li>
-          <li>Open SlyOS → the setup wizard takes your <strong>Anthropic key</strong>, then optional profile &amp; imports.</li>
+          <li>Open SlyOS → pick your model (<strong>Claude, GPT, or free Gemini</strong>) and paste a key, then optional profile &amp; imports.</li>
           <li>Press <strong>Home → SlyOS → Always</strong>. It's now your home screen.</li>
         </ol>
       </div>
       <div class="key">
-        🔑 <strong>You bring your own Anthropic API key.</strong><br><br>
-        Get one free at <a href="https://console.anthropic.com/settings/keys">console.anthropic.com</a> →
-        API Keys → Create Key (starts with <code>sk-ant-</code>). Usage runs on your own account, and SlyOS
-        stores the key only on your phone — never shared.
+        🔑 <strong>Bring your own model key — and start free.</strong><br><br>
+        SlyOS runs on <strong>Claude</strong>, <strong>OpenAI</strong>, or <strong>Gemini</strong>. Gemini has a
+        <strong>free tier</strong> (<a href="https://aistudio.google.com/app/apikey">aistudio.google.com</a>),
+        so you can run the whole thing at $0 — or paste a Claude/OpenAI key for heavier work. Add more than one
+        and SlyOS orchestrates them (cheap model for replies, powerful one for papers) and predicts your monthly
+        cost. Keys are stored only on your phone — never shared.
       </div>
     </div>
   </section>

@@ -23,10 +23,15 @@ data class AgentResult(
  */
 object AgentClient {
     private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
-    // Current small model. If your account uses a different id, change it here.
+    // Logical model handles, mapped to a routing tier (the actual provider+model is chosen at call
+    // time by ModelRouter based on which keys the user has). MODEL = cheap/high-volume utility,
+    // VOICE = quality tier for anything a human reads (replies, posts), OPUS = heavy reasoning.
     private const val MODEL = "claude-haiku-4-5"
-    // The Architect runs on the most capable model.
+    private const val VOICE = "claude-sonnet-4-6"
     private const val OPUS = "claude-opus-4-8"
+
+    /** Set once at startup (applicationContext) so calls can read provider keys + record cost. */
+    @Volatile var appContext: android.content.Context? = null
 
     /**
      * API key the user pasted in-app (stored on-device). Set at startup from MemoryStore. Lets us ship
@@ -35,7 +40,11 @@ object AgentClient {
      */
     @Volatile var apiKeyOverride: String = ""
     private fun key(): String = apiKeyOverride.ifBlank { BuildConfig.ANTHROPIC_API_KEY }
-    fun hasKey(): Boolean = key().isNotBlank()
+    /** Set up if ANY provider has a key (Anthropic, OpenAI, or free Gemini). */
+    fun hasKey(): Boolean {
+        val ctx = appContext
+        return if (ctx != null) MemoryStore.anyProviderKey(ctx) else key().isNotBlank()
+    }
 
     /** Booking/scheduling link (Calendly etc.); set from MemoryStore so every reply can offer it. */
     @Volatile var bookingLink: String = ""
@@ -76,6 +85,12 @@ object AgentClient {
             "punctuation, capitalization and message length, based on what you know about them and how " +
             "they text. Sound like a real human texting, never stiff, formal, corporate, or robotic; " +
             "no bullet points or lists unless they'd actually use them. " +
+            "PLATFORM PERSONA: if the context contains a 'YOUR PERSONA ON <app>' directive, follow it as the " +
+            "authoritative voice and register for this reply — it's how the owner deliberately presents on that " +
+            "platform. Match that platform's natural message length and register (a DM/WhatsApp/IG line is short " +
+            "and casual; LinkedIn is a touch more considered) — never longer or more polished than the owner would " +
+            "actually send. Small human imperfections help: being terse, skipping punctuation, or lowercase if " +
+            "that's their style. Anything that reads as polished, eager-to-help, or 'assistant-like' blows your cover. " +
             (if (styleProfile.isNotBlank()) "HOW YOU WRITE (mimic this precisely — your real texting style): $styleProfile. " else "") +
             (if (memory.isNotBlank()) "About you (your identity, voice and life — draw on this): $memory. " else "") +
             (if (bookingLink.isNotBlank()) "Your booking link is $bookingLink. Share it when it's genuinely " +
@@ -95,50 +110,45 @@ object AgentClient {
         callContent(system, userContent, 400)
 
     /** Single-message call. content may be a String or JSONArray (for multimodal). */
-    private fun callContent(system: String, content: Any, maxTokens: Int): Pair<Int, String> =
-        callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens)
+    private fun callContent(system: String, content: Any, maxTokens: Int, model: String = MODEL): Pair<Int, String> =
+        callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens, model)
 
-    /** Low-level call with a full messages array (supports multi-turn history). */
+    private fun messagesHaveImage(messages: JSONArray): Boolean {
+        for (i in 0 until messages.length()) {
+            val c = messages.getJSONObject(i).opt("content")
+            if (c is JSONArray) for (j in 0 until c.length())
+                if (c.getJSONObject(j).optString("type") == "image") return true
+        }
+        return false
+    }
+
+    /**
+     * Low-level call. The persona + memory (system) and the conversation (messages) are assembled by
+     * SlyOS and passed through UNCHANGED to whichever provider the router picks — so the brain and
+     * character are identical on Claude, GPT, or Gemini. The router only chooses cost/quality/capability.
+     */
     private fun callMessages(system: String, messages: JSONArray, maxTokens: Int, model: String = MODEL, readMs: Int = 60000, tools: JSONArray? = null): Pair<Int, String> {
-        val key = key()
-        if (key.isBlank()) return -1 to "No API key set. Open Brain → About and paste your Anthropic API key."
-
-        val obj = JSONObject()
-            .put("model", model)
-            .put("max_tokens", maxTokens)
-            .put("system", system)
-            .put("messages", messages)
-        if (tools != null) obj.put("tools", tools)
-        val payload = obj.toString()
+        val ctx = appContext
+        val tier = when (model) { OPUS -> ModelRouter.Tier.HEAVY; VOICE -> ModelRouter.Tier.STANDARD; else -> ModelRouter.Tier.CHEAP }
+        val needVision = messagesHaveImage(messages)
+        val needWeb = tools != null
+        val choice = if (ctx != null) ModelRouter.choose(ctx, tier, needVision, needWeb) else null
 
         Busy.start()   // drives the global "generating" animation; every model call is covered here
         return try {
-            val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 15000
-                readTimeout = readMs
-                setRequestProperty("content-type", "application/json")
-                setRequestProperty("x-api-key", key)
-                setRequestProperty("anthropic-version", "2023-06-01")
+            if (choice == null) {
+                // No keys via context (e.g. very early startup) — use the legacy Anthropic path.
+                val k = key()
+                if (k.isBlank()) return -1 to "No API key set. Open Brain → settings and add a model key (Claude, OpenAI, or free Gemini)."
+                val r = LlmProviders.call("anthropic", model, k, system, messages, maxTokens, readMs, tools)
+                return r.code to r.text
             }
-            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-            val code = conn.responseCode
-            val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                .bufferedReader().use { it.readText() }
-            if (code !in 200..299) {
-                val detail = try {
-                    JSONObject(raw).optJSONObject("error")?.optString("message")
-                } catch (e: Exception) { null }
-                return code to (detail ?: raw.take(160))
-            }
-            val content = JSONObject(raw).optJSONArray("content") ?: JSONArray()
-            val sb = StringBuilder()
-            for (i in 0 until content.length()) {
-                val part = content.getJSONObject(i)
-                if (part.optString("type") == "text") sb.append(part.optString("text"))
-            }
-            200 to sb.toString()
+            // Web search only works on Anthropic's tool format; drop tools for other providers.
+            val effTools = if (choice.provider == "anthropic") tools else null
+            val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+            if (r.code == 200 && ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+            Log.i("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} in=${r.inTokens} out=${r.outTokens}")
+            r.code to r.text
         } catch (e: Exception) {
             -1 to (e.message ?: "network error")
         } finally {
@@ -164,7 +174,9 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, dial, sms, send_sms, message, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
+            append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
@@ -189,6 +201,12 @@ object AgentClient {
                 "what time, which app, or which of several possible matches — put ONE brief clarifying " +
                 "question in \"say\" and return an EMPTY actions array. Never guess on anything that sends a " +
                 "message, books time, spends money, or posts publicly; ask first. ")
+            append("CONFIRM BEFORE ACTING: for consequential or hard-to-undo steps — sending a message/SMS, " +
+                "posting publicly, creating an event that invites OTHER people, anything spending money — do NOT " +
+                "put it in actions on the first turn. Instead state exactly what you'll do in \"say\" and ask for a " +
+                "yes (e.g. \"I'll text Anna: 'running 10 late' — send it?\"), with an EMPTY actions array. Only AFTER " +
+                "the user confirms (their next message is yes/go/send/do it) do you emit the action. Benign steps " +
+                "(open_app, open_url, web_search, play_music, navigate, timer, alarm, checklist_add) run immediately, no asking. ")
             append("When you DO complete something and a follow-up would genuinely help, add a short, " +
                 "relevant offer to \"say\" (e.g. \"Want a reminder an hour before?\" or \"Should I invite anyone?\"). " +
                 "Keep it to at most ONE question or offer — never pepper the user, and skip the follow-up entirely " +
@@ -802,7 +820,7 @@ object AgentClient {
             "with a clear ask and a polite one-line opt-out. Not spammy, no hype. " +
             "Format: first line 'SUBJECT: ...', then a blank line, then the body."
         val user = "Recipient: $recipient\nTopic: $topic" + (if (content.isNotBlank()) "\nReference:\n$content" else "")
-        val (code, text) = call(sys, user)
+        val (code, text) = callContent(sys, user, 400, VOICE)
         if (code != 200) return "Hello" to "[couldn't draft: $code $text]"
         val subj = Regex("(?i)subject:\\s*(.*)").find(text)?.groupValues?.get(1)?.trim() ?: "Hello"
         val body = text.substringAfter("\n").substringAfter(subj).trim().ifBlank { text.trim() }
@@ -832,7 +850,7 @@ object AgentClient {
         if (merged.isEmpty()) return "hey! what's up?"
         val arr = JSONArray()
         merged.takeLast(30).forEach { (r, t) -> arr.put(JSONObject().put("role", r).put("content", t)) }
-        val (code, text) = callMessages(sys, arr, 500)
+        val (code, text) = callMessages(sys, arr, 500, VOICE)
         return if (code == 200) text.trim() else "one sec, having trouble connecting ($code)."
     }
 
@@ -884,7 +902,7 @@ object AgentClient {
             "Return ONLY the reply text, no quotes, no preamble."
         val user = (if (threadContext.isNotBlank()) "Earlier in the conversation:\n$threadContext\n\n" else "") +
             "Their latest message/comment:\n\"$message\""
-        val (code, text) = callContent(sys, user, 700)
+        val (code, text) = callContent(sys, user, 700, VOICE)
         return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
     }
 
@@ -900,8 +918,8 @@ object AgentClient {
                 .put(JSONObject().put("type", "image").put("source",
                     JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
                 .put(JSONObject().put("type", "text").put("text", userText))
-            callContent(system, content, 400)
-        } else call(system, userText)
+            callContent(system, content, 400, VOICE)
+        } else callContent(system, userText, 400, VOICE)
         return if (code == 200) text.trim() else "[couldn't draft: $code $text]"
     }
 

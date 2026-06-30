@@ -105,6 +105,7 @@ object ToolRouter {
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
                 "navigate" -> navigate(ctx, arg)
+                "open_url" -> openUrl(ctx, arg)
                 "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
@@ -289,6 +290,19 @@ object ToolRouter {
         } catch (e: Exception) { "I couldn't send that." }
     }
 
+    /** Open a website in a real browser — never Maps. Prefers Chrome so a bare domain isn't hijacked. */
+    private fun openUrl(ctx: Context, arg: String): String {
+        var u = arg.trim()
+        if (u.isBlank()) return "What site should I open?"
+        if (!Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(u)) u = "https://$u"
+        return try {
+            val base = Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val chrome = Intent(base).setPackage("com.android.chrome")
+            if (ctx.packageManager.resolveActivity(chrome, 0) != null) start(ctx, chrome) else start(ctx, base)
+            "Opening $arg"
+        } catch (e: Exception) { "Couldn't open $arg." }
+    }
+
     /** Open Google Maps directions to a destination, optionally with a waypoint/stop + travel mode. */
     private fun navigate(ctx: Context, arg: String): String {
         return try {
@@ -344,8 +358,8 @@ object ToolRouter {
                 low.startsWith("http://") || low.startsWith("https://") ->
                     { start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(cmd))); "Opening browser" }
 
-                low.endsWith(".com") || low.endsWith(".org") || low.endsWith(".net") ->
-                    { start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://$cmd"))); "Opening $cmd" }
+                // A bare domain (slyos.world, nytimes.com, openai.com…) → browser, never Maps.
+                Regex("^[\\w-]+(?:\\.[\\w-]+)+$").matches(low) -> openUrl(ctx, cmd)
 
                 low.startsWith("search ") || low.startsWith("google ") -> {
                     val q = cmd.substringAfter(' '); webSearch(ctx, q); "Searching: $q"

@@ -262,6 +262,58 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(18.dp))
+        Text("Models & spending", fontSize = T.body, color = T.ink)
+        Text("Bring a key for any provider. Gemini has a free tier. With more than one, SlyOS uses a cheap " +
+            "model for everyday replies and a powerful one for papers — same memory and voice on all of them.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
+        var keyGemini by remember { mutableStateOf(MemoryStore.geminiKey(ctx)) }
+        var keyAnthropic by remember { mutableStateOf(MemoryStore.anthropicKey(ctx)) }
+        var keyOpenai by remember { mutableStateOf(MemoryStore.openaiKey(ctx)) }
+        var prefProvider by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
+        @Composable
+        fun keyRow(label: String, value: String, onChange: (String) -> Unit) {
+            Text(label, fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.height(3.dp))
+            BasicTextField(value = value, onValueChange = onChange, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
+                decorationBox = { inner -> if (value.isEmpty()) Text("not set", fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(8.dp))
+        }
+        keyRow("Gemini key (free tier)", keyGemini) { keyGemini = it; MemoryStore.setGeminiKey(ctx, it) }
+        keyRow("Claude / Anthropic key", keyAnthropic) {
+            keyAnthropic = it; MemoryStore.setAnthropicKey(ctx, it); com.agentos.shell.tools.AgentClient.apiKeyOverride = it.trim()
+        }
+        keyRow("OpenAI key", keyOpenai) { keyOpenai = it; MemoryStore.setOpenaiKey(ctx, it) }
+        Text("Prefer", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        Row {
+            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
+                val sel = prefProvider == id
+                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                        .background(if (sel) T.accent else T.hairline)
+                        .clickable { prefProvider = id; MemoryStore.setPreferredProvider(ctx, id) }
+                        .padding(horizontal = 14.dp, vertical = 7.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        run {
+            val cost = com.agentos.shell.tools.CostStore.monthCostUsd(ctx)
+            val proj = com.agentos.shell.tools.CostStore.projectedMonthUsd(ctx)
+            val calls = com.agentos.shell.tools.CostStore.monthCalls(ctx)
+            val byProv = com.agentos.shell.tools.CostStore.monthCostByProvider(ctx)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp)) {
+                Text("This month", fontSize = T.caption, color = T.inkFaint)
+                Text("$" + String.format("%.2f", cost) + " so far  ·  ~$" + String.format("%.2f", proj) + " projected",
+                    fontSize = T.body, color = T.ink)
+                Text("$calls model calls" + (if (byProv.isNotEmpty()) " · " + byProv.entries.joinToString(", ") { "${it.key} $" + String.format("%.2f", it.value) } else ""),
+                    fontSize = T.caption, color = T.inkFaint)
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
         Text("Connections", fontSize = T.body, color = T.ink)
         var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }
         val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)

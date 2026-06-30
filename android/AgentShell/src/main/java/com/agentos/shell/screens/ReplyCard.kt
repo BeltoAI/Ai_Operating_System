@@ -321,6 +321,11 @@ fun ReplyCard(note: NotificationStore.Note) {
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                             .clickable {
                                 clipboard.setText(AnnotatedString(draft)); copied = true
+                                // Record this drafted reply as sent so the brain keeps both sides of the
+                                // thread on apps with no inline reply box (X, IG, LinkedIn comments/DMs).
+                                val who = note.title.ifBlank { note.app }
+                                com.agentos.shell.tools.MessageStore.insertOne(ctx, who, note.app, who, "me", draft)
+                                com.agentos.shell.tools.ConversationStore.add(ctx, note.app, who, "me", draft)
                                 if (note.pkg.isNotBlank()) openApp(ctx, note.pkg)
                             }
                             .padding(horizontal = 16.dp, vertical = 9.dp))

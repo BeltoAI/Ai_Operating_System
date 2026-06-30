@@ -134,7 +134,7 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
         horizontalAlignment = Alignment.CenterHorizontally,
         // No clip here — a rounded clip would crop the notification badge that sits above the icon.
         modifier = Modifier.clickable { onClick() }
-            .padding(horizontal = 8.dp, top = 8.dp, bottom = 4.dp)
+            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)
     ) {
         Box {
             Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(24.dp))

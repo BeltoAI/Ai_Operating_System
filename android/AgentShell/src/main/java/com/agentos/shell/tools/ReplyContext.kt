@@ -10,6 +10,14 @@ import android.content.Context
 object ReplyContext {
     fun forSender(ctx: Context, app: String, title: String): String {
         val sb = StringBuilder()
+
+        // Per-platform persona FIRST and loud: this is how YOU come across on THIS app (CEO on LinkedIn,
+        // funny on IG, etc.). It must drive the voice of this reply, so it leads the context.
+        val style = MemoryStore.styleFor(ctx, app)
+        if (style.isNotBlank())
+            sb.append("⚑ YOUR PERSONA ON $app — adopt this voice and register fully for THIS reply, it overrides " +
+                "your general style: $style\n\n")
+
         val about = MemoryStore.fullProfile(ctx)   // About + facts the agent has learned on its own
         if (about.isNotBlank()) sb.append(about).append(" ")
 
@@ -17,11 +25,6 @@ object ReplyContext {
         val cal = try { CalendarTool.upcoming(ctx) } catch (e: Exception) { "" }
         if (cal.isNotBlank())
             sb.append("\nYour upcoming calendar (use ONLY if they ask about timing/availability/meeting): ").append(cal).append(" ")
-
-        // Per-platform persona: how you want to come across on THIS app (e.g. CEO on LinkedIn, funny on IG).
-        val style = MemoryStore.styleFor(ctx, app)
-        if (style.isNotBlank())
-            sb.append("\nYour persona/tone on $app (adopt it): $style ")
 
         val name = title.ifBlank { app }
         if (name.isNotBlank()) {
