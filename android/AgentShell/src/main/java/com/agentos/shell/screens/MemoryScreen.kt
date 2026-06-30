@@ -2,7 +2,12 @@ package com.agentos.shell.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,6 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.KnowledgeStore
 import com.agentos.shell.tools.MemoryStore
@@ -304,10 +310,40 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             val proj = com.agentos.shell.tools.CostStore.projectedMonthUsd(ctx)
             val calls = com.agentos.shell.tools.CostStore.monthCalls(ctx)
             val byProv = com.agentos.shell.tools.CostStore.monthCostByProvider(ctx)
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp)) {
-                Text("This month", fontSize = T.caption, color = T.inkFaint)
-                Text("$" + String.format("%.2f", cost) + " so far  ·  ~$" + String.format("%.2f", proj) + " projected",
-                    fontSize = T.body, color = T.ink)
+            val daily = com.agentos.shell.tools.CostStore.dailyThisMonth(ctx)
+            val dim = com.agentos.shell.tools.CostStore.daysInMonth()
+            val accentC = T.accent; val lineC = T.hairline; val softC = T.inkSoft
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.weight(1f)) {
+                        Text("This month", fontSize = T.caption, color = T.inkFaint)
+                        Text("$" + String.format("%.2f", cost), fontSize = 26.sp, color = T.ink)
+                    }
+                    Text("~$" + String.format("%.2f", proj) + " projected", fontSize = T.caption, color = T.accent)
+                }
+                Spacer(Modifier.height(10.dp))
+                // Cumulative spend across the month: solid = so far, dashed = projection to month-end.
+                Canvas(Modifier.fillMaxWidth().height(86.dp)) {
+                    val w = size.width; val h = size.height
+                    var acc = 0.0
+                    val cum = daily.map { acc += it; acc }
+                    val maxY = maxOf(proj, cum.lastOrNull() ?: 0.0, 0.000001)
+                    fun px(day: Int): Float = if (dim <= 1) 0f else (day - 1).toFloat() / (dim - 1) * w
+                    fun py(v: Double): Float = (h - 4f) - (v / maxY).toFloat() * (h - 10f)
+                    drawLine(lineC, Offset(0f, h - 3f), Offset(w, h - 3f), strokeWidth = 1.5f)
+                    if (cum.isNotEmpty()) {
+                        val path = Path(); path.moveTo(px(1), py(cum[0]))
+                        for (i in 1 until cum.size) path.lineTo(px(i + 1), py(cum[i]))
+                        drawPath(path, accentC, style = Stroke(width = 3f))
+                        val lastX = px(cum.size); val lastY = py(cum.last())
+                        drawCircle(accentC, 4.5f, Offset(lastX, lastY))
+                        val proj1 = Path(); proj1.moveTo(lastX, lastY); proj1.lineTo(px(dim), py(proj))
+                        drawPath(proj1, softC, style = Stroke(width = 2f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 9f))))
+                        drawCircle(softC, 3.5f, Offset(px(dim), py(proj)))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Text("$calls model calls" + (if (byProv.isNotEmpty()) " · " + byProv.entries.joinToString(", ") { "${it.key} $" + String.format("%.2f", it.value) } else ""),
                     fontSize = T.caption, color = T.inkFaint)
             }

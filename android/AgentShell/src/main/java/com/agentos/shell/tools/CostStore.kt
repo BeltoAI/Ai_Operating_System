@@ -24,6 +24,10 @@ object CostStore {
     private fun monthKey(): String {
         val c = Calendar.getInstance(); return "${c.get(Calendar.YEAR)}-${c.get(Calendar.MONTH)}"
     }
+    private fun dayKey(): String {
+        val c = Calendar.getInstance()
+        return "${c.get(Calendar.YEAR)}-${c.get(Calendar.MONTH)}-${c.get(Calendar.DAY_OF_MONTH)}"
+    }
 
     private fun priceFor(provider: String, model: String): Pair<Double, Double> =
         PRICES[model] ?: when (provider) {
@@ -36,14 +40,24 @@ object CostStore {
         val (pin, pout) = priceFor(provider, model)
         val cost = inTok / 1_000_000.0 * pin + outTok / 1_000_000.0 * pout
         val micros = (cost * 1_000_000).toLong()
-        val mk = monthKey(); val p = prefs(ctx)
+        val mk = monthKey(); val dk = dayKey(); val p = prefs(ctx)
         p.edit()
             .putLong("calls_$mk", p.getLong("calls_$mk", 0) + 1)
             .putLong("tok_$mk", p.getLong("tok_$mk", 0) + inTok + outTok)
             .putLong("cost_$mk", p.getLong("cost_$mk", 0) + micros)
             .putLong("cost_${mk}_$provider", p.getLong("cost_${mk}_$provider", 0) + micros)
+            .putLong("costd_$dk", p.getLong("costd_$dk", 0) + micros)
             .apply()
     }
+
+    /** Cost for each day so far this month (index 0 = day 1 … last = today), in USD. */
+    fun dailyThisMonth(ctx: Context): List<Double> {
+        val c = Calendar.getInstance()
+        val y = c.get(Calendar.YEAR); val m = c.get(Calendar.MONTH); val today = c.get(Calendar.DAY_OF_MONTH)
+        return (1..today).map { d -> prefs(ctx).getLong("costd_$y-$m-$d", 0) / 1_000_000.0 }
+    }
+    fun dayOfMonth(): Int = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
+    fun daysInMonth(): Int = Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH)
 
     fun monthCostUsd(ctx: Context): Double = prefs(ctx).getLong("cost_${monthKey()}", 0) / 1_000_000.0
     fun monthCalls(ctx: Context): Long = prefs(ctx).getLong("calls_${monthKey()}", 0)
