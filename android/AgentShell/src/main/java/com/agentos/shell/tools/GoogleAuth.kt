@@ -25,7 +25,8 @@ object GoogleAuth {
     private const val PREF = "slyos_google"
     private const val AUTH_EP = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_EP = "https://oauth2.googleapis.com/token"
-    private const val SCOPE = "openid email https://www.googleapis.com/auth/calendar.events"
+    private const val SCOPE = "openid email https://www.googleapis.com/auth/calendar.events " +
+        "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 

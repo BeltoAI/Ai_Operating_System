@@ -305,6 +305,36 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
         Spacer(Modifier.height(12.dp))
+        Text("Routing — which model handles what", fontSize = T.caption, color = T.inkSoft)
+        Text("Quick tasks = triage, summaries, understanding commands (high volume).  Your replies = the " +
+            "messages it sends as you.  Heavy work = papers, mini-apps, spicy posts.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
+        val tiers = listOf(
+            com.agentos.shell.tools.ModelRouter.Tier.CHEAP to "Quick tasks",
+            com.agentos.shell.tools.ModelRouter.Tier.STANDARD to "Your replies",
+            com.agentos.shell.tools.ModelRouter.Tier.HEAVY to "Heavy work"
+        )
+        val routeMap = remember {
+            mutableStateMapOf<String, String>().apply { tiers.forEach { (t, _) -> put(t.name, MemoryStore.tierProvider(ctx, t)) } }
+        }
+        tiers.forEach { (tier, label) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                Text(label, fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
+                listOf("" to "Auto", "gemini" to "Gem", "anthropic" to "Claude", "openai" to "GPT").forEach { (pid, plbl) ->
+                    val sel = (routeMap[tier.name] ?: "") == pid
+                    Text(plbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                        modifier = Modifier.padding(start = 5.dp).clip(RoundedCornerShape(999.dp))
+                            .background(if (sel) T.accent else T.hairline)
+                            .clickable { routeMap[tier.name] = pid; MemoryStore.setTierProvider(ctx, tier, pid) }
+                            .padding(horizontal = 9.dp, vertical = 5.dp))
+                }
+            }
+        }
+        Text("Auto = use your preferred, fall back to any key. A model only runs if its key is set.",
+            fontSize = T.caption, color = T.inkFaint)
+
+        Spacer(Modifier.height(12.dp))
         run {
             val cost = com.agentos.shell.tools.CostStore.monthCostUsd(ctx)
             val proj = com.agentos.shell.tools.CostStore.projectedMonthUsd(ctx)
@@ -355,13 +385,14 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             Column(Modifier.weight(1f)) {
-                Text("Google Calendar & Meet", fontSize = T.body, color = T.ink)
+                Text("Google · Calendar, Meet & Gmail", fontSize = T.body, color = T.ink)
                 Text(
                     when {
                         gConnected -> "Connected" + (if (gAccount.isNotBlank()) " · $gAccount" else "") +
-                            " — meetings get a real Meet link and email invites."
+                            " — Meet links + invites, and recent mail (with PDF attachments) read into the brain. " +
+                            "If you connected before Gmail was added, tap Disconnect then Connect to grant it."
                         com.agentos.shell.tools.GoogleAuth.configured() ->
-                            "Sign in with your Google account to auto-create Google Meet links and send calendar invites. One tap."
+                            "Sign in with your Google account: auto-create Meet links, send invites, and let the brain read your recent mail + attachments. One tap."
                         else -> "Not available in this build yet."
                     },
                     fontSize = T.small, color = T.inkFaint

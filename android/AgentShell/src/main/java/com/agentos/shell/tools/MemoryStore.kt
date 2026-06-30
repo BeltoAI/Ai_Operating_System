@@ -104,6 +104,15 @@ object MemoryStore {
     fun setModelOverride(ctx: Context, provider: String, tier: ModelRouter.Tier, model: String) =
         prefs(ctx).edit().putString("model_${provider}_${tier.name}", model.trim()).apply()
 
+    /**
+     * Per-task routing: which provider should handle each tier. "" = Auto (use preferred + fallback).
+     * Lets the user say e.g. "everyday replies on Gemini (free), papers on Claude."
+     */
+    fun tierProvider(ctx: Context, tier: ModelRouter.Tier): String =
+        prefs(ctx).getString("tier_prov_${tier.name}", "") ?: ""
+    fun setTierProvider(ctx: Context, tier: ModelRouter.Tier, provider: String) =
+        prefs(ctx).edit().putString("tier_prov_${tier.name}", provider).apply()
+
     /** Canonical platform key from an app label (so "WhatsApp Business" → whatsapp, etc.). */
     fun platformKey(app: String): String {
         val a = app.lowercase()

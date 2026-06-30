@@ -105,6 +105,7 @@ object ToolRouter {
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
                 "navigate" -> navigate(ctx, arg)
+                "send_email" -> sendEmail(ctx, arg)
                 "open_url" -> openUrl(ctx, arg)
                 "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
@@ -288,6 +289,33 @@ object ToolRouter {
                 else -> sendSms(ctx, JSONObject().put("name", name).put("body", body).toString())
             }
         } catch (e: Exception) { "I couldn't send that." }
+    }
+
+    /** Send a real email via Gmail, optionally minting + embedding a Google Meet link. */
+    private fun sendEmail(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val to = o.optString("to").trim()
+            if (!to.contains("@") || !to.contains(".")) return "What's their email address?"
+            if (!GoogleAuth.isConnected(ctx)) return "Connect Google (Gmail) in settings first, then I can send it."
+            val subject = o.optString("subject").ifBlank { "(no subject)" }
+            var body = o.optString("body")
+            if (body.isBlank()) return "What should the email say?"
+            // Optional Google Meet: needs a time; create the event + attendee and append the join link.
+            if (o.optBoolean("meet", false)) {
+                val startMs = parseLocal(o.optString("start"))
+                val endMs = parseLocal(o.optString("end"))
+                if (startMs > 0 && endMs > 0) {
+                    val r = GoogleCalendarClient.createEvent(ctx, subject, startMs, endMs, listOf(to), true)
+                    if (r.ok && r.meetLink.isNotBlank()) body += "\n\nJoin Google Meet: ${r.meetLink}"
+                }
+            }
+            val (ok, msg) = GmailClient.send(ctx, to, subject, body)
+            if (ok) {
+                MemoryLog.add(ctx, "response", "Email: $subject", "Sent to $to — $subject", "Email")
+                "Sent to $to ✓"
+            } else "Couldn't send the email — $msg"
+        } catch (e: Exception) { Log.e("SlyOS", "sendEmail failed", e); "I couldn't send that email." }
     }
 
     /** Open a website in a real browser — never Maps. Prefers Chrome so a bare domain isn't hijacked. */

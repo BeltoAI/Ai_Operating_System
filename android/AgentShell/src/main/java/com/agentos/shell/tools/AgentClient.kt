@@ -174,7 +174,9 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
+            append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
@@ -852,6 +854,35 @@ object AgentClient {
         merged.takeLast(30).forEach { (r, t) -> arr.put(JSONObject().put("role", r).put("content", t)) }
         val (code, text) = callMessages(sys, arr, 500, VOICE)
         return if (code == 200) text.trim() else "one sec, having trouble connecting ($code)."
+    }
+
+    private fun parseSubjectBody(text: String, fallbackSubject: String): Pair<String, String> {
+        val subj = Regex("(?i)subject:\\s*(.*)").find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() } ?: fallbackSubject
+        val body = text.substringAfter("\n").substringAfter(subj).trim().ifBlank { text.trim() }
+        return subj to body
+    }
+
+    /** Draft a full email (subject + body) from a topic, in the user's voice. For the editable compose page. */
+    fun composeEmail(recipient: String, topic: String, memory: String = ""): Pair<String, String> {
+        val sys = persona(memory) +
+            "Write a COMPLETE email from you to $recipient about the topic below, in your own natural voice — " +
+            "clear and warm, as concise or detailed as the ask needs, never corporate boilerplate. Include a " +
+            "natural greeting and sign-off. Format EXACTLY: first line 'SUBJECT: ...', then a blank line, then the body. Return ONLY that."
+        val user = "Recipient: ${recipient.ifBlank { "the recipient" }}\nWhat it's about: $topic"
+        val (code, text) = callContent(sys, user, 1000, VOICE)
+        if (code != 200) return "" to "[couldn't draft: $code $text]"
+        return parseSubjectBody(text, topic.take(60))
+    }
+
+    /** Revise a full email per a natural-language instruction, keeping the user's voice. */
+    fun reviseEmail(subject: String, body: String, instruction: String, memory: String = ""): Pair<String, String> {
+        val sys = persona(memory) +
+            "Revise the user's email exactly per their instruction, keeping their voice. Format EXACTLY: " +
+            "first line 'SUBJECT: ...', blank line, then the body. Return ONLY that."
+        val user = "CURRENT EMAIL:\nSubject: $subject\n\n$body\n\nINSTRUCTION: $instruction"
+        val (code, text) = callContent(sys, user, 1000, VOICE)
+        if (code != 200) return subject to body
+        return parseSubjectBody(text, subject)
     }
 
     /** Context-aware reply: sees the whole conversation thread with this person. */

@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +58,9 @@ class ShellActivity : ComponentActivity() {
         }
         // Pull the whole calendar (past + future) into the brain so the agent knows every appointment.
         Thread { com.agentos.shell.tools.CalendarTool.syncAllToBrain(applicationContext) }.start()
+        // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
+        if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
+            Thread { try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {} }.start()
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
@@ -76,6 +79,8 @@ class ShellActivity : ComponentActivity() {
             var agentPaused by remember { mutableStateOf(false) }
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
+            var emailTo by remember { mutableStateOf("") }
+            var emailTopic by remember { mutableStateOf("") }
             var currentAppId by remember { mutableStateOf(0L) }
             var spicyTopic by remember { mutableStateOf("") }
             var researchTopic by remember { mutableStateOf("") }
@@ -117,6 +122,7 @@ class ShellActivity : ComponentActivity() {
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
+                            onComposeEmail = { to, t -> emailTo = to; emailTopic = t; screen = Screen.EmailCompose },
                             onArchitect = { screen = Screen.Architect },
                             onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost },
                             onResearch = { t -> researchTopic = t; screen = Screen.Research },
@@ -132,6 +138,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
                         Screen.Research -> ResearchScreen(m, researchTopic) { researchTopic = ""; screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
+                        Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }
                         Screen.Architect -> ArchitectScreen(m, onBack = { screen = Screen.Home }, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView })
                         Screen.AppView -> AppViewScreen(m, currentAppId) { screen = Screen.Architect }

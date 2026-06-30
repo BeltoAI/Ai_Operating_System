@@ -48,8 +48,10 @@ object ModelRouter {
      */
     fun choose(ctx: Context?, tier: Tier, needVision: Boolean, needWeb: Boolean): Choice? {
         if (ctx == null) return null
+        // Per-task routing override takes precedence, then the global preferred, then any keyed provider.
+        val tierPref = MemoryStore.tierProvider(ctx, tier)
         val preferred = MemoryStore.preferredProvider(ctx)
-        val order = (listOf(preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
+        val order = (listOf(tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
         // First pass: respect capability constraints.
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue

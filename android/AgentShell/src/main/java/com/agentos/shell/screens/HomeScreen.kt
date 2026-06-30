@@ -98,6 +98,7 @@ fun HomeScreen(
     onOpen: (Screen) -> Unit,
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
+    onComposeEmail: (String, String) -> Unit = { _, _ -> },
     onArchitect: () -> Unit = {},
     onSpicy: (String) -> Unit = {},
     onResearch: (String) -> Unit = {},
@@ -262,6 +263,16 @@ fun HomeScreen(
             if (spicyAct != null) {
                 thinking = false
                 onSpicy(spicyAct.arg.ifBlank { q })
+                return@launch
+            }
+            // compose_email opens the editable email draft page (review, prompt-to-revise, then send).
+            val emailAct = result.actions.firstOrNull { it.type == "compose_email" }
+            if (emailAct != null) {
+                val o = try { org.json.JSONObject(emailAct.arg) } catch (e: Exception) { null }
+                val to = o?.optString("to").orEmpty()
+                val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: emailAct.arg.ifBlank { q }
+                thinking = false
+                onComposeEmail(to, tpc)
                 return@launch
             }
             // write_paper navigates to the Research workspace, pre-filled.
