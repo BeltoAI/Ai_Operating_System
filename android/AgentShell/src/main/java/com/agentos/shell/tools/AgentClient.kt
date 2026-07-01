@@ -147,6 +147,10 @@ object AgentClient {
             val effTools = if (choice.provider == "anthropic") tools else null
             val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
             if (r.code == 200 && ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+            // Free Gemini tier: warn the user when we hit the daily/rate quota so it isn't a silent failure.
+            if (ctx != null && choice.provider == "gemini" &&
+                (r.code == 429 || r.text.contains("RESOURCE_EXHAUSTED", true) || r.text.contains("quota", true)))
+                GeminiLimit.hit(ctx)
             Log.i("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} in=${r.inTokens} out=${r.outTokens}")
             r.code to r.text
         } catch (e: Exception) {
@@ -699,6 +703,8 @@ object AgentClient {
         "Create a REAL Google Slides deck (separate each slide with a line of just ===, and the FIRST line of each block is that slide's title):\nTOOL create_gslides\nNAME: Deck title\nNOTE: …\nCONTENT>>>\nWhat Belto Is\n- point one\n- point two\n===\nHow It Works\n- point\n<<<END\n\n" +
         "Create a REAL Google Sheet (CSV, first row = headers):\nTOOL create_gsheet\nNAME: Sheet title\nCONTENT>>>\nName,Amount\nRent,1200\n<<<END\n\n" +
         "Create a PDF (saved to Downloads):\nTOOL create_pdf\nNAME: title\nCONTENT>>>\n(the text)\n<<<END\n\n" +
+        "Run a REAL shell command in Termux (a full Linux env: python, pip, git, node, compilers — the user must have Termux):\nTOOL run_command\nNOTE: …\nCONTENT>>>\npython3 --version\n<<<END\n" +
+        "Use run_command to actually BUILD AND RUN things locally: install packages (pip/npm), write files (heredoc: cat > app.py <<'EOF' … EOF), run scripts, start/test servers. I return the stdout/stderr. If it says Termux isn't installed, tell the user how to set it up and fall back to writing files. \n\n" +
         "When the user wants slides/a doc/a sheet 'in Google' or something to open online, use the Google tools above (Google must be connected). Include any link the tool returns in your final DONE message. " +
         "When the ENTIRE task is complete:\nDONE\n(a short summary + any link + how to run/deploy)\n\n" +
         "RULES: All code goes inside CONTENT blocks — never in chat, never in the DONE summary (the DONE summary is " +

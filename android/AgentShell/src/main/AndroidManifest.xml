@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.SEND_SMS"/>
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission"/>
+    <!-- Let Cowork run real shell commands in the user's Termux (build & run apps locally). -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
 
     <application
         android:label="SlyOS"

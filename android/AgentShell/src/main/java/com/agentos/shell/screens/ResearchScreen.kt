@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -113,6 +115,7 @@ private fun ensureStyle(html: String): String {
     return PAPER_CSS + h
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onWorkspace: () -> Unit = {}, onBack: () -> Unit) {
@@ -120,6 +123,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(if (initialTopic.isNotBlank()) "compose" else "library") }
     var papers by remember { mutableStateOf(PaperStore.list(ctx)) }
+    var paperSearch by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf(0L) }
+    var renameText by remember { mutableStateOf("") }
     var currentId by remember { mutableStateOf(0L) }
     var html by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf(initialTopic) }
@@ -528,12 +534,23 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                             .clickable { onWorkspace() }.padding(horizontal = 16.dp, vertical = 10.dp))
                 }
                 Spacer(Modifier.height(14.dp))
+                BasicTextField(value = paperSearch, onValueChange = { paperSearch = it }, singleLine = true,
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp),
+                    decorationBox = { inner -> if (paperSearch.isEmpty()) Text("🔍  Search papers…", fontSize = T.small, color = T.inkFaint); inner() })
+                Spacer(Modifier.height(12.dp))
                 if (papers.isEmpty())
                     Text("No papers yet. Tap New paper to write one.", fontSize = T.small, color = T.inkFaint)
+                val shownPapers = papers.filter { paperSearch.isBlank() || it.title.contains(paperSearch, true) }
+                if (papers.isNotEmpty() && shownPapers.isEmpty())
+                    Text("No papers match “$paperSearch”.", fontSize = T.small, color = T.inkFaint)
                 LazyColumn(Modifier.weight(1f)) {
-                    items(papers, key = { it.id }) { p ->
+                    items(shownPapers, key = { it.id }) { p ->
                         Row(verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable { openPaper(p.id) }.padding(vertical = 12.dp)) {
+                            modifier = Modifier.fillMaxWidth()
+                                .combinedClickable(onClick = { openPaper(p.id) },
+                                    onLongClick = { renaming = p.id; renameText = p.title })
+                                .padding(vertical = 12.dp)) {
                             Text("◆", color = T.accent, fontSize = T.small)
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
@@ -787,6 +804,31 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                     Spacer(Modifier.width(12.dp))
                     Text("Cancel", fontSize = T.small, color = T.inkSoft,
                         modifier = Modifier.clickable { showPublish = false }.padding(vertical = 10.dp))
+                }
+            }
+        }
+    }
+
+    if (renaming != 0L) {
+        Dialog(onDismissRequest = { renaming = 0L }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Rename", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(12.dp))
+                BasicTextField(
+                    value = renameText, onValueChange = { renameText = it },
+                    textStyle = TextStyle(color = T.ink, fontSize = T.body), singleLine = true,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(12.dp))
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable {
+                                PaperStore.rename(ctx, renaming, renameText)
+                                papers = PaperStore.list(ctx); renaming = 0L
+                            }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { renaming = 0L }.padding(vertical = 10.dp))
                 }
             }
         }

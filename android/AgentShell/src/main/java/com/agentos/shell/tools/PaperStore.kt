@@ -102,6 +102,11 @@ object PaperStore {
         })
     }
 
+    /** Rename a paper (index title only; doesn't touch the document). */
+    fun rename(ctx: Context, id: Long, title: String) {
+        writeIndex(ctx, list(ctx).map { if (it.id == id) it.copy(title = title.trim().take(80).ifBlank { it.title }) else it })
+    }
+
     fun delete(ctx: Context, id: Long) {
         file(ctx, id).delete()
         versions(ctx, id).forEach { try { vFile(ctx, id, it.ts).delete() } catch (e: Exception) {} }
