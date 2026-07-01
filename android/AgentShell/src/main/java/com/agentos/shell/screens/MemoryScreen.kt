@@ -561,7 +561,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text("$calls model calls this month", fontSize = T.caption, color = T.inkFaint)
                 if (byProv.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
+                    androidx.compose.material3.HorizontalDivider(color = T.hairline, thickness = 1.dp)
                     Spacer(Modifier.height(8.dp))
                     Text("Per key", fontSize = T.caption, color = T.inkSoft)
                     Spacer(Modifier.height(4.dp))

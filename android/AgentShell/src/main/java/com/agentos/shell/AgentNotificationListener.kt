@@ -43,6 +43,7 @@ class AgentNotificationListener : NotificationListenerService() {
         NotificationStore.pendingAuto.remove(sbn.key)
     }
 
+    @Suppress("DEPRECATION")   // getParcelableArray/getParcelable typed overloads are 33+; minSdk is 29
     private fun ingest(sbn: StatusBarNotification): NotificationStore.Note? {
         val n = sbn.notification ?: return null
         if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return null

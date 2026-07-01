@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -510,7 +511,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         }
 
         Spacer(Modifier.height(10.dp))
-        androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
+        androidx.compose.material3.HorizontalDivider(color = T.hairline, thickness = 1.dp)
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth().clickable { missionOpen = !missionOpen }, verticalAlignment = Alignment.CenterVertically) {
             Text("MISSION", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
