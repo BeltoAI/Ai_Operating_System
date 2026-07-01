@@ -23,6 +23,10 @@ object WorkspaceStore {
         try { File(dir(ctx), safe(name)).writeText(content) } catch (e: Exception) {}
     }
 
+    fun append(ctx: Context, name: String, content: String) {
+        try { File(dir(ctx), safe(name)).appendText(content) } catch (e: Exception) {}
+    }
+
     fun edit(ctx: Context, name: String, find: String, replace: String): Boolean {
         val f = File(dir(ctx), safe(name)); if (!f.exists()) return false
         val cur = f.readText(); if (!cur.contains(find)) return false
@@ -31,4 +35,22 @@ object WorkspaceStore {
 
     fun delete(ctx: Context, name: String) { try { File(dir(ctx), safe(name)).delete() } catch (e: Exception) {} }
     fun exists(ctx: Context, name: String): Boolean = File(dir(ctx), safe(name)).exists()
+
+    /** Copy a workspace file into the phone's public Downloads/SlyOS folder — a real, visible file
+     *  every app can open. Returns true on success. */
+    fun exportToDownloads(ctx: Context, name: String): Boolean {
+        return try {
+            if (!exists(ctx, name)) return false
+            val content = read(ctx, name)
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe(name))
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_DOWNLOADS + "/SlyOS")
+            }
+            val uri = ctx.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+            ctx.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+            true
+        } catch (e: Exception) { false }
+    }
 }

@@ -174,10 +174,12 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
+            append("create_doc={\"title\":\"…\",\"content\":\"the full document text\"} — creates a REAL Google Doc (needs Google connected). WRITE the actual document content yourself, well-structured, in the user's voice. Returns a shareable link. Use for \"write me a doc / letter / report / notes\". ")
+            append("create_sheet={\"title\":\"…\",\"rows\":[[\"Name\",\"Amount\"],[\"Rent\",\"1200\"]]} — creates a REAL Google Sheet; first row = headers. Use for \"make me a spreadsheet/tracker/budget\". ")
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
@@ -683,23 +685,25 @@ object AgentClient {
      * GPT OR Gemini). The screen executes the tool, feeds back the result, and repeats until "done".
      */
     private fun coworkSys(memory: String): String =
-        "You are SlyOS Cowork — a capable local agent working on the user's documents on their phone, like " +
-        "a desktop coding/writing assistant. You accomplish tasks by USING TOOLS, ONE PER TURN. " +
-        "Reply with ONLY a single JSON object each turn — no prose outside the JSON. Available tools:\n" +
-        "{\"tool\":\"list_files\",\"note\":\"…\"}\n" +
-        "{\"tool\":\"read_file\",\"args\":{\"name\":\"x.md\"},\"note\":\"…\"}\n" +
-        "{\"tool\":\"write_file\",\"args\":{\"name\":\"x.md\",\"content\":\"FULL file contents\"},\"note\":\"…\"}  (creates or overwrites)\n" +
-        "{\"tool\":\"edit_file\",\"args\":{\"name\":\"x.md\",\"find\":\"exact text\",\"replace\":\"new text\"},\"note\":\"…\"}\n" +
-        "{\"done\":true,\"message\":\"a short summary of what you did\"}\n" +
-        "RULES: plan, then act step by step. Always write COMPLETE file contents (never placeholders or '...'). " +
-        "Read a file before editing it. 'note' is a short line shown to the user describing this step. " +
-        "After each tool I send the result back; keep going until the task is fully done, then return done. " +
+        "You are SlyOS Cowork — a capable local agent that ACTUALLY CREATES REAL FILES on the user's phone, like " +
+        "a desktop coding/writing assistant. NEVER paste code into chat. Work step by step, ONE action per reply, " +
+        "using this EXACT plain-text format (NOT JSON — do not escape anything):\n\n" +
+        "List files:\nTOOL list_files\n\n" +
+        "Read a file:\nTOOL read_file\nNAME: path.py\n\n" +
+        "Create/overwrite a file:\nTOOL write_file\nNAME: server.py\nNOTE: short line about this step\nCONTENT>>>\n" +
+        "(the full raw file content here — real newlines, any characters, NO escaping)\n<<<END\n\n" +
+        "Add to the end of a file:\nTOOL append_file\nNAME: server.py\nNOTE: …\nCONTENT>>>\n(more raw content)\n<<<END\n\n" +
+        "When the ENTIRE task is complete:\nDONE\n(a short summary + the exact commands to run/deploy it)\n\n" +
+        "RULES: All code goes inside CONTENT blocks — never in chat, never in the DONE summary (the DONE summary is " +
+        "plain English + shell commands only). Read a file before editing. For a big file, write_file the first part " +
+        "then append_file the rest in a few chunks. Reply with ONLY one action — nothing before or after it. After " +
+        "each action I send you the result; keep going until done, then reply DONE. " +
         (if (memory.isNotBlank()) "About the user (use when relevant): $memory. " else "")
 
     /** One turn of the Cowork loop. [messages] = the running user/assistant transcript. Returns raw text. */
     fun coworkTurn(messages: JSONArray, memory: String = ""): String {
-        val (code, text) = callMessages(coworkSys(memory), messages, 8000, OPUS)
-        return if (code == 200) text.trim() else "{\"done\":true,\"message\":\"I hit an error ($code). Try again.\"}"
+        val (code, text) = callMessages(coworkSys(memory), messages, 20000, OPUS)
+        return if (code == 200) text.trim() else "DONE\nI hit an error ($code) — likely a rate limit or key issue. Try routing Heavy work to Claude in Settings."
     }
 
     /** The Architect (Opus 4.8): turn a prompt into a self-contained, bridge-powered mini-app. */
@@ -729,8 +733,8 @@ object AgentClient {
             "and any verbal tics. 4–6 sentences, concrete and imitable, second person ('You tend to…'). " +
             "Describe ONLY their style, not the content."
         val joined = samples.take(120).joinToString("\n").take(9000)
-        val (code, text) = callContent(sys, "MESSAGES:\n$joined", 500)
-        return if (code == 200) text.trim() else ""
+        val (code, text) = callContent(sys, "MESSAGES:\n$joined", 500, VOICE)
+        return if (code == 200) text.trim() else "[error $code: ${text.take(150)}]"
     }
 
     /** A warm, genuine message to reconnect with someone you've gone quiet on. In the owner's voice. */

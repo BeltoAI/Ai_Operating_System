@@ -26,7 +26,9 @@ object GoogleAuth {
     private const val AUTH_EP = "https://accounts.google.com/o/oauth2/v2/auth"
     private const val TOKEN_EP = "https://oauth2.googleapis.com/token"
     private const val SCOPE = "openid email https://www.googleapis.com/auth/calendar.events " +
-        "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send"
+        "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send " +
+        "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/presentations " +
+        "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 

@@ -106,6 +106,8 @@ object ToolRouter {
                 "message" -> sendMessage(ctx, arg)
                 "navigate" -> navigate(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
+                "create_doc" -> createDoc(ctx, arg)
+                "create_sheet" -> createSheet(ctx, arg)
                 "open_url" -> openUrl(ctx, arg)
                 "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
@@ -316,6 +318,39 @@ object ToolRouter {
                 "Sent to $to ✓"
             } else "Couldn't send the email — $msg"
         } catch (e: Exception) { Log.e("SlyOS", "sendEmail failed", e); "I couldn't send that email." }
+    }
+
+    /** Create a real Google Doc from drafted content. */
+    private fun createDoc(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val title = o.optString("title").ifBlank { "Untitled" }
+            val body = o.optString("content")
+            if (!GoogleAuth.isConnected(ctx)) return "Connect Google in settings first, then I can create the doc."
+            val r = GoogleWorkspace.createDoc(ctx, title, body)
+            if (r.ok) { MemoryLog.add(ctx, "response", "Doc: $title", "Created Google Doc: $title", "Docs"); "Created Google Doc “$title” — ${r.url}" }
+            else "Couldn't create the doc — ${r.error}"
+        } catch (e: Exception) { "I couldn't create that doc." }
+    }
+
+    /** Create a real Google Sheet from rows: {"title":"…","rows":[["A","B"],["1","2"]]}. */
+    private fun createSheet(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val title = o.optString("title").ifBlank { "Sheet" }
+            val rows = ArrayList<List<String>>()
+            o.optJSONArray("rows")?.let { rr ->
+                for (i in 0 until rr.length()) {
+                    val row = ArrayList<String>(); val a = rr.optJSONArray(i)
+                    if (a != null) for (j in 0 until a.length()) row.add(a.optString(j))
+                    rows.add(row)
+                }
+            }
+            if (!GoogleAuth.isConnected(ctx)) return "Connect Google in settings first, then I can create the sheet."
+            val r = GoogleWorkspace.createSheet(ctx, title, rows)
+            if (r.ok) { MemoryLog.add(ctx, "response", "Sheet: $title", "Created Google Sheet: $title", "Sheets"); "Created Google Sheet “$title” — ${r.url}" }
+            else "Couldn't create the sheet — ${r.error}"
+        } catch (e: Exception) { "I couldn't create that sheet." }
     }
 
     /** Open a website in a real browser — never Maps. Prefers Chrome so a bare domain isn't hijacked. */

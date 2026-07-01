@@ -1,5 +1,9 @@
 package com.agentos.shell.screens
 
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -24,16 +28,66 @@ import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.WorkspaceStore
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+private data class CwAction(val done: Boolean, val message: String, val tool: String, val name: String, val note: String, val content: String)
+
+/** Parse the delimiter protocol (no JSON escaping, so large code files stay intact). */
+private fun parseCw(raw: String): CwAction? {
+    var s = raw.trim()
+    if (s.startsWith("```")) s = s.substringAfter('\n', s)
+    if (s.endsWith("```")) s = s.substringBeforeLast("```")
+    s = s.trim()
+    val toolM = Regex("(?im)^\\s*TOOL[:\\s]+([a-z_]+)").find(s)
+    if (toolM == null) {
+        return if (Regex("(?im)^\\s*DONE\\b").containsMatchIn(s)) {
+            val msg = Regex("(?is)\\bDONE\\b[ \\t]*\\r?\\n?(.*)").find(s)?.groupValues?.get(1)?.trim().orEmpty()
+            CwAction(true, msg.ifBlank { "Done." }, "", "", "", "")
+        } else null
+    }
+    val tool = toolM.groupValues[1].lowercase()
+    val name = Regex("(?im)^\\s*NAME:\\s*(.+)$").find(s)?.groupValues?.get(1)?.trim().orEmpty()
+    val note = Regex("(?im)^\\s*NOTE:\\s*(.+)$").find(s)?.groupValues?.get(1)?.trim().orEmpty()
+    val content = Regex("(?s)CONTENT>>>[ \\t]*\\r?\\n(.*?)\\r?\\n?<<<END").find(s)?.groupValues?.get(1) ?: ""
+    return CwAction(false, "", tool, name, note, content)
+}
+
+private fun queryName(ctx: Context, uri: Uri): String {
+    var n = "upload.txt"
+    try {
+        ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (i >= 0) c.getString(i)?.let { n = it }
+            }
+        }
+    } catch (e: Exception) {}
+    return n.replace(Regex("[\\\\/]+"), "_")
+}
+
+private fun readUpload(ctx: Context, uri: Uri): Pair<String, String> {
+    val name = queryName(ctx, uri)
+    return try {
+        val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return name to ""
+        val text = if (name.endsWith(".pdf", true)) {
+            PDFBoxResourceLoader.init(ctx.applicationContext)
+            val d = PDDocument.load(bytes); val t = PDFTextStripper().getText(d); d.close(); t
+        } else String(bytes)
+        name to text.take(200000)
+    } catch (e: Exception) { name to "" }
+}
+
 /**
- * Local Cowork: a desktop-style agent workspace on the phone. You give it a task; it iterates with
- * tools (list/read/write/edit real files) until done, narrating each step. Runs on whichever model
- * you've set (Claude, GPT, or Gemini) via a JSON tool protocol — no native tool-use API required.
+ * Local Cowork: a desktop-style agent workspace on the phone. Give it a task; it iterates with tools
+ * (list/read/write/append REAL files) until done. Uses a delimiter protocol so big code files never
+ * break, and runs on whichever model you've set (Claude/GPT/Gemini).
  */
 @Composable
 fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
@@ -43,59 +97,60 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(WorkspaceStore.list(ctx)) }
     var viewing by remember { mutableStateOf<String?>(null) }
-    // Display log: role = "you" | "agent" | "step"
-    val chat = remember { mutableStateListOf<Pair<String, String>>() }
-    // Raw transcript sent to the model (alternating user/assistant).
-    val turns = remember { mutableStateListOf<Pair<String, String>>() }
+    val chat = remember { mutableStateListOf<Pair<String, String>>() }   // role: you|agent|step
+    val turns = remember { mutableStateListOf<Pair<String, String>>() }  // model transcript
+
+    val attachPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val (n, t) = withContext(Dispatchers.IO) { readUpload(ctx, uri) }
+            if (t.isNotBlank()) {
+                WorkspaceStore.write(ctx, n, t); files = WorkspaceStore.list(ctx)
+                chat.add("step" to "• attached $n (${t.length} chars) — Cowork can read it now")
+                turns.add("user" to "I've added a file to the workspace: $n. You can read_file it.")
+            } else chat.add("step" to "• couldn't read that file")
+        }
+    }
 
     fun turnsJson(): JSONArray {
         val arr = JSONArray()
-        turns.takeLast(34).forEach { (r, c) -> arr.put(JSONObject().put("role", r).put("content", c)) }
+        turns.takeLast(30).forEach { (r, c) -> arr.put(JSONObject().put("role", r).put("content", c)) }
         return arr
     }
-    fun parse(raw: String): JSONObject? = try {
-        val s = raw.indexOf('{'); val e = raw.lastIndexOf('}')
-        if (s in 0 until e) JSONObject(raw.substring(s, e + 1)) else null
-    } catch (ex: Exception) { null }
 
-    fun execTool(tool: String, args: JSONObject?): String = when (tool) {
+    fun execTool(a: CwAction): String = when (a.tool) {
         "list_files" -> WorkspaceStore.list(ctx).let { if (it.isEmpty()) "(no files yet)" else it.joinToString("\n") }
-        "read_file" -> {
-            val n = args?.optString("name").orEmpty()
-            if (!WorkspaceStore.exists(ctx, n)) "ERROR: file \"$n\" doesn't exist" else WorkspaceStore.read(ctx, n).take(12000)
-        }
-        "write_file" -> {
-            val n = args?.optString("name").orEmpty(); val c = args?.optString("content").orEmpty()
-            if (n.isBlank()) "ERROR: no file name" else { WorkspaceStore.write(ctx, n, c); "OK: wrote $n (${c.length} chars)" }
-        }
-        "edit_file" -> {
-            val n = args?.optString("name").orEmpty(); val f = args?.optString("find").orEmpty(); val r = args?.optString("replace").orEmpty()
-            if (WorkspaceStore.edit(ctx, n, f, r)) "OK: edited $n" else "ERROR: couldn't find that exact text in $n (read it first)"
-        }
-        else -> "ERROR: unknown tool \"$tool\""
+        "read_file" -> if (!WorkspaceStore.exists(ctx, a.name)) "ERROR: \"${a.name}\" doesn't exist" else WorkspaceStore.read(ctx, a.name).take(14000)
+        "write_file" -> if (a.name.isBlank()) "ERROR: no name" else { WorkspaceStore.write(ctx, a.name, a.content); "OK: wrote ${a.name} (${a.content.length} chars)" }
+        "append_file" -> if (a.name.isBlank()) "ERROR: no name" else { WorkspaceStore.append(ctx, a.name, a.content); "OK: appended ${a.content.length} chars to ${a.name}" }
+        else -> "ERROR: unknown tool \"${a.tool}\""
     }
 
     fun send() {
         val task = input.trim(); if (task.isBlank() || busy) return
         chat.add("you" to task); turns.add("user" to task); input = ""; busy = true
         scope.launch {
-            var steps = 0
-            while (steps < 16) {
+            var steps = 0; var fails = 0
+            while (steps < 22) {
                 steps++
                 val raw = withContext(Dispatchers.IO) { AgentClient.coworkTurn(turnsJson(), MemoryStore.fullProfile(ctx)) }
                 turns.add("assistant" to raw)
-                val obj = parse(raw)
-                if (obj == null) { chat.add("agent" to raw.take(1200)); break }
-                if (obj.has("done")) { chat.add("agent" to obj.optString("message").ifBlank { "Done." }); break }
-                val tool = obj.optString("tool")
-                val note = obj.optString("note")
-                if (note.isNotBlank()) chat.add("step" to "• $note")
-                else if (tool.isNotBlank()) chat.add("step" to "• $tool")
-                val result = withContext(Dispatchers.IO) { execTool(tool, obj.optJSONObject("args")) }
-                turns.add("user" to "TOOL RESULT ($tool):\n${result.take(8000)}")
+                val truncated = raw.contains("CONTENT>>>") && !raw.contains("<<<END")
+                val act = parseCw(raw)
+                if (act == null || truncated) {
+                    if (fails >= 2) { chat.add("agent" to "I got stuck on that step. Try a smaller ask, or say “continue”. (If it keeps failing, route Heavy work to Claude in Settings.)"); break }
+                    fails++
+                    chat.add("step" to "• (that step got cut off — retrying smaller)")
+                    turns.add("user" to "Your last reply was cut off or not in the required format. Keep each file chunk small (a few hundred lines): write_file a first chunk ending with <<<END, then append_file the rest. Reply with ONE correctly-formatted action now.")
+                    continue
+                }
+                fails = 0
+                if (act.done) { chat.add("agent" to act.message); break }
+                chat.add("step" to "• " + act.note.ifBlank { act.tool + (if (act.name.isNotBlank()) " ${act.name}" else "") })
+                val result = withContext(Dispatchers.IO) { execTool(act) }
+                turns.add("user" to "RESULT (${act.tool}):\n${result.take(8000)}")
                 files = WorkspaceStore.list(ctx)
             }
-            if (steps >= 16) chat.add("agent" to "Stopped after 16 steps — send another message to keep going.")
+            if (steps >= 22) chat.add("agent" to "Paused after many steps — send another message to keep going.")
             busy = false
         }
     }
@@ -106,10 +161,9 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     Column(modifier) {
         ScreenHeader("Cowork", onBack)
         Spacer(Modifier.height(4.dp))
-        Text("A local agent that works on real files — give it a task, it does it step by step.",
+        Text("A local agent that builds real files — give it a task, it does it step by step.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
-        // Files row
         if (files.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 files.forEach { f ->
@@ -122,7 +176,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
             if (chat.isEmpty()) item {
-                Text("Try: “make a markdown packing list for a 3-day Berlin trip”, “draft a cold email to investors and save it”, “outline a blog post about edge AI and write the intro”.",
+                Text("Try: “draft a cold email to investors and save it”, “outline a blog post about edge AI and write the intro”, “make a Python script that renames photos by date”. Attach a file with 📎 and it can read it.",
                     fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 8.dp))
             }
             items(chat) { (role, text) ->
@@ -142,6 +196,10 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📎", fontSize = T.body, color = T.inkSoft,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+                    .clickable { attachPicker.launch(arrayOf("*/*")) }.padding(horizontal = 12.dp, vertical = 9.dp))
+            Spacer(Modifier.width(8.dp))
             BasicTextField(value = input, onValueChange = { input = it },
                 textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
@@ -162,9 +220,17 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text(WorkspaceStore.read(ctx, name).ifBlank { "(empty)" }, fontSize = T.caption, color = T.inkSoft,
                     modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()))
                 Spacer(Modifier.height(10.dp))
+                var exportMsg by remember(name) { mutableStateOf("") }
+                if (exportMsg.isNotBlank()) { Text(exportMsg, fontSize = T.caption, color = T.accent); Spacer(Modifier.height(6.dp)) }
                 Row {
+                    Text("↓ Export", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable {
+                                exportMsg = if (WorkspaceStore.exportToDownloads(ctx, name)) "Saved to Downloads/SlyOS ✓" else "Couldn't export."
+                            }.padding(horizontal = 14.dp, vertical = 8.dp))
+                    Spacer(Modifier.width(16.dp))
                     Text("Delete", fontSize = T.small, color = T.danger,
-                        modifier = Modifier.clickable { WorkspaceStore.delete(ctx, name); files = WorkspaceStore.list(ctx); viewing = null }.padding(end = 18.dp))
+                        modifier = Modifier.clickable { WorkspaceStore.delete(ctx, name); files = WorkspaceStore.list(ctx); viewing = null }.padding(end = 16.dp))
                     Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { viewing = null })
                 }
             }

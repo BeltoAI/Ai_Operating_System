@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +58,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var importStatus by remember { mutableStateOf("") }
     var voiceStatus by remember { mutableStateOf("") }
     var voiceBusy by remember { mutableStateOf(false) }
+    var showVoice by remember { mutableStateOf(false) }
     var sampleCount by remember { mutableStateOf(MemoryStore.voiceSamples(ctx).size) }
     val chatImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
@@ -75,6 +77,16 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 importStatus = if (msgs > 0)
                     "Added $chats chats / $msgs messages to your brain ✓ · $sampleCount voice samples. Tap “Learn my voice” below."
                 else "Couldn't read those. Use WhatsApp .txt, LinkedIn/Instagram/Telegram exports (zips ok)."
+            }
+        }
+    }
+    val liImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            importStatus = "Importing LinkedIn network…"
+            scope.launch {
+                var last = ""
+                withContext(Dispatchers.IO) { uris.forEach { last = com.agentos.shell.tools.ConnectionStore.importLinkedIn(ctx, it) } }
+                importStatus = last.ifBlank { "Imported LinkedIn connections ✓" }
             }
         }
     }
@@ -297,11 +309,20 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             "Then learn your writing voice from them whenever you want.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            listOf("WhatsApp", "Instagram", "Telegram", "LinkedIn msgs").forEach { p ->
+                Text("📥 $p", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { chatImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
+            }
+            Text("🔗 LinkedIn network", fontSize = T.small, color = T.ink,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable { liImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
+        }
+        Text("Each opens your files — pick the export for that app (WhatsApp .txt, IG/Telegram .json, LinkedIn .csv). SlyOS detects the format.",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("📥 Import chats", fontSize = T.small, color = T.bgElevated,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                    .clickable { chatImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 16.dp, vertical = 10.dp))
-            Spacer(Modifier.width(10.dp))
             Text(if (voiceBusy) "Learning…" else "🎙 Learn my voice", fontSize = T.small, color = T.ink,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                     .clickable(enabled = !voiceBusy) {
@@ -320,9 +341,19 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         }
                     }.padding(horizontal = 16.dp, vertical = 10.dp))
         }
+        val voiceProfile = MemoryStore.styleProfile(ctx)
         Text("$sampleCount voice samples collected" +
-            (if (MemoryStore.styleProfile(ctx).isNotBlank()) " · voice profile set ✓" else " · no voice profile yet"),
-            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
+            (if (voiceProfile.isNotBlank()) " · voice profile set ✓ (tap to view)" else " · no voice profile yet"),
+            fontSize = T.caption, color = if (voiceProfile.isNotBlank()) T.accent else T.inkFaint,
+            modifier = Modifier.padding(top = 6.dp).clickable(enabled = voiceProfile.isNotBlank()) { showVoice = !showVoice })
+        if (showVoice && voiceProfile.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp)) {
+                Text("How SlyOS thinks you write:", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(4.dp))
+                Text(voiceProfile, fontSize = T.small, color = T.ink)
+            }
+        }
         if (importStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(importStatus, fontSize = T.caption, color = T.accent) }
         if (voiceStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(voiceStatus, fontSize = T.caption, color = if (voiceStatus.startsWith("Learned")) T.accent else T.danger) }
 
