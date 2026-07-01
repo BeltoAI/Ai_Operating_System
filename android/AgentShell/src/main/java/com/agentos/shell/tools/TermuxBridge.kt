@@ -35,11 +35,16 @@ object TermuxBridge {
         // work non-interactively — no `gh auth login` device flow needed. This is what makes
         // "push to GitHub" one-tap: paste the token once in Settings, then it just works.
         val token = MemoryStore.githubToken(ctx)
-        val command = if (token.isNotBlank())
+        // Default working directory = the shared SlyOS project dir. It's visible to BOTH sides: Termux
+        // sees it at ~/storage/downloads/SlyOS (after `termux-setup-storage`) and the phone sees it as
+        // Downloads/SlyOS — so files the agent builds, runs, and pushes all live in one place the user
+        // can also open. A command can still `cd` elsewhere afterwards.
+        val cwd = "SLYDIR=~/storage/downloads/SlyOS; mkdir -p \"\$SLYDIR\" 2>/dev/null; cd \"\$SLYDIR\" 2>/dev/null || cd ~; "
+        val tokenExport = if (token.isNotBlank())
             "export GH_TOKEN='$token'; export GITHUB_TOKEN='$token'; git config --global credential.helper store 2>/dev/null; " +
-                "printf 'https://x-access-token:%s@github.com\\n' \"$token\" > ~/.git-credentials 2>/dev/null; " +
-                rawCommand
-        else rawCommand
+                "printf 'https://x-access-token:%s@github.com\\n' \"$token\" > ~/.git-credentials 2>/dev/null; "
+        else ""
+        val command = cwd + tokenExport + rawCommand
         val latch = CountDownLatch(1)
         var result = ""
         val action = "com.agentos.shell.TERMUX_RESULT_" + System.nanoTime()

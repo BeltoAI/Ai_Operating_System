@@ -79,6 +79,11 @@ object MemoryStore {
     fun geminiKey(ctx: Context): String = prefs(ctx).getString("gemini_key", "") ?: ""
     fun setGeminiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("gemini_key", value.trim()).apply()
 
+    /** Which provider embeds semantic memory: "auto" (Gemini free → OpenAI), "gemini", or "openai".
+     *  Lets a user force reliable paid OpenAI indexing when the free Gemini tier is rate-limited. */
+    fun embedProvider(ctx: Context): String = prefs(ctx).getString("embed_provider", "auto") ?: "auto"
+    fun setEmbedProvider(ctx: Context, value: String) = prefs(ctx).edit().putString("embed_provider", value).apply()
+
     /** GitHub Personal Access Token — set once, then Cowork can push to GitHub non-interactively. */
     fun githubToken(ctx: Context): String = prefs(ctx).getString("github_token", "") ?: ""
     fun setGithubToken(ctx: Context, value: String) = prefs(ctx).edit().putString("github_token", value.trim()).apply()

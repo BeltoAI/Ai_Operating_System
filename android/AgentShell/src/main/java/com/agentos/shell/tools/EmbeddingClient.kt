@@ -19,11 +19,18 @@ object EmbeddingClient {
     /** Last embedding error (surfaced in settings so failures aren't silent). */
     @Volatile var lastError: String = ""
 
-    /** Which provider+model will embed, given the user's keys. null = none available. */
-    fun provider(ctx: Context): String? = when {
-        MemoryStore.geminiKey(ctx).isNotBlank() -> "gemini"
-        MemoryStore.openaiKey(ctx).isNotBlank() -> "openai"
-        else -> null
+    /** Which provider+model will embed, given the user's keys and their preference. null = none. */
+    fun provider(ctx: Context): String? {
+        val pref = MemoryStore.embedProvider(ctx)
+        val gem = MemoryStore.geminiKey(ctx).isNotBlank()
+        val oai = MemoryStore.openaiKey(ctx).isNotBlank()
+        return when {
+            pref == "openai" && oai -> "openai"      // forced paid path (reliable when Gemini is throttled)
+            pref == "gemini" && gem -> "gemini"
+            gem -> "gemini"                           // auto: free Gemini first
+            oai -> "openai"                           // then OpenAI
+            else -> null
+        }
     }
     private const val GEMINI_MODEL = "gemini-embedding-001"
     fun model(provider: String): String = if (provider == "openai") "text-embedding-3-small" else GEMINI_MODEL

@@ -131,5 +131,10 @@ object VectorStore {
         return hits.sortedByDescending { it.score }.take(k)
     }
 
-    fun clear(ctx: Context) { try { db(ctx).execSQL("DELETE FROM vmem") } catch (e: Exception) {} }
+    fun clear(ctx: Context) {
+        try { db(ctx).execSQL("DELETE FROM vmem") } catch (e: Exception) {}
+        // Reset the one-time seed flag so a re-index (e.g. after switching embedding provider) pulls
+        // the whole brain back into the queue instead of finding it empty.
+        try { ctx.getSharedPreferences("slyos_vec_meta", Context.MODE_PRIVATE).edit().putBoolean("seeded", false).apply() } catch (e: Exception) {}
+    }
 }

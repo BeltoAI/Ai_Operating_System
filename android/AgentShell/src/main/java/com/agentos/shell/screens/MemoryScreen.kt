@@ -456,6 +456,37 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Spacer(Modifier.height(4.dp))
             Text("Embedding error: $embErr", fontSize = T.caption, color = T.danger)
         }
+        // Choose which provider indexes memory. Forcing OpenAI is the reliable fast path when the free
+        // Gemini tier is rate-limited. Switching re-indexes from scratch (vector sizes differ).
+        if (keyGemini.isNotBlank() && keyOpenai.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            var embChoice by remember { mutableStateOf(MemoryStore.embedProvider(ctx)) }
+            Text("Index with", fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.height(4.dp))
+            Row {
+                listOf("auto" to "Auto", "gemini" to "Gemini (free)", "openai" to "OpenAI (reliable)").forEach { (id, lbl) ->
+                    val sel = embChoice == id
+                    Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                            .background(if (sel) T.accent else T.hairline)
+                            .clickable {
+                                if (embChoice != id) {
+                                    embChoice = id; MemoryStore.setEmbedProvider(ctx, id)
+                                    embBusy = true
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            com.agentos.shell.tools.VectorStore.clear(ctx)   // vector dims differ per provider
+                                            com.agentos.shell.tools.VectorStore.backfill(ctx, 500)
+                                        }
+                                        embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+                                        pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+                                        embBusy = false
+                                    }
+                                }
+                            }.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
         Text("Routing — which model handles what", fontSize = T.caption, color = T.inkSoft)

@@ -151,12 +151,19 @@ class AgentNotificationListener : NotificationListenerService() {
             if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
         }
         if (!docMode && mode == "off") return
-        val autoSend = docMode || mode == "full"
+        var autoSend = docMode || mode == "full"
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
         // In draft mode, a staged draft already present means we've handled this message.
         if (!autoSend && NotificationStore.stagedDrafts.containsKey(note.key)) return
         if (NotificationStore.isOwnEcho(note)) { Log.i("SlyOS", "auto skip: own echo"); return }
         if (NotificationStore.repliedWithin(note, cooldownMs)) { Log.i("SlyOS", "auto skip: cooldown ${note.title}"); return }
+        // Rate rail: only NOW (past the dedupe/echo/cooldown checks) do we count this as a real reply.
+        // If this contact — or SlyOS overall — has hit the hourly auto-send cap, stage a draft instead
+        // of sending, so a fast thread can't loop into a token-burning reply storm.
+        if (autoSend && !com.agentos.shell.tools.AutoReplyGuard.allow(note.title)) {
+            Log.i("SlyOS", "auto → draft: rate cap for ${note.title}")
+            autoSend = false
+        }
         NotificationStore.markReplied(note)
         if (autoSend) NotificationStore.pendingAuto.add(note.key)
         Log.i("SlyOS", "auto $mode for ${note.title}: \"${note.text}\"")
