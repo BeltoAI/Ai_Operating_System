@@ -97,6 +97,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var files by remember { mutableStateOf(WorkspaceStore.list(ctx)) }
     var viewing by remember { mutableStateOf<String?>(null) }
+    var lastUrl by remember { mutableStateOf<String?>(null) }
     val chat = remember { mutableStateListOf<Pair<String, String>>() }   // role: you|agent|step
     val turns = remember { mutableStateListOf<Pair<String, String>>() }  // model transcript
 
@@ -122,6 +123,18 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         "read_file" -> if (!WorkspaceStore.exists(ctx, a.name)) "ERROR: \"${a.name}\" doesn't exist" else WorkspaceStore.read(ctx, a.name).take(14000)
         "write_file" -> if (a.name.isBlank()) "ERROR: no name" else { WorkspaceStore.write(ctx, a.name, a.content); "OK: wrote ${a.name} (${a.content.length} chars)" }
         "append_file" -> if (a.name.isBlank()) "ERROR: no name" else { WorkspaceStore.append(ctx, a.name, a.content); "OK: appended ${a.content.length} chars to ${a.name}" }
+        "create_gdoc" -> com.agentos.shell.tools.GoogleWorkspace.createDoc(ctx, a.name.ifBlank { "Untitled" }, a.content).let { if (it.ok) "OK: created Google Doc — ${it.url}" else "ERROR: ${it.error}" }
+        "create_gslides" -> {
+            val slides = a.content.split(Regex("(?m)^===\\s*$")).mapNotNull { blk ->
+                val ls = blk.trim().lines(); if (blk.isBlank() || ls.isEmpty()) null else ls.first().trim() to ls.drop(1).joinToString("\n").trim()
+            }
+            com.agentos.shell.tools.GoogleWorkspace.createSlides(ctx, a.name.ifBlank { "Deck" }, slides).let { if (it.ok) "OK: created Google Slides — ${it.url}" else "ERROR: ${it.error}" }
+        }
+        "create_gsheet" -> {
+            val rows = a.content.trim().lines().filter { it.isNotBlank() }.map { it.split(",") }
+            com.agentos.shell.tools.GoogleWorkspace.createSheet(ctx, a.name.ifBlank { "Sheet" }, rows).let { if (it.ok) "OK: created Google Sheet — ${it.url}" else "ERROR: ${it.error}" }
+        }
+        "create_pdf" -> if (com.agentos.shell.tools.PdfBuilder.makePdf(ctx, a.name.ifBlank { "Document" }, a.content) != null) "OK: created PDF (Downloads/SlyOS)" else "ERROR: couldn't make PDF"
         else -> "ERROR: unknown tool \"${a.tool}\""
     }
 
@@ -144,9 +157,14 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     continue
                 }
                 fails = 0
-                if (act.done) { chat.add("agent" to act.message); break }
+                if (act.done) {
+                    chat.add("agent" to act.message)
+                    Regex("https?://[^\\s]+").find(act.message)?.value?.let { lastUrl = it.trimEnd('.', ')', ',') }
+                    break
+                }
                 chat.add("step" to "• " + act.note.ifBlank { act.tool + (if (act.name.isNotBlank()) " ${act.name}" else "") })
                 val result = withContext(Dispatchers.IO) { execTool(act) }
+                Regex("https?://[^\\s]+").find(result)?.value?.let { lastUrl = it.trimEnd('.', ')', ',') }
                 turns.add("user" to "RESULT (${act.tool}):\n${result.take(8000)}")
                 files = WorkspaceStore.list(ctx)
             }
@@ -194,6 +212,13 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
             if (busy) item { Text("⚙ working…", fontSize = T.small, color = T.accent, modifier = Modifier.padding(vertical = 8.dp)) }
         }
+        lastUrl?.let { url ->
+            Spacer(Modifier.height(8.dp))
+            Text("↗ Open in Google", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+                    .padding(horizontal = 16.dp, vertical = 9.dp))
+        }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("📎", fontSize = T.body, color = T.inkSoft,
@@ -214,23 +239,30 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     if (viewing != null) {
         val name = viewing!!
         Dialog(onDismissRequest = { viewing = null }) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 540.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
                 Text(name, fontSize = T.body, color = T.ink)
                 Spacer(Modifier.height(8.dp))
-                Text(WorkspaceStore.read(ctx, name).ifBlank { "(empty)" }, fontSize = T.caption, color = T.inkSoft,
-                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()))
+                var edited by remember(name) { mutableStateOf(WorkspaceStore.read(ctx, name)) }
+                var statusMsg by remember(name) { mutableStateOf("") }
+                BasicTextField(value = edited, onValueChange = { edited = it },
+                    textStyle = TextStyle(color = T.ink, fontSize = T.caption),
+                    modifier = Modifier.weight(1f, fill = false).heightIn(min = 120.dp, max = 380.dp).fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(10.dp).verticalScroll(rememberScrollState()))
                 Spacer(Modifier.height(10.dp))
-                var exportMsg by remember(name) { mutableStateOf("") }
-                if (exportMsg.isNotBlank()) { Text(exportMsg, fontSize = T.caption, color = T.accent); Spacer(Modifier.height(6.dp)) }
-                Row {
-                    Text("↓ Export", fontSize = T.small, color = T.bgElevated,
+                if (statusMsg.isNotBlank()) { Text(statusMsg, fontSize = T.caption, color = T.accent); Spacer(Modifier.height(6.dp)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save", fontSize = T.small, color = T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                            .clickable {
-                                exportMsg = if (WorkspaceStore.exportToDownloads(ctx, name)) "Saved to Downloads/SlyOS ✓" else "Couldn't export."
-                            }.padding(horizontal = 14.dp, vertical = 8.dp))
-                    Spacer(Modifier.width(16.dp))
+                            .clickable { WorkspaceStore.write(ctx, name, edited); files = WorkspaceStore.list(ctx); statusMsg = "Saved ✓" }
+                            .padding(horizontal = 14.dp, vertical = 8.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("↓ Export", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clickable {
+                            WorkspaceStore.write(ctx, name, edited)
+                            statusMsg = if (WorkspaceStore.exportToDownloads(ctx, name)) "Exported to Downloads/SlyOS ✓" else "Couldn't export."
+                        }.padding(end = 14.dp))
                     Text("Delete", fontSize = T.small, color = T.danger,
-                        modifier = Modifier.clickable { WorkspaceStore.delete(ctx, name); files = WorkspaceStore.list(ctx); viewing = null }.padding(end = 16.dp))
+                        modifier = Modifier.clickable { WorkspaceStore.delete(ctx, name); files = WorkspaceStore.list(ctx); viewing = null }.padding(end = 14.dp))
                     Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { viewing = null })
                 }
             }

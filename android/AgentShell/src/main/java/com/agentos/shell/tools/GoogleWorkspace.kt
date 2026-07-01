@@ -73,22 +73,28 @@ object GoogleWorkspace {
         val o = try { JSONObject(r1) } catch (e: Exception) { null } ?: return Result(false, error = "bad response")
         val id = o.optString("presentationId"); if (id.isBlank()) return Result(false, error = "no presentation id")
         val firstSlideId = o.optJSONArray("slides")?.optJSONObject(0)?.optString("objectId").orEmpty()
+        fun box(objId: String, pageId: String, x: Long, y: Long, w: Long, h: Long) = JSONObject().put("createShape", JSONObject()
+            .put("objectId", objId).put("shapeType", "TEXT_BOX")
+            .put("elementProperties", JSONObject().put("pageObjectId", pageId)
+                .put("size", JSONObject().put("width", JSONObject().put("magnitude", w).put("unit", "EMU")).put("height", JSONObject().put("magnitude", h).put("unit", "EMU")))
+                .put("transform", JSONObject().put("scaleX", 1).put("scaleY", 1).put("translateX", x).put("translateY", y).put("unit", "EMU"))))
+        fun style(objId: String, size: Int, bold: Boolean) = JSONObject().put("updateTextStyle", JSONObject()
+            .put("objectId", objId).put("style", JSONObject().put("bold", bold).put("fontSize", JSONObject().put("magnitude", size).put("unit", "PT")))
+            .put("textRange", JSONObject().put("type", "ALL")).put("fields", "bold,fontSize"))
         val requests = JSONArray()
         slides.forEachIndexed { i, (t, b) ->
             val sid = "s$i"; val tid = "t$i"; val bid = "b$i"
-            requests.put(JSONObject().put("createSlide", JSONObject()
-                .put("objectId", sid)
-                .put("slideLayoutReference", JSONObject().put("predefinedLayout", "TITLE_AND_BODY"))
-                .put("placeholderIdMappings", JSONArray()
-                    .put(JSONObject().put("layoutPlaceholder", JSONObject().put("type", "TITLE")).put("objectId", tid))
-                    .put(JSONObject().put("layoutPlaceholder", JSONObject().put("type", "BODY")).put("objectId", bid)))))
-            if (t.isNotBlank()) requests.put(JSONObject().put("insertText", JSONObject().put("objectId", tid).put("text", t).put("insertionIndex", 0)))
-            if (b.isNotBlank()) requests.put(JSONObject().put("insertText", JSONObject().put("objectId", bid).put("text", b).put("insertionIndex", 0)))
+            requests.put(JSONObject().put("createSlide", JSONObject().put("objectId", sid)
+                .put("slideLayoutReference", JSONObject().put("predefinedLayout", "BLANK"))))
+            // Title text box (top) + body text box (below) with explicit sizing — robust + styled.
+            requests.put(box(tid, sid, 600000, 500000, 8000000, 1200000))
+            if (t.isNotBlank()) { requests.put(JSONObject().put("insertText", JSONObject().put("objectId", tid).put("text", t).put("insertionIndex", 0))); requests.put(style(tid, 30, true)) }
+            requests.put(box(bid, sid, 600000, 1900000, 8000000, 4400000))
+            if (b.isNotBlank()) { requests.put(JSONObject().put("insertText", JSONObject().put("objectId", bid).put("text", b).put("insertionIndex", 0))); requests.put(style(bid, 16, false)) }
         }
-        // Remove the default blank first slide.
         if (firstSlideId.isNotBlank()) requests.put(JSONObject().put("deleteObject", JSONObject().put("objectId", firstSlideId)))
         val (c2, r2) = req("POST", "https://slides.googleapis.com/v1/presentations/$id:batchUpdate", token, JSONObject().put("requests", requests).toString())
-        if (c2 !in 200..299) Log.w(TAG, "slides batchUpdate $c2: ${r2.take(160)}")
+        if (c2 !in 200..299) { Log.e(TAG, "slides batchUpdate $c2: ${r2.take(200)}"); return Result(true, url = "https://docs.google.com/presentation/d/$id/edit", error = "deck created but content failed: ${err(r2, c2)}") }
         return Result(true, url = "https://docs.google.com/presentation/d/$id/edit")
     }
 }

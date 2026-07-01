@@ -695,11 +695,20 @@ object AgentClient {
         "Create/overwrite a file:\nTOOL write_file\nNAME: server.py\nNOTE: short line about this step\nCONTENT>>>\n" +
         "(the full raw file content here — real newlines, any characters, NO escaping)\n<<<END\n\n" +
         "Add to the end of a file:\nTOOL append_file\nNAME: server.py\nNOTE: …\nCONTENT>>>\n(more raw content)\n<<<END\n\n" +
-        "When the ENTIRE task is complete:\nDONE\n(a short summary + the exact commands to run/deploy it)\n\n" +
+        "Create a REAL Google Doc (opens online):\nTOOL create_gdoc\nNAME: Doc title\nNOTE: …\nCONTENT>>>\n(the document text)\n<<<END\n\n" +
+        "Create a REAL Google Slides deck (separate each slide with a line of just ===, and the FIRST line of each block is that slide's title):\nTOOL create_gslides\nNAME: Deck title\nNOTE: …\nCONTENT>>>\nWhat Belto Is\n- point one\n- point two\n===\nHow It Works\n- point\n<<<END\n\n" +
+        "Create a REAL Google Sheet (CSV, first row = headers):\nTOOL create_gsheet\nNAME: Sheet title\nCONTENT>>>\nName,Amount\nRent,1200\n<<<END\n\n" +
+        "Create a PDF (saved to Downloads):\nTOOL create_pdf\nNAME: title\nCONTENT>>>\n(the text)\n<<<END\n\n" +
+        "When the user wants slides/a doc/a sheet 'in Google' or something to open online, use the Google tools above (Google must be connected). Include any link the tool returns in your final DONE message. " +
+        "When the ENTIRE task is complete:\nDONE\n(a short summary + any link + how to run/deploy)\n\n" +
         "RULES: All code goes inside CONTENT blocks — never in chat, never in the DONE summary (the DONE summary is " +
         "plain English + shell commands only). Read a file before editing. For a big file, write_file the first part " +
         "then append_file the rest in a few chunks. Reply with ONLY one action — nothing before or after it. After " +
         "each action I send you the result; keep going until done, then reply DONE. " +
+        "DESIGN BAR: when you build HTML/web files (pages, decks, one-pagers), make them STUNNING — " +
+        "award-winning modern design, not a plain template: confident typography with a real type scale, " +
+        "generous whitespace, a cohesive color palette, subtle gradients/shadows/rounded corners, strong " +
+        "visual hierarchy, and responsive layout. Treat every document as a portfolio piece. " +
         (if (memory.isNotBlank()) "About the user (use when relevant): $memory. " else "")
 
     /** One turn of the Cowork loop. [messages] = the running user/assistant transcript. Returns raw text. */
