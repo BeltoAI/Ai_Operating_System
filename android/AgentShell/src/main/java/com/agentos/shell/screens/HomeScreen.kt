@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -533,20 +535,34 @@ fun HomeScreen(
 
         if (thinking || reply.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
-            Row(
+            Column(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(T.bgElevated)
-                    .padding(14.dp)
+                    .padding(16.dp)
             ) {
-                Text("●", color = T.accent, fontSize = T.small)
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    if (thinking) "thinking…" else reply,
-                    fontSize = T.body,
-                    color = if (thinking) T.inkFaint else T.ink
-                )
+                if (thinking) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("●", color = T.accent, fontSize = T.small)
+                        Spacer(Modifier.width(10.dp))
+                        Text("thinking…", fontSize = T.body, color = T.inkFaint)
+                    }
+                } else {
+                    // Full answer: bigger, and scrollable so long replies aren't cut to a few lines.
+                    Text(
+                        reply.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1").replace(Regex("(?m)^#{1,6}\\s*"), ""),
+                        fontSize = T.body, color = T.ink,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("Copy", fontSize = T.small, color = T.accent,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable {
+                                (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                    .setPrimaryClip(android.content.ClipData.newPlainText("reply", reply))
+                            }.padding(horizontal = 12.dp, vertical = 6.dp))
+                }
             }
             // If the agent created something with a link (Google Doc/Sheet/Slides), offer to open it.
             val replyUrl = remember(reply) { Regex("https?://[^\\s]+").find(reply)?.value?.trimEnd('.', ')', ',') }

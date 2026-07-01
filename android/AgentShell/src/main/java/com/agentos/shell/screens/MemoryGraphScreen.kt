@@ -105,7 +105,7 @@ private fun prettify(s: String): String {
 }
 
 @Composable
-fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit) {
+fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit, onMission: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -141,21 +141,6 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
-    // The brain's standing mission + its latest self-assessment.
-    var mission by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.mission(ctx)) }
-    var missionSaved by remember { mutableStateOf(true) }
-    var missionOpen by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.mission(ctx).isNotBlank()) }
-    var assessing by remember { mutableStateOf(false) }
-    var planning by remember { mutableStateOf(false) }
-    var acting by remember { mutableStateOf(false) }
-    var nextMove by remember { mutableStateOf("") }
-    var nextLabel by remember { mutableStateOf("") }
-    var nextTask by remember { mutableStateOf("") }
-    var addedMsg by remember { mutableStateOf("") }
-    var missionErr by remember { mutableStateOf("") }
-    var lastCheck by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.latest(ctx)) }
-    var plan by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.milestones(ctx)) }
-    var checkHist by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.checks(ctx)) }
     val flow by rememberInfiniteTransition(label = "f").animateFloat(
         0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
     )
@@ -493,238 +478,24 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             }
         }
 
-        // ── MISSION: a standing goal for the brain, an AI plan, and an honest progress tracker ──
-        // Shared evidence blob the planner + assessor both use.
-        fun missionContext(): String {
-            val about = com.agentos.shell.tools.MemoryStore.about(ctx)
-            val tasks = com.agentos.shell.tools.ChecklistStore.load(ctx)
-                .joinToString("\n") { "- ${it.text} (${if (it.done) "done" else "todo"})" }
-            val papers = com.agentos.shell.tools.PaperStore.list(ctx).joinToString("\n") { "Paper: ${it.title}" }
-            val hits = com.agentos.shell.tools.MessageStore.search(ctx, mission, 40)
-                .joinToString("\n") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-            val conns = com.agentos.shell.tools.ConnectionStore.count(ctx)
-            // Real people from your network who match the goal — so "find 5 CTO candidates" names actual contacts.
-            val matches = com.agentos.shell.tools.ConnectionStore.search(ctx, mission, 25)
-                .joinToString("\n") { it.name + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
-            val sem = com.agentos.shell.tools.VectorStore.search(ctx, mission, 10).joinToString("\n") { it.contact + ": " + it.body }
-            val done = plan.filter { it.done }.joinToString("; ") { it.text }
-            return buildString {
-                if (about.isNotBlank()) append("About me: ").append(about).append("\n")
-                append("LinkedIn connections: ").append(conns).append("\n")
-                if (matches.isNotBlank()) append("People in my network relevant to this goal:\n").append(matches).append("\n")
-                if (done.isNotBlank()) append("Milestones I've completed: ").append(done).append("\n")
-                if (tasks.isNotBlank()) append("Checklist:\n").append(tasks).append("\n")
-                if (papers.isNotBlank()) append(papers).append("\n")
-                if (sem.isNotBlank()) append("Relevant memories:\n").append(sem).append("\n")
-                if (hits.isNotBlank()) append("Messages related to the goal:\n").append(hits)
-            }.take(9000)
-        }
-
+        // ── MISSION: one clear button that opens the full Mission screen ──
         Spacer(Modifier.height(10.dp))
         androidx.compose.material3.HorizontalDivider(color = T.hairline, thickness = 1.dp)
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().clickable { missionOpen = !missionOpen }, verticalAlignment = Alignment.CenterVertically) {
-            Text("MISSION", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
-            val planPct = if (plan.isNotEmpty()) plan.count { it.done } * 100 / plan.size else null
-            (lastCheck?.percent ?: planPct)?.let { Text("$it%", fontSize = T.small, color = ACCENT) }
-            Spacer(Modifier.width(10.dp))
-            Text(if (missionOpen) "–" else "+", fontSize = T.body, color = T.inkFaint)
-        }
-        if (missionOpen) {
-            Spacer(Modifier.height(8.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp)) {
-                BasicTextField(
-                    value = mission, onValueChange = { mission = it; missionSaved = false },
-                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp),
-                    decorationBox = { inner ->
-                        if (mission.isEmpty()) Text("You are now me. Your goal is to… e.g. find 10 new customers for my studio, or grow my IG from 2k to 5k.",
-                            fontSize = T.small, color = T.inkFaint); inner()
-                    }
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (missionSaved) "Saved" else "Save", fontSize = T.small, maxLines = 1, softWrap = false,
-                        color = if (missionSaved) T.inkSoft else T.bgElevated,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(if (missionSaved) T.hairline else T.accent)
-                            .clickable {
-                                com.agentos.shell.tools.MissionStore.setMission(ctx, mission)
-                                missionSaved = true; plan = com.agentos.shell.tools.MissionStore.milestones(ctx)
-                                lastCheck = com.agentos.shell.tools.MissionStore.latest(ctx)
-                                checkHist = com.agentos.shell.tools.MissionStore.checks(ctx)
-                            }.padding(horizontal = 16.dp, vertical = 8.dp))
-                    if (mission.isNotBlank()) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (plan.isEmpty()) "Make a plan" else "Re-plan",
-                            fontSize = T.small, color = T.inkSoft, maxLines = 1, softWrap = false,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                                .clickable(enabled = !planning) {
-                                    if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
-                                    planning = true
-                                    scope.launch {
-                                        val steps = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.planMission(mission, missionContext()) }
-                                        if (steps.isNotEmpty()) { missionErr = ""; com.agentos.shell.tools.MissionStore.setPlan(ctx, steps); plan = com.agentos.shell.tools.MissionStore.milestones(ctx) }
-                                        else missionErr = "Couldn't build a plan — likely a free-tier rate limit. Route Heavy/replies to Claude in Settings and retry."
-                                        planning = false
-                                    }
-                                }.padding(horizontal = 14.dp, vertical = 8.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Assess", fontSize = T.small, color = T.bgElevated, maxLines = 1, softWrap = false,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
-                                .clickable(enabled = !assessing) {
-                                    if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
-                                    assessing = true
-                                    scope.launch {
-                                        val a = withContext(Dispatchers.IO) {
-                                            val days = ((System.currentTimeMillis() - com.agentos.shell.tools.MissionStore.since(ctx)) / 86_400_000L)
-                                            com.agentos.shell.tools.AgentClient.assessMission(mission, missionContext(), "$days days ago")
-                                        }
-                                        if (a.percent >= 0) {
-                                            missionErr = ""
-                                            com.agentos.shell.tools.MissionStore.addCheck(ctx, a.percent, a.argument, a.next)
-                                            lastCheck = com.agentos.shell.tools.MissionStore.latest(ctx)
-                                            checkHist = com.agentos.shell.tools.MissionStore.checks(ctx)
-                                            com.agentos.shell.tools.MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me",
-                                                "Mission check — ${a.percent}%: ${a.argument.take(400)}")
-                                        } else missionErr = a.argument   // surface the failure instead of doing nothing
-                                        assessing = false
-                                    }
-                                }.padding(horizontal = 16.dp, vertical = 8.dp))
-                    }
-                }
-                if (planning || assessing || acting) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(if (planning) "Building your plan…" else if (assessing) "Assessing progress…" else "Working on it…",
-                        fontSize = T.caption, color = ACCENT)
-                }
-
-                if (missionErr.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(missionErr, fontSize = T.caption, color = T.danger)
-                }
-
-                // AUTONOMOUS: draft the single highest-leverage move toward the goal, ready to use.
-                if (mission.isNotBlank()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Take the next action for me", fontSize = T.small, color = T.bgElevated, maxLines = 1, softWrap = false,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
-                            .clickable(enabled = !acting) {
-                                if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
-                                acting = true; nextMove = ""
-                                scope.launch {
-                                    val mv = withContext(Dispatchers.IO) {
-                                        val open = plan.firstOrNull { !it.done }?.text ?: ""
-                                        com.agentos.shell.tools.AgentClient.missionNextMove(mission, missionContext(), open)
-                                    }
-                                    if (mv.draft.isNotBlank()) {
-                                        missionErr = ""
-                                        nextLabel = mv.label
-                                        nextMove = mv.draft
-                                        if (mv.task.isNotBlank()) { com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task); nextTask = mv.task }
-                                        // Feed the brain + time-saved score: a real move toward the mission.
-                                        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me",
-                                            "Toward my goal — ${mv.label.ifBlank { "next move" }}: ${mv.draft.take(600)}")
-                                        com.agentos.shell.tools.MetricsStore.record(ctx, 600)
-                                    } else missionErr = "Couldn't draft a move — likely a rate limit. Route Heavy/replies to Claude and retry."
-                                    acting = false
-                                }
-                            }.padding(horizontal = 16.dp, vertical = 9.dp))
-                }
-                if (nextMove.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFF6F1E7)).padding(14.dp)) {
-                        Text("YOUR NEXT MOVE", fontSize = T.caption, color = T.inkFaint)
-                        if (nextLabel.isNotBlank()) { Spacer(Modifier.height(2.dp)); Text(nextLabel, fontSize = T.body, color = T.ink) }
-                        if (nextTask.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text("Do this: $nextTask", fontSize = T.small, color = ACCENT)
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text("Here's the message I wrote for you — copy it and send/post it:", fontSize = T.caption, color = T.inkFaint)
-                        Spacer(Modifier.height(4.dp))
-                        Text(nextMove, fontSize = T.small, color = T.ink,
-                            modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()))
-                        Spacer(Modifier.height(10.dp))
-                        Row {
-                            Text("Copy", fontSize = T.caption, color = T.bgElevated,
-                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
-                                    .clickable { clipboard.setText(androidx.compose.ui.text.AnnotatedString(nextMove)) }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp))
-                            Spacer(Modifier.width(10.dp))
-                            Text("Dismiss", fontSize = T.caption, color = T.inkSoft,
-                                modifier = Modifier.clickable { nextMove = ""; nextLabel = ""; nextTask = "" }.padding(horizontal = 8.dp, vertical = 6.dp))
-                        }
-                        Text("Also saved to your checklist so you don't lose it.", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
-                    }
-                }
-
-                // Milestone plan — checkable sub-goals.
-                if (plan.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
-                    Text("PLAN · ${plan.count { it.done }}/${plan.size}", fontSize = T.caption, color = T.inkFaint)
-                    Spacer(Modifier.height(4.dp))
-                    plan.forEach { m ->
-                        Row(Modifier.fillMaxWidth().clickable {
-                            com.agentos.shell.tools.MissionStore.toggleMilestone(ctx, m.id)
-                            plan = com.agentos.shell.tools.MissionStore.milestones(ctx)
-                        }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(16.dp).clip(RoundedCornerShape(5.dp))
-                                .background(if (m.done) ACCENT else T.hairline), contentAlignment = Alignment.Center) {
-                                if (m.done) Text("✓", fontSize = T.caption, color = T.bgElevated)
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Text(m.text, fontSize = T.small, color = if (m.done) T.inkFaint else T.ink, modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-
-                // Progress bar + trend.
-                val planPct = if (plan.isNotEmpty()) plan.count { it.done } * 100 / plan.size else null
-                val shownPct = lastCheck?.percent ?: planPct
-                if (shownPct != null) {
-                    Spacer(Modifier.height(14.dp))
-                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)) {
-                        Box(Modifier.fillMaxWidth(shownPct.coerceIn(0, 100) / 100f).fillMaxHeight()
-                            .clip(RoundedCornerShape(999.dp)).background(ACCENT))
-                    }
-                }
-                if (checkHist.size >= 2) {
-                    Spacer(Modifier.height(8.dp))
-                    val accentC = ACCENT
-                    Canvas(Modifier.fillMaxWidth().height(40.dp)) {
-                        val w = size.width; val h = size.height; val n = checkHist.size
-                        fun px(i: Int) = if (n <= 1) 0f else i.toFloat() / (n - 1) * w
-                        fun py(v: Int) = h - 3f - (v / 100f) * (h - 6f)
-                        val path = Path(); path.moveTo(px(0), py(checkHist[0].percent))
-                        for (i in 1 until n) path.lineTo(px(i), py(checkHist[i].percent))
-                        drawPath(path, accentC, style = Stroke(width = 2.5f))
-                        drawCircle(accentC, 3.5f, Offset(px(n - 1), py(checkHist.last().percent)))
-                    }
-                    Text("progress over ${checkHist.size} checks", fontSize = T.caption, color = T.inkFaint)
-                }
-
-                // Argument + next steps.
-                lastCheck?.let { c ->
-                    if (c.note.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(prettify(c.note), fontSize = T.small, color = T.inkSoft) }
-                    if (c.next.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("NEXT", fontSize = T.caption, color = T.inkFaint)
-                        Text(prettify(c.next), fontSize = T.small, color = T.ink)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Add these to my checklist", fontSize = T.caption, color = ACCENT,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                                .clickable {
-                                    val items = c.next.split("\n").map { it.replace(Regex("^\\s*\\d+[).]?\\s*"), "").trim() }
-                                        .filter { it.isNotBlank() }
-                                    items.forEach { com.agentos.shell.tools.ChecklistStore.add(ctx, it) }
-                                    addedMsg = "✓ Added ${items.size} task${if (items.size == 1) "" else "s"} to your checklist"
-                                }.padding(horizontal = 12.dp, vertical = 6.dp))
-                        if (addedMsg.isNotBlank()) Text(addedMsg, fontSize = T.caption, color = ACCENT, modifier = Modifier.padding(top = 6.dp))
-                    }
-                }
+        val mPct = com.agentos.shell.tools.MissionStore.latest(ctx)?.percent
+            ?: com.agentos.shell.tools.MissionStore.milestones(ctx).let { if (it.isNotEmpty()) it.count { m -> m.done } * 100 / it.size else null }
+        val mGoal = com.agentos.shell.tools.MissionStore.mission(ctx)
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+            .clickable { onMission() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Mission", fontSize = T.body, color = T.ink)
+                Text(if (mGoal.isBlank()) "Set a goal — SlyOS will plan and pursue it" else mGoal,
+                    fontSize = T.caption, color = T.inkFaint, maxLines = 1)
             }
-            Spacer(Modifier.height(12.dp))
+            mPct?.let { Text("$it%", fontSize = T.body, color = ACCENT) }
+            Spacer(Modifier.width(10.dp))
+            Text("›", fontSize = T.body, color = T.inkFaint)
         }
+        Spacer(Modifier.height(12.dp))
     }
 }
