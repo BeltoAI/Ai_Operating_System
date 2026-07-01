@@ -108,6 +108,7 @@ private fun prettify(s: String): String {
 fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val density = LocalDensity.current.density
     var version by remember { mutableStateOf(0) }
     val nodes = MemoryGraphStore.nodes
@@ -146,6 +147,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var missionOpen by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.mission(ctx).isNotBlank()) }
     var assessing by remember { mutableStateOf(false) }
     var planning by remember { mutableStateOf(false) }
+    var acting by remember { mutableStateOf(false) }
+    var nextMove by remember { mutableStateOf("") }
     var missionErr by remember { mutableStateOf("") }
     var lastCheck by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.latest(ctx)) }
     var plan by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.milestones(ctx)) }
@@ -534,7 +537,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (missionSaved) "Saved" else "Save", fontSize = T.small,
+                    Text(if (missionSaved) "Saved" else "Save", fontSize = T.small, maxLines = 1, softWrap = false,
                         color = if (missionSaved) T.inkSoft else T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp))
                             .background(if (missionSaved) T.hairline else T.accent)
@@ -546,8 +549,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                             }.padding(horizontal = 16.dp, vertical = 8.dp))
                     if (mission.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
-                        Text(if (planning) "Planning…" else if (plan.isEmpty()) "Make a plan" else "Re-plan",
-                            fontSize = T.small, color = T.inkSoft,
+                        Text(if (plan.isEmpty()) "Make a plan" else "Re-plan",
+                            fontSize = T.small, color = T.inkSoft, maxLines = 1, softWrap = false,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                                 .clickable(enabled = !planning) {
                                     if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
@@ -560,7 +563,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                     }
                                 }.padding(horizontal = 14.dp, vertical = 8.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (assessing) "Assessing…" else "Assess", fontSize = T.small, color = T.bgElevated,
+                        Text("Assess", fontSize = T.small, color = T.bgElevated, maxLines = 1, softWrap = false,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
                                 .clickable(enabled = !assessing) {
                                     if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
@@ -581,10 +584,55 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                 }.padding(horizontal = 16.dp, vertical = 8.dp))
                     }
                 }
+                if (planning || assessing || acting) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(if (planning) "Building your plan…" else if (assessing) "Assessing progress…" else "Working on it…",
+                        fontSize = T.caption, color = ACCENT)
+                }
 
                 if (missionErr.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Text(missionErr, fontSize = T.caption, color = T.danger)
+                }
+
+                // AUTONOMOUS: draft the single highest-leverage move toward the goal, ready to use.
+                if (mission.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Take the next action for me", fontSize = T.small, color = T.bgElevated, maxLines = 1, softWrap = false,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
+                            .clickable(enabled = !acting) {
+                                if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
+                                acting = true; nextMove = ""
+                                scope.launch {
+                                    val mv = withContext(Dispatchers.IO) {
+                                        val open = plan.firstOrNull { !it.done }?.text ?: ""
+                                        com.agentos.shell.tools.AgentClient.missionNextMove(mission, missionContext(), open)
+                                    }
+                                    if (mv.draft.isNotBlank()) {
+                                        missionErr = ""
+                                        nextMove = (if (mv.label.isNotBlank()) mv.label + "\n\n" else "") + mv.draft
+                                        if (mv.task.isNotBlank()) com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task)
+                                    } else missionErr = "Couldn't draft a move — likely a rate limit. Route Heavy/replies to Claude and retry."
+                                    acting = false
+                                }
+                            }.padding(horizontal = 16.dp, vertical = 9.dp))
+                }
+                if (nextMove.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFF6F1E7)).padding(12.dp)) {
+                        Text(nextMove, fontSize = T.small, color = T.ink)
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            Text("Copy", fontSize = T.caption, color = ACCENT,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                    .clickable { clipboard.setText(androidx.compose.ui.text.AnnotatedString(nextMove)) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Dismiss", fontSize = T.caption, color = T.inkSoft,
+                                modifier = Modifier.clickable { nextMove = "" }.padding(horizontal = 8.dp, vertical = 6.dp))
+                        }
+                        Text("(added to your checklist too)", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
+                    }
                 }
 
                 // Milestone plan — checkable sub-goals.

@@ -887,6 +887,33 @@ object AgentClient {
         } catch (ex: Exception) { emptyList() }
     }
 
+    data class MissionMove(val label: String, val draft: String, val task: String)
+
+    /**
+     * Produce the single most impactful CONCRETE next action toward the mission, and actually draft it
+     * — a ready-to-send outreach message, a post, an email, an offer, etc., written in the user's voice
+     * so they can use it immediately. Also returns a one-line checklist task to track it.
+     */
+    fun missionNextMove(mission: String, context: String, openMilestone: String): MissionMove {
+        if (mission.isBlank()) return MissionMove("", "", "")
+        val sys = persona() +
+            "You are working AS this person toward their goal. Pick the ONE highest-leverage concrete " +
+            "action to take right now and DO the writing for it — produce a finished, ready-to-use draft " +
+            "(e.g. the actual outreach DM/email text, the actual post, the actual offer). Write it in " +
+            "their voice, specific and usable — no placeholders like [name] unless truly unknown. " +
+            "Reply ONLY as JSON: {\"label\":\"short title of the move\",\"draft\":\"the finished text they can send/post\",\"task\":\"a one-line checklist item to do it\"}"
+        val user = "GOAL: $mission\n" + (if (openMilestone.isNotBlank()) "CURRENT MILESTONE: $openMilestone\n" else "") +
+            "\nCONTEXT ABOUT ME AND MY WORLD:\n" + context.ifBlank { "(little data yet)" }
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 900, VOICE)
+        if (code != 200) return MissionMove("", "", "")
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val o = JSONObject(text.substring(s, e + 1))
+            MissionMove(o.optString("label").trim(), o.optString("draft").trim(), o.optString("task").trim())
+        } catch (ex: Exception) { MissionMove("Next move", text.trim(), "") }
+    }
+
     /** Extract a calendar event from a message. Returns add_event JSON, or "" if none. */
     fun eventFromText(message: String, nowStr: String): String {
         val sys = "Current time: $nowStr. Extract a calendar event from the message if one is " +
