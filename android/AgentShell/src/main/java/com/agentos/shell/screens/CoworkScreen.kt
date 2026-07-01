@@ -236,7 +236,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                         .clickable { newConvo() }.padding(horizontal = 18.dp, vertical = 10.dp))
                 Spacer(Modifier.weight(1f))
-                Text("📄 Files", fontSize = T.small, color = T.inkSoft,
+                Text("Files", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { files = WorkspaceStore.list(ctx); showFiles = true }.padding(vertical = 8.dp))
             }
             Spacer(Modifier.height(12.dp))
@@ -270,15 +270,15 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(convos.firstOrNull { it.id == convoId }?.title?.ifBlank { "New chat" } ?: "New chat",
                     fontSize = T.small, color = T.inkSoft, modifier = Modifier.weight(1f))
-                Text("📄", fontSize = T.body, color = T.inkSoft,
+                Text("Files", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { files = WorkspaceStore.list(ctx); showFiles = true }.padding(6.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("＋", fontSize = T.body, color = T.accent, modifier = Modifier.clickable { persist(); newConvo() }.padding(6.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("New", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { persist(); newConvo() }.padding(6.dp))
             }
             Spacer(Modifier.height(8.dp))
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
                 if (chat.isEmpty()) item {
-                    Text("Try: “draft a cold email to investors and save it”, “outline a blog post about edge AI and write the intro”, “make a Python script that renames photos by date”. Attach a file with 📎 and it can read it.",
+                    Text("Try: “draft a cold email to investors and save it”, “outline a blog post about edge AI and write the intro”, “make a Python script that renames photos by date”. Use Attach to add a file it can read.",
                         fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 8.dp))
                 }
                 items(chat) { (role, text) ->
@@ -310,14 +310,14 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
             lastApk?.let { apk ->
                 Spacer(Modifier.height(8.dp))
-                Text("📲 Install the app you built", fontSize = T.small, color = T.bgElevated,
+                Text("Install the app you built", fontSize = T.small, color = T.bgElevated,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                         .clickable { scope.launch { withContext(Dispatchers.IO) { com.agentos.shell.tools.TermuxBridge.run(ctx, "termux-open $apk") } } }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("📎", fontSize = T.body, color = T.inkSoft,
+                Text("Attach", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
                         .clickable { attachPicker.launch(arrayOf("*/*")) }.padding(horizontal = 12.dp, vertical = 9.dp))
                 Spacer(Modifier.width(8.dp))
@@ -417,7 +417,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (files.isEmpty()) Text("No files yet.", fontSize = T.small, color = T.inkFaint)
                 LazyColumn(Modifier.weight(1f, fill = false)) {
                     items(files) { f ->
-                        Text("📄 $f", fontSize = T.small, color = T.ink,
+                        Text(f, fontSize = T.small, color = T.ink,
                             modifier = Modifier.fillMaxWidth().clickable { showFiles = false; viewing = f }.padding(vertical = 10.dp))
                         Hairline()
                     }

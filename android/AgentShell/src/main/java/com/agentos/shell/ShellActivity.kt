@@ -82,6 +82,14 @@ class ShellActivity : ComponentActivity() {
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_gmail", androidx.work.ExistingPeriodicWorkPolicy.KEEP, gmReq)
         } catch (e: Exception) {}
+        // Daily self-assessment of the mission (no-op if no goal set); pings only on jumps/stalls.
+        try {
+            val misReq = androidx.work.PeriodicWorkRequestBuilder<MissionWorker>(1, java.util.concurrent.TimeUnit.DAYS)
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_mission", androidx.work.ExistingPeriodicWorkPolicy.KEEP, misReq)
+        } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
             Thread { try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {} }.start()

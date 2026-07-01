@@ -866,6 +866,27 @@ object AgentClient {
         }
     }
 
+    /**
+     * Break a mission into 4-6 concrete, sequenced milestones — a real plan the user can check off.
+     * Returns the milestone texts (empty on failure).
+     */
+    fun planMission(mission: String, context: String): List<String> {
+        if (mission.isBlank()) return emptyList()
+        val sys = "You are SlyOS, the user's strategist. Break their goal into 4-6 CONCRETE, sequenced " +
+            "milestones — specific and checkable (e.g. 'Draft an offer + list 20 target leads', not 'work hard'). " +
+            "Tailor them to the evidence about the user. Each ≤ 14 words, action-first. " +
+            "Reply ONLY as JSON: {\"milestones\":[\"…\",\"…\",\"…\"]}"
+        val user = "GOAL: $mission\n\nWHAT I KNOW ABOUT THE USER:\n" + context.ifBlank { "(little data yet)" }
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 500, VOICE)
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("milestones")
+            (0 until arr.length()).map { arr.getString(it).trim() }.filter { it.isNotBlank() }
+        } catch (ex: Exception) { emptyList() }
+    }
+
     /** Extract a calendar event from a message. Returns add_event JSON, or "" if none. */
     fun eventFromText(message: String, nowStr: String): String {
         val sys = "Current time: $nowStr. Extract a calendar event from the message if one is " +

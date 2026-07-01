@@ -239,7 +239,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         var dbPeople by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.topContacts(ctx, 100000).size) }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🧠 Memory DB: $dbCount messages · $dbPeople people", fontSize = T.caption, color = T.inkFaint)
+            Text("Memory DB: $dbCount messages · $dbPeople people", fontSize = T.caption, color = T.inkFaint)
             if (dbCount > 0) {
                 Spacer(Modifier.width(12.dp))
                 Text("Reset DB", fontSize = T.caption, color = T.danger,
@@ -730,7 +730,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     modifier = Modifier.clickable { KnowledgeStore.clear(ctx); kbName = ""; kbStatus = "" })
             }
         }
-        if (kbName.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("📄 $kbName", fontSize = T.small, color = T.inkSoft) }
+        if (kbName.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(kbName, fontSize = T.small, color = T.inkSoft) }
         if (kbStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(kbStatus, fontSize = T.caption, color = T.accent) }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
