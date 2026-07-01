@@ -29,8 +29,17 @@ object TermuxBridge {
     } catch (e: Exception) { false }
 
     /** Run [command] in Termux (bash -c), blocking up to [timeoutMs]. Returns combined output. */
-    fun run(ctx: Context, command: String, timeoutMs: Long = 90_000): String {
+    fun run(ctx: Context, rawCommand: String, timeoutMs: Long = 90_000): String {
         if (!isInstalled(ctx)) return "Termux isn't installed. Install it from F-Droid, then run `pkg install termux-api` and set allow-external-apps=true."
+        // If the user has saved a GitHub token, export it for every command so `gh` and `git push`
+        // work non-interactively — no `gh auth login` device flow needed. This is what makes
+        // "push to GitHub" one-tap: paste the token once in Settings, then it just works.
+        val token = MemoryStore.githubToken(ctx)
+        val command = if (token.isNotBlank())
+            "export GH_TOKEN='$token'; export GITHUB_TOKEN='$token'; git config --global credential.helper store 2>/dev/null; " +
+                "printf 'https://x-access-token:%s@github.com\\n' \"$token\" > ~/.git-credentials 2>/dev/null; " +
+                rawCommand
+        else rawCommand
         val latch = CountDownLatch(1)
         var result = ""
         val action = "com.agentos.shell.TERMUX_RESULT_" + System.nanoTime()

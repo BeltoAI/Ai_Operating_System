@@ -113,11 +113,11 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     val flow by rememberInfiniteTransition(label = "f").animateFloat(
         0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
     )
-    // Reversible 3D view: off by default (identical to the old 2D brain). When on, nodes get a stable
-    // depth and the whole cloud slowly rotates with perspective — a spinning neural globe.
-    var threeD by remember { mutableStateOf(false) }
+    // 3D brain: nodes get a stable depth and the whole cloud rotates very slowly with perspective —
+    // a living neural globe. Always on now.
+    val threeD = true
     val spin by rememberInfiniteTransition(label = "s").animateFloat(
-        0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Restart), label = "sp"
+        0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(90000, easing = LinearEasing), RepeatMode.Restart), label = "sp"
     )
 
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
@@ -273,17 +273,6 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             }
             return@Column
         }
-
-        // 2D / 3D toggle — fully reversible; 2D is the default and unchanged.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
-            Text(if (threeD) "◱ 2D" else "◆ 3D", fontSize = T.caption,
-                color = if (threeD) ACCENT else T.inkSoft,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(if (threeD) ACCENT.copy(alpha = 0.14f) else T.bgElevated)
-                    .clickable { threeD = !threeD }.padding(horizontal = 12.dp, vertical = 5.dp))
-        }
-        Spacer(Modifier.height(6.dp))
 
         // Legend — tap a color to isolate that kind on the brain; tap again (or "All") to clear.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {

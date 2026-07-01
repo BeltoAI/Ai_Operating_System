@@ -376,12 +376,19 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         var prefProvider by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         @Composable
         fun keyRow(label: String, value: String, onChange: (String) -> Unit) {
-            Text(label, fontSize = T.caption, color = T.inkSoft)
+            val set = value.isNotBlank()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
+                if (set) Text("✓ set", fontSize = T.caption, color = androidx.compose.ui.graphics.Color(0xFF1FA855),
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(androidx.compose.ui.graphics.Color(0x2229C46A)).padding(horizontal = 8.dp, vertical = 2.dp))
+            }
             Spacer(Modifier.height(3.dp))
             BasicTextField(value = value, onValueChange = onChange, singleLine = true,
-                textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
-                decorationBox = { inner -> if (value.isEmpty()) Text("not set", fontSize = T.small, color = T.inkFaint); inner() })
+                textStyle = TextStyle(color = if (set) T.inkSoft else T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(if (set) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(10.dp),
+                decorationBox = { inner -> if (value.isEmpty()) Text("not set — paste key", fontSize = T.small, color = T.inkFaint); inner() })
             Spacer(Modifier.height(8.dp))
         }
         keyRow("Gemini key (free tier)", keyGemini) { keyGemini = it; MemoryStore.setGeminiKey(ctx, it) }
@@ -517,8 +524,25 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("$calls model calls" + (if (byProv.isNotEmpty()) " · " + byProv.entries.joinToString(", ") { "${it.key} $" + String.format("%.2f", it.value) } else ""),
-                    fontSize = T.caption, color = T.inkFaint)
+                Text("$calls model calls this month", fontSize = T.caption, color = T.inkFaint)
+                if (byProv.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Per key", fontSize = T.caption, color = T.inkSoft)
+                    Spacer(Modifier.height(4.dp))
+                    val labelFor = mapOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI")
+                    byProv.entries.sortedByDescending { it.value }.forEach { (prov, amt) ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(labelFor[prov] ?: prov, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                            Text("$" + String.format("%.2f", amt), fontSize = T.small, color = T.inkSoft)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Gemini free tier is $0.00 — usage stays free until you hit the daily cap.",
+                            fontSize = T.caption, color = T.inkFaint)
+                    }
+                }
             }
         }
 
@@ -551,6 +575,27 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         .padding(horizontal = 16.dp, vertical = 9.dp))
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+        var ghToken by remember { mutableStateOf(MemoryStore.githubToken(ctx)) }
+        val ghSet = ghToken.isNotBlank()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("GitHub · one-tap push from Cowork", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+            if (ghSet) Text("✓ set", fontSize = T.caption, color = androidx.compose.ui.graphics.Color(0xFF1FA855),
+                modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(androidx.compose.ui.graphics.Color(0x2229C46A)).padding(horizontal = 8.dp, vertical = 2.dp))
+        }
+        Text("Paste a GitHub token once — then Cowork can create repos and push code with no login prompts. " +
+            "Make one at github.com/settings/tokens (classic, scope: repo).",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
+        BasicTextField(value = ghToken, onValueChange = { ghToken = it; MemoryStore.setGithubToken(ctx, it) }, singleLine = true,
+            textStyle = TextStyle(color = if (ghSet) T.inkSoft else T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                .background(if (ghSet) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(10.dp),
+            decorationBox = { inner -> if (ghToken.isEmpty()) Text("ghp_… (stored only on this phone)", fontSize = T.small, color = T.inkFaint); inner() })
+        Text("Then just tell Cowork: “put this on my GitHub.”", fontSize = T.caption, color = T.inkFaint,
+            modifier = Modifier.padding(top = 4.dp))
 
         SectionTitle("Per-app responses")
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
