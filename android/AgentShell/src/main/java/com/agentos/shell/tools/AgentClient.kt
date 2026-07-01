@@ -970,6 +970,16 @@ object AgentClient {
         return stripFences(html)
     }
 
+    /** Apply an edit instruction to an existing HTML doc and return the full revised HTML. */
+    fun jobReviseHtmlDoc(currentHtml: String, instruction: String): String {
+        val html = jobCall(
+            "You are editing a print-ready HTML document. Apply the user's requested change and return the " +
+            "COMPLETE, revised, self-contained HTML document ONLY — keep the existing visual style and structure, " +
+            "change only what they asked, never invent facts.",
+            "CHANGE TO MAKE: $instruction\n\nCURRENT HTML:\n$currentHtml", 4000)
+        return stripFences(html)
+    }
+
     /** Rewrite the résumé tailored to a specific posting (reorder/emphasize, keep it truthful). */
     fun jobTailorResume(resume: String, posting: String): String = jobCall(
         "You are a résumé expert. Rewrite the résumé to target the job posting: reorder and reword bullets to " +
