@@ -171,7 +171,8 @@ fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text("Here's what I wrote — copy and send/post it:", fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(4.dp))
-                Text(moveText, fontSize = T.small, color = T.ink, modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()))
+                Text(moveText.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1").replace(Regex("(?m)^#{1,6}\\s*"), "").replace(Regex("(?m)^---+$"), "· · ·"),
+                    fontSize = T.small, color = T.ink, modifier = Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()))
                 Spacer(Modifier.height(12.dp))
                 bigBtn("Copy it", accent = true) { clip.setText(AnnotatedString(moveText)) }
                 if (moveTask.isNotBlank()) Text("Saved to your checklist too.", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))

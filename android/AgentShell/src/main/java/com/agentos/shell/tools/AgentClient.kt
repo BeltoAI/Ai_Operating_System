@@ -189,7 +189,8 @@ object AgentClient {
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
-            append("Use find_job for ANYTHING job-related — applying, hunting, résumé/cover letter, OR asking what roles/opportunities suit them (e.g. 'find me a job', 'apply at IBM', 'what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'). This opens the job screen which searches real openings they can tap. DON'T write a long text list of roles — instead set arg to 2-4 concrete role keywords inferred from their real background above (e.g. 'AI product lead, technology consultant, startup CTO'), or the company/role they named. Keep 'say' to ONE short friendly line like 'On it — pulling up roles that fit you.' ")
+            append("Use find_job ONLY when the user wants to ACT on a specific job now — 'find me a job at IBM', 'apply to X', 'make my résumé/cover letter'; arg = the company/role. ")
+            append("If they ASK which roles/opportunities suit them ('what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'), do NOT use find_job. ANSWER in 'say' with a clean, concrete list of 4-6 roles grounded in their real work history above — each on its own line as 'Role — one-line why it fits'. Plain text, NO markdown/asterisks/headers. End with one line: 'Say \"find me a job at <one>\" and I'll build the application.' ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -902,10 +903,11 @@ object AgentClient {
             "action to take right now and DO the writing for it — produce a finished, ready-to-use draft. " +
             "IF the goal is about FINDING or REACHING PEOPLE (candidates, customers, leads, hires, cofounders) " +
             "and the context lists 'People in my network relevant to this goal', DO NOT tell them to go search " +
-            "elsewhere — instead pick the best real matches from that list and, in the draft, output a numbered " +
-            "list where each item is that person's name + why they fit + a short personalized message ready to " +
-            "send them. Otherwise produce the single best draft (DM/email/post/offer). Write in their voice, " +
-            "specific — no [placeholders] unless truly unknown. " +
+            "elsewhere — pick the 3-5 best real matches and format the draft EXACTLY like this per person, " +
+            "separated by a blank line, PLAIN TEXT ONLY (no markdown, no ** asterisks, no headers):\n" +
+            "Name — role @ company\nWhy: one short line\nMessage: the ready-to-send DM\n\n" +
+            "Otherwise produce the single best draft (DM/email/post/offer). Write in their voice, " +
+            "specific — no [placeholders] unless truly unknown. NEVER use markdown or asterisks anywhere. " +
             "Reply ONLY as JSON: {\"label\":\"short title of the move\",\"draft\":\"the finished text / the candidate list with a message each\",\"task\":\"a one-line checklist item\"}"
         val user = "GOAL: $mission\n" + (if (openMilestone.isNotBlank()) "CURRENT MILESTONE: $openMilestone\n" else "") +
             "\nCONTEXT ABOUT ME AND MY WORLD:\n" + context.ifBlank { "(little data yet)" }
