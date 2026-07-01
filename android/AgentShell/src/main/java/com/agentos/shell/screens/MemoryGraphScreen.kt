@@ -57,6 +57,25 @@ private fun typeColor(t: String): Color = when (t) {
 }
 private val ACCENT = Color(0xFFE8642C)
 
+/** Stable per-node depth so the cloud has a consistent 3D shape frame to frame. */
+private fun depthZ(id: Int): Float { val h = (id * 374761393 + 668265263); return ((h and 0x7fffffff) % 640 - 320).toFloat() }
+
+/** Project a node to the screen with yaw (spin) + tilt + perspective. Returns screen point and a
+ *  depth scale (≈1 near, <1 far) used for size/ordering. Shared by the renderer and tap hit-testing
+ *  so taps land on what you see. */
+private fun project(n: MemoryGraphStore.Node, cx: Float, cy: Float, scale: Float, yaw: Float, tilt: Float): Pair<Offset, Float> {
+    val z = depthZ(n.id)
+    val ca = cos(yaw); val sa = sin(yaw)
+    val x2 = n.x * ca - z * sa
+    val z2 = n.x * sa + z * ca
+    val ct = cos(tilt); val st = sin(tilt)
+    val y2 = n.y * ct - z2 * st
+    val z3 = n.y * st + z2 * ct
+    val focal = 1100f
+    val p = (focal / (focal - z3)).coerceIn(0.45f, 1.9f)
+    return Offset(cx + x2 * scale * p, cy + y2 * scale * p) to p
+}
+
 /** Color a person node by the platform they're from, so the brain reads as colorful lobes. */
 private fun platformColor(p: String): Color {
     val s = p.lowercase()
@@ -103,6 +122,16 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         offset = Offset.Zero
         version++
     }
+    // Live refresh: while you're looking at the brain, pull in anything new (fixed layout seed keeps
+    // node positions stable, so it grows without jumping around).
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(20_000)
+            val before = MemoryGraphStore.nodes.size
+            MemoryGraphStore.rebuild(ctx)
+            if (MemoryGraphStore.nodes.size != before) version++
+        }
+    }
     var selected by remember { mutableStateOf<Int?>(null) }
     var query by remember { mutableStateOf("") }
     var searchHist by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.searchHistory(ctx)) }
@@ -119,6 +148,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     val spin by rememberInfiniteTransition(label = "s").animateFloat(
         0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(90000, easing = LinearEasing), RepeatMode.Restart), label = "sp"
     )
+    // Manual rotation: drag to spin the globe (yaw) and tilt it (pitch), on top of the slow auto-spin.
+    var userYaw by remember { mutableStateOf(0f) }
+    var userTilt by remember { mutableStateOf(0.35f) }   // a slight starting tilt reads as 3D immediately
 
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
     fun ask() {
@@ -200,7 +232,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     Column(modifier) {
         ScreenHeader("Memory", onBack)
         version.let { }
-        Text("${nodes.size} memories mapped", fontSize = T.caption, color = T.inkFaint,
+        Text("${nodes.size} memories mapped · drag to rotate, pinch to zoom", fontSize = T.caption, color = T.inkFaint,
             modifier = Modifier.padding(top = 2.dp))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -297,16 +329,23 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             Canvas(
                 Modifier.fillMaxSize()
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(0.4f, 3f); offset += pan }
+                        // Drag rotates the globe with your finger (yaw + tilt); pinch still zooms.
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(0.4f, 3f)
+                            userYaw += pan.x * 0.006f
+                            userTilt = (userTilt - pan.y * 0.006f).coerceIn(-1.3f, 1.3f)
+                        }
                     }
                     .pointerInput(version) {
                         detectTapGestures { tap ->
                             val cx = size.width / 2f + offset.x; val cy = size.height / 2f + offset.y
-                            val wx = (tap.x - cx) / scale; val wy = (tap.y - cy) / scale
-                            var hit: Int? = null
-                            for (i in nodes.indices.reversed()) {
+                            val yaw = spin + userYaw; val tilt = userTilt
+                            var hit: Int? = null; var bestP = -1e9f
+                            for (i in nodes.indices) {
                                 val n = nodes[i]
-                                if (hypot(wx - n.x, wy - n.y) < 7f + n.strength * 13f + 5f) { hit = i; break }
+                                val (pos, p) = project(n, cx, cy, scale, yaw, tilt)
+                                val r = (7f + n.strength * 13f + 6f) * p
+                                if (hypot(tap.x - pos.x, tap.y - pos.y) < r && p > bestP) { bestP = p; hit = i }
                             }
                             selected = hit; if (hit != null) pathNodes = emptyList()
                         }
@@ -314,17 +353,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             ) {
                 version.let { }
                 val cx = size.width / 2f + offset.x; val cy = size.height / 2f + offset.y
-                // Perspective projection for 3D mode. In 2D mode P() collapses to the flat layout.
-                val ca = cos(spin); val sa = sin(spin); val focal = 1100f
-                fun depthZ(id: Int): Float { val h = (id * 374761393 + 668265263); return ((h and 0x7fffffff) % 640 - 320).toFloat() }
-                fun P(n: MemoryGraphStore.Node): Pair<Offset, Float> {
-                    if (!threeD) return Offset(cx + n.x * scale, cy + n.y * scale) to 1f
-                    val z = depthZ(n.id)
-                    val x2 = n.x * ca - z * sa
-                    val z2 = n.x * sa + z * ca
-                    val p = (focal / (focal - z2)).coerceIn(0.45f, 1.9f)
-                    return Offset(cx + x2 * scale * p, cy + n.y * scale * p) to p
-                }
+                val yaw = spin + userYaw; val tilt = userTilt
+                fun P(n: MemoryGraphStore.Node): Pair<Offset, Float> = project(n, cx, cy, scale, yaw, tilt)
                 val conn = selected?.let { s -> edges.filter { it.a == s || it.b == s }.flatMap { listOf(it.a, it.b) }.toSet() }
                 val graphite = Color(0xFF8C8475)
                 edges.forEach { e ->
