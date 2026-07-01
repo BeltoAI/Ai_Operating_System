@@ -91,6 +91,27 @@ object JobDoc {
         }
     }
 
+    /** Reliable HTML→PDF via Android's print engine: shows the fully-rendered PDF and lets the user
+     *  save/share it. Use this to actually VIEW the finished document. */
+    fun printHtml(ctx: Context, html: String, name: String) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val wv = WebView(ctx)
+                wv.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        try {
+                            val pm = ctx.getSystemService(Context.PRINT_SERVICE) as android.print.PrintManager
+                            val adapter = view.createPrintDocumentAdapter("SlyOS-$name")
+                            pm.print("SlyOS $name", adapter, android.print.PrintAttributes.Builder()
+                                .setMediaSize(android.print.PrintAttributes.MediaSize.NA_LETTER).build())
+                        } catch (e: Exception) {}
+                    }
+                }
+                wv.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+            } catch (e: Exception) {}
+        }
+    }
+
     /** Open the user's email app with the outreach text and the given PDFs attached. */
     fun emailWithAttachments(ctx: Context, to: String, subject: String, body: String, files: List<File>) {
         val uris = ArrayList<Uri>(files.filter { it.exists() }.map { FileProvider.getUriForFile(ctx, AUTHORITY, it) })

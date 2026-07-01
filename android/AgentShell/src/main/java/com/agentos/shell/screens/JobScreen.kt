@@ -152,13 +152,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
             Text("View", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { fullView = html }.padding(8.dp))
-            if (file != null) Text("Open", fontSize = T.small, color = T.accent, modifier = Modifier.clickable {
-                try {
-                    val u = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
-                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(u, "application/pdf")
-                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                } catch (e: Exception) {}
-            }.padding(8.dp))
+            Text("PDF", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { JobDoc.printHtml(ctx, html, which) }.padding(8.dp))
             Text(if (editing) "Close" else "Edit", fontSize = T.small, color = T.accent,
                 modifier = Modifier.clickable { editing = !editing }.padding(8.dp))
         }

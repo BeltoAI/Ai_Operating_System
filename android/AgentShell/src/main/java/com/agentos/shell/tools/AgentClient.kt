@@ -969,16 +969,21 @@ object AgentClient {
     private fun stripFences(s: String): String =
         s.trim().removePrefix("```html").removePrefix("```HTML").removePrefix("```").removeSuffix("```").trim()
 
-    /** A stunning, print-ready HTML résumé tailored to the posting. Returns a full self-contained HTML doc. */
+    /** A clean, populated, print-ready HTML résumé (standard US format) tailored to the posting. */
     fun jobResumeHtmlDoc(resume: String, posting: String): String {
         val html = jobCall(
-            "You are a top-tier résumé designer. Output a COMPLETE, self-contained, print-ready HTML résumé " +
-            "(single <html> doc with embedded <style>, no external assets/fonts/JS). A4 width, elegant modern " +
-            "design: a clear name header, a thin accent rule (#E8642C), well-spaced sections (Summary, " +
-            "Experience with company · title · dates and tight achievement bullets, Skills, Education), refined " +
-            "typography and generous whitespace — the kind of résumé that looks expensive. Tailor content and " +
-            "keyword emphasis to the posting, but NEVER invent employers, titles, or dates. Output ONLY the HTML.",
-            "JOB POSTING:\n$posting\n\nMY RÉSUMÉ / HISTORY:\n$resume", 4000)
+            "You are an expert résumé writer. Output a COMPLETE, self-contained, print-ready HTML résumé in the " +
+            "STANDARD US single-column format — real content, NOT a wireframe. Structure top to bottom: " +
+            "(1) Name (large) + contact line (email/phone/city/LinkedIn if known); (2) PROFESSIONAL SUMMARY — 2-3 " +
+            "sentences; (3) EXPERIENCE — each role as 'Title, Company — Location (dates)' followed by 3-5 " +
+            "achievement bullets with real detail; (4) SKILLS — comma-separated; (5) EDUCATION. " +
+            "CRITICAL: fill every section with the ACTUAL details from the history below — write the real bullet " +
+            "text, do NOT leave empty boxes, lorem, or placeholder lines. If a detail is genuinely missing, omit " +
+            "that line entirely (never leave an empty box). Reword to emphasize what THIS posting wants, but never " +
+            "invent employers, titles, or dates. Clean typography: system serif/sans, section headings in small " +
+            "caps with a hairline rule, generous line-height, black text on white, one subtle accent color " +
+            "(#E8642C) for headings only. Embedded <style>, no external assets/JS. Output ONLY the HTML.",
+            "JOB POSTING:\n$posting\n\nMY REAL HISTORY (use this to populate every section):\n$resume", 5000)
         return stripFences(html)
     }
 
