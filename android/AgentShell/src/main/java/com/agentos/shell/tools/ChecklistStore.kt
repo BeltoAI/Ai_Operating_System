@@ -27,8 +27,12 @@ object ChecklistStore {
     }
 
     fun add(ctx: Context, text: String) {
-        if (text.isBlank()) return
-        save(ctx, load(ctx) + Item(System.currentTimeMillis(), text.trim(), false))
+        val t = text.trim()
+        if (t.isBlank()) return
+        // Skip near-duplicates (case-insensitive) so repeated mission "add to checklist" taps and the
+        // daily worker don't pile up the same task.
+        if (load(ctx).any { it.text.trim().equals(t, ignoreCase = true) }) return
+        save(ctx, load(ctx) + Item(System.currentTimeMillis(), t, false))
     }
 
     fun toggle(ctx: Context, id: Long) =
