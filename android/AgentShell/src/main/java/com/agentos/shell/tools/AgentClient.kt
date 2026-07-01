@@ -677,6 +677,31 @@ object AgentClient {
         return name to html
     }
 
+    /**
+     * Local Cowork — a provider-agnostic agentic loop. The model works on real on-device files by
+     * replying with ONE JSON tool call per turn (no native tool-use API needed, so it runs on Claude,
+     * GPT OR Gemini). The screen executes the tool, feeds back the result, and repeats until "done".
+     */
+    private fun coworkSys(memory: String): String =
+        "You are SlyOS Cowork — a capable local agent working on the user's documents on their phone, like " +
+        "a desktop coding/writing assistant. You accomplish tasks by USING TOOLS, ONE PER TURN. " +
+        "Reply with ONLY a single JSON object each turn — no prose outside the JSON. Available tools:\n" +
+        "{\"tool\":\"list_files\",\"note\":\"…\"}\n" +
+        "{\"tool\":\"read_file\",\"args\":{\"name\":\"x.md\"},\"note\":\"…\"}\n" +
+        "{\"tool\":\"write_file\",\"args\":{\"name\":\"x.md\",\"content\":\"FULL file contents\"},\"note\":\"…\"}  (creates or overwrites)\n" +
+        "{\"tool\":\"edit_file\",\"args\":{\"name\":\"x.md\",\"find\":\"exact text\",\"replace\":\"new text\"},\"note\":\"…\"}\n" +
+        "{\"done\":true,\"message\":\"a short summary of what you did\"}\n" +
+        "RULES: plan, then act step by step. Always write COMPLETE file contents (never placeholders or '...'). " +
+        "Read a file before editing it. 'note' is a short line shown to the user describing this step. " +
+        "After each tool I send the result back; keep going until the task is fully done, then return done. " +
+        (if (memory.isNotBlank()) "About the user (use when relevant): $memory. " else "")
+
+    /** One turn of the Cowork loop. [messages] = the running user/assistant transcript. Returns raw text. */
+    fun coworkTurn(messages: JSONArray, memory: String = ""): String {
+        val (code, text) = callMessages(coworkSys(memory), messages, 8000, OPUS)
+        return if (code == 200) text.trim() else "{\"done\":true,\"message\":\"I hit an error ($code). Try again.\"}"
+    }
+
     /** The Architect (Opus 4.8): turn a prompt into a self-contained, bridge-powered mini-app. */
     fun architect(prompt: String): Pair<String, String> {
         val (code, text) = callMessages(

@@ -54,6 +54,30 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var tgBot by remember { mutableStateOf(MemoryStore.telegramBot(ctx)) }
     var recall by remember { mutableStateOf(MemoryStore.recallEnabled(ctx)) }
     var lockVoice by remember { mutableStateOf(MemoryStore.lockVoice(ctx)) }
+    var importStatus by remember { mutableStateOf("") }
+    var voiceStatus by remember { mutableStateOf("") }
+    var voiceBusy by remember { mutableStateOf(false) }
+    var sampleCount by remember { mutableStateOf(MemoryStore.voiceSamples(ctx).size) }
+    val chatImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            importStatus = "Reading ${uris.size} file(s) & adding to your brain…"
+            scope.launch {
+                val owner = MemoryStore.ownerName(ctx)
+                var msgs = 0; var chats = 0
+                withContext(Dispatchers.IO) {
+                    uris.forEach { uri ->
+                        val r = com.agentos.shell.tools.ChatImport.importAny(ctx, uri, owner)
+                        msgs += r.messages; chats += r.contacts
+                        MemoryStore.addVoiceSamples(ctx, r.mySamples)
+                    }
+                }
+                sampleCount = MemoryStore.voiceSamples(ctx).size
+                importStatus = if (msgs > 0)
+                    "Added $chats chats / $msgs messages to your brain ✓ · $sampleCount voice samples. Tap “Learn my voice” below."
+                else "Couldn't read those. Use WhatsApp .txt, LinkedIn/Instagram/Telegram exports (zips ok)."
+            }
+        }
+    }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             kbStatus = "Reading PDF…"
@@ -194,7 +218,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             if (dbCount > 0) {
                 Spacer(Modifier.width(12.dp))
                 Text("Reset DB", fontSize = T.caption, color = T.danger,
-                    modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); dbCount = 0; dbPeople = 0 })
+                    modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); com.agentos.shell.tools.VectorStore.clear(ctx); dbCount = 0; dbPeople = 0 })
             }
         }
         if (styleProfile.isNotBlank()) {
@@ -268,6 +292,41 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(18.dp))
+        Text("Import data & voice", fontSize = T.body, color = T.ink)
+        Text("Add chat exports anytime — they feed the memory brain (and get indexed for semantic recall). " +
+            "Then learn your writing voice from them whenever you want.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📥 Import chats", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable { chatImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 16.dp, vertical = 10.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(if (voiceBusy) "Learning…" else "🎙 Learn my voice", fontSize = T.small, color = T.ink,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable(enabled = !voiceBusy) {
+                        voiceBusy = true; voiceStatus = ""
+                        scope.launch {
+                            val pool = MemoryStore.voiceSamples(ctx)
+                            if (pool.size < 5) { voiceStatus = "Only $sampleCount samples — import your chats first."; voiceBusy = false; return@launch }
+                            val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.learnStyle(pool) }
+                            if (profile.isNotBlank() && !profile.startsWith("[")) {
+                                MemoryStore.setStyleProfile(ctx, profile)
+                                com.agentos.shell.tools.AgentClient.styleProfile = profile
+                                MemoryStore.setVoiceLearnedCount(ctx, pool.size)
+                                voiceStatus = "Learned your voice from ${pool.size} messages ✓"
+                            } else voiceStatus = "Couldn't learn it — ${profile.take(160)}"
+                            voiceBusy = false
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 10.dp))
+        }
+        Text("$sampleCount voice samples collected" +
+            (if (MemoryStore.styleProfile(ctx).isNotBlank()) " · voice profile set ✓" else " · no voice profile yet"),
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
+        if (importStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(importStatus, fontSize = T.caption, color = T.accent) }
+        if (voiceStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(voiceStatus, fontSize = T.caption, color = if (voiceStatus.startsWith("Learned")) T.accent else T.danger) }
+
+        Spacer(Modifier.height(18.dp))
         Text("Models & spending", fontSize = T.body, color = T.ink)
         Text("Bring a key for any provider. Gemini has a free tier. With more than one, SlyOS uses a cheap " +
             "model for everyday replies and a powerful one for papers — same memory and voice on all of them.",
@@ -304,6 +363,52 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         .padding(horizontal = 14.dp, vertical = 7.dp))
             }
         }
+        Spacer(Modifier.height(14.dp))
+        var embN by remember { mutableStateOf(0) }
+        var pendN by remember { mutableStateOf(0) }
+        var embBusy by remember { mutableStateOf(false) }
+        var embErr by remember { mutableStateOf("") }
+        LaunchedEffect(Unit) {
+            embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+            pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Semantic memory", fontSize = T.body, color = T.ink)
+                Text(
+                    if (com.agentos.shell.tools.EmbeddingClient.provider(ctx) == null)
+                        "Needs a Gemini or OpenAI key (above) to switch on — embeddings are free on Gemini."
+                    else "$embN memories indexed" + (if (pendN > 0) " · $pendN to go" else " · up to date") +
+                        ". Lets the brain recall by meaning, not just keywords.",
+                    fontSize = T.small, color = T.inkFaint
+                )
+            }
+            if (com.agentos.shell.tools.EmbeddingClient.provider(ctx) != null) {
+                Text(if (embBusy) "…" else "Index now", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable(enabled = !embBusy) {
+                            embBusy = true
+                            scope.launch {
+                                withContext(Dispatchers.IO) { com.agentos.shell.tools.VectorStore.backfill(ctx, 500) }
+                                embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+                                pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+                                val e = com.agentos.shell.tools.EmbeddingClient.lastError
+                                embErr = when {
+                                    e.contains("429") || e.contains("RESOURCE_EXHAUSTED", true) ->
+                                        "Free-tier rate limit hit — the index keeps filling in the background every ~15 min. Come back later."
+                                    e.isNotBlank() && embN == 0 -> e
+                                    else -> ""
+                                }
+                                embBusy = false
+                            }
+                        }.padding(horizontal = 14.dp, vertical = 8.dp))
+            }
+        }
+        if (embErr.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text("Embedding error: $embErr", fontSize = T.caption, color = T.danger)
+        }
+
         Spacer(Modifier.height(12.dp))
         Text("Routing — which model handles what", fontSize = T.caption, color = T.inkSoft)
         Text("Quick tasks = triage, summaries, understanding commands (high volume).  Your replies = the " +

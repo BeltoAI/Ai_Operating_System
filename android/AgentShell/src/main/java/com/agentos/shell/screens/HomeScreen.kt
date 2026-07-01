@@ -215,6 +215,10 @@ fun HomeScreen(
                 val chats = com.agentos.shell.tools.MessageStore.search(ctx, q, 10)
                     .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
                     .take(2200)
+                // Semantic recall: finds relevant memories even when the wording differs ("deal" ↔ "acquisition").
+                val semantic = com.agentos.shell.tools.VectorStore.search(ctx, q, 6)
+                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                    .take(2000)
                 val net = com.agentos.shell.tools.ConnectionStore.search(ctx, q, 10)
                     .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
                     .take(1200)
@@ -227,6 +231,8 @@ fun HomeScreen(
                 buildString {
                     if (mem.isNotBlank()) append(mem)
                     if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+                    if (semantic.isNotBlank())
+                        append("\nMost relevant memories (semantic match — use if relevant):\n").append(semantic)
                     if (chats.isNotBlank())
                         append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
                     if (net.isNotBlank())

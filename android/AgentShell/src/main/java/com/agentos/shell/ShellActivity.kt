@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +58,16 @@ class ShellActivity : ComponentActivity() {
         }
         // Pull the whole calendar (past + future) into the brain so the agent knows every appointment.
         Thread { com.agentos.shell.tools.CalendarTool.syncAllToBrain(applicationContext) }.start()
+        // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
+        Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()
+        // Keep filling the index in the background (free-tier-friendly) so the user needn't babysit it.
+        try {
+            val embReq = androidx.work.PeriodicWorkRequestBuilder<EmbedWorker>(15, java.util.concurrent.TimeUnit.MINUTES)
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_embed", androidx.work.ExistingPeriodicWorkPolicy.KEEP, embReq)
+        } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
             Thread { try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {} }.start()
@@ -136,7 +146,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
-                        Screen.Research -> ResearchScreen(m, researchTopic) { researchTopic = ""; screen = Screen.Home }
+                        Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }) { researchTopic = ""; screen = Screen.Home }
+                        Screen.Cowork -> CoworkScreen(m) { screen = Screen.Research }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }

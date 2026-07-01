@@ -49,9 +49,9 @@ object GmailClient {
     fun send(ctx: Context, to: String, subject: String, body: String): Pair<Boolean, String> {
         val token = GoogleAuth.accessToken(ctx)
         if (token.isBlank()) return false to "Google isn't connected."
-        val from = GoogleAuth.account(ctx)
+        // Do NOT set a From header — Gmail uses the authenticated account automatically. A mismatched
+        // From (stale/wrong account) triggers a 403 "Delegation denied," which is likely what happened.
         val mime = buildString {
-            if (from.isNotBlank()) append("From: ").append(from).append("\r\n")
             append("To: ").append(to).append("\r\n")
             append("Subject: ").append(subject).append("\r\n")
             append("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n")

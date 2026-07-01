@@ -67,7 +67,7 @@ object GoogleAuth {
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("state", state)
             .appendQueryParameter("access_type", "offline")
-            .appendQueryParameter("prompt", "consent")
+            .appendQueryParameter("prompt", "select_account consent")
             .build()
         return try {
             val tab = CustomTabsIntent.Builder().setShowTitle(true).build()

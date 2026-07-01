@@ -14,11 +14,16 @@ object MessageStore {
 
     private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_msgs.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE messages(contact TEXT, platform TEXT, sender TEXT, role TEXT, body TEXT, ts INTEGER)")
-            db.execSQL("CREATE INDEX idx_contact ON messages(contact)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS messages(contact TEXT, platform TEXT, sender TEXT, role TEXT, body TEXT, ts INTEGER)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_contact ON messages(contact)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON messages(ts)")
         }
-        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
-            db.execSQL("DROP TABLE IF EXISTS messages"); onCreate(db)
+        // FAULT FIX: the brain is the user's irreplaceable memory — NEVER drop it on a schema bump.
+        // Migrate additively (create the table/indexes if missing) so an upgrade can't wipe years of data.
+        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) = onCreate(db)
+        // Ensure the time index exists on every open, even for installs created before it was added.
+        override fun onOpen(db: SQLiteDatabase) {
+            try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON messages(ts)") } catch (e: Exception) {}
         }
     }
 
@@ -42,6 +47,8 @@ object MessageStore {
             }
             d.setTransactionSuccessful()
         } catch (e: Exception) {} finally { d.endTransaction() }
+        // Mirror into the semantic index (instant queue; embedded later in the background). Best-effort.
+        try { for (r in rows) if (r.body.isNotBlank()) VectorStore.enqueue(ctx, r.contact, r.role, r.body) } catch (e: Exception) {}
     }
 
     fun insertOne(ctx: Context, contact: String, platform: String, sender: String, role: String, body: String) =
@@ -85,6 +92,13 @@ object MessageStore {
             terms.map { "%$it%" }.toTypedArray())
         return out.values.take(limit)
     }
+
+    /** Every stored message (newest first), for one-time seeding of the semantic index. */
+    fun allRows(ctx: Context, cap: Int = 20000): List<Hit> = try {
+        db(ctx).rawQuery("SELECT contact,role,body FROM messages ORDER BY ts DESC LIMIT ?", arrayOf(cap.toString())).use { c ->
+            val out = ArrayList<Hit>(); while (c.moveToNext()) out.add(Hit(c.getString(0), c.getString(1), c.getString(2))); out
+        }
+    } catch (e: Exception) { emptyList() }
 
     fun threadFor(ctx: Context, contact: String, limit: Int = 40): List<Hit> = try {
         db(ctx).rawQuery("SELECT contact,role,body FROM messages WHERE contact=? ORDER BY ts DESC LIMIT ?",

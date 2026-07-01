@@ -215,7 +215,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                     .clickable { ask() }.padding(horizontal = 14.dp, vertical = 9.dp))
             Spacer(Modifier.width(8.dp))
-            Text("About", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { onSettings() })
+            Text("⚙ Settings", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { onSettings() })
         }
 
         // Recent searches: visible while the box is empty / being typed and before an answer shows.

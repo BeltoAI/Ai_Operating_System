@@ -115,7 +115,7 @@ private fun ensureStyle(html: String): String {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onBack: () -> Unit) {
+fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onWorkspace: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(if (initialTopic.isNotBlank()) "compose" else "library") }
@@ -223,22 +223,16 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
     // forces a white background, pulls EVERY scattered reference into one References section at the
     // end, rebuilds the table of contents from the real headings, and renumbers chapters. Safe —
     // it only moves/renumbers existing content, it never rewrites prose.
-    fun cleanup(): String {
-        var h = html.replace("id=\"slyosnew\"", "").replace("id=\"slyosold\"", "")
-        // 1. Drop meta/placeholder lines ("I'll research…", "In this section I will…") wherever they
-        //    appear — paragraphs, list items, or a heading that's just a placeholder.
-        val ph = "i'?ll research|i will research|in this section i will|i'?m going to|let me research|here'?s what i"
-        h = Regex("(?is)<p[^>]*>\\s*($ph)[^<]*</p>").replace(h, "")
-        h = Regex("(?is)<li[^>]*>\\s*($ph)[^<]*</li>").replace(h, "")
-        h = Regex("(?is)<h[1-4][^>]*>\\s*($ph)[^<]*</h[1-4]>").replace(h, "")
-        // 2. Neutralize any non-white background colour (the "brown"/cream the user flagged).
-        h = Regex("(?i)background(-color)?\\s*:\\s*(?!#fff|#ffffff|white|transparent|none)[^;\"}]+;?").replace(h, "")
-        // 3. Remove EVERY existing table of contents, in any form (a <nav>, a div/ul/ol.toc, or a
-        //    "Contents"/"Table of Contents" heading + its following list), so we rebuild ONE clean copy.
+    // PURE structural normalizer — the APP guarantees structure so the model doesn't have to: ONE clean
+    // table of contents, chapters renumbered in document order, and References ALWAYS last. It never
+    // rewrites prose and never strips highlight markers, so it's safe to run automatically every turn.
+    fun restructure(src: String): Pair<String, Int> {
+        var h = src
+        // Strip every existing table of contents (any form) — we'll rebuild one.
         h = Regex("(?is)<nav[^>]*>.*?</nav>").replace(h) { if (it.value.lowercase().contains("content")) "" else it.value }
         h = Regex("(?is)<(div|ul|ol)[^>]*class=\"[^\"]*toc[^\"]*\"[^>]*>.*?</\\1>").replace(h, "")
         h = Regex("(?is)<h[1-3][^>]*>\\s*(?:table of\\s+)?contents\\s*</h[1-3]>\\s*(?:<(ul|ol)\\b[^>]*>.*?</\\1>)?").replace(h, "")
-        // 4. Gather every reference <li> from all reference lists, de-duped.
+        // Gather all reference lists (de-duped), remove them + their headings.
         val refLis = StringBuilder(); val seen = HashSet<String>()
         val refOl = Regex("(?is)<ol[^>]*class=\"[^\"]*references[^\"]*\"[^>]*>(.*?)</ol>")
         refOl.findAll(h).forEach { m ->
@@ -247,46 +241,51 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
                 if (key.length > 4 && seen.add(key)) refLis.append(li.value).append("\n")
             }
         }
-        val refCount = seen.size
-        // Remove the old reference lists and their headings (we'll re-add one at the end).
         h = refOl.replace(h, "")
         h = Regex("(?is)<h2[^>]*>\\s*\\d*\\.?\\s*references\\s*</h2>").replace(h, "")
-        // 5. Renumber chapters sequentially (skip front/back-matter headings).
+        // Renumber chapters in document order (skip front/back-matter headings).
         var n = 0
         h = Regex("(?is)(<h2[^>]*>)(.*?)(</h2>)").replace(h) { m ->
             val open = m.groupValues[1]; var txt = m.groupValues[2].trim(); val close = m.groupValues[3]
             val plain = txt.replace(Regex("<[^>]+>"), "").trim().lowercase()
-            val skip = listOf("reference", "appendix", "acknowledg", "abstract", "bibliography", "contents")
-                .any { plain.startsWith(it) }
-            if (skip) "$open$txt$close"
-            else { n++; txt = txt.replace(Regex("^\\s*\\d+[.).]?\\s+"), ""); "$open$n. $txt$close" }
+            val skip = listOf("reference", "appendix", "acknowledg", "abstract", "bibliography", "contents").any { plain.startsWith(it) }
+            if (skip) "$open$txt$close" else { n++; txt = txt.replace(Regex("^\\s*\\d+[.).]?\\s+"), ""); "$open$n. $txt$close" }
         }
-        // 6. Rebuild the TOC from the real chapter headings and insert it before the first chapter.
+        // Rebuild the TOC from the real chapter headings, before the first chapter.
         val heads = Regex("(?is)<h2[^>]*>(.*?)</h2>").findAll(h)
             .map { it.groupValues[1].replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim() }
-            .filter { val l = it.lowercase()
-                it.isNotBlank() && !l.startsWith("contents") && !l.startsWith("table of contents") &&
-                    !l.startsWith("reference") && !l.startsWith("i'll research") && !l.startsWith("i will research") }
+            .filter { val l = it.lowercase(); it.isNotBlank() && !l.startsWith("contents") && !l.startsWith("table of contents") && !l.startsWith("reference") }
             .toList()
         if (heads.size >= 3) {
-            val toc = "<nav class=\"toc\"><h2>Contents</h2><ol>" +
-                heads.joinToString("") { "<li>$it</li>" } + "</ol></nav>"
+            val toc = "<nav class=\"toc\"><h2>Contents</h2><ol>" + heads.joinToString("") { "<li>$it</li>" } + "</ol></nav>"
             val firstH2 = Regex("(?is)<h2[^>]*>").find(h)?.range?.first
-            h = if (firstH2 != null) h.substring(0, firstH2) + toc + "\n" + h.substring(firstH2) else h
+            if (firstH2 != null) h = h.substring(0, firstH2) + toc + "\n" + h.substring(firstH2)
         }
-        // 7. Append the single consolidated References section at the very end.
+        // References LAST, always.
         if (refLis.isNotEmpty()) {
             val block = "<h2>References</h2>\n<ol class=\"references\">\n$refLis</ol>"
             val idx = h.lastIndexOf("</body>", ignoreCase = true)
             h = if (idx >= 0) h.substring(0, idx) + block + "\n" + h.substring(idx) else h + block
         }
-        html = h
+        return h to seen.size
+    }
+
+    // Full clean-up (button / "clean up the paper"): strips placeholder lines + forces white background,
+    // then runs the structural normalizer.
+    fun cleanup(): String {
+        var h = html.replace("id=\"slyosnew\"", "").replace("id=\"slyosold\"", "")
+        val ph = "i'?ll research|i will research|in this section i will|i'?m going to|let me research|here'?s what i"
+        h = Regex("(?is)<p[^>]*>\\s*($ph)[^<]*</p>").replace(h, "")
+        h = Regex("(?is)<li[^>]*>\\s*($ph)[^<]*</li>").replace(h, "")
+        h = Regex("(?is)<h[1-4][^>]*>\\s*($ph)[^<]*</h[1-4]>").replace(h, "")
+        h = Regex("(?i)background(-color)?\\s*:\\s*(?!#fff|#ffffff|white|transparent|none)[^;\"}]+;?").replace(h, "")
+        val (structured, refCount) = restructure(h)
+        html = structured
         PaperStore.save(ctx, currentId, html)
         PaperStore.snapshot(ctx, currentId, "Cleaned up & structured")
-        val parts = mutableListOf("renumbered $n chapters")
-        if (refCount > 0) parts.add("merged $refCount references into one section")
-        if (heads.size >= 3) parts.add("rebuilt the table of contents")
-        return "Cleaned up: " + parts.joinToString(", ") + ", white background ✓"
+        val parts = mutableListOf("ordered & renumbered the chapters", "rebuilt the table of contents", "moved references to the end")
+        if (refCount > 0) parts.add("merged $refCount references")
+        return "Cleaned up: " + parts.joinToString(", ") + " ✓"
     }
     fun finalize() { status = cleanup() }
 
@@ -358,10 +357,25 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
             // Splice into the document (in place; nothing else touched). Demote old highlight first.
             html = html.replace("id=\"slyosnew\"", "id=\"slyosold\"")
             when (kind) {
-                "intro" -> { val e = frontMatterEnd(html); html = frag + "\n" + html.substring(e) }
+                "intro" -> {
+                    val e = frontMatterEnd(html)
+                    // SAFETY: never let a front-matter edit silently wipe the abstract/intro. If the
+                    // rewrite is drastically shorter than what it replaces, reject it and keep the original.
+                    val oldLen = html.substring(0, e).replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().length
+                    val newLen = frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().length
+                    if (oldLen > 220 && newLen < oldLen * 0.55) {
+                        PaperStore.addChat(ctx, currentId, "ai", "I held off on that — it would have wiped a lot of your existing front matter (title/abstract/intro). Give me a more specific instruction, or tap “Clean up” for structure only.")
+                        chat = PaperStore.chatLog(ctx, currentId); busy = false; return@launch
+                    }
+                    html = frag + "\n" + html.substring(e)
+                }
                 "edit" -> { html = html.substring(0, start) + "<div id=\"slyosnew\">$frag</div>\n" + html.substring(end) }
                 else -> { html = insertBeforeBodyEnd(html, "<div id=\"slyosnew\">$frag</div>") }
             }
+            // The APP, not the model, guarantees structure: after every change, re-normalize so chapters
+            // stay in order + numbered, the TOC is rebuilt, and References stays LAST. Fixes the mess
+            // where new chapters landed after the sources and the TOC went stale.
+            html = restructure(html).first
             PaperStore.save(ctx, currentId, html)
             PaperStore.snapshot(ctx, currentId, "$label — ${instr.take(40)}")
             UsageLimiter.use(ctx, "paper", CAP)
@@ -504,9 +518,15 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onB
 
         when (mode) {
             "library" -> {
-                Text("＋ New paper", fontSize = T.small, color = T.bgElevated,
-                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                        .clickable { prompt = ""; mode = "compose" }.padding(horizontal = 18.dp, vertical = 10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("＋ New paper", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { prompt = ""; mode = "compose" }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("⌘ Cowork", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { onWorkspace() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                }
                 Spacer(Modifier.height(14.dp))
                 if (papers.isEmpty())
                     Text("No papers yet. Tap New paper to write one.", fontSize = T.small, color = T.inkFaint)
