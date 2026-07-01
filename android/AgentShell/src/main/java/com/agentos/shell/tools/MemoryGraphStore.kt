@@ -104,7 +104,7 @@ object MemoryGraphStore {
         // Every captured prompt, response and moment becomes a memory, chained to its parent so the
         // whole history stays connected (not just the last few).
         val idByKey = HashMap<String, Int>()
-        MemoryLog.load(ctx).takeLast(50).forEach { ev ->
+        MemoryLog.load(ctx).takeLast(300).forEach { ev ->
             val key = "log:${ev.id}"
             if (key in forg) return@forEach
             val nid = n(key, ev.type, ev.label, ev.content, ev.source, 0.5f, 0.7f, false)

@@ -281,6 +281,14 @@ fun HomeScreen(
                 onComposeEmail(to, tpc)
                 return@launch
             }
+            // cowork opens the Cowork workspace to actually BUILD it (files, code, tools), prefilled.
+            val coworkAct = result.actions.firstOrNull { it.type == "cowork" }
+            if (coworkAct != null) {
+                com.agentos.shell.tools.CoworkHandoff.pending = coworkAct.arg.ifBlank { q }
+                thinking = false
+                onOpen(Screen.Cowork)
+                return@launch
+            }
             // write_paper navigates to the Research workspace, pre-filled.
             val paperAct = result.actions.firstOrNull { it.type == "write_paper" }
             if (paperAct != null) {
@@ -299,6 +307,14 @@ fun HomeScreen(
             // Capture this exchange as connected memories.
             val pk = MemoryLog.add(ctx, "prompt", q, q, "Home prompt")
             MemoryLog.add(ctx, "response", reply, reply, "Agent reply", pk)
+            // Persist into the real brain DB too, so daily use actually GROWS the brain (and the
+            // semantic index) — not just the capped 80-entry graph log. This is what makes the
+            // memory count climb over time instead of sitting flat.
+            withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                if (reply.isNotBlank())
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", reply)
+            }
             saved = MetricsStore.savedMinutesToday(ctx)
             thinking = false
         }
@@ -327,7 +343,29 @@ fun HomeScreen(
     // it so returning to Home (e.g. via the nav bar) never re-opens the mic.
     LaunchedEffect(autoVoice) { if (autoVoice) { startVoice(); onVoiceConsumed() } }
 
+    // Live status bar: clock + battery, so Home reads like a real OS home screen (One UI hides these
+    // while SlyOS is the launcher). Refreshes every 30s; battery via BatteryManager.
+    var clock by remember { mutableStateOf("") }
+    var battery by remember { mutableStateOf(-1) }
+    LaunchedEffect(Unit) {
+        val f = java.text.SimpleDateFormat("EEE  h:mm a", java.util.Locale.getDefault())
+        while (true) {
+            clock = f.format(java.util.Date())
+            battery = try {
+                (ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager)
+                    .getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            } catch (e: Exception) { -1 }
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
+
     Column(modifier) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(clock, fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.weight(1f))
+            if (battery in 0..100)
+                Text("$battery% ⚡", fontSize = T.caption, color = if (battery <= 15) T.accent else T.inkSoft)
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
             Spacer(Modifier.weight(1f))

@@ -68,6 +68,12 @@ class ShellActivity : ComponentActivity() {
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_embed", androidx.work.ExistingPeriodicWorkPolicy.KEEP, embReq)
         } catch (e: Exception) {}
+        // Periodic checklist nudge (self-throttles to once/5h, and only fires if items are open).
+        try {
+            val chkReq = androidx.work.PeriodicWorkRequestBuilder<ChecklistReminderWorker>(3, java.util.concurrent.TimeUnit.HOURS).build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_checklist", androidx.work.ExistingPeriodicWorkPolicy.KEEP, chkReq)
+        } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
             Thread { try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {} }.start()

@@ -101,6 +101,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var files by remember { mutableStateOf(WorkspaceStore.list(ctx)) }
     var viewing by remember { mutableStateOf<String?>(null) }
     var lastUrl by remember { mutableStateOf<String?>(null) }
+    var lastApk by remember { mutableStateOf<String?>(null) }
     var convoId by remember { mutableStateOf(0L) }
     var convos by remember { mutableStateOf(com.agentos.shell.tools.CoworkChatStore.list(ctx)) }
     var showChats by remember { mutableStateOf(false) }
@@ -122,14 +123,14 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
     }
     fun loadConvo(id: Long) {
-        convoId = id; lastUrl = null; chatSearch = ""
+        convoId = id; lastUrl = null; lastApk = null; chatSearch = ""
         chat.clear(); chat.addAll(com.agentos.shell.tools.CoworkChatStore.loadChat(ctx, id))
         turns.clear(); turns.addAll(com.agentos.shell.tools.CoworkChatStore.loadTurns(ctx, id))
         mode = "chat"
     }
     fun newConvo() {
         convoId = com.agentos.shell.tools.CoworkChatStore.create(ctx)
-        chat.clear(); turns.clear(); lastUrl = null
+        chat.clear(); turns.clear(); lastUrl = null; lastApk = null
         convos = com.agentos.shell.tools.CoworkChatStore.list(ctx); mode = "chat"
     }
     LaunchedEffect(Unit) { convos = com.agentos.shell.tools.CoworkChatStore.list(ctx) }
@@ -196,6 +197,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (act.done) {
                     chat.add("agent" to act.message)
                     Regex("https?://[^\\s]+").find(act.message)?.value?.let { lastUrl = it.trimEnd('.', ')', ',') }
+                    Regex("[\\w./~-]+\\.apk").find(act.message)?.value?.let { lastApk = it }
                     // Cowork builds things for you — count it toward your time-saved score, and feed the brain.
                     com.agentos.shell.tools.MetricsStore.record(ctx, 600)
                     com.agentos.shell.tools.MessageStore.insertOne(ctx, "Cowork", "Cowork", "me", "me", "Cowork done: ${act.message.take(1500)}")
@@ -214,6 +216,12 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     val listState = rememberLazyListState()
     LaunchedEffect(chat.size, busy) { val n = chat.size + (if (busy) 1 else 0); if (n > 0) listState.animateScrollToItem(n - 1) }
+    // Handoff from Home ("build me…"): open a fresh chat prefilled with the task and run it.
+    LaunchedEffect(Unit) {
+        com.agentos.shell.tools.CoworkHandoff.consume()?.let { p ->
+            newConvo(); input = p; send()
+        }
+    }
 
     Column(modifier) {
         ScreenHeader("Cowork") { if (mode == "chat") { persist(); convos = com.agentos.shell.tools.CoworkChatStore.list(ctx); mode = "list" } else onBack() }
@@ -290,9 +298,21 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
             lastUrl?.let { url ->
                 Spacer(Modifier.height(8.dp))
-                Text("↗ Open in Google", fontSize = T.small, color = T.bgElevated,
+                val label = when {
+                    url.contains("github.com") -> "↗ Open repo"
+                    url.contains("google.com") || url.contains("docs.google") -> "↗ Open in Google"
+                    else -> "↗ Open link"
+                }
+                Text(label, fontSize = T.small, color = T.bgElevated,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                         .clickable { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+                        .padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+            lastApk?.let { apk ->
+                Spacer(Modifier.height(8.dp))
+                Text("📲 Install the app you built", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { scope.launch { withContext(Dispatchers.IO) { com.agentos.shell.tools.TermuxBridge.run(ctx, "termux-open $apk") } } }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
             }
             Spacer(Modifier.height(8.dp))

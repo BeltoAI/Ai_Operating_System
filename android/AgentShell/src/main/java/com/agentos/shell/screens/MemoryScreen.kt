@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
@@ -33,6 +34,17 @@ import com.agentos.shell.tools.MemoryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** A clear section break: a rule + a bold accent heading, so Settings reads as distinct groups
+ *  instead of one endless scroll. */
+@Composable
+private fun SectionTitle(t: String) {
+    Spacer(Modifier.height(22.dp))
+    androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
+    Spacer(Modifier.height(16.dp))
+    Text(t, fontSize = T.body, color = T.accent, fontWeight = FontWeight.SemiBold)
+    Spacer(Modifier.height(2.dp))
+}
 
 /**
  * Memory = what the agent knows about you. You write it; the agent uses it to personalize
@@ -152,8 +164,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 .padding(horizontal = 22.dp, vertical = 10.dp)
         )
 
-        Spacer(Modifier.height(18.dp))
-        Text("Booking link (optional)", fontSize = T.body, color = T.ink)
+        SectionTitle("Booking link")
         Text("Only shared if someone actually asks to schedule a call — never pushed.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -172,8 +183,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         )
 
         // ---- Your voice (learned from real chats) ----
-        Spacer(Modifier.height(18.dp))
-        Text("Your writing voice", fontSize = T.body, color = T.ink)
+        SectionTitle("Your writing voice")
         Text("Import chat exports from any platform — WhatsApp (.txt), LinkedIn (messages.csv), " +
             "Instagram/Messenger (.json), Telegram (.json). Import as many as you like; SlyOS pools " +
             "them and learns exactly how you write, then mimics it everywhere.",
@@ -244,8 +254,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         // ---- Per-platform persona ----
-        Spacer(Modifier.height(18.dp))
-        Text("Persona per platform", fontSize = T.body, color = T.ink)
+        SectionTitle("Persona per platform")
         Text("How you want to come across on each app — e.g. LinkedIn: professional, warm CEO · Instagram: funny & casual.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -303,8 +312,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Import data & voice", fontSize = T.body, color = T.ink)
+        SectionTitle("Import data & voice")
         Text("Add chat exports anytime — they feed the memory brain (and get indexed for semantic recall). " +
             "Then learn your writing voice from them whenever you want.",
             fontSize = T.small, color = T.inkFaint)
@@ -357,8 +365,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (importStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(importStatus, fontSize = T.caption, color = T.accent) }
         if (voiceStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(voiceStatus, fontSize = T.caption, color = if (voiceStatus.startsWith("Learned")) T.accent else T.danger) }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Models & spending", fontSize = T.body, color = T.ink)
+        SectionTitle("Models & spending")
         Text("Bring a key for any provider. Gemini has a free tier. With more than one, SlyOS uses a cheap " +
             "model for everyday replies and a powerful one for papers — same memory and voice on all of them.",
             fontSize = T.small, color = T.inkFaint)
@@ -515,8 +522,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Connections", fontSize = T.body, color = T.ink)
+        SectionTitle("Connections")
         var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }
         val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
@@ -546,8 +552,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(18.dp))
-        Text("Per-app responses", fontSize = T.body, color = T.ink)
+        SectionTitle("Per-app responses")
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
             "just tap Send. Auto sends it for you after an 8-second undo window.",
             fontSize = T.small, color = T.inkFaint)
@@ -631,8 +636,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.height(20.dp))
-        Text("Document Q&A", fontSize = T.body, color = T.ink)
+        SectionTitle("Document Q&A")
         Text("Load a PDF; SlyOS answers Telegram messages using only that document.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -723,8 +727,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             })
         }
 
-        Spacer(Modifier.height(20.dp))
-        Text("Lock screen", fontSize = T.body, color = T.ink)
+        SectionTitle("Lock screen")
         Text("Set a SlyOS-styled lock-screen wallpaper (the clock/widgets stay Samsung's).",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))

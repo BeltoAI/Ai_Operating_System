@@ -10,7 +10,7 @@ object MemoryLog {
 
     private const val PREF = "slyos_memlog"
     private const val KEY = "log"
-    private const val CAP = 80
+    private const val CAP = 600   // was 80 — too small; the brain must accumulate, not forget after 80 moments
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
     fun load(ctx: Context): List<Entry> = try {

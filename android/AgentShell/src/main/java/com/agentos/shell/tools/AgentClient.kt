@@ -178,7 +178,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -188,6 +188,7 @@ object AgentClient {
             append("create_pdf={\"title\":\"…\",\"content\":\"the full document text\"} — writes a real PDF (saved to Downloads and opened). Use for \"make me a PDF\". ")
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
+            append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -705,6 +706,7 @@ object AgentClient {
         "Create a PDF (saved to Downloads):\nTOOL create_pdf\nNAME: title\nCONTENT>>>\n(the text)\n<<<END\n\n" +
         "Run a REAL shell command in Termux (a full Linux env: python, pip, git, node, compilers — the user must have Termux):\nTOOL run_command\nNOTE: …\nCONTENT>>>\npython3 --version\n<<<END\n" +
         "Use run_command to actually BUILD AND RUN things locally: install packages (pip/npm), write files (heredoc: cat > app.py <<'EOF' … EOF), run scripts, start/test servers. I return the stdout/stderr. If it says Termux isn't installed, tell the user how to set it up and fall back to writing files. \n\n" +
+        "SHIP IT — GitHub + deploy: when the user wants an app/project on GitHub, use run_command with git and the GitHub CLI (gh) — e.g. 'gh repo create name --public --source=. --push' (gh must be authed once via 'gh auth login'); put the repo URL in the DONE message. To DEPLOY an Android app to THIS phone, build the APK with gradle ('./gradlew assembleDebug') then install it with 'termux-open path/to/app.apk' (opens the installer) — put the built APK path + 'tap Install' in DONE. For web apps, run a local server or open the file with termux-open. Always tell the user exactly how to open/launch what you built. " +
         "When the user wants slides/a doc/a sheet 'in Google' or something to open online, use the Google tools above (Google must be connected). Include any link the tool returns in your final DONE message. " +
         "When the ENTIRE task is complete:\nDONE\n(a short summary + any link + how to run/deploy)\n\n" +
         "RULES: All code goes inside CONTENT blocks — never in chat, never in the DONE summary (the DONE summary is " +

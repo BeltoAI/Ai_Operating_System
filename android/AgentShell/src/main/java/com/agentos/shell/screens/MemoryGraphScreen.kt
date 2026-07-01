@@ -37,7 +37,9 @@ import com.agentos.shell.tools.MemoryGraphStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 private fun typeColor(t: String): Color = when (t) {
     "hub" -> Color(0xFF2E2A24)
@@ -110,6 +112,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
     val flow by rememberInfiniteTransition(label = "f").animateFloat(
         0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
+    )
+    // Reversible 3D view: off by default (identical to the old 2D brain). When on, nodes get a stable
+    // depth and the whole cloud slowly rotates with perspective — a spinning neural globe.
+    var threeD by remember { mutableStateOf(false) }
+    val spin by rememberInfiniteTransition(label = "s").animateFloat(
+        0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Restart), label = "sp"
     )
 
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
@@ -266,6 +274,17 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             return@Column
         }
 
+        // 2D / 3D toggle — fully reversible; 2D is the default and unchanged.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            Text(if (threeD) "◱ 2D" else "◆ 3D", fontSize = T.caption,
+                color = if (threeD) ACCENT else T.inkSoft,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(if (threeD) ACCENT.copy(alpha = 0.14f) else T.bgElevated)
+                    .clickable { threeD = !threeD }.padding(horizontal = 12.dp, vertical = 5.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+
         // Legend — tap a color to isolate that kind on the brain; tap again (or "All") to clear.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             if (typeFilter != null) {
@@ -306,6 +325,17 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             ) {
                 version.let { }
                 val cx = size.width / 2f + offset.x; val cy = size.height / 2f + offset.y
+                // Perspective projection for 3D mode. In 2D mode P() collapses to the flat layout.
+                val ca = cos(spin); val sa = sin(spin); val focal = 1100f
+                fun depthZ(id: Int): Float { val h = (id * 374761393 + 668265263); return ((h and 0x7fffffff) % 640 - 320).toFloat() }
+                fun P(n: MemoryGraphStore.Node): Pair<Offset, Float> {
+                    if (!threeD) return Offset(cx + n.x * scale, cy + n.y * scale) to 1f
+                    val z = depthZ(n.id)
+                    val x2 = n.x * ca - z * sa
+                    val z2 = n.x * sa + z * ca
+                    val p = (focal / (focal - z2)).coerceIn(0.45f, 1.9f)
+                    return Offset(cx + x2 * scale * p, cy + n.y * scale * p) to p
+                }
                 val conn = selected?.let { s -> edges.filter { it.a == s || it.b == s }.flatMap { listOf(it.a, it.b) }.toSet() }
                 val graphite = Color(0xFF8C8475)
                 edges.forEach { e ->
@@ -314,7 +344,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     val hot = selected != null && (e.a == selected || e.b == selected)
                     drawLine(
                         if (hot) ACCENT.copy(alpha = 0.35f) else Color(0xFF1A1714).copy(alpha = if (selected != null) 0.035f else 0.07f),
-                        Offset(cx + a.x * scale, cy + a.y * scale), Offset(cx + b.x * scale, cy + b.y * scale),
+                        P(a).first, P(b).first,
                         strokeWidth = if (hot) 1.4f else 0.8f
                     )
                 }
@@ -322,8 +352,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 if (pathNodes.size > 1) {
                     for (i in 0 until pathNodes.size - 1) {
                         val a = nodes[pathNodes[i]]; val b = nodes[pathNodes[i + 1]]
-                        val ax = cx + a.x * scale; val ay = cy + a.y * scale
-                        val bx = cx + b.x * scale; val by = cy + b.y * scale
+                        val (pa, _) = P(a); val (pb, _) = P(b)
+                        val ax = pa.x; val ay = pa.y; val bx = pb.x; val by = pb.y
                         drawLine(ACCENT.copy(alpha = 0.7f), Offset(ax, ay), Offset(bx, by), strokeWidth = 2.5f)
                         drawCircle(ACCENT, 3f, Offset(ax + (bx - ax) * flow, ay + (by - ay) * flow))
                     }
@@ -337,15 +367,15 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                         val near = fil.asSequence().filter { it !== a }
                             .sortedBy { (a.x - it.x) * (a.x - it.x) + (a.y - it.y) * (a.y - it.y) }.take(2)
                         for (b in near) drawLine(tint.copy(alpha = 0.28f),
-                            Offset(cx + a.x * scale, cy + a.y * scale), Offset(cx + b.x * scale, cy + b.y * scale),
-                            strokeWidth = 1.1f)
+                            P(a).first, P(b).first, strokeWidth = 1.1f)
                     }
                 }
-                nodes.forEach { n ->
-                    val X = cx + n.x * scale; val Y = cy + n.y * scale
+                nodes.sortedBy { if (threeD) -P(it).second else 0f }.forEach { n ->
+                    val (pos, depth) = P(n)
+                    val X = pos.x; val Y = pos.y
                     val sel = n.id == selected; val hub = n.type == "hub"
                     val inPath = pathNodes.contains(n.id)
-                    val r = (4f + n.strength * 7f) * scale
+                    val r = (4f + n.strength * 7f) * scale * depth
                     val dim = when {
                         typeFilter != null -> !hub && n.type != typeFilter   // legend filter takes precedence
                         pathNodes.isNotEmpty() -> !inPath
