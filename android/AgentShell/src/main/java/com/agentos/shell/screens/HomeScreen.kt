@@ -496,6 +496,16 @@ fun HomeScreen(
                     color = if (thinking) T.inkFaint else T.ink
                 )
             }
+            // If the agent created something with a link (Google Doc/Sheet/Slides), offer to open it.
+            val replyUrl = remember(reply) { Regex("https?://[^\\s]+").find(reply)?.value?.trimEnd('.', ')', ',') }
+            if (!thinking && replyUrl != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("↗ Open in Google", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable {
+                            try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(replyUrl)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
         }
 
         if (rememberSuggestion.isNotBlank()) {

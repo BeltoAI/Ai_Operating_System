@@ -64,4 +64,31 @@ object GoogleWorkspace {
         }
         return Result(true, url = "https://docs.google.com/spreadsheets/d/$id/edit")
     }
+
+    /** Create a Google Slides deck. [slides] = list of (slideTitle, slideBody). Returns its URL. */
+    fun createSlides(ctx: Context, title: String, slides: List<Pair<String, String>>): Result {
+        val token = GoogleAuth.accessToken(ctx); if (token.isBlank()) return Result(false, error = "Google not connected.")
+        val (c1, r1) = req("POST", "https://slides.googleapis.com/v1/presentations", token, JSONObject().put("title", title).toString())
+        if (c1 !in 200..299) { Log.e(TAG, "slides create $c1: ${r1.take(160)}"); return Result(false, error = err(r1, c1)) }
+        val o = try { JSONObject(r1) } catch (e: Exception) { null } ?: return Result(false, error = "bad response")
+        val id = o.optString("presentationId"); if (id.isBlank()) return Result(false, error = "no presentation id")
+        val firstSlideId = o.optJSONArray("slides")?.optJSONObject(0)?.optString("objectId").orEmpty()
+        val requests = JSONArray()
+        slides.forEachIndexed { i, (t, b) ->
+            val sid = "s$i"; val tid = "t$i"; val bid = "b$i"
+            requests.put(JSONObject().put("createSlide", JSONObject()
+                .put("objectId", sid)
+                .put("slideLayoutReference", JSONObject().put("predefinedLayout", "TITLE_AND_BODY"))
+                .put("placeholderIdMappings", JSONArray()
+                    .put(JSONObject().put("layoutPlaceholder", JSONObject().put("type", "TITLE")).put("objectId", tid))
+                    .put(JSONObject().put("layoutPlaceholder", JSONObject().put("type", "BODY")).put("objectId", bid)))))
+            if (t.isNotBlank()) requests.put(JSONObject().put("insertText", JSONObject().put("objectId", tid).put("text", t).put("insertionIndex", 0)))
+            if (b.isNotBlank()) requests.put(JSONObject().put("insertText", JSONObject().put("objectId", bid).put("text", b).put("insertionIndex", 0)))
+        }
+        // Remove the default blank first slide.
+        if (firstSlideId.isNotBlank()) requests.put(JSONObject().put("deleteObject", JSONObject().put("objectId", firstSlideId)))
+        val (c2, r2) = req("POST", "https://slides.googleapis.com/v1/presentations/$id:batchUpdate", token, JSONObject().put("requests", requests).toString())
+        if (c2 !in 200..299) Log.w(TAG, "slides batchUpdate $c2: ${r2.take(160)}")
+        return Result(true, url = "https://docs.google.com/presentation/d/$id/edit")
+    }
 }

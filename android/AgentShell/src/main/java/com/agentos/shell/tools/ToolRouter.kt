@@ -108,6 +108,8 @@ object ToolRouter {
                 "send_email" -> sendEmail(ctx, arg)
                 "create_doc" -> createDoc(ctx, arg)
                 "create_sheet" -> createSheet(ctx, arg)
+                "create_slides" -> createSlides(ctx, arg)
+                "create_pdf" -> createPdf(ctx, arg)
                 "open_url" -> openUrl(ctx, arg)
                 "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
@@ -351,6 +353,40 @@ object ToolRouter {
             if (r.ok) { MemoryLog.add(ctx, "response", "Sheet: $title", "Created Google Sheet: $title", "Sheets"); "Created Google Sheet “$title” — ${r.url}" }
             else "Couldn't create the sheet — ${r.error}"
         } catch (e: Exception) { "I couldn't create that sheet." }
+    }
+
+    /** Create a real Google Slides deck: {"title":"…","slides":[{"title":"…","body":"…"}]}. */
+    private fun createSlides(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val title = o.optString("title").ifBlank { "Deck" }
+            val slides = ArrayList<Pair<String, String>>()
+            o.optJSONArray("slides")?.let { arr ->
+                for (i in 0 until arr.length()) { val s = arr.optJSONObject(i) ?: continue; slides.add(s.optString("title") to s.optString("body")) }
+            }
+            if (slides.isEmpty()) return "What should the slides cover?"
+            if (!GoogleAuth.isConnected(ctx)) return "Connect Google in settings first, then I can build the deck."
+            val r = GoogleWorkspace.createSlides(ctx, title, slides)
+            if (r.ok) { MemoryLog.add(ctx, "response", "Slides: $title", "Created Google Slides: $title", "Slides"); "Created Google Slides “$title” — ${r.url}" }
+            else "Couldn't create the deck — ${r.error}"
+        } catch (e: Exception) { "I couldn't create that deck." }
+    }
+
+    /** Create a real PDF from drafted content, save to Downloads/SlyOS, and open it. */
+    private fun createPdf(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val title = o.optString("title").ifBlank { "Document" }
+            val content = o.optString("content")
+            if (content.isBlank()) return "What should the PDF contain?"
+            val uri = PdfBuilder.makePdf(ctx, title, content) ?: return "Couldn't create the PDF."
+            try {
+                start(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            } catch (e: Exception) {}
+            MemoryLog.add(ctx, "response", "PDF: $title", "Created PDF: $title", "PDF")
+            "Created PDF “$title” — saved to Downloads/SlyOS and opening it."
+        } catch (e: Exception) { "I couldn't create that PDF." }
     }
 
     /** Open a website in a real browser — never Maps. Prefers Chrome so a bare domain isn't hijacked. */
