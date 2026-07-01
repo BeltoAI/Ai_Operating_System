@@ -54,6 +54,33 @@ object MessageStore {
     fun insertOne(ctx: Context, contact: String, platform: String, sender: String, role: String, body: String) =
         insertBatch(ctx, listOf(Row(contact, platform, sender, role, body, System.currentTimeMillis())))
 
+    /**
+     * Import-safe insert: skips rows that already exist (same contact + body), so re-importing the
+     * same export doesn't double-count the brain. Returns how many NEW rows were actually written.
+     */
+    fun insertBatchDedupe(ctx: Context, rows: List<Row>): Int {
+        if (rows.isEmpty()) return 0
+        val d = db(ctx)
+        // Snapshot existing (contact|body) keys once — one scan beats thousands of per-row queries.
+        val existing = HashSet<String>()
+        try {
+            d.rawQuery("SELECT contact, body FROM messages", null).use { c ->
+                while (c.moveToNext()) existing.add(c.getString(0) + "" + c.getString(1))
+            }
+        } catch (e: Exception) {}
+        val fresh = ArrayList<Row>(rows.size)
+        val seenThisBatch = HashSet<String>()
+        for (r in rows) {
+            if (r.body.isBlank()) continue
+            val key = r.contact + "" + r.body
+            if (key in existing || !seenThisBatch.add(key)) continue
+            fresh.add(r)
+        }
+        if (fresh.isEmpty()) return 0
+        insertBatch(ctx, fresh)
+        return fresh.size
+    }
+
     fun count(ctx: Context): Int = try {
         db(ctx).rawQuery("SELECT count(*) FROM messages", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     } catch (e: Exception) { 0 }

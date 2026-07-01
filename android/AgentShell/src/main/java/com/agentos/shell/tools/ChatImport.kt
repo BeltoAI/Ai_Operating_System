@@ -75,12 +75,14 @@ object ChatImport {
             val role = if (ownerName != null && l.sender.equals(ownerName, true)) "me" else "them"
             MessageStore.Row(l.contact, platform, l.sender, role, l.body, ts++)
         }
-        MessageStore.insertBatch(ctx, rows)   // the full history → fast searchable DB (single write)
+        // Dedupe against what's already in the brain so re-importing the same export doesn't
+        // double-count. Report the number of NEW messages actually added.
+        val added = MessageStore.insertBatchDedupe(ctx, rows)
         // NOTE: we deliberately do NOT write imported history into the old per-key JSON store — that
         // rewrites the whole blob per message (O(n²)) and was the cause of multi-minute imports.
         // Replies + the graph read history straight from the DB now.
         val mine = if (ownerName != null) clean.filter { it.sender.equals(ownerName, true) }.map { it.body } else emptyList()
-        return Result(clean.map { it.contact }.toSet().size, clean.size, mine, platform)
+        return Result(clean.map { it.contact }.toSet().size, added, mine, platform)
     }
 
     private fun whatsApp(ctx: Context, text: String, owner: String): Result {

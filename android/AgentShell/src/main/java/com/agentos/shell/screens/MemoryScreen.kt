@@ -86,9 +86,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     }
                 }
                 sampleCount = MemoryStore.voiceSamples(ctx).size
-                importStatus = if (msgs > 0)
-                    "Added $chats chats / $msgs messages to your brain ✓ · $sampleCount voice samples. Tap “Learn my voice” below."
-                else "Couldn't read those. Use WhatsApp .txt, LinkedIn/Instagram/Telegram exports (zips ok)."
+                importStatus = when {
+                    msgs > 0 -> "Added $chats chats / $msgs messages to your brain ✓ · $sampleCount voice samples. Tap “Learn my voice” below."
+                    chats > 0 -> "Already in your brain — those messages were imported before, so nothing new was added."
+                    else -> "Couldn't read those. Use WhatsApp .txt, LinkedIn/Instagram/Telegram exports (zips ok)."
+                }
             }
         }
     }
@@ -204,7 +206,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                             MemoryStore.addVoiceSamples(ctx, r.mySamples)
                         }
                     }
-                    if (msgs == 0) { voiceStatus = "Couldn't read those. Use WhatsApp .txt, LinkedIn messages.csv, or IG/Telegram .json exports."; return@launch }
+                    if (msgs == 0 && chats == 0) { voiceStatus = "Couldn't read those. Use WhatsApp .txt, LinkedIn messages.csv, or IG/Telegram .json exports."; return@launch }
+                    // msgs==0 but chats>0 means already-imported — still (re)learn voice from the pool below.
                     val pool = MemoryStore.voiceSamples(ctx)
                     if (pool.isEmpty()) {
                         voiceStatus = "Imported $msgs msgs / $chats chats, but couldn't tell which are yours — add 'My name is …' to About, then re-import."

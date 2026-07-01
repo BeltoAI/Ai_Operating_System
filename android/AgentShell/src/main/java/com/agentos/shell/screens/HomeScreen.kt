@@ -347,14 +347,16 @@ fun HomeScreen(
     // while SlyOS is the launcher). Refreshes every 30s; battery via BatteryManager.
     var clock by remember { mutableStateOf("") }
     var battery by remember { mutableStateOf(-1) }
+    var charging by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val f = java.text.SimpleDateFormat("EEE  h:mm a", java.util.Locale.getDefault())
         while (true) {
             clock = f.format(java.util.Date())
-            battery = try {
-                (ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager)
-                    .getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            } catch (e: Exception) { -1 }
+            try {
+                val bm = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+                battery = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                charging = bm.isCharging
+            } catch (e: Exception) { battery = -1 }
             kotlinx.coroutines.delay(30_000)
         }
     }
@@ -364,7 +366,8 @@ fun HomeScreen(
             Text(clock, fontSize = T.caption, color = T.inkSoft)
             Spacer(Modifier.weight(1f))
             if (battery in 0..100)
-                Text("$battery% ⚡", fontSize = T.caption, color = if (battery <= 15) T.accent else T.inkSoft)
+                Text("$battery%" + if (charging) " ⚡" else "", fontSize = T.caption,
+                    color = if (battery <= 15 && !charging) T.accent else T.inkSoft)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
