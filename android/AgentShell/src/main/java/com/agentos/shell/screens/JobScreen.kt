@@ -21,6 +21,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import android.webkit.WebView
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
@@ -49,6 +51,8 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var coverFile by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf("") }
     var liDone by remember { mutableStateOf(MemoryStore.positions(ctx).isNotBlank()) }
+    var leads by remember { mutableStateOf<List<AgentClient.JobLead>>(emptyList()) }
+    var fullView by remember { mutableStateOf("") }   // html shown full-screen
 
     fun feed(note: String, s: Int) {
         com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
@@ -116,8 +120,19 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         }
     }
 
+    fun findJobs(q: String) {
+        if (busy.isNotEmpty() || q.isBlank()) return
+        busy = "find"; leads = emptyList()
+        scope.launch {
+            val res = withContext(Dispatchers.IO) { AgentClient.jobFindOpenings(q, MemoryStore.fullProfile(ctx)) }
+            leads = res; busy = ""
+            if (res.isNotEmpty()) feed("Found ${res.size} job openings for “$q”", 300)
+        }
+    }
+
+    // "Find me a job at Goldman Sachs doing X" → search and show real openings to pick from.
     LaunchedEffect(Unit) {
-        if (initialTarget.isNotBlank()) { if (link.isBlank()) link = initialTarget; generate() }
+        if (initialTarget.isNotBlank()) { if (link.isBlank()) link = initialTarget; findJobs(initialTarget) }
     }
 
     @Composable
@@ -136,6 +151,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+            Text("View", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { fullView = html }.padding(8.dp))
             if (file != null) Text("Open", fontSize = T.small, color = T.accent, modifier = Modifier.clickable {
                 try {
                     val u = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
@@ -150,7 +166,9 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         AndroidView(
             factory = { c -> WebView(c).apply { settings.javaScriptEnabled = false; setBackgroundColor(android.graphics.Color.WHITE) } },
             update = { it.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) },
-            modifier = Modifier.fillMaxWidth().height(460.dp).clip(RoundedCornerShape(12.dp)))
+            modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(12.dp)))
+        Spacer(Modifier.height(4.dp))
+        Text("Tap View for the full, scrollable page.", fontSize = T.caption, color = T.inkFaint)
         if (editing) {
             Spacer(Modifier.height(8.dp))
             BasicTextField(rev, { rev = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
@@ -176,10 +194,22 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Spacer(Modifier.height(14.dp))
         BasicTextField(link, { link = it }, singleLine = false, textStyle = TextStyle(color = T.ink, fontSize = T.small),
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp),
-            decorationBox = { inner -> if (link.isEmpty()) Text("Paste the job link", fontSize = T.small, color = T.inkFaint); inner() })
+            decorationBox = { inner -> if (link.isEmpty()) Text("Paste a job link — or type what you want", fontSize = T.small, color = T.inkFaint); inner() })
+
+        Spacer(Modifier.height(10.dp))
+        bigBtn(if (busy == "find") "Searching…" else "Find jobs online", accent = false, enabled = busy.isEmpty()) { findJobs(link.ifBlank { initialTarget }) }
+
+        leads.forEach { lead ->
+            Spacer(Modifier.height(8.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated)
+                .clickable { link = lead.url; JobStore.setPosting(ctx, lead.url); generate() }.padding(14.dp)) {
+                Text(lead.title + (if (lead.company.isNotBlank()) " · " + lead.company else ""), fontSize = T.small, color = T.ink)
+                Text((if (lead.location.isNotBlank()) lead.location + "  ·  " else "") + "tap to generate", fontSize = T.caption, color = T.accent)
+            }
+        }
 
         Spacer(Modifier.height(14.dp))
-        bigBtn(if (busy == "gen") "Working…" else "Generate", accent = true, enabled = busy.isEmpty()) { generate() }
+        bigBtn(if (busy == "gen") "Working…" else "Generate from link", accent = true, enabled = busy.isEmpty()) { generate() }
 
         docCard("Résumé", resumeHtml, resumeFile, "r")
         docCard("Cover letter", coverHtml, coverFile, "c")
@@ -205,5 +235,20 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    // Full-screen, scrollable preview of a whole document.
+    if (fullView.isNotBlank()) {
+        Dialog(onDismissRequest = { fullView = "" }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White)) {
+                AndroidView(
+                    factory = { c -> WebView(c).apply { settings.javaScriptEnabled = false; settings.builtInZoomControls = true; settings.displayZoomControls = false } },
+                    update = { it.loadDataWithBaseURL(null, fullView, "text/html", "utf-8", null) },
+                    modifier = Modifier.fillMaxSize())
+                Text("Close", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(14.dp).clip(RoundedCornerShape(999.dp))
+                        .background(T.accent).clickable { fullView = "" }.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+        }
     }
 }

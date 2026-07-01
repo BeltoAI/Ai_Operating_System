@@ -941,6 +941,31 @@ object AgentClient {
         "targeting, each with a one-line why-it-fits and a rough seniority. Plain text, '• ' bullets.",
         "RÉSUMÉ:\n$resume\n\nBACKGROUND:\n$memory")
 
+    data class JobLead(val title: String, val company: String, val location: String, val url: String)
+
+    /**
+     * Web-search the internet for CURRENT real openings matching the ask, and return them with links.
+     * Needs Anthropic routing (web search runs on Claude). Empty list if unavailable.
+     */
+    fun jobFindOpenings(query: String, memory: String): List<JobLead> {
+        val sys = "You are a job scout WITH web search. Search the web for CURRENT, real job openings that " +
+            "match the user's request, then return 5-8 of the best. Every posting MUST include a real listing/" +
+            "application URL you actually found via search — never invent a URL. Prefer official career pages and " +
+            "major boards. Reply ONLY as JSON: {\"jobs\":[{\"title\":\"…\",\"company\":\"…\",\"location\":\"…\",\"url\":\"https://…\"}]}"
+        val user = "WHAT I WANT: $query\n\nABOUT ME (for fit): " + memory.take(1500)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 2500, VOICE, 120000, webTool())
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("jobs")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                JobLead(o.optString("title").trim(), o.optString("company").trim(), o.optString("location").trim(), o.optString("url").trim())
+            }.filter { it.url.startsWith("http") }
+        } catch (e: Exception) { emptyList() }
+    }
+
     private fun stripFences(s: String): String =
         s.trim().removePrefix("```html").removePrefix("```HTML").removePrefix("```").removeSuffix("```").trim()
 
