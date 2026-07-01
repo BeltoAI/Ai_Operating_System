@@ -149,6 +149,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var planning by remember { mutableStateOf(false) }
     var acting by remember { mutableStateOf(false) }
     var nextMove by remember { mutableStateOf("") }
+    var nextLabel by remember { mutableStateOf("") }
     var nextTask by remember { mutableStateOf("") }
     var addedMsg by remember { mutableStateOf("") }
     var missionErr by remember { mutableStateOf("") }
@@ -612,7 +613,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                     }
                                     if (mv.draft.isNotBlank()) {
                                         missionErr = ""
-                                        nextMove = (if (mv.label.isNotBlank()) mv.label + "\n\n" else "") + mv.draft
+                                        nextLabel = mv.label
+                                        nextMove = mv.draft
                                         if (mv.task.isNotBlank()) { com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task); nextTask = mv.task }
                                     } else missionErr = "Couldn't draft a move — likely a rate limit. Route Heavy/replies to Claude and retry."
                                     acting = false
@@ -621,21 +623,29 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 }
                 if (nextMove.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFF6F1E7)).padding(12.dp)) {
-                        Text(nextMove, fontSize = T.small, color = T.ink)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFFF6F1E7)).padding(14.dp)) {
+                        Text("YOUR NEXT MOVE", fontSize = T.caption, color = T.inkFaint)
+                        if (nextLabel.isNotBlank()) { Spacer(Modifier.height(2.dp)); Text(nextLabel, fontSize = T.body, color = T.ink) }
+                        if (nextTask.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("Do this: $nextTask", fontSize = T.small, color = ACCENT)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text("Here's the message I wrote for you — copy it and send/post it:", fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.height(4.dp))
+                        Text(nextMove, fontSize = T.small, color = T.ink,
+                            modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()))
                         Spacer(Modifier.height(10.dp))
                         Row {
-                            Text("Copy", fontSize = T.caption, color = ACCENT,
-                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            Text("Copy", fontSize = T.caption, color = T.bgElevated,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
                                     .clickable { clipboard.setText(androidx.compose.ui.text.AnnotatedString(nextMove)) }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp))
+                                    .padding(horizontal = 14.dp, vertical = 6.dp))
                             Spacer(Modifier.width(10.dp))
                             Text("Dismiss", fontSize = T.caption, color = T.inkSoft,
-                                modifier = Modifier.clickable { nextMove = "" }.padding(horizontal = 8.dp, vertical = 6.dp))
+                                modifier = Modifier.clickable { nextMove = ""; nextLabel = ""; nextTask = "" }.padding(horizontal = 8.dp, vertical = 6.dp))
                         }
-                        if (nextTask.isNotBlank())
-                            Text("✓ Done: this is drafted and ready, and I added a task to your checklist — “$nextTask”. Sending stays your one tap.",
-                                fontSize = T.caption, color = ACCENT, modifier = Modifier.padding(top = 8.dp))
+                        Text("Also saved to your checklist so you don't lose it.", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
                     }
                 }
 

@@ -42,7 +42,7 @@ object JobDoc {
                                 val doc = PdfDocument()
                                 var y = 0; var page = 1
                                 while (y < contentH && page <= 12) {
-                                    val info = PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, page).build()
+                                    val info = PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, page).create()
                                     val p = doc.startPage(info)
                                     p.canvas.save(); p.canvas.translate(0f, -y.toFloat())
                                     view.draw(p.canvas); p.canvas.restore()

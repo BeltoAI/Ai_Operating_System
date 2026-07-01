@@ -54,15 +54,29 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var coverFile by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf("") }   // which action is running
 
-    // "Find a job at Apple" → open real listings for that target immediately, once.
+    // "Find a job at Apple doing X" → do the work: open live listings AND auto-draft a designed
+    // résumé, cover letter and outreach email so you land on finished documents, not a blank form.
     LaunchedEffect(Unit) {
-        if (initialTarget.isNotBlank()) {
-            try {
-                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse("https://www.linkedin.com/jobs/search/?keywords=" +
-                        java.net.URLEncoder.encode(initialTarget, "UTF-8"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (e: Exception) {}
+        if (initialTarget.isBlank()) return@LaunchedEffect
+        try {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("https://www.linkedin.com/jobs/search/?keywords=" +
+                    java.net.URLEncoder.encode(initialTarget, "UTF-8"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {}
+        val ctxFor = if (posting.isBlank()) initialTarget else posting
+        if (posting.isBlank()) { posting = initialTarget; JobStore.setPosting(ctx, initialTarget) }
+        busy = "auto"
+        var r = resume
+        if (r.isBlank()) {
+            r = withContext(Dispatchers.IO) { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }
+            if (r.length > 20 && !r.startsWith("[")) { resume = r; JobStore.setResume(ctx, r) }
         }
+        val rh = withContext(Dispatchers.IO) { AgentClient.jobResumeHtmlDoc(r, ctxFor) }
+        if (rh.contains("<")) { resumeHtml = rh; JobDoc.htmlToPdf(ctx, rh, "resume") { f -> resumeFile = f } }
+        val ch = withContext(Dispatchers.IO) { AgentClient.jobCoverHtmlDoc(r, ctxFor, MemoryStore.fullProfile(ctx)) }
+        if (ch.contains("<")) { coverHtml = ch; JobDoc.htmlToPdf(ctx, ch, "cover") { f -> coverFile = f } }
+        email = withContext(Dispatchers.IO) { AgentClient.jobEmail(r, ctxFor, MemoryStore.fullProfile(ctx)) }
+        busy = ""
     }
 
     fun run(tag: String, block: suspend () -> String, onResult: (String) -> Unit) {
@@ -154,6 +168,11 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Spacer(Modifier.height(8.dp))
         Text("Give me your résumé, tell me the target, paste a posting — I'll tailor a résumé, write a cover letter, and draft the outreach email. Save each as a PDF to attach.",
             fontSize = T.small, color = T.inkFaint)
+        if (busy == "auto") {
+            Spacer(Modifier.height(10.dp))
+            Text("Drafting everything for you — résumé, cover letter and email. One moment…",
+                fontSize = T.small, color = T.accent)
+        }
 
         Spacer(Modifier.height(16.dp))
         Text("1 · YOUR RÉSUMÉ", fontSize = T.caption, color = T.inkSoft)
