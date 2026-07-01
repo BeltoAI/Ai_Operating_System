@@ -65,10 +65,19 @@
   .navlinks{ display:flex; align-items:center; gap:26px; }
   .navlinks a{ color:var(--soft); text-decoration:none; font-size:14px; }
   .navlinks a:hover{ color:var(--ink); }
-  @media (max-width:760px){ .navlinks a:not(.navdl){ display:none; } }
+  .navtoggle{ display:none; background:none; border:0; color:var(--ink); font-size:24px; line-height:1; cursor:pointer; padding:4px 6px; }
+  @media (max-width:760px){
+    .navtoggle{ display:block; }
+    .navlinks{ position:absolute; top:100%; left:0; right:0; flex-direction:column; align-items:stretch; gap:0;
+      background:var(--card); border:1px solid var(--line); border-radius:0 0 14px 14px; padding:8px; display:none;
+      box-shadow:0 14px 32px rgba(0,0,0,.45); }
+    .navlinks.open{ display:flex; }
+    .navlinks a{ padding:13px 12px; font-size:16px; }
+    .navlinks .navdl{ text-align:center; margin-top:4px; }
+  }
   .logo{ font-family:var(--script); font-size:36px; font-weight:500; letter-spacing:0; line-height:1; }
   .logo b{ color:var(--accent); }
-  .navdl{ background:var(--ink); color:var(--bg); text-decoration:none; font-size:14px; font-weight:700;
+  .navdl{ background:var(--accent); color:#fff; text-decoration:none; font-size:14px; font-weight:700;
     padding:10px 16px; border-radius:999px; }
 
   .hero{ display:grid; grid-template-columns:1.05fr .95fr; grid-template-areas:"copy phone" "cta phone";
@@ -294,7 +303,8 @@
 
   <nav>
     <div class="logo">Sly<b>OS</b></div>
-    <div class="navlinks">
+    <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
+    <div class="navlinks" onclick="this.classList.remove('open')">
       <a href="#features">Features</a>
       <a href="#cowork">Cowork</a>
       <a href="#models">Cost</a>
@@ -935,7 +945,11 @@
   // live click counter (Abacus), so it never reads below your actual downloads but still ticks instantly.
   var COUNTER = 'https://abacus.jasoncameron.dev', NS = 'slyos-world', KEY = 'downloads';
   var gh = 0, ab = 0, haveAny = false;
-  function showDL(){ var el = document.getElementById('dlcount'); if (!el) return; var n = Math.max(gh, ab); el.textContent = haveAny ? (n > 0 ? n.toLocaleString() : '0') : '—'; }
+  function showDL(){ var el = document.getElementById('dlcount'); if (!el) return; var n = Math.max(gh, ab);
+    // Republishing makes a fresh GitHub release (count resets to 0), so the number could drop. Keep a
+    // monotonic floor in localStorage so the displayed count never goes backwards.
+    try { var floor = parseInt(localStorage.getItem('slyos_dlmax') || '0', 10) || 0; if (n < floor) { n = floor; } else if (n > floor) { localStorage.setItem('slyos_dlmax', String(n)); } } catch (e) {}
+    el.textContent = haveAny ? (n > 0 ? n.toLocaleString() : '0') : '—'; }
   fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
     .then(function(r){ return r.json(); })
     .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); gh = n; haveAny = true; showDL(); })

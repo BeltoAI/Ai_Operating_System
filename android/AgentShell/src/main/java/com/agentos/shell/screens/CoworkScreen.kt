@@ -102,6 +102,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var convos by remember { mutableStateOf(com.agentos.shell.tools.CoworkChatStore.list(ctx)) }
     var showChats by remember { mutableStateOf(false) }
     var showFiles by remember { mutableStateOf(false) }
+    var chatSearch by remember { mutableStateOf("") }
     val chat = remember { mutableStateListOf<Pair<String, String>>() }   // role: you|agent|step
     val turns = remember { mutableStateListOf<Pair<String, String>>() }  // model transcript
 
@@ -304,29 +305,43 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     }
 
     if (showChats) {
+        val fmt = remember { java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault()) }
         Dialog(onDismissRequest = { showChats = false }) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Chats", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
-                    Text("＋ New", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { newConvo() })
+                    Text("＋ New", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { chatSearch = ""; newConvo() }.padding(horizontal = 14.dp, vertical = 7.dp))
                 }
                 Spacer(Modifier.height(10.dp))
-                if (convos.isEmpty()) Text("No chats yet.", fontSize = T.small, color = T.inkFaint)
+                BasicTextField(value = chatSearch, onValueChange = { chatSearch = it }, singleLine = true,
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(horizontal = 12.dp, vertical = 9.dp),
+                    decorationBox = { inner -> if (chatSearch.isEmpty()) Text("🔍  Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
+                Spacer(Modifier.height(8.dp))
+                val filtered = convos.filter { chatSearch.isBlank() || it.title.contains(chatSearch, true) }
+                if (filtered.isEmpty()) Text(if (convos.isEmpty()) "No chats yet." else "No matches.", fontSize = T.small, color = T.inkFaint)
                 LazyColumn(Modifier.weight(1f, fill = false)) {
-                    items(convos) { c ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            Text(c.title.ifBlank { "New chat" }, fontSize = T.small, color = if (c.id == convoId) T.accent else T.ink,
-                                modifier = Modifier.weight(1f).clickable { persist(); loadConvo(c.id); showChats = false })
+                    items(filtered, key = { it.id }) { c ->
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { persist(); chatSearch = ""; loadConvo(c.id); showChats = false }.padding(vertical = 12.dp)) {
+                            Text("◆", color = if (c.id == convoId) T.accent else T.inkFaint, fontSize = T.small)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(c.title.ifBlank { "New chat" }, fontSize = T.body, color = if (c.id == convoId) T.accent else T.ink, maxLines = 1)
+                                Text(fmt.format(java.util.Date(c.updated)), fontSize = T.caption, color = T.inkFaint)
+                            }
                             Text("✕", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable {
                                 com.agentos.shell.tools.CoworkChatStore.delete(ctx, c.id)
                                 convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
                                 if (c.id == convoId) loadConvo(convos.firstOrNull()?.id ?: com.agentos.shell.tools.CoworkChatStore.create(ctx))
-                            }.padding(start = 12.dp))
+                            }.padding(start = 10.dp))
                         }
                         Hairline()
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { showChats = false })
             }
         }
