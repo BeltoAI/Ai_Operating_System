@@ -178,7 +178,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -189,6 +189,7 @@ object AgentClient {
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
+            append("Use find_job when the user wants help getting a job, job hunting, applying, a résumé, or a cover letter (e.g. 'find me a job', 'help me get hired', 'apply to jobs', 'fix my resume'); arg = the target role/company if they named one, else empty. This opens the job assistant that tailors a résumé, writes a cover letter, and drafts outreach. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -896,7 +897,7 @@ object AgentClient {
      */
     fun missionNextMove(mission: String, context: String, openMilestone: String): MissionMove {
         if (mission.isBlank()) return MissionMove("", "", "")
-        val sys = persona() +
+        val sys = persona("") +
             "You are working AS this person toward their goal. Pick the ONE highest-leverage concrete " +
             "action to take right now and DO the writing for it — produce a finished, ready-to-use draft " +
             "(e.g. the actual outreach DM/email text, the actual post, the actual offer). Write it in " +
@@ -913,6 +914,50 @@ object AgentClient {
             MissionMove(o.optString("label").trim(), o.optString("draft").trim(), o.optString("task").trim())
         } catch (ex: Exception) { MissionMove("Next move", text.trim(), "") }
     }
+
+    // ── Job hunt ─────────────────────────────────────────────────────────────────────────────
+    private fun jobCall(sys: String, user: String): String {
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 1600, VOICE)
+        return if (code == 200) text.trim() else "[error $code — likely a rate limit. Route Heavy/replies to Claude in Settings and retry.]"
+    }
+
+    /** Draft a clean résumé from everything the brain knows (LinkedIn history, about-you, messages). */
+    fun jobResumeFromBrain(memory: String): String = jobCall(
+        "You are a professional résumé writer. Using ONLY the facts below about the person, write a clean, " +
+        "ATS-friendly résumé in plain text (Name, Summary, Experience with dates + bullet achievements, " +
+        "Skills, Education). Be honest — never invent employers, titles, or dates. If something's missing, " +
+        "leave a clearly marked [add: …] placeholder. No markdown symbols.",
+        "WHAT I KNOW ABOUT THE PERSON:\n$memory")
+
+    /** Suggest target roles + a short rationale, when the user isn't sure what to go for. */
+    fun jobIdeas(resume: String, memory: String): String = jobCall(
+        "You are a career coach. Based on the résumé and background, suggest 4-6 specific job titles worth " +
+        "targeting, each with a one-line why-it-fits and a rough seniority. Plain text, '• ' bullets.",
+        "RÉSUMÉ:\n$resume\n\nBACKGROUND:\n$memory")
+
+    /** Rewrite the résumé tailored to a specific posting (reorder/emphasize, keep it truthful). */
+    fun jobTailorResume(resume: String, posting: String): String = jobCall(
+        "You are a résumé expert. Rewrite the résumé to target the job posting: reorder and reword bullets to " +
+        "mirror the posting's language and priorities, surface the most relevant experience first, and weave in " +
+        "matching keywords — WITHOUT inventing anything untrue. Keep it plain text and ATS-friendly.",
+        "JOB POSTING:\n$posting\n\nMY RÉSUMÉ:\n$resume")
+
+    /** A tailored cover letter for the posting, in the user's voice. */
+    fun jobCoverLetter(resume: String, posting: String, memory: String): String = jobCall(
+        persona(memory) +
+        "Write a concise, specific cover letter (250-350 words) for this posting, in the person's own voice — " +
+        "warm, confident, no clichés or 'I am writing to apply'. Tie 2-3 concrete achievements to what the role " +
+        "needs. Plain text, ready to send.",
+        "JOB POSTING:\n$posting\n\nMY RÉSUMÉ:\n$resume")
+
+    /** A short outreach email to the hiring contact, résumé + cover letter 'attached'. */
+    fun jobEmail(resume: String, posting: String, memory: String): String = jobCall(
+        persona(memory) +
+        "Write a SHORT outreach email (under 140 words) to the hiring contact for this posting, in the person's " +
+        "voice: a crisp intro, why they're a strong fit in 2 lines, and a clear ask for a conversation. Mention " +
+        "the résumé and cover letter are attached. Include a 'Subject:' line. Plain text.",
+        "JOB POSTING:\n$posting\n\nMY RÉSUMÉ:\n$resume")
 
     /** Extract a calendar event from a message. Returns add_event JSON, or "" if none. */
     fun eventFromText(message: String, nowStr: String): String {

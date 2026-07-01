@@ -102,6 +102,7 @@ fun HomeScreen(
     onArchitect: () -> Unit = {},
     onSpicy: (String) -> Unit = {},
     onResearch: (String) -> Unit = {},
+    onJob: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -282,6 +283,13 @@ fun HomeScreen(
                 val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: emailAct.arg.ifBlank { q }
                 thinking = false
                 onComposeEmail(to, tpc)
+                return@launch
+            }
+            // find_job opens the job-hunt assistant (résumé, cover letter, outreach), prefilled with the role.
+            val jobAct = result.actions.firstOrNull { it.type == "find_job" }
+            if (jobAct != null) {
+                thinking = false
+                onJob(jobAct.arg)
                 return@launch
             }
             // cowork opens the Cowork workspace to actually BUILD it (files, code, tools), prefilled.
