@@ -139,6 +139,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
+    // The brain's standing mission + its latest self-assessment.
+    var mission by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.mission(ctx)) }
+    var missionSaved by remember { mutableStateOf(true) }
+    var missionOpen by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.mission(ctx).isNotBlank()) }
+    var assessing by remember { mutableStateOf(false) }
+    var lastCheck by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.latest(ctx)) }
     val flow by rememberInfiniteTransition(label = "f").animateFloat(
         0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
     )
@@ -476,6 +482,91 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     }
                 }
             }
+        }
+
+        // ── MISSION: give the brain a standing goal, and let it argue how close it is ──
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().clickable { missionOpen = !missionOpen }, verticalAlignment = Alignment.CenterVertically) {
+            Text("🎯 Mission", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+            lastCheck?.let { Text("${it.percent}%", fontSize = T.small, color = ACCENT) }
+            Spacer(Modifier.width(8.dp))
+            Text(if (missionOpen) "▾" else "▸", fontSize = T.small, color = T.inkFaint)
+        }
+        if (missionOpen) {
+            Spacer(Modifier.height(6.dp))
+            BasicTextField(
+                value = mission, onValueChange = { mission = it; missionSaved = false },
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(10.dp))
+                    .background(T.bgElevated).padding(10.dp),
+                decorationBox = { inner ->
+                    if (mission.isEmpty()) Text("You are now me. Your goal is to… (e.g. find 10 new customers for my studio; grow my IG from 2k→5k)",
+                        fontSize = T.small, color = T.inkFaint); inner()
+                }
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (missionSaved) "Saved ✓" else "Save goal", fontSize = T.small,
+                    color = if (missionSaved) T.inkSoft else T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(if (missionSaved) T.hairline else T.accent)
+                        .clickable {
+                            com.agentos.shell.tools.MissionStore.setMission(ctx, mission)
+                            missionSaved = true; lastCheck = com.agentos.shell.tools.MissionStore.latest(ctx)
+                        }.padding(horizontal = 16.dp, vertical = 8.dp))
+                Spacer(Modifier.width(10.dp))
+                if (mission.isNotBlank()) Text(if (assessing) "Assessing…" else "Assess progress", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACCENT)
+                        .clickable(enabled = !assessing) {
+                            if (!missionSaved) { com.agentos.shell.tools.MissionStore.setMission(ctx, mission); missionSaved = true }
+                            assessing = true
+                            scope.launch {
+                                val a = withContext(Dispatchers.IO) {
+                                    val about = com.agentos.shell.tools.MemoryStore.about(ctx)
+                                    val tasks = com.agentos.shell.tools.ChecklistStore.load(ctx)
+                                        .joinToString("\n") { "- ${it.text} (${if (it.done) "done" else "todo"})" }
+                                    val papers = com.agentos.shell.tools.PaperStore.list(ctx).joinToString("\n") { "Paper: ${it.title}" }
+                                    val hits = com.agentos.shell.tools.MessageStore.search(ctx, mission, 40)
+                                        .joinToString("\n") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                                    val conns = com.agentos.shell.tools.ConnectionStore.count(ctx)
+                                    val sem = com.agentos.shell.tools.VectorStore.search(ctx, mission, 10)
+                                        .joinToString("\n") { it.contact + ": " + it.body }
+                                    val context = buildString {
+                                        if (about.isNotBlank()) append("About me: ").append(about).append("\n")
+                                        append("LinkedIn connections: ").append(conns).append("\n")
+                                        if (tasks.isNotBlank()) append("Checklist:\n").append(tasks).append("\n")
+                                        if (papers.isNotBlank()) append(papers).append("\n")
+                                        if (sem.isNotBlank()) append("Relevant memories:\n").append(sem).append("\n")
+                                        if (hits.isNotBlank()) append("Messages related to the goal:\n").append(hits)
+                                    }.take(9000)
+                                    val days = ((System.currentTimeMillis() - com.agentos.shell.tools.MissionStore.since(ctx)) / 86_400_000L)
+                                    com.agentos.shell.tools.AgentClient.assessMission(mission, context, "$days days ago")
+                                }
+                                if (a.percent >= 0) com.agentos.shell.tools.MissionStore.addCheck(ctx, a.percent, a.argument, a.next)
+                                lastCheck = com.agentos.shell.tools.MissionStore.latest(ctx)
+                                    ?: com.agentos.shell.tools.MissionStore.Check(System.currentTimeMillis(), a.percent.coerceAtLeast(0), a.argument, a.next)
+                                assessing = false
+                            }
+                        }.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            lastCheck?.let { c ->
+                Spacer(Modifier.height(10.dp))
+                // Progress bar.
+                Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)) {
+                    Box(Modifier.fillMaxWidth(c.percent.coerceIn(0, 100) / 100f).fillMaxHeight()
+                        .clip(RoundedCornerShape(999.dp)).background(ACCENT))
+                }
+                Spacer(Modifier.height(8.dp))
+                if (c.note.isNotBlank()) Text(prettify(c.note), fontSize = T.small, color = T.inkSoft)
+                if (c.next.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Next:", fontSize = T.caption, color = T.inkFaint)
+                    Text(prettify(c.next), fontSize = T.small, color = T.ink)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
         }
     }
 }

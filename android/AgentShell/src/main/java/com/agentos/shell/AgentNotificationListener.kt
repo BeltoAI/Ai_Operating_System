@@ -127,6 +127,19 @@ class AgentNotificationListener : NotificationListenerService() {
         }
     }
 
+    /**
+     * A human-feeling delay before sending: nobody types a paragraph in 2 seconds, and an instant
+     * reply reads as a bot. Model "reading + typing" time from the reply length, with a little jitter,
+     * bounded so it never feels broken. This is on TOP of the undo window.
+     */
+    private fun humanDelayMs(draft: String): Long {
+        val chars = draft.trim().length
+        // ~ read the incoming msg (2s) + type at a natural pace (~55 ms/char ≈ 220 wpm), + jitter.
+        val typing = 2000L + (chars * 55L)
+        val jitter = (0..4000).random().toLong()
+        return (typing + jitter).coerceIn(4000L, 45_000L)
+    }
+
     /** A draft is only safe to auto-send if it's real text — not an error, placeholder, or empty. */
     private fun isSendable(draft: String): Boolean {
         val d = draft.trim()
@@ -194,7 +207,8 @@ class AgentNotificationListener : NotificationListenerService() {
                     }
                     return@launch
                 }
-                delay(undoWindowMs)
+                // Undo window PLUS a length-scaled human delay so replies never land creepily fast.
+                delay(maxOf(undoWindowMs, humanDelayMs(draft)))
                 if (NotificationStore.pendingAuto.contains(note.key)) {
                     // FAIL-SAFE: never send an error/placeholder/empty draft to a real person.
                     if (!isSendable(draft)) {

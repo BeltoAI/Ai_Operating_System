@@ -245,6 +245,9 @@ fun HomeScreen(
                         append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
                     if (recall.isNotBlank())
                         append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
+                    com.agentos.shell.tools.MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {
+                        append("\nYOUR STANDING MISSION (you are acting as this person; keep this goal in mind and, when relevant, proactively suggest concrete next steps toward it): ").append(it)
+                    }
                     append("\nCurrent time: ").append(now)
                 }
             }

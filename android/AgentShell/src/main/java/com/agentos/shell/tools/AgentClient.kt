@@ -837,6 +837,35 @@ object AgentClient {
         return if (code == 200) text.trim() else "Couldn't search memory ($code)."
     }
 
+    data class MissionAssessment(val percent: Int, val argument: String, val next: String)
+
+    /**
+     * Assess how close the brain is to the user's standing MISSION, grounded in real brain context.
+     * Returns an honest percent (0-100), a short argument for that number, and 2-3 concrete next steps.
+     */
+    fun assessMission(mission: String, context: String, sinceDesc: String): MissionAssessment {
+        if (mission.isBlank()) return MissionAssessment(0, "No mission set yet.", "Set a goal to track.")
+        val sys = "You are SlyOS assessing progress toward the user's goal, acting as their strategist. " +
+            "Be HONEST and specific — no cheerleading. Use ONLY the evidence in the context below (their " +
+            "messages, contacts, calendar, tasks, papers). If there's little evidence of progress, the " +
+            "percent should be low. Estimate a single completion percentage (0-100) for the goal, give a " +
+            "2-3 sentence argument citing concrete evidence (or its absence), and list 2-3 specific next " +
+            "actions that would move the needle most. Reply ONLY as JSON: " +
+            "{\"percent\":0-100,\"argument\":\"…\",\"next\":\"1) …\\n2) …\\n3) …\"}"
+        val user = "GOAL: $mission\nTracking since: $sinceDesc\n\nEVIDENCE FROM THE BRAIN:\n" +
+            context.ifBlank { "(little data yet)" }
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 700, VOICE)
+        if (code != 200) return MissionAssessment(-1, "Couldn't assess ($code). Try routing Heavy/replies to Claude if this is a rate limit.", "")
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val o = JSONObject(text.substring(s, e + 1))
+            MissionAssessment(o.optInt("percent", 0).coerceIn(0, 100), o.optString("argument").trim(), o.optString("next").trim())
+        } catch (ex: Exception) {
+            MissionAssessment(-1, text.trim().take(300).ifBlank { "Couldn't parse the assessment." }, "")
+        }
+    }
+
     /** Extract a calendar event from a message. Returns add_event JSON, or "" if none. */
     fun eventFromText(message: String, nowStr: String): String {
         val sys = "Current time: $nowStr. Extract a calendar event from the message if one is " +

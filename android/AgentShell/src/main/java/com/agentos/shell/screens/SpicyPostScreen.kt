@@ -84,6 +84,10 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
         if (TwitterClient.configured()) {
             working = true; status = "Posting to X…"
             scope.launch {
+                // Small human-like pause so posts don't fire machine-instant (helps X not flag it as a
+                // bot when you post a few in a row). Scales a touch with length, plus jitter.
+                val wait = (1500L + post.length * 12L + (0..2500).random()).coerceAtMost(7000L)
+                kotlinx.coroutines.delay(wait)
                 val (_, msg) = withContext(Dispatchers.IO) { TwitterClient.postTweet(post) }
                 status = msg; working = false
             }
