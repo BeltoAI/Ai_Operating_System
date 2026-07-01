@@ -87,15 +87,30 @@ object ConnectionStore {
         "marketing" to listOf("marketing", "growth", "brand"),
         "recruiter" to listOf("recruiter", "talent", "recruiting"),
         "professor" to listOf("professor", "phd", "research", "lab", "university"),
-        "lawyer" to listOf("lawyer", "legal", "attorney", "counsel")
+        "lawyer" to listOf("lawyer", "legal", "attorney", "counsel"),
+        // Executive titles — connections are usually stored with the FULL title, so map the abbreviation.
+        "cto" to listOf("cto", "chief technology", "chief technical", "technology officer", "vp engineering", "head of engineering", "technical cofounder", "engineering"),
+        "ceo" to listOf("ceo", "chief executive", "founder", "president"),
+        "cfo" to listOf("cfo", "chief financial", "finance"),
+        "coo" to listOf("coo", "chief operating", "operations"),
+        "cmo" to listOf("cmo", "chief marketing", "marketing"),
+        "cpo" to listOf("cpo", "chief product", "product officer", "head of product"),
+        "cio" to listOf("cio", "chief information", "information officer"),
+        "vp" to listOf("vp", "vice president", "head of", "director"),
+        "pm" to listOf("pm", "product manager", "product management")
     )
+    // Words that carry no matching signal in a "find me a X" request — dropped so they don't pollute.
+    private val STOP = setOf("find", "candidate", "candidates", "need", "want", "looking", "some", "good",
+        "new", "people", "person", "someone", "help", "get", "hire", "hiring", "potential", "list", "the",
+        "and", "for", "who", "any", "give", "show", "recommend", "suggest", "best", "top", "great",
+        "me", "at", "in", "on", "of", "to", "is", "it", "my", "an", "or", "do", "we", "us", "be", "by", "as", "so")
 
     /**
      * Search your connections by name / company / role for the Memory Ask — works for ANY query
      * (people, companies, roles, schools…), with plural/singular stemming and light synonym boosts.
      */
     fun search(ctx: Context, query: String, limit: Int = 40): List<Conn> {
-        val raw = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 }
+        val raw = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 2 && it !in STOP }
         if (raw.isEmpty()) return emptyList()
         val terms = HashSet<String>()
         raw.forEach { w ->

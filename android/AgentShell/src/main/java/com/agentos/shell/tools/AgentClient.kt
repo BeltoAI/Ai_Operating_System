@@ -189,8 +189,7 @@ object AgentClient {
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
-            append("Use find_job when the user wants to ACT on getting a job — job hunting, applying, a résumé, or a cover letter (e.g. 'find me a job', 'help me get hired', 'apply to jobs at IBM', 'fix my resume'); arg = the target role/company if they named one, else empty. This opens the job assistant. ")
-            append("BUT if they're ASKING FOR ADVICE (e.g. 'based on my LinkedIn/experience, what jobs would suit me?', 'what roles should I target?', 'what are good opportunities for me right now?'), do NOT use find_job — answer directly with 4-6 specific, concrete role suggestions grounded in their real work history above, each with a one-line why-it-fits, then invite them to say 'find me a job at <one>' to pursue it. ")
+            append("Use find_job for ANYTHING job-related — applying, hunting, résumé/cover letter, OR asking what roles/opportunities suit them (e.g. 'find me a job', 'apply at IBM', 'what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'). This opens the job screen which searches real openings they can tap. DON'T write a long text list of roles — instead set arg to 2-4 concrete role keywords inferred from their real background above (e.g. 'AI product lead, technology consultant, startup CTO'), or the company/role they named. Keep 'say' to ONE short friendly line like 'On it — pulling up roles that fit you.' ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -231,7 +230,7 @@ object AgentClient {
             messages.put(JSONObject().put("role", "assistant").put("content", a))
         }
         messages.put(JSONObject().put("role", "user").put("content", prompt))
-        val (code, text) = callMessages(system, messages, 400)
+        val (code, text) = callMessages(system, messages, 1400)   // was 400 — truncated longer answers mid-sentence
         Log.i("SlyOS", "ask code=$code raw=${text.take(300)}")
         if (code != 200) return AgentResult("Agent error $code: $text", emptyList(), "")
         val r = parse(text)

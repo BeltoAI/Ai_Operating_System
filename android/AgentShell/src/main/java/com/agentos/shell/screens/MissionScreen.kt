@@ -58,7 +58,7 @@ fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         val tasks = ChecklistStore.load(ctx).joinToString("\n") { "- ${it.text} (${if (it.done) "done" else "todo"})" }
         val papers = PaperStore.list(ctx).joinToString("\n") { "Paper: ${it.title}" }
         val hits = MessageStore.search(ctx, mission, 40).joinToString("\n") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-        val matches = ConnectionStore.search(ctx, mission, 25).joinToString("\n") { it.name + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
+        val matches = ConnectionStore.search(ctx, mission, 40).joinToString("\n") { it.name + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
         val sem = VectorStore.search(ctx, mission, 10).joinToString("\n") { it.contact + ": " + it.body }
         val done = plan.filter { it.done }.joinToString("; ") { it.text }
         return buildString {

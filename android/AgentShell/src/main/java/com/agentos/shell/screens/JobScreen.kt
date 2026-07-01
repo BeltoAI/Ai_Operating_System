@@ -52,6 +52,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var busy by remember { mutableStateOf("") }
     var liDone by remember { mutableStateOf(MemoryStore.positions(ctx).isNotBlank()) }
     var leads by remember { mutableStateOf<List<AgentClient.JobLead>>(emptyList()) }
+    var findMsg by remember { mutableStateOf("") }
     var fullView by remember { mutableStateOf("") }   // html shown full-screen
 
     fun feed(note: String, s: Int) {
@@ -122,11 +123,12 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
 
     fun findJobs(q: String) {
         if (busy.isNotEmpty() || q.isBlank()) return
-        busy = "find"; leads = emptyList()
+        busy = "find"; leads = emptyList(); findMsg = ""
         scope.launch {
             val res = withContext(Dispatchers.IO) { AgentClient.jobFindOpenings(q, MemoryStore.fullProfile(ctx)) }
             leads = res; busy = ""
             if (res.isNotEmpty()) feed("Found ${res.size} job openings for “$q”", 300)
+            else findMsg = "No results yet — paste a job link below, or set replies to Claude in Settings so I can search the web."
         }
     }
 
@@ -192,6 +194,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
 
         Spacer(Modifier.height(10.dp))
         bigBtn(if (busy == "find") "Searching…" else "Find jobs online", accent = false, enabled = busy.isEmpty()) { findJobs(link.ifBlank { initialTarget }) }
+        if (findMsg.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(findMsg, fontSize = T.caption, color = T.inkFaint) }
 
         leads.forEach { lead ->
             Spacer(Modifier.height(8.dp))
