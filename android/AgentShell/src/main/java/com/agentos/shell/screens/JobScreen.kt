@@ -53,6 +53,13 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var resumeFile by remember { mutableStateOf<File?>(null) }
     var coverFile by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf("") }   // which action is running
+    var liMsg by remember { mutableStateOf("") }
+
+    // Everything the job hunt produces flows INTO the brain and counts toward your time-saved score.
+    fun feed(note: String, seconds: Int) {
+        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
+        com.agentos.shell.tools.MetricsStore.record(ctx, seconds)
+    }
 
     // "Find a job at Apple doing X" → do the work: open live listings AND auto-draft a designed
     // résumé, cover letter and outreach email so you land on finished documents, not a blank form.
@@ -86,13 +93,6 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         scope.launch { val r = withContext(Dispatchers.IO) { block() }; onResult(r); busy = "" }
     }
 
-    // Everything the job hunt produces flows INTO the brain and counts toward your time-saved score.
-    fun feed(note: String, seconds: Int) {
-        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
-        com.agentos.shell.tools.MetricsStore.record(ctx, seconds)
-    }
-
-    var liMsg by remember { mutableStateOf("") }
     // Import your LinkedIn export CSVs (Positions/Education/Profile/Connections) straight into the brain.
     val liPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) scope.launch {
