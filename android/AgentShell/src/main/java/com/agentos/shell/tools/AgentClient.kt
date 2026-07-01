@@ -189,7 +189,8 @@ object AgentClient {
             append("CRITICAL: 'navigate' is ONLY for physical directions to a real-world place. For ANY website, domain, or link (\"open slyos.world\", \"go to youtube\") use open_url — NEVER navigate. ")
             append("Use write_paper when the user wants to write/create/draft a research paper, white paper, essay or report; arg = the topic. ")
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
-            append("Use find_job when the user wants help getting a job, job hunting, applying, a résumé, or a cover letter (e.g. 'find me a job', 'help me get hired', 'apply to jobs', 'fix my resume'); arg = the target role/company if they named one, else empty. This opens the job assistant that tailors a résumé, writes a cover letter, and drafts outreach. ")
+            append("Use find_job when the user wants to ACT on getting a job — job hunting, applying, a résumé, or a cover letter (e.g. 'find me a job', 'help me get hired', 'apply to jobs at IBM', 'fix my resume'); arg = the target role/company if they named one, else empty. This opens the job assistant. ")
+            append("BUT if they're ASKING FOR ADVICE (e.g. 'based on my LinkedIn/experience, what jobs would suit me?', 'what roles should I target?', 'what are good opportunities for me right now?'), do NOT use find_job — answer directly with 4-6 specific, concrete role suggestions grounded in their real work history above, each with a one-line why-it-fits, then invite them to say 'find me a job at <one>' to pursue it. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -899,10 +900,14 @@ object AgentClient {
         if (mission.isBlank()) return MissionMove("", "", "")
         val sys = persona("") +
             "You are working AS this person toward their goal. Pick the ONE highest-leverage concrete " +
-            "action to take right now and DO the writing for it — produce a finished, ready-to-use draft " +
-            "(e.g. the actual outreach DM/email text, the actual post, the actual offer). Write it in " +
-            "their voice, specific and usable — no placeholders like [name] unless truly unknown. " +
-            "Reply ONLY as JSON: {\"label\":\"short title of the move\",\"draft\":\"the finished text they can send/post\",\"task\":\"a one-line checklist item to do it\"}"
+            "action to take right now and DO the writing for it — produce a finished, ready-to-use draft. " +
+            "IF the goal is about FINDING or REACHING PEOPLE (candidates, customers, leads, hires, cofounders) " +
+            "and the context lists 'People in my network relevant to this goal', DO NOT tell them to go search " +
+            "elsewhere — instead pick the best real matches from that list and, in the draft, output a numbered " +
+            "list where each item is that person's name + why they fit + a short personalized message ready to " +
+            "send them. Otherwise produce the single best draft (DM/email/post/offer). Write in their voice, " +
+            "specific — no [placeholders] unless truly unknown. " +
+            "Reply ONLY as JSON: {\"label\":\"short title of the move\",\"draft\":\"the finished text / the candidate list with a message each\",\"task\":\"a one-line checklist item\"}"
         val user = "GOAL: $mission\n" + (if (openMilestone.isNotBlank()) "CURRENT MILESTONE: $openMilestone\n" else "") +
             "\nCONTEXT ABOUT ME AND MY WORLD:\n" + context.ifBlank { "(little data yet)" }
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))

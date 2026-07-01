@@ -63,6 +63,34 @@ object JobDoc {
         }
     }
 
+    /** Load a URL in a headless WebView (runs JS) and return the page's visible text. Best-effort —
+     *  login-walled pages (some LinkedIn/Indeed) return little; most career pages read fine. */
+    fun fetchPageText(ctx: Context, url: String, onDone: (String) -> Unit) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val wv = WebView(ctx)
+                wv.settings.javaScriptEnabled = true
+                wv.settings.domStorageEnabled = true
+                var done = false
+                wv.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, u: String?) {
+                        view.postDelayed({
+                            view.evaluateJavascript("(document.body && document.body.innerText) || ''") { raw ->
+                                if (done) return@evaluateJavascript
+                                done = true
+                                val text = try { org.json.JSONObject("{\"t\":$raw}").getString("t") } catch (e: Exception) { "" }
+                                onDone(text.replace(Regex("\\n{3,}"), "\n\n").trim().take(12000))
+                            }
+                        }, 1400)
+                    }
+                }
+                wv.loadUrl(url)
+                // Safety timeout so a stuck page doesn't hang the flow.
+                Handler(Looper.getMainLooper()).postDelayed({ if (!done) { done = true; onDone("") } }, 12000)
+            } catch (e: Exception) { onDone("") }
+        }
+    }
+
     /** Open the user's email app with the outreach text and the given PDFs attached. */
     fun emailWithAttachments(ctx: Context, to: String, subject: String, body: String, files: List<File>) {
         val uris = ArrayList<Uri>(files.filter { it.exists() }.map { FileProvider.getUriForFile(ctx, AUTHORITY, it) })

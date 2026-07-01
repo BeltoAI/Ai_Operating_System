@@ -44,7 +44,8 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     val clip = LocalClipboardManager.current
 
     var resume by remember { mutableStateOf(JobStore.resume(ctx)) }
-    var target by remember { mutableStateOf(JobStore.target(ctx).ifBlank { initialTarget }) }
+    // A fresh target from Home ("find a job at IBM") ALWAYS wins over a previously-saved one.
+    var target by remember { mutableStateOf(initialTarget.ifBlank { JobStore.target(ctx) }) }
     var posting by remember { mutableStateOf(JobStore.posting(ctx)) }
     var email by remember { mutableStateOf("") }
     var ideas by remember { mutableStateOf("") }
@@ -61,6 +62,15 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         com.agentos.shell.tools.MetricsStore.record(ctx, seconds)
     }
 
+    // If the posting is a URL, read the actual page text so we tailor to THIS job (not just a link).
+    suspend fun resolvePosting(p: String): String {
+        val t = p.trim()
+        if (!t.startsWith("http")) return p
+        return kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            JobDoc.fetchPageText(ctx, t) { txt -> if (cont.isActive) cont.resumeWith(Result.success(if (txt.length > 80) txt else p)) }
+        }
+    }
+
     // "Find a job at Apple doing X" → do the work: open live listings AND auto-draft a designed
     // résumé, cover letter and outreach email so you land on finished documents, not a blank form.
     LaunchedEffect(Unit) {
@@ -70,9 +80,8 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
                 android.net.Uri.parse("https://www.linkedin.com/jobs/search/?keywords=" +
                     java.net.URLEncoder.encode(initialTarget, "UTF-8"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) {}
-        val ctxFor = if (posting.isBlank()) initialTarget else posting
-        if (posting.isBlank()) { posting = initialTarget; JobStore.setPosting(ctx, initialTarget) }
         busy = "auto"
+        val ctxFor = resolvePosting(if (posting.isBlank()) initialTarget else posting)
         var r = resume
         if (r.isBlank()) {
             r = withContext(Dispatchers.IO) { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }
@@ -255,18 +264,18 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Spacer(Modifier.height(6.dp))
         Row {
             pill("Design résumé", "resume", accent = true) {
-                run("resume", { AgentClient.jobResumeHtmlDoc(resume, posting) }) { html ->
+                run("resume", { AgentClient.jobResumeHtmlDoc(resume, resolvePosting(posting)) }) { html ->
                     if (html.contains("<")) { resumeHtml = html; resumeFile = null; JobDoc.htmlToPdf(ctx, html, "resume") { f -> resumeFile = f }; feed("Designed a tailored résumé for ${target.ifBlank { "a role" }}", 900) }
                 }
             }
             Spacer(Modifier.width(8.dp))
             pill("Cover letter", "coverh", accent = true) {
-                run("coverh", { AgentClient.jobCoverHtmlDoc(resume, posting, MemoryStore.fullProfile(ctx)) }) { html ->
+                run("coverh", { AgentClient.jobCoverHtmlDoc(resume, resolvePosting(posting), MemoryStore.fullProfile(ctx)) }) { html ->
                     if (html.contains("<")) { coverHtml = html; coverFile = null; JobDoc.htmlToPdf(ctx, html, "cover") { f -> coverFile = f }; feed("Wrote a cover letter for ${target.ifBlank { "a role" }}", 600) }
                 }
             }
             Spacer(Modifier.width(8.dp))
-            pill("Outreach email", "email") { run("email", { AgentClient.jobEmail(resume, posting, MemoryStore.fullProfile(ctx)) }) { email = it; feed("Drafted a job outreach email for ${target.ifBlank { "a role" }}", 300) } }
+            pill("Outreach email", "email") { run("email", { AgentClient.jobEmail(resume, resolvePosting(posting), MemoryStore.fullProfile(ctx)) }) { email = it; feed("Drafted a job outreach email for ${target.ifBlank { "a role" }}", 300) } }
         }
         htmlPreview("Résumé", resumeHtml, resumeFile) { resumeHtml = ""; resumeFile = null }
         htmlPreview("Cover letter", coverHtml, coverFile) { coverHtml = ""; coverFile = null }
