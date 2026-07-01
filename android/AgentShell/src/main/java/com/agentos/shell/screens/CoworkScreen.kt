@@ -98,8 +98,36 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var files by remember { mutableStateOf(WorkspaceStore.list(ctx)) }
     var viewing by remember { mutableStateOf<String?>(null) }
     var lastUrl by remember { mutableStateOf<String?>(null) }
+    var convoId by remember { mutableStateOf(0L) }
+    var convos by remember { mutableStateOf(com.agentos.shell.tools.CoworkChatStore.list(ctx)) }
+    var showChats by remember { mutableStateOf(false) }
+    var showFiles by remember { mutableStateOf(false) }
     val chat = remember { mutableStateListOf<Pair<String, String>>() }   // role: you|agent|step
     val turns = remember { mutableStateListOf<Pair<String, String>>() }  // model transcript
+
+    fun persist() {
+        if (convoId == 0L) return
+        com.agentos.shell.tools.CoworkChatStore.saveChat(ctx, convoId, chat.toList())
+        com.agentos.shell.tools.CoworkChatStore.saveTurns(ctx, convoId, turns.toList())
+        val title = chat.firstOrNull { it.first == "you" }?.second ?: "New chat"
+        com.agentos.shell.tools.CoworkChatStore.touch(ctx, convoId, title)
+        convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
+    }
+    fun loadConvo(id: Long) {
+        convoId = id; lastUrl = null
+        chat.clear(); chat.addAll(com.agentos.shell.tools.CoworkChatStore.loadChat(ctx, id))
+        turns.clear(); turns.addAll(com.agentos.shell.tools.CoworkChatStore.loadTurns(ctx, id))
+    }
+    fun newConvo() {
+        persist(); convoId = com.agentos.shell.tools.CoworkChatStore.create(ctx)
+        chat.clear(); turns.clear(); lastUrl = null; showChats = false
+        convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
+    }
+    LaunchedEffect(Unit) {
+        val list = com.agentos.shell.tools.CoworkChatStore.list(ctx)
+        loadConvo(if (list.isNotEmpty()) list.first().id else com.agentos.shell.tools.CoworkChatStore.create(ctx))
+        convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
+    }
 
     val attachPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -141,6 +169,8 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun send() {
         val task = input.trim(); if (task.isBlank() || busy) return
         chat.add("you" to task); turns.add("user" to task); input = ""; busy = true
+        persist()
+        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Cowork", "Cowork", "me", "me", "Cowork task: $task")
         scope.launch {
             var steps = 0; var fails = 0
             while (steps < 22) {
@@ -160,8 +190,9 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (act.done) {
                     chat.add("agent" to act.message)
                     Regex("https?://[^\\s]+").find(act.message)?.value?.let { lastUrl = it.trimEnd('.', ')', ',') }
-                    // Cowork builds things for you — count it toward your time-saved score on Home.
+                    // Cowork builds things for you — count it toward your time-saved score, and feed the brain.
                     com.agentos.shell.tools.MetricsStore.record(ctx, 600)
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Cowork", "Cowork", "me", "me", "Cowork done: ${act.message.take(1500)}")
                     break
                 }
                 chat.add("step" to "• " + act.note.ifBlank { act.tool + (if (act.name.isNotBlank()) " ${act.name}" else "") })
@@ -184,16 +215,17 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Text("A local agent that builds real files — give it a task, it does it step by step.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
-        if (files.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                files.forEach { f ->
-                    Text("📄 $f", fontSize = T.caption, color = T.ink,
-                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
-                            .clickable { viewing = f }.padding(horizontal = 12.dp, vertical = 7.dp))
-                }
-            }
-            Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("☰", fontSize = T.body, color = T.ink,
+                modifier = Modifier.clickable { convos = com.agentos.shell.tools.CoworkChatStore.list(ctx); showChats = true }.padding(6.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(convos.firstOrNull { it.id == convoId }?.title ?: "New chat", fontSize = T.small, color = T.inkSoft, modifier = Modifier.weight(1f))
+            Text("📄", fontSize = T.body, color = T.inkSoft,
+                modifier = Modifier.clickable { files = WorkspaceStore.list(ctx); showFiles = true }.padding(6.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("＋", fontSize = T.body, color = T.accent, modifier = Modifier.clickable { newConvo() }.padding(6.dp))
         }
+        Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
             if (chat.isEmpty()) item {
                 Text("Try: “draft a cold email to investors and save it”, “outline a blog post about edge AI and write the intro”, “make a Python script that renames photos by date”. Attach a file with 📎 and it can read it.",
@@ -267,6 +299,54 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         modifier = Modifier.clickable { WorkspaceStore.delete(ctx, name); files = WorkspaceStore.list(ctx); viewing = null }.padding(end = 14.dp))
                     Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { viewing = null })
                 }
+            }
+        }
+    }
+
+    if (showChats) {
+        Dialog(onDismissRequest = { showChats = false }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Chats", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+                    Text("＋ New", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { newConvo() })
+                }
+                Spacer(Modifier.height(10.dp))
+                if (convos.isEmpty()) Text("No chats yet.", fontSize = T.small, color = T.inkFaint)
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    items(convos) { c ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text(c.title.ifBlank { "New chat" }, fontSize = T.small, color = if (c.id == convoId) T.accent else T.ink,
+                                modifier = Modifier.weight(1f).clickable { persist(); loadConvo(c.id); showChats = false })
+                            Text("✕", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable {
+                                com.agentos.shell.tools.CoworkChatStore.delete(ctx, c.id)
+                                convos = com.agentos.shell.tools.CoworkChatStore.list(ctx)
+                                if (c.id == convoId) loadConvo(convos.firstOrNull()?.id ?: com.agentos.shell.tools.CoworkChatStore.create(ctx))
+                            }.padding(start = 12.dp))
+                        }
+                        Hairline()
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { showChats = false })
+            }
+        }
+    }
+
+    if (showFiles) {
+        Dialog(onDismissRequest = { showFiles = false }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                Text("Files in this workspace", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(10.dp))
+                if (files.isEmpty()) Text("No files yet.", fontSize = T.small, color = T.inkFaint)
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    items(files) { f ->
+                        Text("📄 $f", fontSize = T.small, color = T.ink,
+                            modifier = Modifier.fillMaxWidth().clickable { showFiles = false; viewing = f }.padding(vertical = 10.dp))
+                        Hairline()
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { showFiles = false })
             }
         }
     }

@@ -59,7 +59,13 @@
   .wrap{ max-width:1040px; margin:0 auto; padding:0 22px; }
   a{ color:inherit; }
 
-  nav{ display:flex; align-items:center; justify-content:space-between; padding:22px 0; }
+  nav{ display:flex; align-items:center; justify-content:space-between; padding:16px 22px; position:sticky; top:0; z-index:50;
+    background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+    margin:0 -22px; }
+  .navlinks{ display:flex; align-items:center; gap:26px; }
+  .navlinks a{ color:var(--soft); text-decoration:none; font-size:14px; }
+  .navlinks a:hover{ color:var(--ink); }
+  @media (max-width:760px){ .navlinks a:not(.navdl){ display:none; } }
   .logo{ font-family:var(--script); font-size:36px; font-weight:500; letter-spacing:0; line-height:1; }
   .logo b{ color:var(--accent); }
   .navdl{ background:var(--ink); color:var(--bg); text-decoration:none; font-size:14px; font-weight:700;
@@ -288,7 +294,13 @@
 
   <nav>
     <div class="logo">Sly<b>OS</b></div>
-    <a class="navdl" href="#get">Download</a>
+    <div class="navlinks">
+      <a href="#features">Features</a>
+      <a href="#cowork">Cowork</a>
+      <a href="#models">Cost</a>
+      <a href="#vision">Vision</a>
+      <a class="navdl" href="#get">Download</a>
+    </div>
   </nav>
 
   <!-- HERO -->
@@ -459,7 +471,7 @@
   </section>
 
   <!-- CONNECT YOUR APPS -->
-  <section>
+  <section id="features">
     <p class="eyebrow">Connect your apps</p>
     <h2>It plugs into your whole phone</h2>
     <p class="muted">SlyOS works across the apps you already use — reading, replying, posting, navigating and playing, all from one prompt.</p>
@@ -484,8 +496,23 @@
     </div>
   </section>
 
+  <!-- LOCAL COWORK -->
+  <section id="cowork">
+    <p class="eyebrow">Local Cowork</p>
+    <h2>It doesn't just chat —<br>it builds.</h2>
+    <p class="muted">A desktop-style agent workspace on your phone. Ask, and it produces real, finished things — creating &amp; editing files, and generating documents you can open anywhere.</p>
+    <div class="apps" style="margin-top:22px">
+      <div class="apptile"><span class="ico" style="background:#4285F4"><img src="https://cdn.simpleicons.org/googledocs/white" alt="Docs"></span><span class="nm">Google Docs</span></div>
+      <div class="apptile"><span class="ico" style="background:#FBBC04"><img src="https://cdn.simpleicons.org/googleslides/white" alt="Slides"></span><span class="nm">Slides</span></div>
+      <div class="apptile"><span class="ico" style="background:#34A853"><img src="https://cdn.simpleicons.org/googlesheets/white" alt="Sheets"></span><span class="nm">Sheets</span></div>
+      <div class="apptile"><span class="ico" style="background:#E8642C"><img src="https://cdn.simpleicons.org/adobeacrobatreader/white" alt="PDF"></span><span class="nm">PDFs</span></div>
+      <div class="apptile"><span class="ico" style="background:#0d0d0d;border:1px solid #333"><img src="https://cdn.simpleicons.org/files/white" alt="Files"></span><span class="nm">Any file</span></div>
+    </div>
+    <p class="muted" style="margin-top:20px"><b>Coming next — Termux integration:</b> connect Termux and Cowork can actually run what it builds — Python, packages, compilers, even a local llama.cpp — so you can build and run proper apps locally, right on the phone.</p>
+  </section>
+
   <!-- ORCHESTRATION -->
-  <section>
+  <section id="models">
     <p class="eyebrow">One brain, every model</p>
     <h2>Inbound and outbound,<br>through one brain.</h2>
     <p class="muted">Every message in and every reply out flows through your memory brain — which routes each task to the right model. Cheap and fast for everyday replies, powerful for papers. Same memory, same voice, whichever runs. Run it free on Gemini, or mix in Claude and GPT.</p>
@@ -653,7 +680,7 @@
   </section>
 
   <!-- VISION -->
-  <section class="vision">
+  <section class="vision" id="vision">
     <p class="eyebrow">The vision</p>
     <h2>So we gave AGI<br>a phone.</h2>
     <p class="vbody">This is what that looks like. The first real AI operating system — orchestrating every
