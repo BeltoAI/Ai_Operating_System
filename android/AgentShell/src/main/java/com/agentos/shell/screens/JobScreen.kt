@@ -19,11 +19,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.webkit.WebView
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.JobDoc
 import com.agentos.shell.tools.JobStore
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.PdfBuilder
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,10 +46,12 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var resume by remember { mutableStateOf(JobStore.resume(ctx)) }
     var target by remember { mutableStateOf(JobStore.target(ctx).ifBlank { initialTarget }) }
     var posting by remember { mutableStateOf(JobStore.posting(ctx)) }
-    var tailored by remember { mutableStateOf("") }
-    var cover by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var ideas by remember { mutableStateOf("") }
+    var resumeHtml by remember { mutableStateOf("") }
+    var coverHtml by remember { mutableStateOf("") }
+    var resumeFile by remember { mutableStateOf<File?>(null) }
+    var coverFile by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf("") }   // which action is running
 
     // "Find a job at Apple" → open real listings for that target immediately, once.
@@ -110,6 +116,30 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         }
     }
 
+    // Rendered, designed preview of an HTML doc (résumé / cover letter).
+    @Composable
+    fun htmlPreview(title: String, html: String, file: File?, onClear: () -> Unit) {
+        if (html.isBlank()) return
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title + if (file != null) " · PDF ready" else " · rendering PDF…", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+            if (file != null) Text("Open PDF", fontSize = T.caption, color = T.accent,
+                modifier = Modifier.clickable {
+                    try {
+                        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", file)
+                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (e: Exception) {}
+                }.padding(horizontal = 8.dp, vertical = 4.dp))
+            Text("✕", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.clickable { onClear() }.padding(6.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        AndroidView(
+            factory = { c -> WebView(c).apply { settings.javaScriptEnabled = false; setBackgroundColor(android.graphics.Color.WHITE) } },
+            update = { it.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) },
+            modifier = Modifier.fillMaxWidth().height(480.dp).clip(RoundedCornerShape(12.dp)))
+    }
+
     @Composable
     fun field(value: String, placeholder: String, minH: Int, onChange: (String) -> Unit) {
         BasicTextField(value = value, onValueChange = onChange,
@@ -171,16 +201,39 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         field(posting, "Paste the job description (or the text from the job link) here.", 100) { posting = it; JobStore.setPosting(ctx, it) }
 
         Spacer(Modifier.height(14.dp))
+        Text("5 · GENERATE", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(6.dp))
         Row {
-            pill("Tailor résumé", "tailor", accent = true) { run("tailor", { AgentClient.jobTailorResume(resume, posting) }) { tailored = it } }
+            pill("Design résumé", "resume", accent = true) {
+                run("resume", { AgentClient.jobResumeHtmlDoc(resume, posting) }) { html ->
+                    if (html.contains("<")) { resumeHtml = html; resumeFile = null; JobDoc.htmlToPdf(ctx, html, "resume") { f -> resumeFile = f } }
+                }
+            }
             Spacer(Modifier.width(8.dp))
-            pill("Cover letter", "cover", accent = true) { run("cover", { AgentClient.jobCoverLetter(resume, posting, MemoryStore.fullProfile(ctx)) }) { cover = it } }
+            pill("Cover letter", "coverh", accent = true) {
+                run("coverh", { AgentClient.jobCoverHtmlDoc(resume, posting, MemoryStore.fullProfile(ctx)) }) { html ->
+                    if (html.contains("<")) { coverHtml = html; coverFile = null; JobDoc.htmlToPdf(ctx, html, "cover") { f -> coverFile = f } }
+                }
+            }
             Spacer(Modifier.width(8.dp))
-            pill("Outreach email", "email", accent = true) { run("email", { AgentClient.jobEmail(resume, posting, MemoryStore.fullProfile(ctx)) }) { email = it } }
+            pill("Outreach email", "email") { run("email", { AgentClient.jobEmail(resume, posting, MemoryStore.fullProfile(ctx)) }) { email = it } }
         }
-        output("Tailored résumé", tailored) { tailored = "" }
-        output("Cover letter", cover) { cover = "" }
+        htmlPreview("Résumé", resumeHtml, resumeFile) { resumeHtml = ""; resumeFile = null }
+        htmlPreview("Cover letter", coverHtml, coverFile) { coverHtml = ""; coverFile = null }
         output("Outreach email", email) { email = "" }
+
+        if (resumeFile != null || coverFile != null) {
+            Spacer(Modifier.height(12.dp))
+            Text("Send the application email with your résumé and cover letter attached as PDFs.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(6.dp))
+            pill("Email with attachments", "send", accent = true) {
+                JobDoc.emailWithAttachments(ctx, "",
+                    "Application" + (if (target.isNotBlank()) " — $target" else ""),
+                    email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
+                    listOfNotNull(resumeFile, coverFile))
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
 }

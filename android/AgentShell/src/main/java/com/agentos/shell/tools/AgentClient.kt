@@ -916,9 +916,9 @@ object AgentClient {
     }
 
     // ── Job hunt ─────────────────────────────────────────────────────────────────────────────
-    private fun jobCall(sys: String, user: String): String {
+    private fun jobCall(sys: String, user: String, maxTokens: Int = 1600): String {
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
-        val (code, text) = callMessages(sys, msgs, 1600, VOICE)
+        val (code, text) = callMessages(sys, msgs, maxTokens, VOICE)
         return if (code == 200) text.trim() else "[error $code — likely a rate limit. Route Heavy/replies to Claude in Settings and retry.]"
     }
 
@@ -935,6 +935,35 @@ object AgentClient {
         "You are a career coach. Based on the résumé and background, suggest 4-6 specific job titles worth " +
         "targeting, each with a one-line why-it-fits and a rough seniority. Plain text, '• ' bullets.",
         "RÉSUMÉ:\n$resume\n\nBACKGROUND:\n$memory")
+
+    private fun stripFences(s: String): String =
+        s.trim().removePrefix("```html").removePrefix("```HTML").removePrefix("```").removeSuffix("```").trim()
+
+    /** A stunning, print-ready HTML résumé tailored to the posting. Returns a full self-contained HTML doc. */
+    fun jobResumeHtmlDoc(resume: String, posting: String): String {
+        val html = jobCall(
+            "You are a top-tier résumé designer. Output a COMPLETE, self-contained, print-ready HTML résumé " +
+            "(single <html> doc with embedded <style>, no external assets/fonts/JS). A4 width, elegant modern " +
+            "design: a clear name header, a thin accent rule (#E8642C), well-spaced sections (Summary, " +
+            "Experience with company · title · dates and tight achievement bullets, Skills, Education), refined " +
+            "typography and generous whitespace — the kind of résumé that looks expensive. Tailor content and " +
+            "keyword emphasis to the posting, but NEVER invent employers, titles, or dates. Output ONLY the HTML.",
+            "JOB POSTING:\n$posting\n\nMY RÉSUMÉ / HISTORY:\n$resume", 4000)
+        return stripFences(html)
+    }
+
+    /** A stunning, print-ready HTML cover letter in the user's voice. Returns a full HTML doc. */
+    fun jobCoverHtmlDoc(resume: String, posting: String, memory: String): String {
+        val html = jobCall(
+            persona(memory) +
+            "Output a COMPLETE, self-contained, print-ready HTML cover letter (single <html> doc with embedded " +
+            "<style>, no external assets/JS). A4 width, matching the same clean modern style and #E8642C accent as " +
+            "a premium résumé: sender block, date, greeting, 3 tight paragraphs (hook, 2-3 concrete achievements " +
+            "tied to the role, close + ask), and a sign-off. In the person's own voice, specific, no clichés. " +
+            "Output ONLY the HTML.",
+            "JOB POSTING:\n$posting\n\nMY RÉSUMÉ / HISTORY:\n$resume", 3000)
+        return stripFences(html)
+    }
 
     /** Rewrite the résumé tailored to a specific posting (reorder/emphasize, keep it truthful). */
     fun jobTailorResume(resume: String, posting: String): String = jobCall(
