@@ -48,6 +48,17 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var ideas by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf("") }   // which action is running
 
+    // "Find a job at Apple" → open real listings for that target immediately, once.
+    LaunchedEffect(Unit) {
+        if (initialTarget.isNotBlank()) {
+            try {
+                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://www.linkedin.com/jobs/search/?keywords=" +
+                        java.net.URLEncoder.encode(initialTarget, "UTF-8"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {}
+        }
+    }
+
     fun run(tag: String, block: suspend () -> String, onResult: (String) -> Unit) {
         if (busy.isNotEmpty()) return
         busy = tag
@@ -116,13 +127,16 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
 
         Spacer(Modifier.height(16.dp))
         Text("1 · YOUR RÉSUMÉ", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        Text("Fastest: “Build from my brain” uses your imported LinkedIn history. Or on LinkedIn tap Profile ▸ More ▸ Save to PDF and attach it here.",
+            fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(6.dp))
-        field(resume, "Paste your résumé here, or draft one from your brain / attach a file.", 120) { resume = it; JobStore.setResume(ctx, it) }
+        field(resume, "Paste your résumé, build it from your brain, or attach a LinkedIn PDF.", 120) { resume = it; JobStore.setResume(ctx, it) }
         Spacer(Modifier.height(8.dp))
         Row {
-            pill("Draft from my brain", "brain") { run("brain", { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }) { resume = it; JobStore.setResume(ctx, it) } }
+            pill("Build from my brain", "brain", accent = true) { run("brain", { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }) { resume = it; JobStore.setResume(ctx, it) } }
             Spacer(Modifier.width(8.dp))
-            pill("Attach file", "attach") { picker.launch(arrayOf("application/pdf", "text/plain", "*/*")) }
+            pill("Attach LinkedIn PDF", "attach") { picker.launch(arrayOf("application/pdf", "text/plain", "*/*")) }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -134,7 +148,25 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         output("Role ideas", ideas) { ideas = "" }
 
         Spacer(Modifier.height(16.dp))
-        Text("3 · THE POSTING", fontSize = T.caption, color = T.inkSoft)
+        Text("3 · FIND OPENINGS", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        Text("Opens live listings for your target — pick one, copy its description into step 4.", fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        fun openJobs(base: String) {
+            val q = target.ifBlank { "jobs" }
+            try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse(base + java.net.URLEncoder.encode(q, "UTF-8"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+        }
+        Row {
+            pill("LinkedIn", "li_open", accent = true) { openJobs("https://www.linkedin.com/jobs/search/?keywords=") }
+            Spacer(Modifier.width(8.dp))
+            pill("Indeed", "in_open") { openJobs("https://www.indeed.com/jobs?q=") }
+            Spacer(Modifier.width(8.dp))
+            pill("Google", "g_open") { openJobs("https://www.google.com/search?q=") }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("4 · THE POSTING", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(6.dp))
         field(posting, "Paste the job description (or the text from the job link) here.", 100) { posting = it; JobStore.setPosting(ctx, it) }
 

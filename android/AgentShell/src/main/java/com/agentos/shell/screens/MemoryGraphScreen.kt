@@ -149,6 +149,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var planning by remember { mutableStateOf(false) }
     var acting by remember { mutableStateOf(false) }
     var nextMove by remember { mutableStateOf("") }
+    var nextTask by remember { mutableStateOf("") }
+    var addedMsg by remember { mutableStateOf("") }
     var missionErr by remember { mutableStateOf("") }
     var lastCheck by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.latest(ctx)) }
     var plan by remember { mutableStateOf(com.agentos.shell.tools.MissionStore.milestones(ctx)) }
@@ -611,7 +613,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                     if (mv.draft.isNotBlank()) {
                                         missionErr = ""
                                         nextMove = (if (mv.label.isNotBlank()) mv.label + "\n\n" else "") + mv.draft
-                                        if (mv.task.isNotBlank()) com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task)
+                                        if (mv.task.isNotBlank()) { com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task); nextTask = mv.task }
                                     } else missionErr = "Couldn't draft a move — likely a rate limit. Route Heavy/replies to Claude and retry."
                                     acting = false
                                 }
@@ -631,7 +633,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                             Text("Dismiss", fontSize = T.caption, color = T.inkSoft,
                                 modifier = Modifier.clickable { nextMove = "" }.padding(horizontal = 8.dp, vertical = 6.dp))
                         }
-                        Text("(added to your checklist too)", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
+                        if (nextTask.isNotBlank())
+                            Text("✓ Done: this is drafted and ready, and I added a task to your checklist — “$nextTask”. Sending stays your one tap.",
+                                fontSize = T.caption, color = ACCENT, modifier = Modifier.padding(top = 8.dp))
                     }
                 }
 
@@ -691,10 +695,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                         Text("Add these to my checklist", fontSize = T.caption, color = ACCENT,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                                 .clickable {
-                                    c.next.split("\n").map { it.replace(Regex("^\\s*\\d+[).]?\\s*"), "").trim() }
+                                    val items = c.next.split("\n").map { it.replace(Regex("^\\s*\\d+[).]?\\s*"), "").trim() }
                                         .filter { it.isNotBlank() }
-                                        .forEach { com.agentos.shell.tools.ChecklistStore.add(ctx, it) }
+                                    items.forEach { com.agentos.shell.tools.ChecklistStore.add(ctx, it) }
+                                    addedMsg = "✓ Added ${items.size} task${if (items.size == 1) "" else "s"} to your checklist"
                                 }.padding(horizontal = 12.dp, vertical = 6.dp))
+                        if (addedMsg.isNotBlank()) Text(addedMsg, fontSize = T.caption, color = ACCENT, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
             }

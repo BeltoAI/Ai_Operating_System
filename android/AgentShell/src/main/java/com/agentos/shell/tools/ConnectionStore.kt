@@ -124,10 +124,56 @@ object ConnectionStore {
         val hl = headerRow.joinToString(",").lowercase()
         return when {
             hl.contains("conversation id") -> importMessages(ctx, rows, headerRow)
+            hl.contains("company name") && hl.contains("title") -> importPositions(ctx, rows, headerRow)
+            hl.contains("school name") -> importEducation(ctx, rows, headerRow)
             hl.contains("headline") && hl.contains("summary") -> importProfile(ctx, rows, headerRow)
             hl.contains("first name") -> importConnections(ctx, rows, headerRow)
             else -> "Unrecognized LinkedIn CSV."
         }
+    }
+
+    /** Positions.csv → your real job history, stored so the brain (and the résumé builder) know it. */
+    private fun importPositions(ctx: Context, rows: List<List<String>>, header: List<String>): String {
+        val h = header.map { it.trim().lowercase() }
+        fun col(vararg n: String) = h.indexOfFirst { x -> n.any { x == it } }
+        val iC = col("company name"); val iT = col("title"); val iD = col("description")
+        val iS = col("started on"); val iF = col("finished on"); val iL = col("location")
+        val start = rows.indexOf(header) + 1
+        val out = StringBuilder(); var n = 0
+        for (i in start until rows.size) {
+            val c = rows[i]; fun g(idx: Int) = if (idx in c.indices) c[idx].trim() else ""
+            val title = g(iT); val company = g(iC)
+            if (title.isBlank() && company.isBlank()) continue
+            val span = listOf(g(iS), g(iF).ifBlank { "Present" }).filter { it.isNotBlank() }.joinToString(" – ")
+            out.append("• ").append(title).append(if (company.isNotBlank()) " at $company" else "")
+            if (span.isNotBlank()) out.append(" ($span)")
+            if (g(iL).isNotBlank()) out.append(" — ").append(g(iL))
+            if (g(iD).isNotBlank()) out.append("\n    ").append(g(iD).replace("\n", " ").take(400))
+            out.append("\n"); n++
+        }
+        if (n == 0) return "No positions found."
+        MemoryStore.setPositions(ctx, out.toString().trim())   // replace so re-import doesn't duplicate
+        return "Added $n LinkedIn positions to your brain."
+    }
+
+    /** Education.csv → schools/degrees, stored for the résumé and profile. */
+    private fun importEducation(ctx: Context, rows: List<List<String>>, header: List<String>): String {
+        val h = header.map { it.trim().lowercase() }
+        fun col(vararg n: String) = h.indexOfFirst { x -> n.any { x == it } }
+        val iS = col("school name"); val iD = col("degree name"); val iSt = col("start date"); val iE = col("end date")
+        val start = rows.indexOf(header) + 1
+        val out = StringBuilder(); var n = 0
+        for (i in start until rows.size) {
+            val c = rows[i]; fun g(idx: Int) = if (idx in c.indices) c[idx].trim() else ""
+            val school = g(iS); if (school.isBlank()) continue
+            val span = listOf(g(iSt), g(iE)).filter { it.isNotBlank() }.joinToString(" – ")
+            out.append("• ").append(school).append(if (g(iD).isNotBlank()) " — ${g(iD)}" else "")
+            if (span.isNotBlank()) out.append(" ($span)")
+            out.append("\n"); n++
+        }
+        if (n == 0) return "No education found."
+        MemoryStore.setEducation(ctx, out.toString().trim())
+        return "Added $n schools to your brain."
     }
 
     private fun importConnections(ctx: Context, rows: List<List<String>>, header: List<String>): String {

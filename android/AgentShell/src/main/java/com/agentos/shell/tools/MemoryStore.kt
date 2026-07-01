@@ -36,11 +36,19 @@ object MemoryStore {
         val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
         prefs(ctx).edit().putString(KEY_LEARNED, arr.toString()).apply()
     }
-    /** About + learned facts — the full personal profile to feed the AI. */
+    /** Your real work history + education, parsed from the LinkedIn export (Positions.csv/Education.csv). */
+    fun positions(ctx: Context): String = prefs(ctx).getString("li_positions", "") ?: ""
+    fun setPositions(ctx: Context, v: String) = prefs(ctx).edit().putString("li_positions", v.trim()).apply()
+    fun education(ctx: Context): String = prefs(ctx).getString("li_education", "") ?: ""
+    fun setEducation(ctx: Context, v: String) = prefs(ctx).edit().putString("li_education", v.trim()).apply()
+
+    /** About + learned facts + LinkedIn work history — the full personal profile to feed the AI. */
     fun fullProfile(ctx: Context): String {
-        val a = about(ctx); val l = learnedFacts(ctx)
+        val a = about(ctx); val l = learnedFacts(ctx); val p = positions(ctx); val e = education(ctx)
         return buildString {
             if (a.isNotBlank()) append(a)
+            if (p.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My work history (from LinkedIn):\n").append(p) }
+            if (e.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My education:\n").append(e) }
             if (l.isNotEmpty()) { if (isNotEmpty()) append("\n"); append("Things you've learned about me: ").append(l.joinToString(" · ")) }
         }
     }
