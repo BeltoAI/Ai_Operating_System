@@ -503,11 +503,15 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val hits = com.agentos.shell.tools.MessageStore.search(ctx, mission, 40)
                 .joinToString("\n") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
             val conns = com.agentos.shell.tools.ConnectionStore.count(ctx)
+            // Real people from your network who match the goal — so "find 5 CTO candidates" names actual contacts.
+            val matches = com.agentos.shell.tools.ConnectionStore.search(ctx, mission, 25)
+                .joinToString("\n") { it.name + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
             val sem = com.agentos.shell.tools.VectorStore.search(ctx, mission, 10).joinToString("\n") { it.contact + ": " + it.body }
             val done = plan.filter { it.done }.joinToString("; ") { it.text }
             return buildString {
                 if (about.isNotBlank()) append("About me: ").append(about).append("\n")
                 append("LinkedIn connections: ").append(conns).append("\n")
+                if (matches.isNotBlank()) append("People in my network relevant to this goal:\n").append(matches).append("\n")
                 if (done.isNotBlank()) append("Milestones I've completed: ").append(done).append("\n")
                 if (tasks.isNotBlank()) append("Checklist:\n").append(tasks).append("\n")
                 if (papers.isNotBlank()) append(papers).append("\n")
@@ -581,6 +585,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                             com.agentos.shell.tools.MissionStore.addCheck(ctx, a.percent, a.argument, a.next)
                                             lastCheck = com.agentos.shell.tools.MissionStore.latest(ctx)
                                             checkHist = com.agentos.shell.tools.MissionStore.checks(ctx)
+                                            com.agentos.shell.tools.MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me",
+                                                "Mission check — ${a.percent}%: ${a.argument.take(400)}")
                                         } else missionErr = a.argument   // surface the failure instead of doing nothing
                                         assessing = false
                                     }
@@ -616,6 +622,10 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                                         nextLabel = mv.label
                                         nextMove = mv.draft
                                         if (mv.task.isNotBlank()) { com.agentos.shell.tools.ChecklistStore.add(ctx, mv.task); nextTask = mv.task }
+                                        // Feed the brain + time-saved score: a real move toward the mission.
+                                        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me",
+                                            "Toward my goal — ${mv.label.ifBlank { "next move" }}: ${mv.draft.take(600)}")
+                                        com.agentos.shell.tools.MetricsStore.record(ctx, 600)
                                     } else missionErr = "Couldn't draft a move — likely a rate limit. Route Heavy/replies to Claude and retry."
                                     acting = false
                                 }

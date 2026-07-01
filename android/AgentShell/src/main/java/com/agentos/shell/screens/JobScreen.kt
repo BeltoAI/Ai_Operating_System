@@ -76,6 +76,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         val ch = withContext(Dispatchers.IO) { AgentClient.jobCoverHtmlDoc(r, ctxFor, MemoryStore.fullProfile(ctx)) }
         if (ch.contains("<")) { coverHtml = ch; JobDoc.htmlToPdf(ctx, ch, "cover") { f -> coverFile = f } }
         email = withContext(Dispatchers.IO) { AgentClient.jobEmail(r, ctxFor, MemoryStore.fullProfile(ctx)) }
+        feed("Auto-drafted a full application (résumé, cover letter, email) for $initialTarget", 1800)
         busy = ""
     }
 
@@ -83,6 +84,22 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         if (busy.isNotEmpty()) return
         busy = tag
         scope.launch { val r = withContext(Dispatchers.IO) { block() }; onResult(r); busy = "" }
+    }
+
+    // Everything the job hunt produces flows INTO the brain and counts toward your time-saved score.
+    fun feed(note: String, seconds: Int) {
+        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
+        com.agentos.shell.tools.MetricsStore.record(ctx, seconds)
+    }
+
+    var liMsg by remember { mutableStateOf("") }
+    // Import your LinkedIn export CSVs (Positions/Education/Profile/Connections) straight into the brain.
+    val liPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            liMsg = "Reading ${uris.size} LinkedIn file(s)…"
+            val msgs = withContext(Dispatchers.IO) { uris.map { com.agentos.shell.tools.ConnectionStore.importLinkedIn(ctx, it) } }
+            liMsg = msgs.joinToString(" · ")
+        }
     }
 
     // Read a plain-text or PDF résumé from a file.
@@ -135,8 +152,11 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     fun htmlPreview(title: String, html: String, file: File?, onClear: () -> Unit) {
         if (html.isBlank()) return
         Spacer(Modifier.height(10.dp))
+        Text("$title — live preview (this is exactly how it'll look). Tap Open PDF to view or share the file.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title + if (file != null) " · PDF ready" else " · rendering PDF…", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+            Text(if (file != null) "PDF ready" else "rendering PDF…", fontSize = T.caption, color = if (file != null) T.accent else T.inkFaint, modifier = Modifier.weight(1f))
             if (file != null) Text("Open PDF", fontSize = T.caption, color = T.accent,
                 modifier = Modifier.clickable {
                     try {
@@ -175,15 +195,26 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         }
 
         Spacer(Modifier.height(16.dp))
+        Text("0 · ADD YOUR LINKEDIN (once)", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        Text("On a computer: LinkedIn ▸ Settings ▸ Data Privacy ▸ Get a copy of your data ▸ pick “Connections, Positions, Education, Profile” ▸ download the ZIP, unzip it, and import the CSVs here. This teaches the brain your real work history — then everything else builds from it.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
+        Row {
+            pill("Import my LinkedIn CSVs", "li", accent = true) { liPicker.launch(arrayOf("text/csv", "text/comma-separated-values", "*/*")) }
+        }
+        if (liMsg.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(liMsg, fontSize = T.caption, color = T.accent) }
+
+        Spacer(Modifier.height(16.dp))
         Text("1 · YOUR RÉSUMÉ", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(4.dp))
-        Text("Fastest: “Build from my brain” uses your imported LinkedIn history. Or on LinkedIn tap Profile ▸ More ▸ Save to PDF and attach it here.",
+        Text("Fastest: “Build from my brain” uses the LinkedIn history you imported above. Or attach a LinkedIn profile PDF (Profile ▸ More ▸ Save to PDF).",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(6.dp))
         field(resume, "Paste your résumé, build it from your brain, or attach a LinkedIn PDF.", 120) { resume = it; JobStore.setResume(ctx, it) }
         Spacer(Modifier.height(8.dp))
         Row {
-            pill("Build from my brain", "brain", accent = true) { run("brain", { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }) { resume = it; JobStore.setResume(ctx, it) } }
+            pill("Build from my brain", "brain", accent = true) { run("brain", { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }) { resume = it; JobStore.setResume(ctx, it); feed("Built a résumé from my brain", 600) } }
             Spacer(Modifier.width(8.dp))
             pill("Attach LinkedIn PDF", "attach") { picker.launch(arrayOf("application/pdf", "text/plain", "*/*")) }
         }
@@ -225,17 +256,17 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         Row {
             pill("Design résumé", "resume", accent = true) {
                 run("resume", { AgentClient.jobResumeHtmlDoc(resume, posting) }) { html ->
-                    if (html.contains("<")) { resumeHtml = html; resumeFile = null; JobDoc.htmlToPdf(ctx, html, "resume") { f -> resumeFile = f } }
+                    if (html.contains("<")) { resumeHtml = html; resumeFile = null; JobDoc.htmlToPdf(ctx, html, "resume") { f -> resumeFile = f }; feed("Designed a tailored résumé for ${target.ifBlank { "a role" }}", 900) }
                 }
             }
             Spacer(Modifier.width(8.dp))
             pill("Cover letter", "coverh", accent = true) {
                 run("coverh", { AgentClient.jobCoverHtmlDoc(resume, posting, MemoryStore.fullProfile(ctx)) }) { html ->
-                    if (html.contains("<")) { coverHtml = html; coverFile = null; JobDoc.htmlToPdf(ctx, html, "cover") { f -> coverFile = f } }
+                    if (html.contains("<")) { coverHtml = html; coverFile = null; JobDoc.htmlToPdf(ctx, html, "cover") { f -> coverFile = f }; feed("Wrote a cover letter for ${target.ifBlank { "a role" }}", 600) }
                 }
             }
             Spacer(Modifier.width(8.dp))
-            pill("Outreach email", "email") { run("email", { AgentClient.jobEmail(resume, posting, MemoryStore.fullProfile(ctx)) }) { email = it } }
+            pill("Outreach email", "email") { run("email", { AgentClient.jobEmail(resume, posting, MemoryStore.fullProfile(ctx)) }) { email = it; feed("Drafted a job outreach email for ${target.ifBlank { "a role" }}", 300) } }
         }
         htmlPreview("Résumé", resumeHtml, resumeFile) { resumeHtml = ""; resumeFile = null }
         htmlPreview("Cover letter", coverHtml, coverFile) { coverHtml = ""; coverFile = null }
@@ -251,6 +282,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
                     "Application" + (if (target.isNotBlank()) " — $target" else ""),
                     email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
                     listOfNotNull(resumeFile, coverFile))
+                feed("Sent a job application (résumé + cover letter attached)${if (target.isNotBlank()) " for $target" else ""}", 1500)
             }
         }
         Spacer(Modifier.height(24.dp))
