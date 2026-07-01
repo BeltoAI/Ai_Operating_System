@@ -83,7 +83,8 @@ object GoogleWorkspace {
             .put("textRange", JSONObject().put("type", "ALL")).put("fields", "bold,fontSize"))
         val requests = JSONArray()
         slides.forEachIndexed { i, (t, b) ->
-            val sid = "s$i"; val tid = "t$i"; val bid = "b$i"
+            // Slides API requires object IDs 5-50 chars — short ids like "s0" are silently rejected.
+            val sid = "slide_$i"; val tid = "title_$i"; val bid = "body_$i"
             requests.put(JSONObject().put("createSlide", JSONObject().put("objectId", sid)
                 .put("slideLayoutReference", JSONObject().put("predefinedLayout", "BLANK"))))
             // Title text box (top) + body text box (below) with explicit sizing — robust + styled.

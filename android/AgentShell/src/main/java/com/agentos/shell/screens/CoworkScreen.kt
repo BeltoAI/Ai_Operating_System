@@ -128,7 +128,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             val slides = a.content.split(Regex("(?m)^===\\s*$")).mapNotNull { blk ->
                 val ls = blk.trim().lines(); if (blk.isBlank() || ls.isEmpty()) null else ls.first().trim() to ls.drop(1).joinToString("\n").trim()
             }
-            com.agentos.shell.tools.GoogleWorkspace.createSlides(ctx, a.name.ifBlank { "Deck" }, slides).let { if (it.ok) "OK: created Google Slides — ${it.url}" else "ERROR: ${it.error}" }
+            com.agentos.shell.tools.GoogleWorkspace.createSlides(ctx, a.name.ifBlank { "Deck" }, slides).let { if (it.ok) "OK: created Google Slides — ${it.url}" + (if (it.error.isNotBlank()) " (WARNING: ${it.error})" else "") else "ERROR: ${it.error}" }
         }
         "create_gsheet" -> {
             val rows = a.content.trim().lines().filter { it.isNotBlank() }.map { it.split(",") }
@@ -160,6 +160,8 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (act.done) {
                     chat.add("agent" to act.message)
                     Regex("https?://[^\\s]+").find(act.message)?.value?.let { lastUrl = it.trimEnd('.', ')', ',') }
+                    // Cowork builds things for you — count it toward your time-saved score on Home.
+                    com.agentos.shell.tools.MetricsStore.record(ctx, 600)
                     break
                 }
                 chat.add("step" to "• " + act.note.ifBlank { act.tool + (if (act.name.isNotBlank()) " ${act.name}" else "") })
