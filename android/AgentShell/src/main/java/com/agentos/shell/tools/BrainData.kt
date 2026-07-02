@@ -24,6 +24,34 @@ object BrainData {
         MemoryStore.positions(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Work history\n").append(it).append("\n\n") }
         MemoryStore.education(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Education\n").append(it).append("\n\n") }
         MemoryStore.learnedFacts(ctx).takeIf { it.isNotEmpty() }?.let { f -> sb.append("## Learned facts\n"); f.forEach { sb.append("- ").append(it).append("\n") }; sb.append("\n") }
+        MemoryStore.styleProfile(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Voice profile\n").append(it).append("\n\n") }
+
+        // Mission (goal + plan + latest read).
+        MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let { g ->
+            sb.append("## Mission\n").append("Goal: ").append(g).append("\n")
+            MissionStore.milestones(ctx).forEach { sb.append("- [").append(if (it.done) "x" else " ").append("] ").append(it.text).append("\n") }
+            MissionStore.latest(ctx)?.let { sb.append("Progress: ").append(it.percent).append("% — ").append(it.note).append("\n") }
+            sb.append("\n")
+        }
+
+        // Checklist.
+        ChecklistStore.load(ctx).takeIf { it.isNotEmpty() }?.let { items ->
+            sb.append("## Checklist\n"); items.forEach { sb.append("- [").append(if (it.done) "x" else " ").append("] ").append(it.text).append("\n") }; sb.append("\n")
+        }
+
+        // Research papers (titles).
+        PaperStore.list(ctx).takeIf { it.isNotEmpty() }?.let { ps ->
+            sb.append("## Research papers (").append(ps.size).append(")\n"); ps.forEach { sb.append("- ").append(it.title).append(" (").append(it.docType).append(")\n") }; sb.append("\n")
+        }
+
+        // LinkedIn network — the big one that was missing.
+        val conns = ConnectionStore.load(ctx)
+        if (conns.isNotEmpty()) {
+            sb.append("## Connections (").append(conns.size).append(")\n")
+            conns.forEach { sb.append("- ").append(it.name).append(" — ").append(it.role).append(" @ ").append(it.company).append(if (it.url.isNotBlank()) " | ${it.url}" else "").append("\n") }
+            sb.append("\n")
+        }
+
         val rows = MessageStore.allRows(ctx, 200000)
         sb.append("## Messages (").append(rows.size).append(")\n")
         rows.forEach { sb.append("[").append(it.contact).append(" | ").append(it.role).append("] ").append(it.body.replace("\n", " ").take(6000)).append("\n") }
@@ -47,8 +75,9 @@ object BrainData {
         val text = readText(ctx, uri)
         if (text.isBlank()) return "Couldn't read that file."
         var section = ""
-        val about = StringBuilder(); val positions = StringBuilder(); val education = StringBuilder()
+        val about = StringBuilder(); val positions = StringBuilder(); val education = StringBuilder(); val voice = StringBuilder()
         val learned = ArrayList<String>(); val rows = ArrayList<MessageStore.Row>()
+        val milestones = ArrayList<String>(); val checklist = ArrayList<String>(); var goal = ""
         var ts = System.currentTimeMillis() - 1_000_000
         for (raw in text.split("\n")) {
             val line = raw.trimEnd()
@@ -57,24 +86,37 @@ object BrainData {
                 line.startsWith("## Work history") -> { section = "pos"; continue }
                 line.startsWith("## Education") -> { section = "edu"; continue }
                 line.startsWith("## Learned") -> { section = "learn"; continue }
+                line.startsWith("## Voice") -> { section = "voice"; continue }
+                line.startsWith("## Mission") -> { section = "mission"; continue }
+                line.startsWith("## Checklist") -> { section = "check"; continue }
                 line.startsWith("## Messages") -> { section = "msg"; continue }
-                line.startsWith("#") -> { section = ""; continue }
+                line.startsWith("#") -> { section = ""; continue }   // Connections/Papers = backup only
             }
             val m = MSG.find(line)
             if (m != null) { rows.add(MessageStore.Row(m.groupValues[1], "Import", m.groupValues[1], m.groupValues[2], m.groupValues[3], ts++)); continue }
+            fun task(l: String) = l.replace(Regex("^- \\[[ x]\\]\\s*"), "").trim()
             when (section) {
                 "about" -> if (line.isNotBlank()) about.append(line).append("\n")
                 "pos" -> if (line.isNotBlank()) positions.append(line).append("\n")
                 "edu" -> if (line.isNotBlank()) education.append(line).append("\n")
+                "voice" -> if (line.isNotBlank()) voice.append(line).append("\n")
                 "learn" -> line.removePrefix("- ").trim().takeIf { it.isNotBlank() }?.let { learned.add(it) }
+                "mission" -> when {
+                    line.startsWith("Goal:") -> goal = line.removePrefix("Goal:").trim()
+                    line.startsWith("- [") -> task(line).takeIf { it.isNotBlank() }?.let { milestones.add(it) }
+                }
+                "check" -> if (line.startsWith("- [")) task(line).takeIf { it.isNotBlank() }?.let { checklist.add(it) }
             }
         }
         if (about.isNotBlank() && MemoryStore.about(ctx).isBlank()) MemoryStore.setAbout(ctx, about.toString().trim())
         if (positions.isNotBlank()) MemoryStore.setPositions(ctx, positions.toString().trim())
         if (education.isNotBlank()) MemoryStore.setEducation(ctx, education.toString().trim())
+        if (voice.isNotBlank() && MemoryStore.styleProfile(ctx).isBlank()) MemoryStore.setStyleProfile(ctx, voice.toString().trim())
         learned.forEach { MemoryStore.addLearnedFact(ctx, it) }
+        if (goal.isNotBlank() && MissionStore.mission(ctx).isBlank()) { MissionStore.setMission(ctx, goal); if (milestones.isNotEmpty()) MissionStore.setPlan(ctx, milestones) }
+        checklist.forEach { ChecklistStore.add(ctx, it) }
         val added = MessageStore.insertBatchDedupe(ctx, rows)
-        return "Imported $added new messages (skipped duplicates) into your brain."
+        return "Imported $added messages + about, work history, voice, mission & checklist (skipped duplicates)."
     }
 
     // ── Any file → brain: extract text and store it, chunked, so it's searchable everywhere ──
