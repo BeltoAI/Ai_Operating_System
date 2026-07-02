@@ -947,27 +947,53 @@ object AgentClient {
     /** One short outreach message (user's voice) to send to people in their network about [query].
      *  Uses {name} as a placeholder for the recipient's first name. */
     fun networkOutreach(query: String, memory: String): String {
+        val book = bookingLink.trim()
         val sys = persona(memory) +
-            "Write ONE short outreach message (2-4 sentences, in the person's own voice) they can send to " +
-            "people in their network about: \"$query\". Use {name} as a placeholder for the recipient's first " +
-            "name. Warm, specific, a clear ask. Plain text, no markdown, ready to send."
+            "Write ONE strong outreach message template for: \"$query\". Use {name} for the recipient's first name. " +
+            "Open with a specific reason, state your value in one concrete line, end with one low-friction ask. " +
+            "3-5 sentences, the person's own voice, warm and credible. NO clichés ('hope this finds you well', " +
+            "'wanted to reach out'), no markdown. " +
+            (if (book.isNotBlank()) "Include this booking link where it fits: $book. " else "") + "Ready to send."
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Draft the message."))
-        val (code, text) = callMessages(sys, msgs, 300, VOICE)
-        return if (code == 200) text.trim() else "Hi {name}, hope you're well! I'm reaching out about $query — would you be open to a quick chat?"
+        val (code, text) = callMessages(sys, msgs, 350, VOICE)
+        return if (code == 200) text.trim() else ("Hi {name}, I'm reaching out about " + query + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
 
     /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
      *  fresh when you actually message them, so it's never a generic template. */
     fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String): String {
         val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
+        val book = bookingLink.trim()
         val sys = persona(memory) +
-            "Write ONE short, SPECIFIC outreach message (2-4 sentences, in the person's own voice) to send to " +
-            "this exact contact for the goal: \"$goal\". Address them by first name, reference who THEY are " +
-            "(their role/company) and why they're relevant, and make one clear, concrete ask. Warm, human, no " +
-            "clichés, no markdown, ready to paste and send."
+            "Write ONE genuinely good outreach message to this specific contact, for the goal: \"$goal\". Structure: " +
+            "(1) open with a SPECIFIC, real reason you're contacting THEM — tied to their role/company, not generic; " +
+            "(2) state your value in ONE concrete line — what you do and the benefit to them or their company; " +
+            "(3) end with ONE low-friction ask. 3-5 sentences, addressed by first name, in the person's own voice, " +
+            "warm and credible. BAN clichés: no 'I hope this finds you well', no 'I wanted to reach out', no " +
+            "'quick question', no buzzword soup, no markdown. " +
+            (if (book.isNotBlank()) "Include this booking link for the call/ask where it fits naturally: $book. " else "") +
+            "Ready to paste and send."
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Send it to: $who"))
-        val (code, text) = callMessages(sys, msgs, 300, VOICE)
-        return if (code == 200) text.trim() else "Hi ${name.split(" ").firstOrNull() ?: ""}, I'd love to connect about ${goal.take(60)} — open to a quick chat?"
+        val (code, text) = callMessages(sys, msgs, 350, VOICE)
+        return if (code == 200) text.trim() else ("Hi " + (name.split(" ").firstOrNull() ?: "") + ", I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
+    }
+
+    /**
+     * Turn a mission goal into the RIGHT search keywords to find the target people in the user's
+     * network — the actual buyer/referrer/audience, tied to the product/role, not generic titles.
+     * Returns space-separated keywords (job titles + industries/skills/signals).
+     */
+    fun audienceQuery(goal: String, memory: String): String {
+        val sys = "You pick who to reach in someone's LinkedIn network for a goal. Output 8-15 SEARCH KEYWORDS " +
+            "that identify the RIGHT target audience — the specific job titles AND the industries/skills/signals of " +
+            "the people who'd actually want this. For SELLING, think about WHO BUYS it: their role + their industry + " +
+            "the problem it solves (e.g. selling edge-AI inference → embedded, iot, robotics, firmware, hardware, " +
+            "ml, edge, devices, cto, vp engineering — NOT investors). For a JOB, the companies/roles that hire it. " +
+            "Reply with ONLY the keywords, lowercase, comma-separated, no other text."
+        val user = "GOAL: $goal\nABOUT ME: " + memory.take(700)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 120, MODEL)
+        return if (code == 200) text.trim().lines().lastOrNull { it.isNotBlank() }?.take(400) ?: goal else goal
     }
 
     /** Suggest the missing detail for a mission from the brain (what you sell / what job / who to seek). */

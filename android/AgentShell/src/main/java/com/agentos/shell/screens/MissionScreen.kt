@@ -76,16 +76,20 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         else -> ""
     }
 
-    fun runNetwork(g: String, q: String) {
+    fun runNetwork(g: String) {
         if (busy) return
         busy = true
-        MissionStore.startCampaign(ctx, g, q, 10)
-        goal = g; query = q; contacted = emptySet(); replied = emptySet(); message = ""; people = emptyList(); emails = emptyList()
+        MissionStore.startCampaign(ctx, g, "", 10)
+        goal = g; query = ""; contacted = emptySet(); replied = emptySet(); message = ""; people = emptyList(); emails = emptyList()
         scope.launch {
+            val prof = MemoryStore.fullProfile(ctx)
+            // Turn the goal into TARGETED keywords (who'd actually buy/refer) — not generic titles.
+            val q = withContext(Dispatchers.IO) { AgentClient.audienceQuery(g, prof) }
+            query = q; MissionStore.setQuery(ctx, q)
             val ppl = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, q, 20) }
-            val msg = withContext(Dispatchers.IO) { AgentClient.networkOutreach(g, MemoryStore.fullProfile(ctx)) }
+            val msg = withContext(Dispatchers.IO) { AgentClient.networkOutreach(g, prof) }
             people = ppl; message = msg; MissionStore.setMessage(ctx, msg)
-            MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Started mission: $g (${ppl.size} people)")
+            MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Started mission: $g — target: $q (${ppl.size} people)")
             MetricsStore.record(ctx, 600)
             busy = false
         }
@@ -109,11 +113,11 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     }
     fun run() {
         if (detail.isBlank()) return
-        if (type == "email") runEmail(goalFor("email", detail), detail) else runNetwork(goalFor(type, detail), queryFor(type))
+        if (type == "email") runEmail(goalFor("email", detail), detail) else runNetwork(goalFor(type, detail))
     }
 
     LaunchedEffect(Unit) {
-        if (initialGoal.isNotBlank() && initialGoal != goal) runNetwork(initialGoal, initialGoal)
+        if (initialGoal.isNotBlank() && initialGoal != goal) runNetwork(initialGoal)
         else if (query.isNotBlank()) people = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, query, 20) }
     }
     fun send(c: ConnectionStore.Conn) {
@@ -127,19 +131,30 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             MissionStore.addContacted(ctx, c.name); contacted = MissionStore.contacted(ctx); sending = ""
         }
     }
+    var emailStatus by remember { mutableStateOf("") }
     fun emailSend(c: AgentClient.EmailContact) {
         if (sending.isNotEmpty()) return
-        sending = c.email
+        sending = c.email; emailStatus = ""
         scope.launch {
             val body = withContext(Dispatchers.IO) { AgentClient.tailoredOutreach(goal, c.name, "", c.company, MemoryStore.fullProfile(ctx)) }
-            try {
-                val i = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:"))
-                    .putExtra(android.content.Intent.EXTRA_EMAIL, arrayOf(c.email))
-                    .putExtra(android.content.Intent.EXTRA_SUBJECT, "Reaching out")
-                    .putExtra(android.content.Intent.EXTRA_TEXT, body).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                ctx.startActivity(android.content.Intent.createChooser(i, "Email").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (e: Exception) {}
-            MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx); sending = ""
+            val subject = "Reaching out" + (if (c.company.isNotBlank()) " — ${c.company}" else "")
+            if (com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) {
+                // Send DIRECTLY through the user's Gmail — no app-switching.
+                val (ok, msg) = withContext(Dispatchers.IO) { com.agentos.shell.tools.GmailClient.send(ctx, c.email, subject, body) }
+                emailStatus = if (ok) "Sent to ${c.email} ✓" else "Couldn't send via Gmail: $msg"
+                if (ok) { MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx) }
+            } else {
+                // Not connected → open the mail app pre-filled.
+                try {
+                    val i = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:"))
+                        .putExtra(android.content.Intent.EXTRA_EMAIL, arrayOf(c.email))
+                        .putExtra(android.content.Intent.EXTRA_SUBJECT, subject)
+                        .putExtra(android.content.Intent.EXTRA_TEXT, body)
+                    ctx.startActivity(android.content.Intent.createChooser(i, "Email").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {}
+                MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx)
+            }
+            sending = ""
         }
     }
 
@@ -200,7 +215,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         Spacer(Modifier.height(14.dp))
         field(custom, "Or type your own mission…", 52) { custom = it }
         Spacer(Modifier.height(8.dp))
-        bigBtn(if (busy) "Working…" else "Run custom mission", accent = false, enabled = !busy && custom.isNotBlank()) { runNetwork(custom, custom) }
+        bigBtn(if (busy) "Working…" else "Run custom mission", accent = false, enabled = !busy && custom.isNotBlank()) { runNetwork(custom) }
 
         if (busy) { Spacer(Modifier.height(10.dp)); Text("Finding people & writing your message…", fontSize = T.caption, color = ACC) }
 
@@ -239,7 +254,10 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         // Email contacts (from the web).
         if (emails.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            Text("${emails.size} contacts found — tap Email to reach out", fontSize = T.caption, color = T.inkFaint)
+            val gmail = com.agentos.shell.tools.GoogleAuth.isConnected(ctx)
+            Text("${emails.size} contacts found — " + (if (gmail) "tap to send straight from your Gmail" else "tap to open a pre-filled email"),
+                fontSize = T.caption, color = T.inkFaint)
+            if (emailStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(emailStatus, fontSize = T.caption, color = ACC) }
             emails.forEach { c ->
                 val isMsg = c.email in contacted
                 Spacer(Modifier.height(8.dp))
