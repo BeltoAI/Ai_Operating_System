@@ -61,7 +61,22 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     fun key(p: AgentClient.Prospect) = p.company.ifBlank { p.name }.ifBlank { p.email }
     fun cleanEmail(s: String): String = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(s)?.value ?: ""
     fun openUrl(u: String) { if (u.isBlank()) return; try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
-    fun linkedInOf(p: AgentClient.Prospect) = p.linkedin.ifBlank { "https://www.linkedin.com/search/results/all/?keywords=" + java.net.URLEncoder.encode((p.name + " " + p.company).trim(), "UTF-8") }
+    fun linkedInOf(p: AgentClient.Prospect): String {
+        if (p.linkedin.isNotBlank()) return p.linkedin
+        // Aim at the specific decision-maker: their name if known, else the CEO/leader at that company.
+        val kw = if (p.name.isNotBlank()) p.name + " " + p.company else p.company + " " + p.role.ifBlank { "CEO founder" }
+        return "https://www.linkedin.com/search/results/people/?keywords=" + java.net.URLEncoder.encode(kw.trim(), "UTF-8")
+    }
+    // Every found prospect goes INTO the brain, so it's searchable later ("who did I find for X?").
+    fun storeProspects(g: String, ps: List<AgentClient.Prospect>) {
+        scope.launch { withContext(Dispatchers.IO) {
+            ps.forEach { p ->
+                val line = "Prospect for \"$g\": ${p.name.ifBlank { p.company }} — ${p.company} — ${p.why}" +
+                    (if (p.email.isNotBlank()) " — ${p.email}" else "") + (if (p.website.isNotBlank()) " — ${p.website}" else "")
+                MessageStore.insertOne(ctx, "Prospects", "Mission", "me", "me", line)
+            }
+        } }
+    }
     fun goalFor(t: String, d: String) = when (t) {
         "sell" -> "Find organizations that would buy: $d. (Reach out to sell it.)"
         "job" -> "Find companies hiring for this and people who can refer me: $d."
@@ -84,7 +99,23 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             val ps = withContext(Dispatchers.IO) { AgentClient.findProspects(g, MemoryStore.fullProfile(ctx)) }
             prospects = ps
             if (ps.isEmpty()) error = "No results. Web search needs Claude — set replies/Heavy to Claude in Settings, then retry."
-            else { MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Mission: $g — ${ps.size} targets found"); MetricsStore.record(ctx, 900) }
+            else {
+                MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Mission: $g — ${ps.size} targets found")
+                storeProspects(g, ps); MetricsStore.record(ctx, 900)
+            }
+            busy = false
+        }
+    }
+    fun findMore() {
+        if (busy || goal.isBlank()) return
+        busy = true
+        scope.launch {
+            val have = prospects.map { it.company.ifBlank { it.name } }.filter { it.isNotBlank() }
+            val g2 = "$goal — give DIFFERENT targets, NOT any of these already found: " + have.joinToString(", ")
+            val more = withContext(Dispatchers.IO) { AgentClient.findProspects(g2, MemoryStore.fullProfile(ctx)) }
+            val seen = have.map { it.lowercase() }.toSet()
+            val fresh = more.filter { (it.company.ifBlank { it.name }).lowercase() !in seen }
+            if (fresh.isNotEmpty()) { storeProspects(goal, fresh); prospects = prospects + fresh; MetricsStore.record(ctx, 300) }
             busy = false
         }
     }
@@ -111,7 +142,10 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             if (email.isNotBlank() && GoogleAuth.isConnected(ctx)) {
                 val (ok, msg) = withContext(Dispatchers.IO) { GmailClient.send(ctx, email, subject, body) }
                 sendStatus = if (ok) "Sent to $email ✓" else "Gmail error: $msg"
-                if (ok) { MissionStore.addContacted(ctx, key(p)); contacted = MissionStore.contacted(ctx); MetricsStore.record(ctx, 300); review = null }
+                if (ok) {
+                    MissionStore.addContacted(ctx, key(p)); contacted = MissionStore.contacted(ctx); MetricsStore.record(ctx, 300); review = null
+                    withContext(Dispatchers.IO) { MessageStore.insertOne(ctx, key(p), "Outreach", "me", "me", "Emailed $email — ${body.take(600)}") }
+                }
             } else {
                 try {
                     val i = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:" + email))
@@ -193,8 +227,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                 val done = key(p) in contacted
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp)) {
-                    Text(p.name.ifBlank { p.company }, fontSize = T.body, color = T.ink)
+                    Text(p.name.ifBlank { p.company } + (if (p.name.isNotBlank() && p.role.isNotBlank()) " · ${p.role}" else ""), fontSize = T.body, color = T.ink)
                     if (p.company.isNotBlank() && p.name.isNotBlank()) Text(p.company, fontSize = T.caption, color = T.inkFaint)
+                    else if (p.name.isBlank() && p.role.isNotBlank()) Text("Reach the ${p.role}", fontSize = T.caption, color = T.inkFaint)
                     if (p.why.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(p.why, fontSize = T.caption, color = T.inkSoft) }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -215,6 +250,8 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            bigBtn(if (busy) "Finding more…" else "Find more targets", accent = false, enabled = !busy) { findMore() }
         }
         Spacer(Modifier.height(28.dp))
     }

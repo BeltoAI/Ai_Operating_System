@@ -191,8 +191,8 @@ object AgentClient {
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
             append("Use find_job ONLY when the user wants to ACT on a specific job now — 'find me a job at IBM', 'apply to X', 'make my résumé/cover letter'; arg = the company/role. ")
             append("If they ASK which roles/opportunities suit them ('what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'), do NOT use find_job. ANSWER in 'say' with a clean, concrete list of 4-6 roles grounded in their real work history above — each on its own line as 'Role — one-line why it fits'. Plain text, NO markdown/asterisks/headers. End with one line: 'Say \"find me a job at <one>\" and I'll build the application.' ")
-            append("Use set_mission when the user wants to START a MISSION / GOAL / outreach CAMPAIGN — a standing objective, not a one-off (e.g. 'set a mission to find buyers for my product', 'mission: get me a job through my network', 'start a campaign to find 10 customers', 'find me buyers for my SaaS'); arg = the goal in plain words. This opens the Mission screen and runs it: finds the right people from their network with a ready message to send. Keep 'say' to one short line. ")
-            append("Use network_search when the user asks whether they KNOW or HAVE someone in their network, who they know somewhere, or wants to reach out to their contacts (e.g. 'do I have any CTOs in my network?', 'who do I know at Google?', 'find investors in my network', 'message my designer contacts'); arg = the role/type/company to look for. This opens a screen that lists the matching people with a ready-to-send message and a one-tap LinkedIn button. Keep 'say' to one short line. ")
+            append("Use set_mission whenever the user wants to FIND PEOPLE / COMPANIES / LEADS / BUYERS / CUSTOMERS out in the world, or start a goal/outreach campaign (e.g. 'find me companies that build satellites', 'find buyers for my product', 'find me 10 fintech CTOs in NYC', 'set a mission to get customers', 'find me a job at aerospace startups'); arg = the goal in plain words INCLUDING any location. This opens the Mission screen and WEB-SEARCHES for real matching targets (with website, email or LinkedIn) + a ready message. Keep 'say' to one short line. ")
+            append("Use network_search ONLY when the user asks about people they ALREADY KNOW / their EXISTING network, who they know somewhere, or wants to reach out to their contacts (e.g. 'do I have any CTOs in my network?', 'who do I know at Google?', 'find investors in my network', 'message my designer contacts'); arg = the role/type/company to look for. This opens a screen that lists the matching people with a ready-to-send message and a one-tap LinkedIn button. Keep 'say' to one short line. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -1030,7 +1030,7 @@ object AgentClient {
         return if (code == 200) text.trim().removeSurrounding("\"").take(120) else ""
     }
 
-    data class Prospect(val name: String, val company: String, val email: String, val website: String, val why: String, val linkedin: String = "")
+    data class Prospect(val name: String, val company: String, val email: String, val website: String, val why: String, val linkedin: String = "", val role: String = "")
 
     /** A polished, professional cold-outreach EMAIL (greeting, value, ask, sign-off) — not a one-liner. */
     fun outreachEmail(goal: String, name: String, company: String, memory: String): String {
@@ -1057,11 +1057,12 @@ object AgentClient {
     fun findProspects(goal: String, memory: String): List<Prospect> {
         val sys = "You are a research assistant WITH web search. Find 8-12 REAL, current, SPECIFIC targets that fit " +
             "the goal. For SELLING, find organizations that would actually BUY it (right industry + use-case). Respect " +
-            "any LOCATION named in the goal. For each target give: name (a named person if you find one, else the " +
-            "company), company, a real work email ONLY if you actually find one via search (else \"\"), the company " +
-            "website URL, a LinkedIn URL for the person or company if you find one (else \"\"), and a one-line " +
-            "why-it-fits. Use web search. NEVER invent emails or URLs. " +
-            "Reply ONLY as JSON: {\"targets\":[{\"name\":\"…\",\"company\":\"…\",\"email\":\"…\",\"website\":\"https://…\",\"linkedin\":\"https://…\",\"why\":\"…\"}]}"
+            "any LOCATION named in the goal. For EACH target, identify the SPECIFIC DECISION-MAKER to contact — a " +
+            "named person (the CEO, founder, or the most relevant leader for this ask) with their ROLE and PERSONAL " +
+            "LinkedIn URL if findable. If you truly can't find the person's name, still give the company and the role " +
+            "to target (e.g. 'CEO'). Also give a real work email ONLY if you actually find one (else \"\"), and the " +
+            "company website URL, and a one-line why-it-fits. Use web search. NEVER invent names, emails, or URLs. " +
+            "Reply ONLY as JSON: {\"targets\":[{\"name\":\"person name or empty\",\"role\":\"e.g. CEO\",\"company\":\"…\",\"email\":\"…\",\"website\":\"https://…\",\"linkedin\":\"https://…\",\"why\":\"…\"}]}"
         val user = "GOAL: " + goal + "\nABOUT ME: " + memory.take(800)
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
         val (code, text) = callMessages(sys, msgs, 3000, VOICE, 120000, webTool())
@@ -1072,7 +1073,8 @@ object AgentClient {
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
                 Prospect(o.optString("name").trim(), o.optString("company").trim(),
-                    o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim(), o.optString("linkedin").trim())
+                    o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim(),
+                    o.optString("linkedin").trim(), o.optString("role").trim())
             }.filter { it.company.isNotBlank() || it.name.isNotBlank() }
         } catch (e: Exception) { emptyList() }
     }
