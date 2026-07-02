@@ -996,6 +996,27 @@ object AgentClient {
         return if (code == 200) text.trim().lines().lastOrNull { it.isNotBlank() }?.take(400) ?: goal else goal
     }
 
+    /**
+     * From a broad keyword-matched candidate list, pick the people who GENUINELY fit the goal —
+     * understanding intent, industry, seniority, and location (inferred from their company). Returns
+     * the indices of the good matches, best first. This is what turns a noisy list into a great one.
+     */
+    fun pickBestPeople(goal: String, candidatesLabeled: String): List<Int> {
+        val sys = "You are matching people to an outreach goal. From the CANDIDATES (each 'index: Name — role @ " +
+            "company'), pick ONLY the ones who genuinely fit the goal's intent — right industry/role/seniority, and " +
+            "if the goal implies a LOCATION, prefer people whose company is in that region and DROP clearly " +
+            "wrong-location ones. Exclude weak matches even if a keyword matched (e.g. an investor is NOT a buyer of " +
+            "an engineering product). Return up to 15, best first, as JSON only: {\"picks\":[3,17,2]}. If none fit, {\"picks\":[]}."
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "GOAL: $goal\n\nCANDIDATES:\n" + candidatesLabeled.take(8000)))
+        val (code, text) = callMessages(sys, msgs, 300, VOICE)
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("picks")
+            (0 until arr.length()).map { arr.getInt(it) }
+        } catch (ex: Exception) { emptyList() }
+    }
+
     /** Suggest the missing detail for a mission from the brain (what you sell / what job / who to seek). */
     fun suggestMissionDetail(type: String, memory: String): String {
         val q = when (type) {

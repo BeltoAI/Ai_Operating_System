@@ -83,14 +83,23 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         goal = g; query = ""; contacted = emptySet(); replied = emptySet(); message = ""; people = emptyList(); emails = emptyList()
         scope.launch {
             val prof = MemoryStore.fullProfile(ctx)
-            // Turn the goal into TARGETED keywords (who'd actually buy/refer) — not generic titles.
+            // 1) Turn the goal into TARGETED keywords, 2) pull a BROAD candidate pool, 3) let the AI pick
+            // the ones that genuinely fit the intent (industry, seniority, location-by-company).
             val q = withContext(Dispatchers.IO) { AgentClient.audienceQuery(g, prof) }
             query = q; MissionStore.setQuery(ctx, q)
-            val ppl = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, q, 20) }
+            val broad = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, q, 80) }
+            val ppl = withContext(Dispatchers.IO) {
+                if (broad.size <= 12) broad
+                else {
+                    val labeled = broad.mapIndexed { i, c -> "$i: ${c.name} — ${c.role} @ ${c.company}" }.joinToString("\n")
+                    val picks = AgentClient.pickBestPeople(g, labeled)
+                    if (picks.isNotEmpty()) picks.mapNotNull { broad.getOrNull(it) } else broad.take(15)
+                }
+            }
             val msg = withContext(Dispatchers.IO) { AgentClient.networkOutreach(g, prof) }
             people = ppl; message = msg; MissionStore.setMessage(ctx, msg)
-            MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Started mission: $g — target: $q (${ppl.size} people)")
-            MetricsStore.record(ctx, 600)
+            MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Started mission: $g — target: $q (${ppl.size} matched)")
+            MetricsStore.record(ctx, 300)
             busy = false
         }
     }
@@ -128,7 +137,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             clip.setText(AnnotatedString(msg))
             val url = c.url.ifBlank { "https://www.linkedin.com/search/results/people/?keywords=" + java.net.URLEncoder.encode(c.name, "UTF-8") }
             try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
-            MissionStore.addContacted(ctx, c.name); contacted = MissionStore.contacted(ctx); sending = ""
+            MissionStore.addContacted(ctx, c.name); contacted = MissionStore.contacted(ctx)
+            MetricsStore.record(ctx, 180)   // ~3 min saved: research + write a tailored message
+            sending = ""
         }
     }
     var emailStatus by remember { mutableStateOf("") }
@@ -142,7 +153,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                 // Send DIRECTLY through the user's Gmail — no app-switching.
                 val (ok, msg) = withContext(Dispatchers.IO) { com.agentos.shell.tools.GmailClient.send(ctx, c.email, subject, body) }
                 emailStatus = if (ok) "Sent to ${c.email} ✓" else "Couldn't send via Gmail: $msg"
-                if (ok) { MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx) }
+                if (ok) { MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx); MetricsStore.record(ctx, 300) }
             } else {
                 // Not connected → open the mail app pre-filled.
                 try {
@@ -152,7 +163,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                         .putExtra(android.content.Intent.EXTRA_TEXT, body)
                     ctx.startActivity(android.content.Intent.createChooser(i, "Email").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
                 } catch (e: Exception) {}
-                MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx)
+                MissionStore.addContacted(ctx, c.email); contacted = MissionStore.contacted(ctx); MetricsStore.record(ctx, 300)
             }
             sending = ""
         }
