@@ -51,6 +51,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var coverFile by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf("") }
     var liDone by remember { mutableStateOf(MemoryStore.positions(ctx).isNotBlank()) }
+    var jobEmailTo by remember { mutableStateOf("") }   // contact email scraped from the posting
     var leads by remember { mutableStateOf<List<AgentClient.JobLead>>(emptyList()) }
     var findMsg by remember { mutableStateOf("") }
     var fullView by remember { mutableStateOf("") }   // html shown full-screen
@@ -93,6 +94,9 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         busy = "gen"
         scope.launch {
             val posting = resolve(link.ifBlank { initialTarget })
+            // Grab a contact email off the posting so "Email with attachments" goes to the right place.
+            Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(posting)?.value
+                ?.takeUnless { it.contains("example") || it.endsWith(".png") || it.endsWith(".jpg") }?.let { jobEmailTo = it }
             var r = resume
             if (r.isBlank()) {
                 r = withContext(Dispatchers.IO) { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }
@@ -224,8 +228,9 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
 
         if (resumeFile != null || coverFile != null) {
             Spacer(Modifier.height(16.dp))
-            bigBtn("Email with attachments", accent = true) {
-                JobDoc.emailWithAttachments(ctx, "", "Application",
+            if (jobEmailTo.isNotBlank()) { Text("To: $jobEmailTo", fontSize = T.caption, color = T.inkFaint); Spacer(Modifier.height(6.dp)) }
+            bigBtn(if (jobEmailTo.isNotBlank()) "Email $jobEmailTo (PDFs attached)" else "Email with attachments", accent = true) {
+                JobDoc.emailWithAttachments(ctx, jobEmailTo, "Application",
                     email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
                     listOfNotNull(resumeFile, coverFile))
                 feed("Sent an application (résumé + cover attached)", 1500)

@@ -86,14 +86,14 @@ object VectorStore {
         try {
             while (processed < cap) {
                 val ids = ArrayList<Long>(); val bodies = ArrayList<String>()
-                db(ctx).rawQuery("SELECT rowid, body FROM vmem WHERE v IS NULL LIMIT 32", null).use { c ->
+                db(ctx).rawQuery("SELECT rowid, body FROM vmem WHERE v IS NULL LIMIT 8", null).use { c ->
                     while (c.moveToNext()) { ids.add(c.getLong(0)); bodies.add(c.getString(1)) }
                 }
                 if (ids.isEmpty()) break
-                // Free-tier embedding is rate-limited; if a batch is throttled, wait once and retry
-                // before giving up, and pace successful batches so a run gets through more.
+                // Free-tier embedding is tightly rate-limited; keep batches small, back off hard on a
+                // throttle, and pace so a run trickles under the cap instead of slamming into it.
                 var vecs = EmbeddingClient.embed(ctx, bodies)
-                if (vecs == null) { try { Thread.sleep(5000) } catch (e: Exception) {}; vecs = EmbeddingClient.embed(ctx, bodies) }
+                if (vecs == null) { try { Thread.sleep(20000) } catch (e: Exception) {}; vecs = EmbeddingClient.embed(ctx, bodies) }
                 if (vecs == null) break
                 if (vecs.size != ids.size) break
                 val d = db(ctx); d.beginTransaction()
@@ -107,7 +107,7 @@ object VectorStore {
                     d.setTransactionSuccessful()
                 } finally { d.endTransaction() }
                 processed += ids.size
-                try { Thread.sleep(400) } catch (e: Exception) {}
+                try { Thread.sleep(2500) } catch (e: Exception) {}   // pace under the free-tier cap
             }
         } catch (e: Exception) {}
     }

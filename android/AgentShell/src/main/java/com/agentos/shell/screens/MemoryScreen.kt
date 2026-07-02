@@ -104,6 +104,16 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
     }
+    var brainMsg by remember { mutableStateOf("") }
+    val anyFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            brainMsg = "Reading ${uris.size} file(s) into your brain…"
+            scope.launch { val msgs = withContext(Dispatchers.IO) { uris.map { com.agentos.shell.tools.BrainData.ingestFile(ctx, it) } }; brainMsg = msgs.joinToString(" · ") }
+        }
+    }
+    val brainImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { brainMsg = "Importing brain…"; scope.launch { brainMsg = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainData.importBrain(ctx, uri) } } }
+    }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             kbStatus = "Reading PDF…"
@@ -314,6 +324,24 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 HourStepper("To", endH) { endH = it; MemoryStore.setAutoWindow(ctx, startH, endH) }
             }
         }
+
+        SectionTitle("Brain data")
+        Text("Feed ANY file into your brain (PDF, txt, md, csv…), or back the whole brain up and restore it.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            Text("Add any file", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable { anyFilePicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
+            Text("Export brain", fontSize = T.small, color = T.inkSoft,
+                modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable { scope.launch { brainMsg = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainData.exportBrain(ctx) } } }
+                    .padding(horizontal = 14.dp, vertical = 9.dp))
+            Text("Import brain", fontSize = T.small, color = T.inkSoft,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable { brainImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
+        }
+        if (brainMsg.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(brainMsg, fontSize = T.caption, color = T.accent) }
 
         SectionTitle("Import data & voice")
         Text("Add chat exports anytime — they feed the memory brain (and get indexed for semantic recall). " +
