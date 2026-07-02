@@ -176,6 +176,37 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 .padding(horizontal = 22.dp, vertical = 10.dp)
         )
 
+        // ---- You: real-world details for shopping, forms, signups, letterheads ----
+        SectionTitle("You — for shopping, forms & signatures")
+        Text("Saved only on this device. Used to pre-fill checkout, sign-ups and documents — never sent unless you tap send.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var pfName by remember { mutableStateOf(MemoryStore.profileName(ctx)) }
+        var pfEmail by remember { mutableStateOf(MemoryStore.profileEmail(ctx)) }
+        var pfPhone by remember { mutableStateOf(MemoryStore.profilePhone(ctx)) }
+        var pfAddr by remember { mutableStateOf(MemoryStore.profileAddress(ctx)) }
+        var headshot by remember { mutableStateOf(MemoryStore.headshotPath(ctx)) }
+        val headshotPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                val bytes = try { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } } catch (e: Exception) { null }
+                if (bytes != null && MemoryStore.saveHeadshot(ctx, bytes)) headshot = MemoryStore.headshotPath(ctx)
+            }
+        }
+        @Composable
+        fun pField(value: String, hint: String, multiline: Boolean, onChange: (String) -> Unit) {
+            BasicTextField(value, onChange, singleLine = !multiline, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().heightIn(min = if (multiline) 48.dp else 0.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+                decorationBox = { inner -> if (value.isEmpty()) Text(hint, fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(8.dp))
+        }
+        pField(pfName, "Full name", false) { pfName = it; MemoryStore.setProfileName(ctx, it) }
+        pField(pfEmail, "Email", false) { pfEmail = it; MemoryStore.setProfileEmail(ctx, it) }
+        pField(pfPhone, "Phone", false) { pfPhone = it; MemoryStore.setProfilePhone(ctx, it) }
+        pField(pfAddr, "Shipping address", true) { pfAddr = it; MemoryStore.setProfileAddress(ctx, it) }
+        Text(if (headshot.isNotBlank()) "Headshot saved ✓ · replace" else "Add a headshot", fontSize = T.small, color = T.accent,
+            modifier = Modifier.clickable { headshotPicker.launch("image/*") }.padding(vertical = 6.dp))
+        Spacer(Modifier.height(16.dp))
+
         SectionTitle("Booking link")
         Text("Only shared if someone actually asks to schedule a call — never pushed.",
             fontSize = T.small, color = T.inkFaint)

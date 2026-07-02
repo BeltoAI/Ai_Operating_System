@@ -64,6 +64,35 @@ object MemoryStore {
         return ""
     }
 
+    // ── Owner profile: real-world details for shopping, forms, signups, letterheads. Stored ONLY on
+    //    this device. Address/phone are used to pre-fill checkout & forms; email for outreach/receipts.
+    fun profileName(ctx: Context): String = prefs(ctx).getString("pf_name", "") ?: ""
+    fun setProfileName(ctx: Context, v: String) = prefs(ctx).edit().putString("pf_name", v.trim()).apply()
+    fun profileEmail(ctx: Context): String = prefs(ctx).getString("pf_email", "") ?: ""
+    fun setProfileEmail(ctx: Context, v: String) = prefs(ctx).edit().putString("pf_email", v.trim()).apply()
+    fun profilePhone(ctx: Context): String = prefs(ctx).getString("pf_phone", "") ?: ""
+    fun setProfilePhone(ctx: Context, v: String) = prefs(ctx).edit().putString("pf_phone", v.trim()).apply()
+    fun profileAddress(ctx: Context): String = prefs(ctx).getString("pf_addr", "") ?: ""
+    fun setProfileAddress(ctx: Context, v: String) = prefs(ctx).edit().putString("pf_addr", v.trim()).apply()
+
+    /** Headshot: saved as a file on-device; returns the absolute path ("" if none). */
+    fun headshotPath(ctx: Context): String {
+        val f = java.io.File(ctx.filesDir, "headshot.jpg")
+        return if (f.exists()) f.absolutePath else ""
+    }
+    fun saveHeadshot(ctx: Context, bytes: ByteArray): Boolean = try {
+        java.io.File(ctx.filesDir, "headshot.jpg").outputStream().use { it.write(bytes) }; true
+    } catch (e: Exception) { false }
+
+    /** A compact block of the owner's real-world details for checkout / form-filling / signatures. */
+    fun shippingProfile(ctx: Context): String = buildString {
+        val n = profileName(ctx).ifBlank { ownerName(ctx) }
+        if (n.isNotBlank()) append("Name: ").append(n).append("\n")
+        if (profileEmail(ctx).isNotBlank()) append("Email: ").append(profileEmail(ctx)).append("\n")
+        if (profilePhone(ctx).isNotBlank()) append("Phone: ").append(profilePhone(ctx)).append("\n")
+        if (profileAddress(ctx).isNotBlank()) append("Address: ").append(profileAddress(ctx))
+    }.trim()
+
     /** A booking/scheduling link (e.g. Calendly) the agent shares when someone wants to talk live. */
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()

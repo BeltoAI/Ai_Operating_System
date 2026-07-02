@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,6 +119,7 @@ class ShellActivity : ComponentActivity() {
             var jobTopic by remember { mutableStateOf("") }
             var networkQuery by remember { mutableStateOf("") }
             var missionGoal by remember { mutableStateOf("") }
+            var shopQuery by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
             LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
@@ -164,6 +165,8 @@ class ShellActivity : ComponentActivity() {
                             onJob = { t -> jobTopic = t; screen = Screen.Job },
                             onNetwork = { t -> networkQuery = t; screen = Screen.Network },
                             onSetMission = { g -> missionGoal = g; screen = Screen.Mission },
+                            onLook = { screen = Screen.Look },
+                            onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }) { screen = Screen.Home }
@@ -179,6 +182,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Cowork -> CoworkScreen(m) { screen = Screen.Research }
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
+                        Screen.Look -> LookScreen(m) { screen = Screen.Home }
+                        Screen.Shop -> ShopScreen(m, shopQuery) { shopQuery = ""; screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }

@@ -38,6 +38,22 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
     var editPrompt by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
+    var attachments by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+    val attachPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val f = try {
+                var name = "attachment"
+                ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0)?.let { name = it }
+                }
+                val out = java.io.File(ctx.cacheDir, "attach_" + System.currentTimeMillis() + "_" + name.replace(Regex("[^A-Za-z0-9._-]"), "_"))
+                ctx.contentResolver.openInputStream(uri)?.use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+                out
+            } catch (e: Exception) { null }
+            if (f != null) attachments = attachments + f
+        }
+    }
 
     fun generate() {
         if (working) return
@@ -66,7 +82,11 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
         if (!GoogleAuth.isConnected(ctx)) { status = "Connect Google (Gmail) in Brain → settings first."; return }
         working = true; status = "Sending…"
         scope.launch {
-            val (ok, msg) = withContext(Dispatchers.IO) { GmailClient.send(ctx, to.trim(), subject.ifBlank { "(no subject)" }, body) }
+            val subj = subject.ifBlank { "(no subject)" }
+            val (ok, msg) = withContext(Dispatchers.IO) {
+                if (attachments.isNotEmpty()) GmailClient.sendWithAttachments(ctx, to.trim(), subj, body, attachments)
+                else GmailClient.send(ctx, to.trim(), subj, body)
+            }
             status = msg; working = false
             if (ok) kotlinx.coroutines.delay(900).let { onBack() }
         }
@@ -114,6 +134,16 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
             Text("Regenerate", fontSize = T.small, color = T.ink,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                     .clickable(enabled = !working) { generate() }.padding(horizontal = 16.dp, vertical = 10.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("📎 Attach", fontSize = T.small, color = T.ink,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable(enabled = !working) { attachPicker.launch("*/*") }.padding(horizontal = 14.dp, vertical = 10.dp))
+        }
+        if (attachments.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(attachments.joinToString(", ") { it.name.substringAfter("_").substringAfter("_") } + "  ·  tap Send to attach",
+                fontSize = T.caption, color = T.inkFaint,
+                modifier = Modifier.clickable { attachments = emptyList() })
         }
         if (status.isNotEmpty()) { Spacer(Modifier.height(10.dp)); Text(status, fontSize = T.small, color = T.accent) }
     }

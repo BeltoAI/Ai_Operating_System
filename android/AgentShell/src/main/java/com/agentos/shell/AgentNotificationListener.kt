@@ -113,6 +113,20 @@ class AgentNotificationListener : NotificationListenerService() {
                 com.agentos.shell.tools.ConversationStore.add(applicationContext, platform, contact, "them", text)
                 com.agentos.shell.tools.MessageStore.insertOne(applicationContext, contact, platform, contact, "them", text)
             }
+            // INBOUND MEDIA → brain: if someone sent a picture, describe it once (vision) and store it,
+            // so the agent knows what they sent ("what did Sam send me?") and replies can reference it.
+            // Gated by the ambient-capture toggle + de-duped per notification to bound cost.
+            val pic = note.picture
+            if (pic != null && MemoryStore.recallEnabled(applicationContext) && firstTime("img|${note.key}")) {
+                scope.launch {
+                    try {
+                        val b64 = com.agentos.shell.tools.ImageUtil.encodeBitmap(pic) ?: return@launch
+                        val desc = AgentClient.askVision("In one short sentence, describe what this image shows.", listOf(b64), "")
+                        if (!AgentClient.looksLikeError(desc) && desc.isNotBlank())
+                            com.agentos.shell.tools.MessageStore.insertOne(applicationContext, contact, platform, contact, "them", "[image] $desc")
+                    } catch (e: Exception) {}
+                }
+            }
         }
         return note
     }

@@ -107,6 +107,8 @@ fun HomeScreen(
     onJob: (String) -> Unit = {},
     onNetwork: (String) -> Unit = {},
     onSetMission: (String) -> Unit = {},
+    onLook: () -> Unit = {},
+    onShop: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -318,6 +320,20 @@ fun HomeScreen(
                 onOpen(Screen.Cowork)
                 return@launch
             }
+            // shop opens the Shop screen and web-finds real buy options for the item.
+            val shopAct = result.actions.firstOrNull { it.type == "shop" }
+            if (shopAct != null) {
+                thinking = false
+                onShop(shopAct.arg.ifBlank { q })
+                return@launch
+            }
+            // look opens the camera identify screen.
+            val lookAct = result.actions.firstOrNull { it.type == "look" }
+            if (lookAct != null) {
+                thinking = false
+                onLook()
+                return@launch
+            }
             // write_paper navigates to the Research workspace, pre-filled.
             val paperAct = result.actions.firstOrNull { it.type == "write_paper" }
             if (paperAct != null) {
@@ -524,9 +540,9 @@ fun HomeScreen(
             Spacer(Modifier.width(10.dp))
             Icon(
                 Icons.Filled.PhotoCamera,
-                contentDescription = "Take photo",
-                tint = if (photos.isEmpty()) T.inkSoft else T.accent,
-                modifier = Modifier.size(24.dp).clickable { capture() }
+                contentDescription = "Look",
+                tint = T.inkSoft,
+                modifier = Modifier.size(24.dp).clickable { onLook() }   // point-and-identify (Look mode)
             )
             Spacer(Modifier.width(10.dp))
             Text(

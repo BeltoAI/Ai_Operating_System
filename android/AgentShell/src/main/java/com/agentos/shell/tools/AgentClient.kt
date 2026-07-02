@@ -194,7 +194,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -209,6 +209,8 @@ object AgentClient {
             append("If they ASK which roles/opportunities suit them ('what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'), do NOT use find_job. ANSWER in 'say' with a clean, concrete list of 4-6 roles grounded in their real work history above — each on its own line as 'Role — one-line why it fits'. Plain text, NO markdown/asterisks/headers. End with one line: 'Say \"find me a job at <one>\" and I'll build the application.' ")
             append("Use set_mission whenever the user wants to FIND PEOPLE / COMPANIES / LEADS / BUYERS / CUSTOMERS out in the world, or start a goal/outreach campaign (e.g. 'find me companies that build satellites', 'find buyers for my product', 'find me 10 fintech CTOs in NYC', 'set a mission to get customers', 'find me a job at aerospace startups'); arg = the goal in plain words INCLUDING any location. This opens the Mission screen and WEB-SEARCHES for real matching targets (with website, email or LinkedIn) + a ready message. Keep 'say' to one short line. ")
             append("Use network_search ONLY when the user asks about people they ALREADY KNOW / their EXISTING network, who they know somewhere, or wants to reach out to their contacts (e.g. 'do I have any CTOs in my network?', 'who do I know at Google?', 'find investors in my network', 'message my designer contacts'); arg = the role/type/company to look for. This opens a screen that lists the matching people with a ready-to-send message and a one-tap LinkedIn button. Keep 'say' to one short line. ")
+            append("Use shop when the user wants to BUY something or find the best price for a product (e.g. 'buy me running shoes under $100', 'find the cheapest iPhone 15 case', 'order more coffee beans'); arg = the product to buy, in plain words including any brand/size/budget. This web-searches real buy options and shows them to tap-to-open (the user always taps buy themselves). Keep 'say' one short line. ")
+            append("Use look when the user wants to identify something with the camera (e.g. 'what is this', 'what shoe is that', 'identify this plant', 'what building is this'); arg = empty. Opens the camera Look screen. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
@@ -1092,6 +1094,58 @@ object AgentClient {
                     o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim(),
                     o.optString("linkedin").trim(), o.optString("role").trim())
             }.filter { it.company.isNotBlank() || it.name.isNotBlank() }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    // ── Camera "Look" mode: identify what the lens is pointed at, tour-guide + shopping-assistant style ──
+    data class LookResult(val title: String, val detail: String, val category: String, val query: String, val place: String)
+
+    /** Identify the main subject of a photo and how to act on it (shop / map / search). Vision call. */
+    fun lookAt(imageB64: String, memory: String = ""): LookResult {
+        val content = JSONArray()
+        content.put(JSONObject().put("type", "image").put("source",
+            JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
+        content.put(JSONObject().put("type", "text").put("text",
+            "Identify the MAIN thing in this photo. Reply ONLY as JSON (no prose): " +
+            "{\"title\":\"short name of what it is\",\"detail\":\"ONE vivid, specific sentence — brand/model, " +
+            "species, dish, or landmark, plus one genuinely useful fact\",\"category\":\"product|place|food|" +
+            "plant|animal|text|art|other\",\"query\":\"the best web-search phrase to learn more or buy it\"," +
+            "\"place\":\"if it's a place/building/landmark, its name + city; else empty\"}. " +
+            "Be specific and confident; if unsure, give your single best guess (never refuse)."))
+        val sys = "You are a razor-sharp visual identifier — part tour guide, part shopping assistant. Return valid JSON only."
+        val (code, text) = callContent(sys, content, 500, VOICE)
+        if (code != 200) return LookResult("Couldn't identify it", "Try again with better light or a closer shot.", "other", "", "")
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val o = JSONObject(text.substring(s, e + 1))
+            LookResult(o.optString("title").trim(), o.optString("detail").trim(),
+                o.optString("category").trim().ifBlank { "other" }, o.optString("query").trim(), o.optString("place").trim())
+        } catch (ex: Exception) { LookResult(text.trim().take(60).ifBlank { "Not sure" }, text.trim().take(160), "other", "", "") }
+    }
+
+    // ── Shop: web-find real buy options for a product, cheapest/best first, ready to open + confirm ──
+    data class Product(val name: String, val price: String, val merchant: String, val url: String, val note: String)
+
+    /** Web-search for real, current purchase options matching the ask. Empty if web search unavailable. */
+    fun findProducts(query: String, memory: String): List<Product> {
+        val sys = "You are a savvy shopping assistant WITH web search. Find 4-8 REAL, current places to BUY exactly " +
+            "what the user asked for, best value first. Every item MUST have a real product/listing URL you actually " +
+            "found via search (never invent one), the price as shown (with currency), and the merchant/store name. Add " +
+            "a SHORT note only when it helps decide (e.g. 'cheapest', 'official', 'ships free', 'best rated'). " +
+            "Respect any budget, size, colour, or brand in the request. " +
+            "Reply ONLY as JSON: {\"products\":[{\"name\":\"…\",\"price\":\"$…\",\"merchant\":\"…\",\"url\":\"https://…\",\"note\":\"…\"}]}"
+        val user = "BUY: " + query + "\nSHIP TO / ABOUT ME (for region & fit): " + memory.take(600)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 2500, VOICE, 120000, webTool())
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("products")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                Product(o.optString("name").trim(), o.optString("price").trim(), o.optString("merchant").trim(),
+                    o.optString("url").trim(), o.optString("note").trim())
+            }.filter { it.url.startsWith("http") }
         } catch (e: Exception) { emptyList() }
     }
 

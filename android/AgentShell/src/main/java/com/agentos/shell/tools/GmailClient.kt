@@ -97,6 +97,56 @@ object GmailClient {
         return true to "Sent to $to ✓"
     }
 
+    private fun guessMime(name: String): String {
+        val n = name.lowercase()
+        return when {
+            n.endsWith(".pdf") -> "application/pdf"
+            n.endsWith(".png") -> "image/png"
+            n.endsWith(".jpg") || n.endsWith(".jpeg") -> "image/jpeg"
+            n.endsWith(".doc") || n.endsWith(".docx") -> "application/msword"
+            n.endsWith(".txt") -> "text/plain"
+            else -> "application/octet-stream"
+        }
+    }
+
+    /**
+     * Send an email WITH file attachments (multipart/mixed MIME) as the user. This is what lets SlyOS
+     * send documents itself — résumés, PDFs, images — not just text. Records it to the brain.
+     */
+    fun sendWithAttachments(ctx: Context, to: String, subject: String, body: String, files: List<java.io.File>): Pair<Boolean, String> {
+        val real = files.filter { it.exists() }
+        if (real.isEmpty()) return send(ctx, to, subject, body)   // nothing to attach → plain send
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return false to "Google isn't connected."
+        val boundary = "slyos_" + System.currentTimeMillis()
+        val mime = buildString {
+            append("To: ").append(to).append("\r\n")
+            append("Subject: ").append(encodeHeader(subject)).append("\r\n")
+            append("MIME-Version: 1.0\r\n")
+            append("Content-Type: multipart/mixed; boundary=\"").append(boundary).append("\"\r\n\r\n")
+            append("--").append(boundary).append("\r\n")
+            append("Content-Type: text/plain; charset=UTF-8\r\n\r\n").append(body).append("\r\n")
+            for (f in real) {
+                val enc = Base64.encodeToString(f.readBytes(), Base64.NO_WRAP).chunked(76).joinToString("\r\n")
+                append("--").append(boundary).append("\r\n")
+                append("Content-Type: ").append(guessMime(f.name)).append("; name=\"").append(f.name).append("\"\r\n")
+                append("Content-Transfer-Encoding: base64\r\n")
+                append("Content-Disposition: attachment; filename=\"").append(f.name).append("\"\r\n\r\n")
+                append(enc).append("\r\n")
+            }
+            append("--").append(boundary).append("--")
+        }
+        val raw = Base64.encodeToString(mime.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val (code, resp) = post("$BASE/messages/send", token, JSONObject().put("raw", raw).toString())
+        if (code !in 200..299) {
+            Log.e(TAG, "gmail send(attach) $code: ${resp.take(300)}")
+            val reason = try { JSONObject(resp).optJSONObject("error")?.optString("message") } catch (e: Exception) { null }
+            return false to ((reason ?: "send failed") + " ($code)")
+        }
+        try { MessageStore.insertOne(ctx, to, "Email", to, "me", "Subject: $subject\n$body\n[${real.size} attachment(s)]") } catch (e: Exception) {}
+        return true to "Sent to $to with ${real.size} attachment(s) ✓"
+    }
+
     private fun b64(data: String): ByteArray = try {
         Base64.decode(data, Base64.URL_SAFE or Base64.NO_WRAP)
     } catch (e: Exception) { ByteArray(0) }
