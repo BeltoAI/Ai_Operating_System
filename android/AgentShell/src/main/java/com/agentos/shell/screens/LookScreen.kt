@@ -1,27 +1,33 @@
 package com.agentos.shell.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.ImageUtil
@@ -29,133 +35,127 @@ import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.MessageStore
 import com.agentos.shell.tools.MetricsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private val SCRIM = Color(0xCC141210)
+private val ACC = Color(0xFFE8642C)
+
 /**
- * "Look" — point the camera at anything and SlyOS tells you what it is, with one tap to shop it, map
- * it, or learn more. Tap-to-identify (no battery-hungry live stream). Everything feeds the brain.
+ * "Look" — a LIVE camera viewfinder. Point at anything; tap Identify (or flip on Auto) and SlyOS
+ * overlays what it is with one-tap actions (Open to shop / map / search). Every hit feeds the brain.
  */
 @Composable
 fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
-    var bmp by remember { mutableStateOf<Bitmap?>(null) }
+    var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    LaunchedEffect(Unit) { if (!granted) permLauncher.launch(Manifest.permission.CAMERA) }
+
+    val imageCapture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build() }
     var result by remember { mutableStateOf<AgentClient.LookResult?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var asking by remember { mutableStateOf(false) }
-    var question by remember { mutableStateOf("") }
-    var answer by remember { mutableStateOf("") }
-    var answerBusy by remember { mutableStateOf(false) }
+    var auto by remember { mutableStateOf(false) }
 
     fun openUrl(u: String) {
         if (u.isBlank()) return
         try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
     }
     fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
-
-    fun identify(b: Bitmap) {
-        busy = true; result = null; answer = ""; asking = false; question = ""
-        scope.launch {
-            val r = withContext(Dispatchers.IO) {
-                val b64 = ImageUtil.encodeBitmap(b) ?: return@withContext null
-                AgentClient.lookAt(b64, MemoryStore.fullProfile(ctx))
-            }
-            result = r
-            busy = false
-            if (r != null && r.title.isNotBlank()) withContext(Dispatchers.IO) {
-                // Everything you look at feeds the brain (searchable: "what was that thing I saw?").
-                MessageStore.insertOne(ctx, "Look", "Camera", "system", "system", "Looked at: ${r.title} — ${r.detail}")
-                MetricsStore.record(ctx, 60)
-            }
+    fun actionUrl(r: AgentClient.LookResult): String {
+        val q = r.query.ifBlank { r.title }
+        return when (r.category) {
+            "product" -> "https://www.google.com/search?tbm=shop&q=" + enc(q)
+            "place" -> "https://www.google.com/maps/search/?api=1&query=" + enc(r.place.ifBlank { q })
+            "food" -> "https://www.google.com/search?q=" + enc("$q recipe")
+            else -> "https://www.google.com/search?q=" + enc(q)
         }
     }
+    fun actionLabel(cat: String) = when (cat) { "product" -> "Shop it"; "place" -> "Open in Maps"; "food" -> "Recipes"; else -> "Search" }
 
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { b ->
-        if (b != null) { bmp = b; identify(b) }
-    }
-    LaunchedEffect(Unit) { cam.launch(null) }
-
-    fun ask() {
-        val b = bmp; val qq = question.trim()
-        if (b == null || qq.isBlank() || answerBusy) return
-        answerBusy = true; answer = ""
-        scope.launch {
-            val a = withContext(Dispatchers.IO) {
-                val b64 = ImageUtil.encodeBitmap(b) ?: return@withContext ""
-                AgentClient.askVision(qq, listOf(b64), MemoryStore.fullProfile(ctx))
-            }
-            answer = if (AgentClient.looksLikeError(a)) "Couldn't answer that — try again." else a
-            answerBusy = false
-            if (!AgentClient.looksLikeError(a) && a.isNotBlank()) withContext(Dispatchers.IO) {
-                MessageStore.insertOne(ctx, "Look", "Camera", "system", "system", "Q: $qq — A: $a")
-            }
-        }
-    }
-
-    @Composable
-    fun chip(label: String, onClick: () -> Unit) {
-        Text(label, fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
-            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                .clickable { onClick() }.padding(horizontal = 18.dp, vertical = 10.dp))
-    }
-
-    Column(modifier.verticalScroll(rememberScrollState())) {
-        ScreenHeader("Look") { onBack() }
-
-        bmp?.let { b ->
-            Spacer(Modifier.height(12.dp))
-            Image(b.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(18.dp)))
-        }
-
-        if (busy) { Spacer(Modifier.height(18.dp)); Text("Looking…", fontSize = T.body, color = T.accent) }
-
-        result?.let { r ->
-            Spacer(Modifier.height(16.dp))
-            Text(r.title, fontSize = T.prompt, color = T.ink)
-            if (r.detail.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(r.detail, fontSize = T.small, color = T.inkSoft) }
-            Spacer(Modifier.height(16.dp))
-            // One-tap actions, chosen by what it is.
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                when (r.category) {
-                    "product" -> {
-                        chip("Shop it") { openUrl("https://www.google.com/search?tbm=shop&q=" + enc(r.query.ifBlank { r.title })) }
-                        chip("Search") { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title })) }
+    fun identify() {
+        if (busy || !granted) return
+        busy = true
+        imageCapture.takePicture(ContextCompat.getMainExecutor(ctx), object : ImageCapture.OnImageCapturedCallback() {
+            override fun onCaptureSuccess(image: ImageProxy) {
+                val bmp: Bitmap? = try { image.toBitmap() } catch (e: Exception) { null }
+                image.close()
+                if (bmp == null) { busy = false; return }
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        val b64 = ImageUtil.encodeBitmap(bmp) ?: return@withContext null
+                        AgentClient.lookAt(b64, MemoryStore.fullProfile(ctx))
                     }
-                    "place" -> {
-                        chip("Maps") { openUrl("https://www.google.com/maps/search/?api=1&query=" + enc(r.place.ifBlank { r.query.ifBlank { r.title } })) }
-                        chip("Search") { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title })) }
+                    result = r; busy = false
+                    if (r != null && r.title.isNotBlank()) withContext(Dispatchers.IO) {
+                        MessageStore.insertOne(ctx, "Look", "Camera", "system", "system", "Looked at: ${r.title} — ${r.detail}")
+                        MetricsStore.record(ctx, 60)
                     }
-                    "food" -> {
-                        chip("Recipes") { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title } + " recipe")) }
-                        chip("Search") { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title })) }
-                    }
-                    else -> chip("Search") { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title })) }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Text(if (asking) "Ask about this ▾" else "Ask about this ▸", fontSize = T.small, color = T.accent,
-                modifier = Modifier.clickable { asking = !asking }.padding(vertical = 6.dp))
-            if (asking) {
-                Spacer(Modifier.height(6.dp))
-                BasicTextField(question, { question = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp),
-                    decorationBox = { inner -> if (question.isEmpty()) Text("e.g. is this a good buy? how do I cook it?", fontSize = T.small, color = T.inkFaint); inner() })
-                Spacer(Modifier.height(8.dp))
-                Text(if (answerBusy) "Thinking…" else "Ask", fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (question.isBlank()) T.hairline else T.accent)
-                        .clickable(enabled = !answerBusy && question.isNotBlank()) { ask() }.padding(vertical = 12.dp))
-                if (answer.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(answer, fontSize = T.small, color = T.ink) }
+            override fun onError(exc: ImageCaptureException) { busy = false }
+        })
+    }
+
+    // Auto mode: keep scanning every few seconds for a "smart glasses" feel (off by default = no cost).
+    LaunchedEffect(auto) { while (auto) { if (!busy) identify(); delay(4500) } }
+
+    Box(modifier.fillMaxSize().background(Color.Black)) {
+        if (granted) {
+            AndroidView(factory = { c ->
+                val pv = PreviewView(c)
+                val future = ProcessCameraProvider.getInstance(c)
+                future.addListener({
+                    try {
+                        val provider = future.get()
+                        val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
+                        provider.unbindAll()
+                        provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                    } catch (e: Exception) {}
+                }, ContextCompat.getMainExecutor(c))
+                pv
+            }, modifier = Modifier.fillMaxSize())
+        } else {
+            Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Camera access needed to identify what you point at.", color = Color.White, fontSize = T.small, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(14.dp))
+                Text("Allow camera", color = Color.White, textAlign = TextAlign.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACC).clickable { permLauncher.launch(Manifest.permission.CAMERA) }.padding(horizontal = 22.dp, vertical = 12.dp))
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-        Text(if (busy) "…" else (if (result == null) "Point at anything" else "Look at something else"),
-            fontSize = T.body, color = T.ink, textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                .background(T.bgElevated).clickable(enabled = !busy) { cam.launch(null) }.padding(vertical = 15.dp))
-        Spacer(Modifier.height(28.dp))
+        // Top bar: Back + Auto toggle.
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("← Back", color = Color.White, fontSize = T.small,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { onBack() }.padding(horizontal = 14.dp, vertical = 8.dp))
+            Spacer(Modifier.weight(1f))
+            Text(if (auto) "Auto ●" else "Auto ○", color = if (auto) ACC else Color.White, fontSize = T.small,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { auto = !auto }.padding(horizontal = 14.dp, vertical = 8.dp))
+        }
+
+        // Bottom overlay: the result card + Identify button.
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp)) {
+            result?.let { r ->
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(SCRIM).padding(18.dp)) {
+                    Text(r.title, color = Color.White, fontSize = T.prompt)
+                    if (r.detail.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(r.detail, color = Color(0xFFDDD6CC), fontSize = T.small) }
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(actionLabel(r.category) + " →", color = Color.White, fontSize = T.small, textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(ACC).clickable { openUrl(actionUrl(r)) }.padding(vertical = 11.dp))
+                        Text("Search", color = Color.White, fontSize = T.small, textAlign = TextAlign.Center,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0x33FFFFFF)).clickable { openUrl("https://www.google.com/search?q=" + enc(r.query.ifBlank { r.title })) }.padding(horizontal = 16.dp, vertical = 11.dp))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            Text(if (busy) "Looking…" else "Identify", color = Color.White, fontSize = T.body, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (busy) Color(0x66E8642C) else ACC)
+                    .clickable(enabled = !busy && granted) { identify() }.padding(vertical = 16.dp))
+        }
     }
 }

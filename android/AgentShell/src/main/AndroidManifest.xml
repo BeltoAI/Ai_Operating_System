@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Live "Look" camera (point-and-identify). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera.any" android:required="false"/>
     <!-- Calendar awareness + the ability to block time. -->
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>

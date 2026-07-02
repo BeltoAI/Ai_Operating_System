@@ -68,4 +68,9 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Chrome Custom Tabs for the in-app Google sign-in flow.
     implementation("androidx.browser:browser:1.8.0")
+    // CameraX — live viewfinder + frame capture for "Look" mode.
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
 }
