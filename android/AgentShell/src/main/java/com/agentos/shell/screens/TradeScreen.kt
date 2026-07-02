@@ -92,26 +92,28 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
         if (refreshing) return
         refreshing = true
         scope.launch {
-            val h = TradeStore.holdings(ctx); holdings = h
-            val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
-            if (q.isNotEmpty()) quotes = q
-            priceMsg = when {
-                h.isEmpty() -> ""
-                q.isEmpty() -> "Price feed unreachable (0/${h.size}) — retrying… add a free Finnhub key in Settings for stocks."
-                q.size < h.size -> "${q.size}/${h.size} priced · ${h.filter { !q.containsKey(it.symbol) }.joinToString(", ") { it.symbol }} need a Finnhub key (stocks)."
-                else -> ""
-            }
-            val use = if (q.isNotEmpty()) q else quotes
-            val invested = h.sumOf { (use[it.symbol]?.price ?: it.avgCost) * it.shares }
-            val prevInv = h.sumOf { (use[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
-            value = TradeStore.cash(ctx) + invested
-            val prevVal = TradeStore.cash(ctx) + prevInv
-            dayPct = if (prevVal > 0) (value - prevVal) / prevVal * 100.0 else 0.0
-            marketState = use.values.firstOrNull()?.state ?: ""
-            updatedAt = System.currentTimeMillis()
-            TradeStore.saveSnapshot(ctx, value)
-            series = TradeStore.valueSeries(ctx)
-            refreshing = false
+            try {
+                val h = TradeStore.holdings(ctx); holdings = h
+                val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
+                if (q.isNotEmpty()) quotes = q
+                val keySet = com.agentos.shell.tools.QuoteClient.finnhubKey.isNotBlank()
+                priceMsg = when {
+                    h.isEmpty() -> ""
+                    q.isEmpty() -> "⚠ feed unreachable (0/${h.size})" + (if (!keySet) " · add a Finnhub key in Settings" else " · retrying")
+                    q.size < h.size -> "⚠ ${q.size}/${h.size} live · missing: ${h.filter { !q.containsKey(it.symbol) }.joinToString(", ") { it.symbol }}" + (if (!keySet) " · add Finnhub key" else "")
+                    else -> "${q.size}/${q.size} live ✓" + (if (keySet) " · finnhub" else "")
+                }
+                val use = if (q.isNotEmpty()) q else quotes
+                val invested = h.sumOf { (use[it.symbol]?.price ?: it.avgCost) * it.shares }
+                val prevInv = h.sumOf { (use[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
+                value = TradeStore.cash(ctx) + invested
+                val prevVal = TradeStore.cash(ctx) + prevInv
+                dayPct = if (prevVal > 0) (value - prevVal) / prevVal * 100.0 else 0.0
+                marketState = use.values.firstOrNull()?.state ?: ""
+                updatedAt = System.currentTimeMillis()
+                TradeStore.saveSnapshot(ctx, value)
+                series = TradeStore.valueSeries(ctx)
+            } catch (e: Exception) { priceMsg = "⚠ refresh error: ${e.message}" } finally { refreshing = false }
         }
     }
     // Auto-refresh live prices every ~15s while viewing the portfolio — no manual button needed.
@@ -243,8 +245,9 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Text("%+.2f%%".format(growth) + " all-time  ·  " + "%+.2f%%".format(dayPct) + " today", fontSize = T.body, color = if (growth >= 0) UP else DOWN)
             Spacer(Modifier.height(4.dp))
             val stamp = if (updatedAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updatedAt)) else "—"
-            Text((if (refreshing) "updating…" else "auto · updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
-            if (priceMsg.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(priceMsg, fontSize = T.caption, color = T.danger) }
+            Text((if (refreshing) "updating…" else "auto · updated $stamp · tap to refresh") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }),
+                fontSize = T.caption, color = T.inkFaint, modifier = Modifier.clickable { refreshPortfolio() })
+            if (priceMsg.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(priceMsg, fontSize = T.caption, color = if (priceMsg.contains("⚠")) T.danger else UP) }
 
             // Value graph — always starts from your deposit baseline so a line shows from the first refresh.
             run {
