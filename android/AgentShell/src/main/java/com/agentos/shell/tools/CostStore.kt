@@ -47,7 +47,31 @@ object CostStore {
             .putLong("cost_$mk", p.getLong("cost_$mk", 0) + micros)
             .putLong("cost_${mk}_$provider", p.getLong("cost_${mk}_$provider", 0) + micros)
             .putLong("costd_$dk", p.getLong("costd_$dk", 0) + micros)
+            // ── Lifetime token ledger (all-time), for the "brain compute" readout ──
+            .putLong("life_calls", p.getLong("life_calls", 0) + 1)
+            .putLong("life_tok", p.getLong("life_tok", 0) + inTok + outTok)
+            .putLong("life_gen", p.getLong("life_gen", 0) + outTok)              // "generated" = output tokens
+            .putLong("life_tok_$provider", p.getLong("life_tok_$provider", 0) + inTok + outTok)
+            .putLong("life_gen_$provider", p.getLong("life_gen_$provider", 0) + outTok)
             .apply()
+    }
+
+    // ── Lifetime compute ledger ──────────────────────────────────────────────────────────────────
+    fun lifetimeCalls(ctx: Context): Long = prefs(ctx).getLong("life_calls", 0)
+    fun lifetimeTokens(ctx: Context): Long = prefs(ctx).getLong("life_tok", 0)
+    fun lifetimeGenerated(ctx: Context): Long = prefs(ctx).getLong("life_gen", 0)
+    /** Average total tokens burned per AI response (in + out). */
+    fun avgTokensPerResponse(ctx: Context): Int {
+        val c = lifetimeCalls(ctx); return if (c > 0) (lifetimeTokens(ctx) / c).toInt() else 0
+    }
+    /** Lifetime tokens per provider (only those that have been used). */
+    fun tokensByProvider(ctx: Context): Map<String, Long> =
+        ModelRouter.PROVIDERS.associateWith { prefs(ctx).getLong("life_tok_$it", 0) }.filterValues { it > 0 }
+    /** Compact human string like "3.4M tokens" / "812k tokens". */
+    fun fmtTokens(n: Long): String = when {
+        n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+        n >= 1_000 -> "%.0fk".format(n / 1_000.0)
+        else -> n.toString()
     }
 
     /** Cost for each day so far this month (index 0 = day 1 … last = today), in USD. */

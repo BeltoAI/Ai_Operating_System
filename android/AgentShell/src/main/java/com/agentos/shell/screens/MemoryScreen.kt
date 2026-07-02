@@ -299,6 +299,21 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); com.agentos.shell.tools.VectorStore.clear(ctx); dbCount = 0; dbPeople = 0 })
             }
         }
+        // Brain compute: how much the models have thought, and how efficiently.
+        run {
+            val CS = com.agentos.shell.tools.CostStore
+            val life = CS.lifetimeTokens(ctx)
+            if (life > 0) {
+                Spacer(Modifier.height(4.dp))
+                Text("Brain compute: ${CS.fmtTokens(life)} tokens thought · ${CS.fmtTokens(CS.lifetimeGenerated(ctx))} generated · ~${CS.avgTokensPerResponse(ctx)} tokens per response",
+                    fontSize = T.caption, color = T.inkFaint)
+                val byProv = CS.tokensByProvider(ctx)
+                if (byProv.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text("by model: " + byProv.entries.joinToString(" · ") { "${it.key} ${CS.fmtTokens(it.value)}" }, fontSize = T.caption, color = T.inkFaint)
+                }
+            }
+        }
         if (styleProfile.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             BasicTextField(
