@@ -173,6 +173,17 @@ object MessageStore {
         return out.values.take(limit)
     }
 
+    /** High-VALUE rows for the semantic index: YOUR own messages first (that's what makes the brain
+     *  YOU), then other substantial messages — skipping tiny/noise lines. Bounds the embed backlog so
+     *  it's actually completable on a free tier instead of chasing hundreds of thousands of lines. */
+    fun valueRows(ctx: Context, cap: Int = 15000): List<Hit> = try {
+        db(ctx).rawQuery(
+            "SELECT contact, role, body FROM messages WHERE role='me' OR length(body) > 40 " +
+            "ORDER BY (role='me') DESC, ts DESC LIMIT ?", arrayOf(cap.toString())).use { c ->
+            val out = ArrayList<Hit>(); while (c.moveToNext()) out.add(Hit(c.getString(0), c.getString(1), c.getString(2))); out
+        }
+    } catch (e: Exception) { emptyList() }
+
     /** Every stored message (newest first), for one-time seeding of the semantic index. */
     fun allRows(ctx: Context, cap: Int = 20000): List<Hit> = try {
         db(ctx).rawQuery("SELECT contact,role,body FROM messages ORDER BY ts DESC LIMIT ?", arrayOf(cap.toString())).use { c ->

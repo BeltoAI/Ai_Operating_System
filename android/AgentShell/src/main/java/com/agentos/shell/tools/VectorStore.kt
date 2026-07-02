@@ -53,7 +53,8 @@ object VectorStore {
         val meta = ctx.getSharedPreferences("slyos_vec_meta", Context.MODE_PRIVATE)
         if (meta.getBoolean("seeded", false)) return
         try {
-            val rows = MessageStore.allRows(ctx, 20000)
+            // Seed the SELECTIVE, value-ranked set (your own writing first) — not all 300k+ lines.
+            val rows = MessageStore.valueRows(ctx, 15000)
             val d = db(ctx); d.beginTransaction()
             try {
                 val stmt = d.compileStatement("INSERT INTO vmem(contact,role,body,provider,dim,v,ts) VALUES(?,?,?,'',0,NULL,?)")

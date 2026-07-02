@@ -26,7 +26,7 @@ import com.agentos.shell.tools.ChecklistStore
 @Composable
 fun ChecklistScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val items = remember { mutableStateListOf<ChecklistStore.Item>().apply { addAll(ChecklistStore.load(ctx)) } }
+    val items = remember { mutableStateListOf<ChecklistStore.Item>().apply { ChecklistStore.prune(ctx); addAll(ChecklistStore.load(ctx)) } }
     var text by remember { mutableStateOf("") }
     fun refresh() { items.clear(); items.addAll(ChecklistStore.load(ctx)) }
 
