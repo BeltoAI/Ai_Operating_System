@@ -194,7 +194,9 @@ fun ReplyCard(note: NotificationStore.Note) {
                                     AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
                                 }
                             }
-                            draft = d; approving = true; busy = false
+                            // Don't hand the user an error placeholder as an editable, sendable draft.
+                            if (!AgentClient.looksLikeError(d)) { draft = d; approving = true }
+                            busy = false
                         }
                     }
                 )

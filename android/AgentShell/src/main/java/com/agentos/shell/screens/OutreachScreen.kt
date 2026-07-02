@@ -39,18 +39,25 @@ fun OutreachScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun refresh() { drafts.clear(); drafts.addAll(EmailDraftStore.load(ctx)) }
 
     fun generateFor(emails: List<String>) {
+        if (working) return
         if (emails.isEmpty()) { status = "No email addresses found."; return }
         working = true
         scope.launch {
             val mem = MemoryStore.about(ctx)
             val capped = emails.distinct().take(20)
+            var ok = 0; var failed = 0
             capped.forEachIndexed { i, addr ->
                 status = "Drafting ${i + 1}/${capped.size}…"
                 val (subj, body) = withContext(Dispatchers.IO) { AgentClient.draftOutreach(addr, topic, "", mem) }
-                EmailDraftStore.add(ctx, addr, subj, body)
-                MemoryLog.add(ctx, "response", "Outreach: $addr", "$subj — $body", "Outreach")
+                // Don't persist an error placeholder as a real, sendable draft.
+                if (AgentClient.looksLikeError(body)) { failed++ } else {
+                    EmailDraftStore.add(ctx, addr, subj, body)
+                    MemoryLog.add(ctx, "response", "Outreach: $addr", "$subj — $body", "Outreach")
+                    ok++
+                }
             }
-            refresh(); working = false; status = "Drafted ${capped.size}. Review and send each."
+            refresh(); working = false
+            status = "Drafted $ok. Review and send each." + (if (failed > 0) " ($failed failed — retry later.)" else "")
         }
     }
 

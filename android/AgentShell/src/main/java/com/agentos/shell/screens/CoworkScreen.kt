@@ -200,7 +200,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Regex("[\\w./~-]+\\.apk").find(act.message)?.value?.let { lastApk = it }
                     // Cowork builds things for you — count it toward your time-saved score, and feed the brain.
                     com.agentos.shell.tools.MetricsStore.record(ctx, 600)
-                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Cowork", "Cowork", "me", "me", "Cowork done: ${act.message.take(1500)}")
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Cowork", "Cowork", "system", "system", "Cowork done: ${act.message.take(1500)}")
                     break
                 }
                 chat.add("step" to "• " + act.note.ifBlank { act.tool + (if (act.name.isNotBlank()) " ${act.name}" else "") })

@@ -188,6 +188,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                 .replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
             val chapN = Regex("(?is)<h2[^>]*>").findAll(out).count()
             var note0 = withContext(Dispatchers.IO) { AgentClient.researchNote("Write this paper: $askedFor", newTitle, plain0, sources0) }
+            if (AgentClient.looksLikeError(note0)) note0 = ""   // drop error placeholder; the summary below still stands
             note0 += "\n\n📄 Drafted “$newTitle” — $chapN sections."
             note0 += if (sources0.isNotEmpty()) "\n🌐 Sources cited (${sources0.size}): " + sources0.joinToString("  ·  ")
                      else "\n⚠️ No source URLs came back — I couldn't web-verify citations this time."
@@ -392,6 +393,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
             val plain = frag.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
             val words = plain.split(" ").count { it.isNotBlank() }
             var note = withContext(Dispatchers.IO) { AgentClient.researchNote(instr, label, plain, sources) }
+            if (AgentClient.looksLikeError(note)) note = ""
             note += "\n\n📄 " + (if (kind == "add") "Added “$label”" else "Updated “$label”") + " (~$words words)."
             note += if (sources.isNotEmpty()) "\n🌐 Sources cited (${sources.size}): " + sources.joinToString("  ·  ")
                     else "\n⚠️ No source URLs came back — this section isn't web-verified."
@@ -490,7 +492,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
           status = if (priorDep > 0) "Publishing new version to Zenodo…" else "Publishing to Zenodo…"
           scope.launch {
             val (descAi, kws) = withContext(Dispatchers.IO) { AgentClient.zenodoMeta(titleNow, plain) }
-            val desc = descAi.ifBlank { plain.take(1200) }
+            // This description becomes the PUBLIC abstract of a permanent DOI — never let a model error
+            // string ("[couldn't…") mint into it; fall back to the paper's own text.
+            val desc = if (AgentClient.looksLikeError(descAi)) plain.take(1200) else descAi.ifBlank { plain.take(1200) }
             val res = withContext(Dispatchers.IO) {
                 ZenodoClient.publish(token, file, titleNow, author, "Belto", desc, pubType, kws, true, priorDep)
             }

@@ -50,8 +50,10 @@ fun NetworkScreen(modifier: Modifier = Modifier, initialQuery: String = "", onBa
             val ppl = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, q, 25) }
             people = ppl
             if (ppl.isNotEmpty()) {
-                message = withContext(Dispatchers.IO) { AgentClient.networkOutreach(q, MemoryStore.fullProfile(ctx)) }
-                MessageStore.insertOne(ctx, "Network", "Network", "me", "me", "Found ${ppl.size} people in my network for “$q”")
+                val m = withContext(Dispatchers.IO) { AgentClient.networkOutreach(q, MemoryStore.fullProfile(ctx)) }
+                if (!AgentClient.looksLikeError(m)) message = m
+                // System note — sender is "system", not "me", so it never pollutes voice/style learning.
+                MessageStore.insertOne(ctx, "Network", "Network", "system", "system", "Found ${ppl.size} people in my network for “$q”")
                 MetricsStore.record(ctx, 300)
             }
             busy = false

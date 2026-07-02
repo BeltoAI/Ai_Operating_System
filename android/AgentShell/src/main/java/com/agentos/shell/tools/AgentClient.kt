@@ -46,6 +46,22 @@ object AgentClient {
         return if (ctx != null) MemoryStore.anyProviderKey(ctx) else key().isNotBlank()
     }
 
+    /**
+     * True if a model result is actually an error/placeholder, not real content. Every screen that
+     * SAVES, SENDS, PUBLISHES, or shows a draft must gate on this — otherwise strings like
+     * "[couldn't draft: 429 …]", "[error 400 …]", "Agent error", "-1", or "(no reply)" leak out as if
+     * they were the user's own words (into an email, the brain, or a public Zenodo DOI).
+     */
+    fun looksLikeError(s: String?): Boolean {
+        val t = s?.trim().orEmpty()
+        if (t.isEmpty()) return true
+        val low = t.lowercase()
+        if (low.startsWith("agent error") || low.startsWith("err::") || low.contains("err::") || t == "(no reply)") return true
+        if (t.startsWith("[") && (low.contains("couldn't") || low.contains("error") ||
+                low.contains("rate limit") || low.contains("no api key"))) return true
+        return false
+    }
+
     /** Booking/scheduling link (Calendly etc.); set from MemoryStore so every reply can offer it. */
     @Volatile var bookingLink: String = ""
 

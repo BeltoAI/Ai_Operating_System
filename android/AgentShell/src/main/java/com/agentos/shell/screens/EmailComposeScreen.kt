@@ -40,21 +40,24 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
     var status by remember { mutableStateOf("") }
 
     fun generate() {
+        if (working) return
         working = true; status = ""
         scope.launch {
             val mem = MemoryStore.fullProfile(ctx)
             val (s, b) = withContext(Dispatchers.IO) { AgentClient.composeEmail(initialTo.ifBlank { "the recipient" }, topic, mem) }
-            if (!b.startsWith("[couldn't")) { subject = s; body = b }
+            if (!AgentClient.looksLikeError(b)) { subject = s; body = b } else status = "Couldn't draft it — tap Regenerate."
             working = false
         }
     }
     fun revise() {
-        if (editPrompt.isBlank() || body.isBlank()) return
+        if (working || editPrompt.isBlank() || body.isBlank()) return
         val instr = editPrompt; working = true; status = ""
         scope.launch {
             val mem = MemoryStore.fullProfile(ctx)
             val (s, b) = withContext(Dispatchers.IO) { AgentClient.reviseEmail(subject, body, instr, mem) }
-            subject = s; body = b; editPrompt = ""; working = false
+            // Never overwrite a good draft with an error string.
+            if (!AgentClient.looksLikeError(b)) { subject = s; body = b; editPrompt = "" } else status = "Edit failed — your draft is unchanged."
+            working = false
         }
     }
     fun send() {

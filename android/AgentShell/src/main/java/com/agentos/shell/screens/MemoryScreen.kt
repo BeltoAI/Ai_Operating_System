@@ -224,7 +224,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         return@launch
                     }
                     val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.learnStyle(pool) }
-                    if (profile.isNotBlank()) {
+                    if (!com.agentos.shell.tools.AgentClient.looksLikeError(profile)) {
                         styleProfile = profile
                         MemoryStore.setStyleProfile(ctx, profile)
                         com.agentos.shell.tools.AgentClient.styleProfile = profile
@@ -246,7 +246,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         if (voiceStatus.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(voiceStatus, fontSize = T.caption, color = T.accent) }
         var dbCount by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.count(ctx)) }
-        var dbPeople by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.topContacts(ctx, 100000).size) }
+        var dbPeople by remember { mutableStateOf(com.agentos.shell.tools.MessageStore.peopleCount(ctx)) }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Memory DB: $dbCount messages · $dbPeople people", fontSize = T.caption, color = T.inkFaint)
