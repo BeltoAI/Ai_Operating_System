@@ -109,6 +109,7 @@ fun HomeScreen(
     onSetMission: (String) -> Unit = {},
     onLook: () -> Unit = {},
     onShop: (String) -> Unit = {},
+    onInvest: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -332,6 +333,13 @@ fun HomeScreen(
             if (lookAct != null) {
                 thinking = false
                 onLook()
+                return@launch
+            }
+            // invest opens the practice-trading screen (build & run a paper portfolio).
+            val investAct = result.actions.firstOrNull { it.type == "invest" }
+            if (investAct != null) {
+                thinking = false
+                onInvest(investAct.arg)
                 return@launch
             }
             // write_paper navigates to the Research workspace, pre-filled.

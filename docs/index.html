@@ -307,6 +307,7 @@
     <div class="navlinks" onclick="this.classList.remove('open')">
       <a href="#features">Features</a>
       <a href="#world">Look &amp; Shop</a>
+      <a href="#invest">Invest</a>
       <a href="#cowork">Cowork</a>
       <a href="#mission">Mission</a>
       <a href="#job">Jobs</a>
@@ -521,8 +522,15 @@
       .lkpanel{position:relative;border:1px solid var(--line);border-radius:22px;overflow:hidden;background:#0f0d0c;min-height:360px}
       /* live camera demo */
       .lkcam{position:absolute;inset:0;background:radial-gradient(130% 100% at 50% 18%,#39312b,#131110 70%)}
-      .lkobj{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:120px;filter:drop-shadow(0 14px 34px rgba(0,0,0,.55));animation:lkfloat 6s ease-in-out infinite}
-      @keyframes lkfloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.03)}}
+      .lkobj{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=680&q=70') center/cover}
+      .lkobj::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.10),rgba(0,0,0,.40))}
+      .lktap{position:absolute;left:50%;top:60%;width:30px;height:30px;margin:-15px 0 0 -15px;border:2px solid #fff;border-radius:50%;background:rgba(255,255,255,.35);opacity:0;animation:lktap 8s ease-out infinite;z-index:3}
+      @keyframes lktap{0%,20%{opacity:0;transform:scale(.3)}24%{opacity:1;transform:scale(1)}36%{opacity:0;transform:scale(2.7)}100%{opacity:0}}
+      .lkbox{position:absolute;left:24%;top:40%;width:52%;height:42%;border:2px solid var(--accent);border-radius:10px;opacity:0;transform:scale(1.18);animation:lkbox 8s ease-in-out infinite;z-index:2}
+      .lkbox b{position:absolute;width:15px;height:15px;border:3px solid var(--accent)}
+      .lkbox .tl{top:-3px;left:-3px;border-right:0;border-bottom:0}.lkbox .tr{top:-3px;right:-3px;border-left:0;border-bottom:0}
+      .lkbox .bl{bottom:-3px;left:-3px;border-right:0;border-top:0}.lkbox .br{bottom:-3px;right:-3px;border-left:0;border-top:0}
+      @keyframes lkbox{0%,26%{opacity:0;transform:scale(1.18)}32%{opacity:1;transform:scale(1)}88%{opacity:1;transform:scale(1)}100%{opacity:0}}
       .lkscan{position:absolute;left:6%;right:6%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);box-shadow:0 0 14px var(--accent);animation:lkscan 3.4s cubic-bezier(.6,0,.4,1) infinite}
       @keyframes lkscan{0%{top:12%}50%{top:82%}100%{top:12%}}
       .lkret{position:absolute;left:50%;top:47%;width:96px;height:96px;transform:translate(-50%,-50%)}
@@ -558,11 +566,11 @@
     <div class="lkwrap">
       <!-- LIVE CAMERA -->
       <div class="lkpanel">
-        <div class="lkcam"></div>
-        <div class="lkobj">👟</div>
+        <div class="lkobj"></div>
         <div class="lkscan"></div>
-        <div class="lkret"><i></i><i></i><b class="h1"></b><b class="h2"></b><b class="v1"></b><b class="v2"></b></div>
-        <div class="lktag">◎ Tap to identify</div>
+        <div class="lkbox"><b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b></div>
+        <div class="lktap"></div>
+        <div class="lktag">◎ Tap an object</div>
         <div class="lkmic">🎤</div>
         <div class="lkcard">
           <h4>Nike Air Max 90</h4>
@@ -582,6 +590,55 @@
       </div>
     </div>
     <p class="muted" style="text-align:center;margin-top:18px;font-size:14px">Point &amp; identify · ask out loud · best-price shop — all feeding the same brain.</p>
+  </section>
+
+  <!-- INVEST -->
+  <section id="invest">
+    <p class="eyebrow">Make money — practice mode</p>
+    <h2>Give it $1,000 of fake money.<br>Watch the AI run a portfolio.</h2>
+    <p class="muted">Tell it how bold to be and what you're into; it designs a diversified portfolio from real tickers, you confirm the buy, and it tracks actual market performance with live prices. Fully autonomous — you only ever tap to approve a purchase. Goes real once we're licensed.</p>
+
+    <style>
+      .tdcard{max-width:560px;margin:28px auto 0;background:linear-gradient(180deg,#141210,#0f0d0c);border:1px solid var(--line);border-radius:22px;padding:22px}
+      .tdhead{display:flex;align-items:flex-end;justify-content:space-between}
+      .tdhead .lab{color:#c9c1b6;font-size:13px}
+      .tdval{color:#fff;font-size:30px;font-family:system-ui,sans-serif;margin-top:2px}
+      .tdpct{font-family:var(--script);font-style:italic;font-size:34px;color:#2E9E5B}
+      .tdchart{margin:14px 0 6px}
+      .tdchart path.line{stroke:var(--accent);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:520;stroke-dashoffset:520;animation:tddraw 2.4s ease-out forwards;animation-iteration-count:infinite;animation-duration:6s}
+      @keyframes tddraw{0%{stroke-dashoffset:520}45%,100%{stroke-dashoffset:0}}
+      .tdchart path.fill{fill:url(#tdg);opacity:.18}
+      .tdrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13px}
+      .tdrow .s{color:#fff;font-weight:600}.tdrow .w{color:#9a9085;font-size:11.5px;margin-left:8px}
+      .tdrow .up{color:#2E9E5B}
+      .tdconf{display:inline-block;margin-top:14px;background:var(--accent);color:#fff;font-size:13px;padding:10px 16px;border-radius:999px}
+    </style>
+    <div class="tdcard">
+      <div class="tdhead">
+        <div><div class="lab">Practice portfolio · balanced</div><div class="tdval">$<span id="pfValue">1,184</span></div></div>
+        <b class="tdpct" id="pfGrowth">+18.4%</b>
+      </div>
+      <div class="tdchart">
+        <svg viewBox="0 0 520 130" style="width:100%;height:auto">
+          <defs><linearGradient id="tdg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E8642C"/><stop offset="1" stop-color="#E8642C" stop-opacity="0"/></linearGradient></defs>
+          <path class="fill" d="M6,104 L92,96 L178,102 L264,74 L350,60 L436,40 L514,22 L514,128 L6,128 Z"/>
+          <path class="line" d="M6,104 L92,96 L178,102 L264,74 L350,60 L436,40 L514,22"/>
+        </svg>
+      </div>
+      <div class="tdrow"><div><span class="s">VTI</span><span class="w">Total market · 30%</span></div><span class="up">+11%</span></div>
+      <div class="tdrow"><div><span class="s">NVDA</span><span class="w">Nvidia · 15%</span></div><span class="up">+34%</span></div>
+      <div class="tdrow"><div><span class="s">SCHD</span><span class="w">Dividends · 20%</span></div><span class="up">+6%</span></div>
+      <div class="tdrow"><div><span class="s">MSFT</span><span class="w">Microsoft · 15%</span></div><span class="up">+9%</span></div>
+      <div style="text-align:center"><span class="tdconf">✓ Confirm &amp; buy — you approve every purchase</span></div>
+    </div>
+    <p class="muted" style="text-align:center;margin-top:16px;font-size:13.5px">Live figure pulled from a real practice run on the phone.</p>
+  </section>
+
+  <!-- PHONE REPLIES — COMING SOON -->
+  <section id="calls">
+    <p class="eyebrow">Coming soon</p>
+    <h2>It answers your phone —<br>in your voice.</h2>
+    <p class="muted">Forward your calls and SlyOS picks up, talks like you, and handles it — screening, booking, taking a message — then drops the summary straight into your brain. Real-time voice, cloned from you. &nbsp;<span class="pill">coming soon</span></p>
   </section>
 
   <!-- LOCAL COWORK -->
@@ -1071,6 +1128,11 @@
     function fmt(n){ return n >= 1000 ? (n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'') + 'k' : '' + n; }
     var m = document.getElementById('msgsStat'); if (m && s.messages) m.textContent = fmt(s.messages) + '+';
     var v = document.getElementById('savedStat'); if (v && (s.savedHoursWeek != null)) v.textContent = s.savedHoursWeek + 'h';
+    // Live practice-portfolio growth, pulled from the phone.
+    var pg = document.getElementById('pfGrowth');
+    if (pg && s.portfolioGrowth != null) { var g = Number(s.portfolioGrowth); pg.textContent = (g>=0?'+':'') + g.toFixed(1) + '%'; pg.style.color = g>=0 ? '#2E9E5B' : '#B23A2E'; }
+    var pv = document.getElementById('pfValue');
+    if (pv && s.portfolioValue != null) pv.textContent = Number(s.portfolioValue).toLocaleString(undefined,{maximumFractionDigits:0});
   }).catch(function(){});
 
   // Downloads counter — show the HIGHER of GitHub's real APK download_count (the true number) and the

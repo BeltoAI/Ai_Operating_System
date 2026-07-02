@@ -194,7 +194,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -210,6 +210,7 @@ object AgentClient {
             append("Use set_mission whenever the user wants to FIND PEOPLE / COMPANIES / LEADS / BUYERS / CUSTOMERS out in the world, or start a goal/outreach campaign (e.g. 'find me companies that build satellites', 'find buyers for my product', 'find me 10 fintech CTOs in NYC', 'set a mission to get customers', 'find me a job at aerospace startups'); arg = the goal in plain words INCLUDING any location. This opens the Mission screen and WEB-SEARCHES for real matching targets (with website, email or LinkedIn) + a ready message. Keep 'say' to one short line. ")
             append("Use network_search ONLY when the user asks about people they ALREADY KNOW / their EXISTING network, who they know somewhere, or wants to reach out to their contacts (e.g. 'do I have any CTOs in my network?', 'who do I know at Google?', 'find investors in my network', 'message my designer contacts'); arg = the role/type/company to look for. This opens a screen that lists the matching people with a ready-to-send message and a one-tap LinkedIn button. Keep 'say' to one short line. ")
             append("Use shop when the user wants to BUY something or find the best price for a product (e.g. 'buy me running shoes under $100', 'find the cheapest iPhone 15 case', 'order more coffee beans'); arg = the product to buy, in plain words including any brand/size/budget. This web-searches real buy options and shows them to tap-to-open (the user always taps buy themselves). Keep 'say' one short line. ")
+            append("Use invest when the user wants to invest / trade / grow money / build a stock portfolio / 'make money for me' / 'put my money to work' (it's a PRACTICE paper-trading account with fake money — the agent designs a portfolio and the user confirms the buy); arg = any hints they gave (risk, interests, amount) or empty. Opens the Invest screen. ")
             append("Use look when the user wants to identify something with the camera (e.g. 'what is this', 'what shoe is that', 'identify this plant', 'what building is this'); arg = empty. Opens the camera Look screen. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
@@ -227,6 +228,8 @@ object AgentClient {
             append("play_music={\"query\":\"Bohemian Rhapsody Queen\"} — to play or find a song/artist on Spotify. ")
             append("add_event={\"title\":\"Deep work\",\"start\":\"2026-06-15T17:00\",\"end\":\"2026-06-15T19:00\",\"attendees\":[\"a@x.com\"],\"meet\":true} — 'attendees' is OPTIONAL emails to invite (for a meeting between people); omit it for a personal blocker. Set 'meet':true when the user wants a video call / Google Meet / online meeting (a real Meet link is created if their Google is connected). Use the Current time to resolve 'today/tomorrow/Friday 2pm'. ")
             append("timer=seconds (e.g. 3600); alarm=\"HH:MM\" 24h. ")
+            append("Use remind for a timed reminder that pops a notification WITH a message — 'remind me in 20 minutes to call mom', 'remind me at 3pm to leave for the airport', 'remind me tomorrow at 9 to email Sam'. arg = {\"text\":\"call mom\",\"in\":1200} where 'in' is a RELATIVE delay in SECONDS, OR {\"text\":\"leave for the airport\",\"at\":\"2026-07-02T15:00\"} for an ABSOLUTE local time. Use the Current time to compute it. Prefer 'remind' over 'timer' whenever there's a thing to be reminded ABOUT; use plain alarm/timer only for a bare clock alarm or countdown with no message. ")
+            append("Add remind to the action types. ")
             append("Empty array if nothing to do.), ")
             append("\"remember\" (a durable personal fact worth saving, e.g. name/preference/relationship — or empty). ")
             append("ASSISTANT BEHAVIOR: act like a sharp personal assistant, not just a command runner. ")
@@ -1150,6 +1153,35 @@ object AgentClient {
                 Product(o.optString("name").trim(), o.optString("price").trim(), o.optString("merchant").trim(),
                     o.optString("url").trim(), o.optString("note").trim())
             }.filter { it.url.startsWith("http") }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    // ── Practice trading: the agent designs a portfolio for a PAPER account (fake money) ──
+    data class Pick(val symbol: String, val name: String, val weight: Double, val why: String)
+
+    /** Design a diversified portfolio of REAL, liquid US tickers for a practice account, matched to the
+     *  user's risk level, interests, and background. Weights sum to ~1.0. Prices are fetched live
+     *  elsewhere — the model must NOT invent prices, only pick tickers + target weights. */
+    fun suggestPortfolio(amount: Double, risk: String, interests: String, memory: String): List<Pick> {
+        val sys = "You are a portfolio strategist building a PRACTICE (paper-money) portfolio to be judged on real " +
+            "market performance. Pick 5-8 REAL, liquid, currently-listed US tickers (stocks or ETFs) suited to the " +
+            "risk level and interests, diversified across sectors. Guidance: conservative = mostly broad ETFs " +
+            "(VTI, BND, SCHD) + a few blue chips; balanced = mix of index ETFs and quality large-caps; aggressive = " +
+            "more growth/tech/thematic names with a small ballast. Assign target WEIGHTS (fractions of the total) " +
+            "that sum to ~1.0. Never invent prices or fake tickers. Reply ONLY as JSON: " +
+            "{\"positions\":[{\"symbol\":\"VTI\",\"name\":\"Vanguard Total Market\",\"weight\":0.3,\"why\":\"one short line\"}]}"
+        val user = "Amount: $${amount.toInt()} (fake). Risk: $risk. Interests: ${interests.ifBlank { "none specified" }}. " +
+            "About me (for relevance): " + memory.take(600)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 900, VOICE)
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("positions")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                Pick(o.optString("symbol").trim().uppercase(), o.optString("name").trim(), o.optDouble("weight", 0.0), o.optString("why").trim())
+            }.filter { it.symbol.isNotBlank() && it.weight > 0 }
         } catch (e: Exception) { emptyList() }
     }
 

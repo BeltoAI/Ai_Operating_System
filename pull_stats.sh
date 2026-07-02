@@ -35,6 +35,13 @@ done
 WEEK_H=$(awk "BEGIN{printf \"%.1f\", $WEEK_SEC/3600}")
 TOTAL_H=$(awk "BEGIN{printf \"%d\", $TOTAL_SEC/3600}")
 
+# Practice-portfolio growth: read the last snapshot the phone saved (slyos_trade.xml). null if none yet.
+adb exec-out run-as "$PKG" cat shared_prefs/slyos_trade.xml > "$TMP/trade.xml" 2>/dev/null || echo "" > "$TMP/trade.xml"
+xval(){ grep -oE "name=\"$1\" value=\"[-0-9.]+\"" "$TMP/trade.xml" | sed -E 's/.*value="([-0-9.]+)".*/\1/' | head -1; }
+PGROWTH=$(xval growth_pct); PVALUE=$(xval last_value)
+[ -z "$PGROWTH" ] && PGROWTH=null
+[ -z "$PVALUE" ] && PVALUE=null || PVALUE=$(awk "BEGIN{printf \"%d\", $PVALUE}")
+
 cat > "$SCRIPT_DIR/docs/stats.json" <<JSON
 {
   "messages": $MSGS,
@@ -42,6 +49,8 @@ cat > "$SCRIPT_DIR/docs/stats.json" <<JSON
   "last24h": $DAY24,
   "savedHoursWeek": $WEEK_H,
   "savedHoursTotal": $TOTAL_H,
+  "portfolioGrowth": $PGROWTH,
+  "portfolioValue": $PVALUE,
   "updated": "$(date +%F)"
 }
 JSON

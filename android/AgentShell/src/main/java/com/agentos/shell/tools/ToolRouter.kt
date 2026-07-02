@@ -114,6 +114,7 @@ object ToolRouter {
                 "play_music" -> playMusic(ctx, arg)
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
+                "remind" -> remind(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
                 "pin_app" -> {
                     val app = installedApps(ctx).firstOrNull { it.label.lowercase().contains(arg.lowercase()) }
@@ -184,6 +185,26 @@ object ToolRouter {
             .putExtra(AlarmClock.EXTRA_MINUTES, m)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
         return "Alarm set for %02d:%02d".format(h, m)
+    }
+
+    /** Schedule a timed reminder that pops a notification with a message.
+     *  arg = {"text":"call mom","in":1200}  (relative seconds)  or  {"text":"leave","at":"2026-07-02T15:00"}. */
+    private fun remind(ctx: Context, arg: String): String {
+        return try {
+            val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("text", arg) }
+            val text = o.optString("text").ifBlank { return "What should I remind you about?" }
+            val now = System.currentTimeMillis()
+            val at = when {
+                o.has("in") -> now + o.optLong("in", 0L) * 1000L
+                o.optString("at").isNotBlank() -> parseLocal(o.optString("at"))
+                else -> 0L
+            }
+            if (at <= now + 1000) return "When should I remind you?"
+            com.agentos.shell.ReminderScheduler.schedule(ctx, at, text)
+            MessageStore.insertOne(ctx, "Reminders", "Reminder", "me", "me", "Reminder set: $text")
+            val whenStr = java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at))
+            "Reminder set for $whenStr — “$text”"
+        } catch (e: Exception) { "I couldn't set that reminder." }
     }
 
     private fun parseDuration(s: String): Int {

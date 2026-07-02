@@ -73,4 +73,6 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("androidx.camera:camera-view:1.3.4")
+    // On-device object detection — draws a real box around the object you tap in Look mode.
+    implementation("com.google.mlkit:object-detection:17.0.2")
 }

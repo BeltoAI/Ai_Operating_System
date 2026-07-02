@@ -117,5 +117,8 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config"/>
         </service>
+
+        <!-- Fires timed reminders ("remind me in 20 min to…") as notifications. -->
+        <receiver android:name=".ReminderReceiver" android:exported="false"/>
     </application>
 </manifest>
