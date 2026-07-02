@@ -60,6 +60,21 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
 
     fun key(p: AgentClient.Prospect) = p.company.ifBlank { p.name }.ifBlank { p.email }
     fun cleanEmail(s: String): String = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(s)?.value ?: ""
+    fun domainOf(url: String): String = try {
+        if (url.isBlank()) "" else {
+            var u = url.trim(); if (!u.startsWith("http")) u = "https://$u"
+            (android.net.Uri.parse(u).host ?: "").removePrefix("www.")
+        }
+    } catch (e: Exception) { "" }
+    // Real email if found, else a BEST-GUESS from the person's name + the company domain (first.last@ is
+    // by far the most common corporate pattern), so you can still reach them.
+    fun guessEmail(p: AgentClient.Prospect): String {
+        val real = cleanEmail(p.email); if (real.isNotBlank()) return real
+        val dom = domainOf(p.website); if (dom.isBlank()) return ""
+        val parts = p.name.lowercase().replace(Regex("[^a-z ]"), " ").split(Regex("\\s+")).filter { it.length > 1 }
+        return when { parts.size >= 2 -> parts.first() + "." + parts.last() + "@" + dom; parts.size == 1 -> parts[0] + "@" + dom; else -> "" }
+    }
+    fun isGuessed(p: AgentClient.Prospect) = cleanEmail(p.email).isBlank() && guessEmail(p).isNotBlank()
     fun openUrl(u: String) { if (u.isBlank()) return; try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
     fun linkedInOf(p: AgentClient.Prospect): String {
         if (p.linkedin.isNotBlank()) return p.linkedin
@@ -78,9 +93,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         } }
     }
     fun goalFor(t: String, d: String) = when (t) {
-        "sell" -> "Find organizations that would buy: $d. (Reach out to sell it.)"
-        "job" -> "Find companies hiring for this and people who can refer me: $d."
-        "intros" -> "Find people/organizations worth connecting with for: $d."
+        "sell" -> "Find organizations that would buy: $d — and the SPECIFIC person to contact at each (the CEO, founder, or relevant decision-maker). Reach out to sell it."
+        "job" -> "Find companies hiring for this — and the SPECIFIC person to reach at each (hiring manager, recruiter, or team lead who could refer me): $d."
+        "intros" -> "Find SPECIFIC people worth connecting with (and their organization) for: $d. Reach out to each person."
         else -> d
     }
     fun placeholder(t: String) = when (t) {
@@ -129,14 +144,14 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         scope.launch {
             // Professional email if we have an address; a shorter note for pasting into LinkedIn otherwise.
             draft = withContext(Dispatchers.IO) {
-                if (cleanEmail(p.email).isNotBlank()) AgentClient.outreachEmail(goal, p.name.ifBlank { p.company }, p.company, MemoryStore.fullProfile(ctx))
+                if (guessEmail(p).isNotBlank()) AgentClient.outreachEmail(goal, p.name.ifBlank { p.company }, p.company, MemoryStore.fullProfile(ctx))
                 else AgentClient.tailoredOutreach(goal, p.name.ifBlank { p.company }, "", p.company, MemoryStore.fullProfile(ctx))
             }
             reviewBusy = false
         }
     }
     fun sendNow(p: AgentClient.Prospect, body: String) {
-        val email = cleanEmail(p.email)
+        val email = guessEmail(p)
         val subject = "Reaching out" + (if (p.company.isNotBlank()) " — ${p.company}" else "")
         scope.launch {
             if (email.isNotBlank() && GoogleAuth.isConnected(ctx)) {
@@ -231,13 +246,15 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                     if (p.company.isNotBlank() && p.name.isNotBlank()) Text(p.company, fontSize = T.caption, color = T.inkFaint)
                     else if (p.name.isBlank() && p.role.isNotBlank()) Text("Reach the ${p.role}", fontSize = T.caption, color = T.inkFaint)
                     if (p.why.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(p.why, fontSize = T.caption, color = T.inkSoft) }
+                    val em = guessEmail(p)
+                    if (em.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(em + (if (isGuessed(p)) "  (guessed)" else "  (found)"), fontSize = T.caption, color = T.inkFaint) }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (p.website.isNotBlank()) Text("Website", fontSize = T.small, color = ACC, modifier = Modifier.clickable { openUrl(p.website) }.padding(end = 18.dp, top = 4.dp, bottom = 4.dp))
                         Text("LinkedIn", fontSize = T.small, color = ACC, modifier = Modifier.clickable { openUrl(linkedInOf(p)) }.padding(top = 4.dp, bottom = 4.dp))
                     }
                     Spacer(Modifier.height(8.dp))
-                    val hasEmail = cleanEmail(p.email).isNotBlank()
+                    val hasEmail = em.isNotBlank()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (done) "Reviewed ✓ · again" else if (hasEmail) "Draft & send email" else "Draft note (paste to LinkedIn)",
                             fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
@@ -262,7 +279,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             Column(Modifier.fillMaxWidth(0.94f).clip(RoundedCornerShape(18.dp)).background(T.bg).padding(18.dp)) {
                 Text("Review before sending", fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(4.dp))
-                Text(p.name.ifBlank { p.company } + (if (cleanEmail(p.email).isNotBlank()) "  ·  ${cleanEmail(p.email)}" else "  ·  no email — will copy"), fontSize = T.small, color = T.ink)
+                Text(p.name.ifBlank { p.company } + (if (guessEmail(p).isNotBlank()) "  ·  ${guessEmail(p)}${if (isGuessed(p)) " (guessed)" else ""}" else "  ·  no email — will copy"), fontSize = T.small, color = T.ink)
                 Spacer(Modifier.height(10.dp))
                 if (reviewBusy) Text("Writing your draft…", fontSize = T.small, color = ACC)
                 else BasicTextField(draft, { draft = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
@@ -271,7 +288,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                 if (sendStatus.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(sendStatus, fontSize = T.caption, color = ACC) }
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val hasEmail = cleanEmail(p.email).isNotBlank()
+                    val hasEmail = guessEmail(p).isNotBlank()
                     Text(if (hasEmail && GoogleAuth.isConnected(ctx)) "Send via Gmail" else if (hasEmail) "Open email" else "Copy & open LinkedIn",
                         fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(ACC)
