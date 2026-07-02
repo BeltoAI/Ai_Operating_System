@@ -45,6 +45,32 @@ object GmailClient {
         } catch (e: Exception) { -1 to (e.message ?: "network error") }
     }
 
+    /**
+     * RFC 2047 encoded-word for a header value. Email HEADERS are ASCII-only on the wire, so a raw
+     * UTF-8 character (an em-dash "—", curly quotes, accents, emoji) gets mis-decoded into mojibake
+     * like "Ã¢ÂÂ". Encode any non-ASCII header as =?UTF-8?B?…?=, chunked so no encoded-word exceeds
+     * the 75-char limit and multibyte characters never split across a chunk. The body is unaffected
+     * (its Content-Type already declares UTF-8).
+     */
+    private fun encodeHeader(s: String): String {
+        if (s.all { it.code in 0..127 }) return s
+        val out = StringBuilder()
+        val chunk = StringBuilder()
+        fun flush() {
+            if (chunk.isEmpty()) return
+            val enc = Base64.encodeToString(chunk.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            if (out.isNotEmpty()) out.append("\r\n ")   // continuation: CRLF + space
+            out.append("=?UTF-8?B?").append(enc).append("?=")
+            chunk.setLength(0)
+        }
+        for (ch in s) {
+            chunk.append(ch)
+            if (chunk.toString().toByteArray(Charsets.UTF_8).size >= 39) flush()   // ~52 base64 chars → under 75
+        }
+        flush()
+        return out.toString()
+    }
+
     /** Send an email as the user (gmail.send). Returns ok + a message. Records it to the brain. */
     fun send(ctx: Context, to: String, subject: String, body: String): Pair<Boolean, String> {
         val token = GoogleAuth.accessToken(ctx)
@@ -53,7 +79,7 @@ object GmailClient {
         // From (stale/wrong account) triggers a 403 "Delegation denied," which is likely what happened.
         val mime = buildString {
             append("To: ").append(to).append("\r\n")
-            append("Subject: ").append(subject).append("\r\n")
+            append("Subject: ").append(encodeHeader(subject)).append("\r\n")
             append("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n")
             append(body)
         }
@@ -143,7 +169,10 @@ object GmailClient {
             (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
         } catch (e: Exception) { return 0 }
         val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
-        val seen = HashSet(prefs.getStringSet("seen", emptySet()) ?: emptySet())
+        // Insertion-ordered so the 600-cap below evicts the OLDEST ids, not arbitrary ones. With a plain
+        // HashSet, takeLast(600) kept a random subset — recently-seen ids could be dropped and their
+        // emails re-ingested as duplicates once the inbox history passed 600.
+        val seen = LinkedHashSet(prefs.getStringSet("seen", emptySet()) ?: emptySet())
         var added = 0
         for (id in ids) {
             if (id.isBlank() || seen.contains(id)) continue

@@ -58,7 +58,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     var reviewBusy by remember { mutableStateOf(false) }
     var sendStatus by remember { mutableStateOf("") }
 
-    fun key(p: AgentClient.Prospect) = p.company.ifBlank { p.name }.ifBlank { p.email }
+    // Unique per person: two contacts at the same company must not collapse to one key (which would
+    // make "contacted"/"replied" toggles bleed across both). Combine name + company.
+    fun key(p: AgentClient.Prospect) = (p.name.trim() + "@" + p.company.trim()).trim('@').ifBlank { p.email }.ifBlank { p.website }
     fun cleanEmail(s: String): String = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(s)?.value ?: ""
     fun domainOf(url: String): String = try {
         if (url.isBlank()) "" else {
@@ -115,6 +117,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             prospects = ps
             if (ps.isEmpty()) error = "No results. Web search needs Claude — set replies/Heavy to Claude in Settings, then retry."
             else {
+                // Progress is measured against the people we ACTUALLY found, not a fixed 10 — otherwise
+                // reaching everyone (when only, say, 6 turn up) would cap the bar well below 40%.
+                MissionStore.setTarget(ctx, ps.size)
                 MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Mission: $g — ${ps.size} targets found")
                 storeProspects(g, ps); MetricsStore.record(ctx, 900)
             }
@@ -130,7 +135,7 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             val more = withContext(Dispatchers.IO) { AgentClient.findProspects(g2, MemoryStore.fullProfile(ctx)) }
             val seen = have.map { it.lowercase() }.toSet()
             val fresh = more.filter { (it.company.ifBlank { it.name }).lowercase() !in seen }
-            if (fresh.isNotEmpty()) { storeProspects(goal, fresh); prospects = prospects + fresh; MetricsStore.record(ctx, 300) }
+            if (fresh.isNotEmpty()) { storeProspects(goal, fresh); prospects = prospects + fresh; MissionStore.setTarget(ctx, prospects.size); MetricsStore.record(ctx, 300) }
             busy = false
         }
     }
