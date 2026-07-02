@@ -256,6 +256,9 @@ fun HomeScreen(
                     com.agentos.shell.tools.MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {
                         append("\nYOUR STANDING MISSION (you are acting as this person; keep this goal in mind and, when relevant, proactively suggest concrete next steps toward it): ").append(it)
                     }
+                    com.agentos.shell.tools.TradeStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
+                        append("\n").append(it).append(" (When the user asks about investing/their portfolio/how it's doing, use these real numbers; they can manage it on the Invest screen.)")
+                    }
                     append("\nCurrent time: ").append(now)
                 }
             }

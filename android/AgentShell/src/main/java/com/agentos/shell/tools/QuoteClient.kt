@@ -17,12 +17,25 @@ object QuoteClient {
         if (c.responseCode in 200..299) c.inputStream.bufferedReader().use { it.readText() } else null
     } catch (e: Exception) { null }
 
-    private fun fromYahoo(symbol: String): Double? = try {
-        val body = http("https://query1.finance.yahoo.com/v8/finance/chart/$symbol?interval=1d&range=1d") ?: return null
-        val meta = JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0).getJSONObject("meta")
-        val p = meta.optDouble("regularMarketPrice", 0.0)
-        if (p > 0) p else null
-    } catch (e: Exception) { null }
+    data class Quote(val price: Double, val prevClose: Double, val state: String)
+
+    /** Rich quote from Yahoo's chart endpoint: latest price (intraday when the market's open), the
+     *  previous close (for day-change), and market state (REGULAR / CLOSED / PRE / POST). */
+    fun quote(symbol: String): Quote? {
+        val s = symbol.trim().uppercase(); if (s.isBlank()) return null
+        return try {
+            val body = http("https://query1.finance.yahoo.com/v8/finance/chart/$s?interval=1m&range=1d") ?: return stooqQuote(s)
+            val meta = JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0).getJSONObject("meta")
+            val p = meta.optDouble("regularMarketPrice", 0.0)
+            val prev = meta.optDouble("chartPreviousClose", meta.optDouble("previousClose", p))
+            val state = meta.optString("marketState", "").ifBlank { "CLOSED" }
+            if (p > 0) Quote(p, if (prev > 0) prev else p, state) else stooqQuote(s)
+        } catch (e: Exception) { stooqQuote(s) }
+    }
+
+    private fun stooqQuote(symbol: String): Quote? = fromStooq(symbol)?.let { Quote(it, it, "CLOSED") }
+
+    private fun fromYahoo(symbol: String): Double? = quote(symbol)?.price
 
     private fun fromStooq(symbol: String): Double? = try {
         // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
@@ -42,6 +55,13 @@ object QuoteClient {
     fun prices(symbols: List<String>): Map<String, Double> {
         val out = LinkedHashMap<String, Double>()
         for (s in symbols.distinct()) { price(s)?.let { out[s.uppercase()] = it } }
+        return out
+    }
+
+    /** Rich quotes for several symbols; missing ones are omitted. */
+    fun quotes(symbols: List<String>): Map<String, Quote> {
+        val out = LinkedHashMap<String, Quote>()
+        for (s in symbols.distinct()) { quote(s)?.let { out[s.uppercase()] = it } }
         return out
     }
 }

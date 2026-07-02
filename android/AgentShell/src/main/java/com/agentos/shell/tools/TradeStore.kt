@@ -81,12 +81,46 @@ object TradeStore {
         return true
     }
 
-    /** Persist the latest total value + growth% so pull_stats.sh can surface it on the website. */
+    /** Persist the latest total value + growth% so pull_stats.sh can surface it on the website, and
+     *  append a point to the value time-series that powers the portfolio graph. */
     fun saveSnapshot(ctx: Context, totalValue: Double) {
         val dep = deposited(ctx)
         val growth = if (dep > 0) (totalValue - dep) / dep * 100.0 else 0.0
         prefs(ctx).edit().putFloat("last_value", totalValue.toFloat()).putFloat("growth_pct", growth.toFloat())
             .putLong("last_value_ts", System.currentTimeMillis()).apply()
+        appendValuePoint(ctx, totalValue)
+    }
+
+    private fun appendValuePoint(ctx: Context, v: Double) {
+        val arr = try { JSONArray(prefs(ctx).getString("series", "[]")) } catch (e: Exception) { JSONArray() }
+        val now = System.currentTimeMillis()
+        // Don't spam the series: at most one point per ~5 minutes.
+        if (arr.length() > 0) {
+            val last = arr.getJSONObject(arr.length() - 1)
+            if (now - last.optLong("t") < 5 * 60 * 1000L) { last.put("t", now).put("v", v); prefs(ctx).edit().putString("series", arr.toString()).apply(); return }
+        }
+        arr.put(JSONObject().put("t", now).put("v", v))
+        val start = maxOf(0, arr.length() - 500)
+        val trimmed = JSONArray(); for (i in start until arr.length()) trimmed.put(arr.get(i))
+        prefs(ctx).edit().putString("series", trimmed.toString()).apply()
+    }
+
+    fun valueSeries(ctx: Context): List<Pair<Long, Double>> = try {
+        val arr = JSONArray(prefs(ctx).getString("series", "[]"))
+        (0 until arr.length()).map { val o = arr.getJSONObject(it); o.getLong("t") to o.getDouble("v") }
+    } catch (e: Exception) { emptyList() }
+
+    fun lastValue(ctx: Context): Double = prefs(ctx).getFloat("last_value", 0f).toDouble()
+
+    /** A short text summary of the portfolio for the agent's context (feeds OUT of the brain). */
+    fun summary(ctx: Context): String {
+        if (!started(ctx)) return ""
+        val h = holdings(ctx); if (h.isEmpty()) return ""
+        val val0 = lastValue(ctx); val dep = deposited(ctx)
+        val g = if (dep > 0) (val0 - dep) / dep * 100.0 else 0.0
+        return "My practice investing portfolio: ~$" + "%,.0f".format(val0) + " (started $" + "%,.0f".format(dep) + ", " +
+            "%+.1f%%".format(g) + "). Holdings: " + h.joinToString(", ") { "${it.symbol} ${"%.2f".format(it.shares)}sh" } +
+            ". Cash: $" + "%,.0f".format(cash(ctx)) + "."
     }
 
     fun reset(ctx: Context) = prefs(ctx).edit().clear().apply()

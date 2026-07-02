@@ -1185,6 +1185,44 @@ object AgentClient {
         } catch (e: Exception) { emptyList() }
     }
 
+    // ── Trade command bar: turn "buy $200 of nvidia, add some gold, sell half my apple" into actions ──
+    data class TradeIntent(val action: String, val symbol: String, val name: String, val usd: Double, val shares: Double, val fraction: Double)
+
+    fun parseTradeCommand(text: String, holdings: String, cash: Double): List<TradeIntent> {
+        val sys = "Turn the user's request into structured trade actions for their PRACTICE portfolio. Map common " +
+            "names to real tickers: gold=GLD, silver=SLV, bitcoin/btc=BTC-USD, ethereum/eth=ETH-USD, oil=USO, " +
+            "s&p/sp500=VOO, nasdaq=QQQ, total market=VTI. For BUY: set \"usd\" (dollars to spend) if the user gave a " +
+            "dollar amount, else set \"shares\". For SELL: set \"shares\" if given, or \"fraction\" (0.5 for 'half', " +
+            "1 for 'all'/'everything'). Use ONLY real, valid tickers; if unclear, best guess. Numbers you don't have = 0. " +
+            "Reply ONLY as JSON: {\"trades\":[{\"action\":\"buy|sell\",\"symbol\":\"NVDA\",\"name\":\"Nvidia\",\"usd\":200,\"shares\":0,\"fraction\":0}]}"
+        val user = "Current holdings: ${holdings.ifBlank { "(none)" }}. Cash available: $${cash.toInt()}. Request: $text"
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, t) = callMessages(sys, msgs, 400, VOICE)
+        if (code != 200) return emptyList()
+        return try {
+            val s = t.indexOf('{'); val e = t.lastIndexOf('}')
+            val arr = JSONObject(t.substring(s, e + 1)).getJSONArray("trades")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                TradeIntent(o.optString("action").lowercase().trim(), o.optString("symbol").uppercase().trim(),
+                    o.optString("name").trim(), o.optDouble("usd", 0.0), o.optDouble("shares", 0.0), o.optDouble("fraction", 0.0))
+            }.filter { (it.action == "buy" || it.action == "sell") && it.symbol.isNotBlank() }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    /** A short, news-aware briefing on the user's portfolio for a daily update / big-move alert. Web search. */
+    fun portfolioBriefing(summary: String, dayChange: String, memory: String): String {
+        val sys = "You are the user's sharp investing assistant WITH web search. Given their PRACTICE portfolio, find the " +
+            "most important RECENT (last ~24h) news affecting these specific holdings. Write a SHORT briefing in plain text " +
+            "(3-5 lines, no markdown): one line on how the portfolio did, 1-2 concrete news items each tagged with the " +
+            "ticker, and — only if warranted — ONE actionable suggestion (e.g. 'NVDA earnings after close tomorrow', " +
+            "'consider trimming X after the run'). Never invent news or prices. It's a practice account, so be direct."
+        val user = "PORTFOLIO: $summary\nTODAY: $dayChange\nABOUT ME: " + memory.take(400)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, t) = callMessages(sys, msgs, 500, VOICE, 120000, webTool())
+        return if (code == 200) t.trim() else ""
+    }
+
     data class EmailContact(val name: String, val email: String, val company: String)
 
     /** Web-search for real people + work emails relevant to the ask (best-effort; Anthropic web only). */

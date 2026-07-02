@@ -1,5 +1,6 @@
 package com.agentos.shell.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,7 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -33,8 +37,9 @@ private val UP = Color(0xFF2E9E5B)
 private val DOWN = Color(0xFFB23A2E)
 
 /**
- * Practice investing — the agent designs a portfolio from fake money, you confirm the buy, and we
- * track how it really performs. Buys are always user-confirmed; later this becomes real with a broker.
+ * Practice investing — the agent designs a portfolio from practice money, you confirm the buy, and we
+ * track real market performance (live prices, a value graph, a natural-language buy/sell bar, and
+ * daily/big-move alerts). Buys always need your tap. Goes real once we're licensed.
  */
 @Composable
 fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBack: () -> Unit) {
@@ -46,27 +51,41 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
     var interests by remember { mutableStateOf(TradeStore.interests(ctx).ifBlank { initialPrompt.take(80) }) }
     var amount by remember { mutableStateOf("1000") }
     var picks by remember { mutableStateOf<List<AgentClient.Pick>>(emptyList()) }
-    var quotes by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
+    var quotes by remember { mutableStateOf<Map<String, QuoteClient.Quote>>(emptyMap()) }
     var busy by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
 
-    // Live portfolio numbers.
     var value by remember { mutableStateOf(0.0) }
+    var dayPct by remember { mutableStateOf(0.0) }
+    var updatedAt by remember { mutableStateOf(0L) }
+    var marketState by remember { mutableStateOf("") }
     var holdings by remember { mutableStateOf(TradeStore.holdings(ctx)) }
+    var series by remember { mutableStateOf(TradeStore.valueSeries(ctx)) }
+
+    // Buy/sell command bar.
+    data class Plan(val action: String, val symbol: String, val name: String, val shares: Double, val price: Double, val cost: Double)
+    var cmd by remember { mutableStateOf("") }
+    var plans by remember { mutableStateOf<List<Plan>>(emptyList()) }
+    var cmdError by remember { mutableStateOf("") }
 
     fun refreshPortfolio() {
         busy = "load"
         scope.launch {
             val h = TradeStore.holdings(ctx); holdings = h
-            val q = withContext(Dispatchers.IO) { QuoteClient.prices(h.map { it.symbol }) }
+            val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
             quotes = q
-            val invested = h.sumOf { (q[it.symbol] ?: it.avgCost) * it.shares }
+            val invested = h.sumOf { (q[it.symbol]?.price ?: it.avgCost) * it.shares }
+            val prevInv = h.sumOf { (q[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
             value = TradeStore.cash(ctx) + invested
+            val prevVal = TradeStore.cash(ctx) + prevInv
+            dayPct = if (prevVal > 0) (value - prevVal) / prevVal * 100.0 else 0.0
+            marketState = q.values.firstOrNull()?.state ?: ""
+            updatedAt = System.currentTimeMillis()
             TradeStore.saveSnapshot(ctx, value)
+            series = TradeStore.valueSeries(ctx)
             busy = ""
         }
     }
-
     LaunchedEffect(Unit) { if (started) refreshPortfolio() }
 
     fun build() {
@@ -77,78 +96,117 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
         scope.launch {
             val ps = withContext(Dispatchers.IO) { AgentClient.suggestPortfolio(amt, risk, interests, MemoryStore.fullProfile(ctx)) }
             if (ps.isEmpty()) { error = "Couldn't build a portfolio — set replies to Claude/GPT in Settings and retry."; busy = ""; return@launch }
-            val q = withContext(Dispatchers.IO) { QuoteClient.prices(ps.map { it.symbol }) }
+            val q = withContext(Dispatchers.IO) { QuoteClient.quotes(ps.map { it.symbol }) }
             val priced = ps.filter { q.containsKey(it.symbol) }
             if (priced.isEmpty()) { error = "Couldn't fetch live prices right now — try again in a moment."; busy = ""; return@launch }
             picks = priced; quotes = q; busy = ""
         }
     }
+    fun sharesFor(p: AgentClient.Pick, amt: Double): Double { val px = quotes[p.symbol]?.price ?: return 0.0; return if (px > 0) amt * p.weight / px else 0.0 }
 
-    fun sharesFor(p: AgentClient.Pick, amt: Double): Double {
-        val price = quotes[p.symbol] ?: return 0.0
-        return if (price > 0) (amt * p.weight / price) else 0.0
-    }
-
-    fun confirmBuy() {
+    fun confirmBuild() {
         val amt = amount.toDoubleOrNull() ?: return
         if (busy.isNotEmpty() || picks.isEmpty()) return
         busy = "buy"
         scope.launch {
             withContext(Dispatchers.IO) {
                 TradeStore.deposit(ctx, amt)
-                picks.forEach { p -> val sh = sharesFor(p, amt); val px = quotes[p.symbol] ?: 0.0; if (sh > 0 && px > 0) TradeStore.buy(ctx, p.symbol, p.name, sh, px) }
-                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system",
-                    "Built a $${amt.toInt()} practice portfolio ($risk): " + picks.joinToString(", ") { "${it.symbol} ${(it.weight * 100).toInt()}%" })
+                picks.forEach { p -> val sh = sharesFor(p, amt); val px = quotes[p.symbol]?.price ?: 0.0; if (sh > 0 && px > 0) TradeStore.buy(ctx, p.symbol, p.name, sh, px) }
+                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Built a $${amt.toInt()} practice portfolio ($risk): " + picks.joinToString(", ") { "${it.symbol} ${(it.weight * 100).toInt()}%" })
                 MetricsStore.record(ctx, 900)
             }
-            started = true; picks = emptyList()
-            refreshPortfolio()
+            started = true; picks = emptyList(); refreshPortfolio()
         }
     }
 
-    fun sellAll() {
-        if (busy.isNotEmpty()) return
-        busy = "sell"
+    fun runCmd() {
+        val c = cmd.trim(); if (c.isBlank() || busy.isNotEmpty()) return
+        busy = "cmd"; cmdError = ""; plans = emptyList()
+        scope.launch {
+            val hstr = holdings.joinToString(", ") { "${it.symbol} ${"%.2f".format(it.shares)}sh" }
+            val intents = withContext(Dispatchers.IO) { AgentClient.parseTradeCommand(c, hstr, TradeStore.cash(ctx)) }
+            val out = ArrayList<Plan>()
+            for (it in intents) {
+                val qq = withContext(Dispatchers.IO) { QuoteClient.quote(it.symbol) } ?: continue
+                val px = qq.price; if (px <= 0) continue
+                if (it.action == "buy") {
+                    val sh = if (it.usd > 0) it.usd / px else it.shares
+                    if (sh > 0) out.add(Plan("buy", it.symbol, it.name.ifBlank { it.symbol }, sh, px, sh * px))
+                } else {
+                    val cur = holdings.firstOrNull { h -> h.symbol.equals(it.symbol, true) }
+                    val sh = when { it.shares > 0 -> it.shares; it.fraction > 0 -> (cur?.shares ?: 0.0) * it.fraction; else -> cur?.shares ?: 0.0 }
+                    if (sh > 0) out.add(Plan("sell", it.symbol, cur?.name ?: it.symbol, sh, px, sh * px))
+                }
+            }
+            plans = out; busy = ""
+            if (out.isEmpty()) cmdError = "Couldn't read that — try “buy $200 of NVDA”, “add some gold”, or “sell half my AAPL”."
+        }
+    }
+    fun confirmPlans() {
+        if (busy.isNotEmpty() || plans.isEmpty()) return
+        busy = "exec"
         scope.launch {
             withContext(Dispatchers.IO) {
-                val q = QuoteClient.prices(TradeStore.holdings(ctx).map { it.symbol })
-                TradeStore.holdings(ctx).forEach { h -> TradeStore.sell(ctx, h.symbol, h.shares, q[h.symbol] ?: h.avgCost) }
-                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Sold the whole practice portfolio to cash.")
+                plans.forEach { p ->
+                    if (p.action == "buy") {
+                        val need = p.cost - TradeStore.cash(ctx)
+                        if (need > 0) TradeStore.deposit(ctx, kotlin.math.ceil(need).toDouble())   // add practice cash to cover
+                        TradeStore.buy(ctx, p.symbol, p.name, p.shares, p.price)
+                    } else TradeStore.sell(ctx, p.symbol, p.shares, p.price)
+                    MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "${p.action} ${"%.3f".format(p.shares)} ${p.symbol} @ $${"%.2f".format(p.price)}")
+                }
+                MetricsStore.record(ctx, 120)
             }
-            refreshPortfolio()
+            cmd = ""; plans = emptyList(); refreshPortfolio()
         }
     }
 
     val deposited = TradeStore.deposited(ctx)
     val growth = if (deposited > 0) (value - deposited) / deposited * 100.0 else 0.0
+    fun marketLabel() = when (marketState) { "REGULAR" -> "market open · live"; "PRE" -> "pre-market"; "POST" -> "after hours"; "" -> ""; else -> "market closed" }
 
     @Composable
-    fun chip(label: String, key: String) {
-        Text(label, fontSize = T.small, color = if (risk == key) T.bgElevated else T.ink, textAlign = TextAlign.Center,
-            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (risk == key) ACC else T.bgElevated)
-                .clickable { risk = key }.padding(horizontal = 16.dp, vertical = 10.dp))
-    }
+    fun chip(label: String, key: String) = Text(label, fontSize = T.small, color = if (risk == key) T.bgElevated else T.ink, textAlign = TextAlign.Center,
+        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (risk == key) ACC else T.bgElevated).clickable { risk = key }.padding(horizontal = 16.dp, vertical = 10.dp))
     @Composable
-    fun bigBtn(label: String, accent: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-        Text(label, fontSize = T.body, color = if (accent) T.bgElevated else T.ink, textAlign = TextAlign.Center, maxLines = 1,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (accent) (if (enabled) ACC else T.hairline) else T.bgElevated)
-                .clickable(enabled = enabled) { onClick() }.padding(vertical = 15.dp))
-    }
+    fun bigBtn(label: String, accent: Boolean, enabled: Boolean = true, onClick: () -> Unit) = Text(label, fontSize = T.body, color = if (accent) T.bgElevated else T.ink, textAlign = TextAlign.Center, maxLines = 1,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (accent) (if (enabled) ACC else T.hairline) else T.bgElevated).clickable(enabled = enabled) { onClick() }.padding(vertical = 15.dp))
 
     Column(modifier.verticalScroll(rememberScrollState())) {
         ScreenHeader("Invest") { onBack() }
 
-        // ── Live portfolio ──
         if (started && holdings.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Text("Portfolio value", fontSize = T.caption, color = T.inkFaint)
             Text("$" + "%,.2f".format(value), fontSize = T.time, color = T.ink)
-            Text("%+.1f%%".format(growth) + "  ·  from $" + "%,.0f".format(deposited), fontSize = T.body, color = if (growth >= 0) UP else DOWN)
+            Text("%+.1f%%".format(growth) + " all-time  ·  " + "%+.1f%%".format(dayPct) + " today", fontSize = T.body, color = if (growth >= 0) UP else DOWN)
             Spacer(Modifier.height(4.dp))
-            Text("Practice account · fake money · " + (if (busy == "load") "updating…" else "tap Refresh for live prices"), fontSize = T.caption, color = T.inkFaint)
+            val stamp = if (updatedAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updatedAt)) else "—"
+            Text((if (busy == "load") "updating…" else "updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
+
+            // Value graph.
+            if (series.size >= 2) {
+                Spacer(Modifier.height(12.dp))
+                val vals = series.map { it.second }
+                val lo = (vals.min()).coerceAtMost(deposited); val hi = (vals.max()).coerceAtLeast(deposited); val span = (hi - lo).coerceAtLeast(0.01)
+                Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+                    val w = size.width; val h = size.height
+                    // deposited baseline
+                    val by = h - ((deposited - lo) / span * h).toFloat()
+                    drawLine(T.hairline, Offset(0f, by), Offset(w, by), 1.5f)
+                    val path = Path()
+                    vals.forEachIndexed { i, v ->
+                        val x = if (vals.size == 1) w else w * i / (vals.size - 1)
+                        val y = h - ((v - lo) / span * h).toFloat()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, if (growth >= 0) UP else DOWN, style = Stroke(width = 4f))
+                }
+            }
+
             Spacer(Modifier.height(14.dp))
             holdings.forEach { h ->
-                val px = quotes[h.symbol] ?: h.avgCost
+                val px = quotes[h.symbol]?.price ?: h.avgCost
                 val pl = if (h.avgCost > 0) (px - h.avgCost) / h.avgCost * 100.0 else 0.0
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -162,18 +220,35 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                 }
                 Spacer(Modifier.height(8.dp))
             }
+
+            // ── Command bar ──
+            Spacer(Modifier.height(6.dp))
+            BasicTextField(cmd, { cmd = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp),
+                decorationBox = { inner -> if (cmd.isEmpty()) Text("buy $200 of NVDA · add some gold · sell half my AAPL", fontSize = T.small, color = T.inkFaint); inner() })
             Spacer(Modifier.height(8.dp))
+            bigBtn(if (busy == "cmd") "Reading…" else "Preview trade", accent = false, enabled = busy.isEmpty() && cmd.isNotBlank()) { runCmd() }
+            if (cmdError.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(cmdError, fontSize = T.caption, color = T.inkFaint) }
+            plans.forEach { p ->
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (p.action == "buy") ACC.copy(alpha = 0.10f) else T.bgElevated).padding(14.dp)) {
+                    Text((if (p.action == "buy") "Buy " else "Sell ") + "%.3f".format(p.shares) + " " + p.symbol + "  ·  ~$" + "%,.2f".format(p.cost), fontSize = T.small, color = T.ink)
+                    Text("@ $" + "%.2f".format(p.price) + (if (p.name.isNotBlank() && !p.name.equals(p.symbol, true)) " · ${p.name}" else ""), fontSize = T.caption, color = T.inkFaint)
+                }
+            }
+            if (plans.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                bigBtn(if (busy == "exec") "Working…" else "Confirm ${plans.size} trade" + (if (plans.size > 1) "s" else ""), accent = true, enabled = busy.isEmpty()) { confirmPlans() }
+            }
+
+            Spacer(Modifier.height(12.dp))
             bigBtn(if (busy == "load") "Refreshing…" else "Refresh prices", accent = true, enabled = busy.isEmpty()) { refreshPortfolio() }
             Spacer(Modifier.height(8.dp))
-            bigBtn("Sell everything to cash", accent = false, enabled = busy.isEmpty()) { sellAll() }
-            Spacer(Modifier.height(8.dp))
-            Text("Start a new practice run", fontSize = T.small, color = T.inkFaint,
-                modifier = Modifier.clickable { TradeStore.reset(ctx); started = false; holdings = emptyList(); value = 0.0 }.padding(vertical = 8.dp))
+            Text("Start a new practice run", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable { TradeStore.reset(ctx); started = false; holdings = emptyList(); value = 0.0; series = emptyList() }.padding(vertical = 8.dp))
             Spacer(Modifier.height(28.dp))
             return@Column
         }
 
-        // ── Portfolio preview (built, awaiting your confirmation to buy) ──
         if (picks.isNotEmpty()) {
             val amt = amount.toDoubleOrNull() ?: 0.0
             Spacer(Modifier.height(16.dp))
@@ -181,7 +256,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Text("$" + "%,.0f".format(amt) + " · $risk", fontSize = T.prompt, color = T.ink)
             Spacer(Modifier.height(12.dp))
             picks.forEach { p ->
-                val px = quotes[p.symbol] ?: 0.0; val sh = sharesFor(p, amt)
+                val px = quotes[p.symbol]?.price ?: 0.0; val sh = sharesFor(p, amt)
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(p.symbol + "  ·  " + (p.weight * 100).toInt() + "%", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
@@ -193,17 +268,16 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                 Spacer(Modifier.height(8.dp))
             }
             Spacer(Modifier.height(8.dp))
-            bigBtn(if (busy == "buy") "Buying…" else "Confirm & buy — $" + "%,.0f".format(amt), accent = true, enabled = busy.isEmpty()) { confirmBuy() }
+            bigBtn(if (busy == "buy") "Buying…" else "Confirm & buy — $" + "%,.0f".format(amt), accent = true, enabled = busy.isEmpty()) { confirmBuild() }
             Spacer(Modifier.height(8.dp))
             Text("Rebuild it", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable { picks = emptyList(); build() }.padding(vertical = 8.dp))
             Spacer(Modifier.height(28.dp))
             return@Column
         }
 
-        // ── Onboarding ──
         Spacer(Modifier.height(16.dp))
         Text("Let your AI invest — for practice", fontSize = T.prompt, color = T.ink)
-        Text("It builds and runs a real portfolio with fake money so you can see how it performs. You confirm every buy. Goes real once we're licensed.", fontSize = T.small, color = T.inkFaint)
+        Text("It builds and runs a real portfolio with practice money so you can see how it performs. You confirm every buy. Goes real once we're licensed.", fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(16.dp))
         Text("HOW BOLD SHOULD IT BE?", fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -213,7 +287,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
         Spacer(Modifier.height(6.dp))
         BasicTextField(interests, { interests = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp),
-            decorationBox = { inner -> if (interests.isEmpty()) Text("tech, clean energy, dividends, crypto-ish…", fontSize = T.small, color = T.inkFaint); inner() })
+            decorationBox = { inner -> if (interests.isEmpty()) Text("tech, clean energy, dividends, gold, crypto…", fontSize = T.small, color = T.inkFaint); inner() })
         Spacer(Modifier.height(14.dp))
         Text("PRACTICE MONEY", fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(6.dp))
