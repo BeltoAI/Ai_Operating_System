@@ -16,46 +16,8 @@ import java.util.Locale
  */
 object BrainData {
 
-    // ── Export: dump the entire brain to a single .md in Downloads/SlyOS ──
+    // ── Export: STREAM the whole brain to a single .md (never holds it all in memory → no OOM) ──
     fun exportBrain(ctx: Context): String {
-        val sb = StringBuilder()
-        sb.append("# SlyOS Brain Export\n_Exported ").append(Date()).append("_\n\n")
-        sb.append("## About\n").append(MemoryStore.about(ctx)).append("\n\n")
-        MemoryStore.positions(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Work history\n").append(it).append("\n\n") }
-        MemoryStore.education(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Education\n").append(it).append("\n\n") }
-        MemoryStore.learnedFacts(ctx).takeIf { it.isNotEmpty() }?.let { f -> sb.append("## Learned facts\n"); f.forEach { sb.append("- ").append(it).append("\n") }; sb.append("\n") }
-        MemoryStore.styleProfile(ctx).takeIf { it.isNotBlank() }?.let { sb.append("## Voice profile\n").append(it).append("\n\n") }
-
-        // Mission (goal + plan + latest read).
-        MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let { g ->
-            sb.append("## Mission\n").append("Goal: ").append(g).append("\n")
-            MissionStore.milestones(ctx).forEach { sb.append("- [").append(if (it.done) "x" else " ").append("] ").append(it.text).append("\n") }
-            MissionStore.latest(ctx)?.let { sb.append("Progress: ").append(it.percent).append("% — ").append(it.note).append("\n") }
-            sb.append("\n")
-        }
-
-        // Checklist.
-        ChecklistStore.load(ctx).takeIf { it.isNotEmpty() }?.let { items ->
-            sb.append("## Checklist\n"); items.forEach { sb.append("- [").append(if (it.done) "x" else " ").append("] ").append(it.text).append("\n") }; sb.append("\n")
-        }
-
-        // Research papers (titles).
-        PaperStore.list(ctx).takeIf { it.isNotEmpty() }?.let { ps ->
-            sb.append("## Research papers (").append(ps.size).append(")\n"); ps.forEach { sb.append("- ").append(it.title).append(" (").append(it.docType).append(")\n") }; sb.append("\n")
-        }
-
-        // LinkedIn network — the big one that was missing.
-        val conns = ConnectionStore.load(ctx)
-        if (conns.isNotEmpty()) {
-            sb.append("## Connections (").append(conns.size).append(")\n")
-            conns.forEach { sb.append("- ").append(it.name).append(" — ").append(it.role).append(" @ ").append(it.company).append(if (it.url.isNotBlank()) " | ${it.url}" else "").append("\n") }
-            sb.append("\n")
-        }
-
-        val rows = MessageStore.allRows(ctx, 200000)
-        sb.append("## Messages (").append(rows.size).append(")\n")
-        rows.forEach { sb.append("[").append(it.contact).append(" | ").append(it.role).append("] ").append(it.body.replace("\n", " ").take(6000)).append("\n") }
-
         val name = "slyos-brain-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".md"
         return try {
             val values = ContentValues().apply {
@@ -64,8 +26,39 @@ object BrainData {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SlyOS")
             }
             val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return "Couldn't create the export file."
-            ctx.contentResolver.openOutputStream(uri)?.use { it.write(sb.toString().toByteArray(Charsets.UTF_8)) }
-            "Exported your whole brain (${rows.size} messages) to Downloads/SlyOS/$name"
+            var msgCount = 0
+            ctx.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { w ->
+                w.write("# SlyOS Brain Export\n_Exported ${Date()}_\n\n")
+                w.write("## About\n${MemoryStore.about(ctx)}\n\n")
+                MemoryStore.positions(ctx).takeIf { it.isNotBlank() }?.let { w.write("## Work history\n$it\n\n") }
+                MemoryStore.education(ctx).takeIf { it.isNotBlank() }?.let { w.write("## Education\n$it\n\n") }
+                MemoryStore.learnedFacts(ctx).takeIf { it.isNotEmpty() }?.let { f -> w.write("## Learned facts\n"); f.forEach { w.write("- $it\n") }; w.write("\n") }
+                MemoryStore.styleProfile(ctx).takeIf { it.isNotBlank() }?.let { w.write("## Voice profile\n$it\n\n") }
+                MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let { g ->
+                    w.write("## Mission\nGoal: $g\n")
+                    MissionStore.milestones(ctx).forEach { w.write("- [${if (it.done) "x" else " "}] ${it.text}\n") }
+                    MissionStore.latest(ctx)?.let { w.write("Progress: ${it.percent}% — ${it.note}\n") }
+                    w.write("\n")
+                }
+                ChecklistStore.load(ctx).takeIf { it.isNotEmpty() }?.let { items ->
+                    w.write("## Checklist\n"); items.forEach { w.write("- [${if (it.done) "x" else " "}] ${it.text}\n") }; w.write("\n")
+                }
+                PaperStore.list(ctx).takeIf { it.isNotEmpty() }?.let { ps ->
+                    w.write("## Research papers (${ps.size})\n"); ps.forEach { w.write("- ${it.title} (${it.docType})\n") }; w.write("\n")
+                }
+                val conns = ConnectionStore.load(ctx)
+                if (conns.isNotEmpty()) {
+                    w.write("## Connections (${conns.size})\n")
+                    conns.forEach { w.write("- ${it.name} — ${it.role} @ ${it.company}${if (it.url.isNotBlank()) " | ${it.url}" else ""}\n") }
+                    w.write("\n")
+                }
+                w.write("## Messages\n")
+                msgCount = MessageStore.forEachRow(ctx) { contact, role, body ->
+                    w.write("[$contact | $role] ${body.replace("\n", " ").take(2000)}\n")
+                }
+                w.flush()
+            }
+            "Exported your whole brain ($msgCount messages) to Downloads/SlyOS/$name"
         } catch (e: Exception) { "Export failed: ${e.message}" }
     }
 

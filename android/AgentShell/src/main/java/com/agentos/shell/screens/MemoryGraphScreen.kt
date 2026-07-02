@@ -105,7 +105,7 @@ private fun prettify(s: String): String {
 }
 
 @Composable
-fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit, onMission: () -> Unit = {}) {
+fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSettings: () -> Unit, onMission: () -> Unit = {}, onNetwork: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -494,6 +494,15 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             }
             mPct?.let { Text("$it%", fontSize = T.body, color = ACCENT) }
             Spacer(Modifier.width(10.dp))
+            Text("›", fontSize = T.body, color = T.inkFaint)
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+            .clickable { onNetwork() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("My network", fontSize = T.body, color = T.ink)
+                Text("Find people you know & message them", fontSize = T.caption, color = T.inkFaint, maxLines = 1)
+            }
             Text("›", fontSize = T.body, color = T.inkFaint)
         }
         Spacer(Modifier.height(12.dp))

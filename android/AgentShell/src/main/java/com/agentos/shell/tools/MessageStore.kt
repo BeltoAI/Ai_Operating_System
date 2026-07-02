@@ -87,6 +87,18 @@ object MessageStore {
 
     fun clear(ctx: Context) { try { db(ctx).execSQL("DELETE FROM messages") } catch (e: Exception) {} }
 
+    /** Stream every row through [action] WITHOUT loading them all into memory — for exporting a huge
+     *  brain (hundreds of thousands of messages) without OOM. Returns how many rows were seen. */
+    fun forEachRow(ctx: Context, action: (contact: String, role: String, body: String) -> Unit): Int {
+        var n = 0
+        try {
+            db(ctx).rawQuery("SELECT contact, role, body FROM messages ORDER BY ts DESC", null).use { c ->
+                while (c.moveToNext()) { action(c.getString(0) ?: "", c.getString(1) ?: "", c.getString(2) ?: ""); n++ }
+            }
+        } catch (e: Exception) {}
+        return n
+    }
+
     private val STOP = setOf(
         "the","and","you","your","with","have","has","had","for","that","this","what","who","whom",
         "when","where","why","how","does","did","do","done","my","me","mine","is","are","was","were",

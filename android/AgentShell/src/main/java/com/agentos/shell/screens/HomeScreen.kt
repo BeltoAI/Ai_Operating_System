@@ -105,6 +105,7 @@ fun HomeScreen(
     onSpicy: (String) -> Unit = {},
     onResearch: (String) -> Unit = {},
     onJob: (String) -> Unit = {},
+    onNetwork: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -285,6 +286,13 @@ fun HomeScreen(
                 val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: emailAct.arg.ifBlank { q }
                 thinking = false
                 onComposeEmail(to, tpc)
+                return@launch
+            }
+            // network_search opens the network screen: matching people + a ready message + LinkedIn buttons.
+            val netAct = result.actions.firstOrNull { it.type == "network_search" }
+            if (netAct != null) {
+                thinking = false
+                onNetwork(netAct.arg.ifBlank { q })
                 return@launch
             }
             // find_job opens the job-hunt assistant (résumé, cover letter, outreach), prefilled with the role.

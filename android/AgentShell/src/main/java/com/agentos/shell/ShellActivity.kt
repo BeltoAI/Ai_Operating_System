@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,6 +117,7 @@ class ShellActivity : ComponentActivity() {
             var spicyTopic by remember { mutableStateOf("") }
             var researchTopic by remember { mutableStateOf("") }
             var jobTopic by remember { mutableStateOf("") }
+            var networkQuery by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
             LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
@@ -160,12 +161,13 @@ class ShellActivity : ComponentActivity() {
                             onSpicy = { t -> spicyTopic = t; screen = Screen.SpicyPost },
                             onResearch = { t -> researchTopic = t; screen = Screen.Research },
                             onJob = { t -> jobTopic = t; screen = Screen.Job },
+                            onNetwork = { t -> networkQuery = t; screen = Screen.Network },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }) { screen = Screen.Home }
                         Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
-                        Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { screen = Screen.Mission })
+                        Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
                         Screen.Mission -> MissionScreen(m) { screen = Screen.Memory }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
@@ -174,6 +176,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }) { researchTopic = ""; screen = Screen.Home }
                         Screen.Cowork -> CoworkScreen(m) { screen = Screen.Research }
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
+                        Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }
