@@ -15,7 +15,7 @@ object QuoteClient {
 
     private fun http(url: String): String? = try {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"; connectTimeout = 5000; readTimeout = 5000; instanceFollowRedirects = true
+            requestMethod = "GET"; connectTimeout = 9000; readTimeout = 9000; instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
             setRequestProperty("Accept", "application/json,text/plain,*/*")
         }

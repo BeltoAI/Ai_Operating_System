@@ -95,7 +95,12 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             val h = TradeStore.holdings(ctx); holdings = h
             val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
             if (q.isNotEmpty()) quotes = q
-            priceMsg = if (h.isNotEmpty() && q.isEmpty()) "Couldn't reach the price feed — retrying automatically… (add a free Finnhub key in Settings if stocks stay flat)" else ""
+            priceMsg = when {
+                h.isEmpty() -> ""
+                q.isEmpty() -> "Price feed unreachable (0/${h.size}) — retrying… add a free Finnhub key in Settings for stocks."
+                q.size < h.size -> "${q.size}/${h.size} priced · ${h.filter { !q.containsKey(it.symbol) }.joinToString(", ") { it.symbol }} need a Finnhub key (stocks)."
+                else -> ""
+            }
             val use = if (q.isNotEmpty()) q else quotes
             val invested = h.sumOf { (use[it.symbol]?.price ?: it.avgCost) * it.shares }
             val prevInv = h.sumOf { (use[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
@@ -143,16 +148,36 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
         }
     }
 
+    // Instant, offline parser for the common cases so "Preview" never waits on the network/LLM.
+    fun localParse(text: String): List<AgentClient.TradeIntent> {
+        val t = text.lowercase()
+        val map = mapOf("gold" to "GLD", "silver" to "SLV", "bitcoin" to "BTC-USD", "btc" to "BTC-USD",
+            "ethereum" to "ETH-USD", "eth" to "ETH-USD", "oil" to "USO", "s&p" to "VOO", "sp500" to "VOO",
+            "s&p500" to "VOO", "nasdaq" to "QQQ", "dogecoin" to "DOGE-USD", "doge" to "DOGE-USD",
+            "solana" to "SOL-USD", "sol" to "SOL-USD", "total market" to "VTI", "bonds" to "BND")
+        val action = when { Regex("\\bsell\\b").containsMatchIn(t) -> "sell"; Regex("\\b(buy|add|get|invest|put)\\b").containsMatchIn(t) -> "buy"; else -> return emptyList() }
+        var symbol = ""
+        for ((k, v) in map) if (Regex("\\b" + Regex.escape(k) + "\\b").containsMatchIn(t)) { symbol = v; break }
+        if (symbol.isBlank()) symbol = Regex("\\b[A-Z]{1,5}(?:-USD)?\\b").findAll(text).map { it.value }.firstOrNull { it !in setOf("USD", "I", "A", "AI") } ?: ""
+        if (symbol.isBlank()) symbol = holdings.firstOrNull { t.contains(it.symbol.lowercase()) }?.symbol ?: ""
+        if (symbol.isBlank()) return emptyList()
+        val usd = Regex("\\$\\s?(\\d+(?:\\.\\d+)?)").find(t)?.groupValues?.get(1)?.toDoubleOrNull()
+            ?: Regex("(\\d+(?:\\.\\d+)?)\\s*(?:dollars|bucks|usd)").find(t)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+        val shares = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:shares|share|sh|units?|coins?)").find(t)?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+        val fraction = when { t.contains("half") -> 0.5; t.contains("all") || t.contains("everything") -> 1.0; t.contains("quarter") -> 0.25; else -> 0.0 }
+        val usd2 = if (action == "buy" && usd == 0.0 && shares == 0.0) 100.0 else usd   // default $100 buy
+        return listOf(AgentClient.TradeIntent(action, symbol, "", usd2, shares, fraction))
+    }
     fun runCmd() {
         val c = cmd.trim(); if (c.isBlank() || busy.isNotEmpty()) return
         busy = "cmd"; cmdError = ""; plans = emptyList()
         scope.launch {
             val hstr = holdings.joinToString(", ") { "${it.symbol} ${"%.2f".format(it.shares)}sh" }
-            val intents = withContext(Dispatchers.IO) { AgentClient.parseTradeCommand(c, hstr, TradeStore.cash(ctx)) }
+            val intents = localParse(c).ifEmpty { withContext(Dispatchers.IO) { AgentClient.parseTradeCommand(c, hstr, TradeStore.cash(ctx)) } }
             val out = ArrayList<Plan>()
             for (it in intents) {
-                val qq = withContext(Dispatchers.IO) { QuoteClient.quote(it.symbol) } ?: continue
-                val px = qq.price; if (px <= 0) continue
+                val px = quotes[it.symbol]?.price ?: (withContext(Dispatchers.IO) { QuoteClient.quote(it.symbol)?.price } ?: 0.0)
+                if (px <= 0) continue
                 if (it.action == "buy") {
                     val sh = if (it.usd > 0) it.usd / px else it.shares
                     if (sh > 0) out.add(Plan("buy", it.symbol, it.name.ifBlank { it.symbol }, sh, px, sh * px))
@@ -189,12 +214,11 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
         busy = "sell"
         scope.launch {
             withContext(Dispatchers.IO) {
-                val h = TradeStore.holdings(ctx)
-                val q = QuoteClient.quotes(h.map { it.symbol })
-                h.forEach { TradeStore.sell(ctx, it.symbol, it.shares, q[it.symbol]?.price ?: it.avgCost) }
+                // Sell at the last-known price we already have — no network call, so it's instant.
+                TradeStore.holdings(ctx).forEach { TradeStore.sell(ctx, it.symbol, it.shares, quotes[it.symbol]?.price ?: it.avgCost) }
                 MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Sold the whole practice portfolio to cash.")
             }
-            busy = ""; refreshPortfolio()
+            holdings = TradeStore.holdings(ctx); busy = ""
         }
     }
 
@@ -216,7 +240,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Spacer(Modifier.height(16.dp))
             Text("Portfolio value", fontSize = T.caption, color = T.inkFaint)
             Text("$" + "%,.2f".format(value), fontSize = T.time, color = T.ink)
-            Text("%+.1f%%".format(growth) + " all-time  ·  " + "%+.1f%%".format(dayPct) + " today", fontSize = T.body, color = if (growth >= 0) UP else DOWN)
+            Text("%+.2f%%".format(growth) + " all-time  ·  " + "%+.2f%%".format(dayPct) + " today", fontSize = T.body, color = if (growth >= 0) UP else DOWN)
             Spacer(Modifier.height(4.dp))
             val stamp = if (updatedAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updatedAt)) else "—"
             Text((if (refreshing) "updating…" else "auto · updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
@@ -255,7 +279,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(("%.3f".format(h.shares)) + " sh · $" + "%.2f".format(px), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
-                        Text("%+.1f%%".format(pl), fontSize = T.caption, color = if (pl >= 0) UP else DOWN)
+                        Text("%+.2f%%".format(pl), fontSize = T.caption, color = if (pl >= 0) UP else DOWN)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
