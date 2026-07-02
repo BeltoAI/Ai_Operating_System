@@ -45,7 +45,9 @@ object QuoteClient {
             val body = http("https://finnhub.io/api/v1/quote?symbol=$symbol&token=$k")
             val o = if (body != null) JSONObject(body) else null
             val c = o?.optDouble("c", 0.0) ?: 0.0; val pc = o?.optDouble("pc", 0.0) ?: 0.0
-            if (c > 0) Quote(c, if (pc > 0) pc else c, "REGULAR") else null
+            val t = o?.optLong("t", 0L) ?: 0L   // last-trade unix time; if it's stale the market is closed
+            val open = t > 0 && (System.currentTimeMillis() / 1000 - t) < 300
+            if (c > 0) Quote(c, if (pc > 0) pc else c, if (open) "REGULAR" else "CLOSED") else null
         }
     } catch (e: Exception) { null }
 
