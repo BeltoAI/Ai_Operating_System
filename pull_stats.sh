@@ -42,6 +42,13 @@ PGROWTH=$(xval growth_pct); PVALUE=$(xval last_value)
 [ -z "$PGROWTH" ] && PGROWTH=null
 [ -z "$PVALUE" ] && PVALUE=null || PVALUE=$(awk "BEGIN{printf \"%d\", $PVALUE}")
 
+# Avg tokens per response from the cost ledger (life_tok / life_calls).
+adb exec-out run-as "$PKG" cat shared_prefs/slyos_cost.xml > "$TMP/cost.xml" 2>/dev/null || echo "" > "$TMP/cost.xml"
+lval(){ grep -oE "name=\"$1\" value=\"[0-9]+\"" "$TMP/cost.xml" | sed -E 's/.*value="([0-9]+)".*/\1/' | head -1; }
+LTOK=$(lval life_tok); LCALLS=$(lval life_calls)
+TPR=255
+[ -n "$LTOK" ] && [ -n "$LCALLS" ] && [ "${LCALLS:-0}" -gt 0 ] && TPR=$(awk "BEGIN{printf \"%d\", $LTOK/$LCALLS}")
+
 cat > "$SCRIPT_DIR/docs/stats.json" <<JSON
 {
   "messages": $MSGS,
@@ -51,6 +58,7 @@ cat > "$SCRIPT_DIR/docs/stats.json" <<JSON
   "savedHoursTotal": $TOTAL_H,
   "portfolioGrowth": $PGROWTH,
   "portfolioValue": $PVALUE,
+  "tokensPerResponse": $TPR,
   "updated": "$(date +%F)"
 }
 JSON

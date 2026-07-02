@@ -1,17 +1,99 @@
+<div align="center">
+
 # SlyOS
 
-An agent-native phone experience for Android. When you open it, there's no app grid —
-just one prompt: **"what should happen?"** The agent is the home screen, the notification
-layer, the memory layer, and the system interface. Real apps become tools the agent calls.
-A manual fallback always exists.
+### What if we gave AGI a phone?
 
-SlyOS runs as a **custom launcher** on a stock, **locked** phone — no root, no bootloader
-unlock, no exploits. Everything uses documented Android APIs and is reversible by changing
-the default Home app or uninstalling.
+**SlyOS turns your Android into a single agent** — it answers every message in your voice, runs your apps, and builds a memory that's quietly becoming *you*. No app grid. Just one prompt: **"what should happen?"**
+
+[**🌐 slyos.world**](https://slyos.world) · [Download](https://slyos.world/#get) · [Vision](https://slyos.world/#vision)
+
+![platform](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)
+![models](https://img.shields.io/badge/models-Claude%20·%20GPT%20·%20Gemini%20·%20on--device-E8642C)
+![cost](https://img.shields.io/badge/~255%20tokens%2Freply-runs%20near--free-2E9E5B)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
+</div>
 
 ---
 
-## Get it running on your Samsung (step-by-step, no experience needed)
+> **📽️ Demo:** _drop a 30–60s screen recording here as `docs/demo.gif`._ This is the single biggest thing that earns stars — show: open SlyOS → "text Anna I'm running late" (drafts in your voice) → point the camera at a shoe (it names it) → "invest $1000" (it builds a portfolio). One take, no cuts.
+
+## The idea
+
+Your phone is the most personal computer you own — and it's still a grid of icons you operate by hand. SlyOS replaces the launcher with **one agent that IS the phone**. Every message in and every reply out flows through a local **memory brain** that learns how you write, what you care about, and who matters — so over time it doesn't just *assist* you, it starts to *be* you.
+
+It runs as a normal **custom launcher** on a stock, **locked** phone. No root, no bootloader unlock, no exploits — just documented Android APIs, and a manual fallback that's always one tap away.
+
+## What it actually does
+
+| | |
+|---|---|
+| 💬 **Answers your messages in your voice** | Reads notifications across WhatsApp, Telegram, SMS, email — drafts (or auto-sends) replies that sound like you, because it learned from your real chats. |
+| 🧠 **A brain that becomes you** | Every conversation, contact, email and note flows into a local memory + semantic index. Ask it anything about your life; it answers from *your* data. |
+| 📷 **Look** | Point the camera at anything — a shoe, a landmark, a dish — tap the object, and it identifies it with one-tap shop / map / search. |
+| 📈 **Practice investing** | "Invest $1000" → it designs a real portfolio (stocks, ETFs, gold, crypto), you confirm the buy, and it tracks live performance with a value graph and daily news alerts. |
+| 🎯 **Missions & outreach** | "Find 10 buyers for my product" → it web-finds real people, drafts tailored messages with your Calendly, and tracks replies. |
+| 💼 **Job hunt** | "Find me a job at X" → tailored résumé + cover letter + outreach email, each a real PDF, ready to send. |
+| 📄 **Research → published** | Writes real papers and one-tap publishes to Zenodo with a DOI. |
+| 🛠️ **Cowork** | An on-device agent workspace that builds real files and, with Termux, runs them — Python, Node, even a local llama.cpp model. Edit SlyOS from inside SlyOS. |
+| 💸 **Ruthlessly cheap** | Routes everyday work to free Gemini / on-device, reserving Claude & GPT for the hard stuff — about **255 tokens per reply**, a fraction of a typical agent. |
+
+## How it works
+
+```
+every message in  ─►  ┌───────────────┐  ─►  Claude · GPT · Gemini · on-device
+  WhatsApp, SMS,      │   the brain   │       (router picks by cost/quality)
+  email, X, camera ─► │ memory · you  │  ─►  every reply out — in your voice
+                      └───────────────┘
+```
+
+One brain, every model. The memory and persona are assembled by SlyOS and passed **identically** to whichever model runs — so the character is the same on Claude, GPT, or a local model. The router only decides cost, quality, and capability.
+
+## Quick start
+
+Works on most **Android 10+** phones. You install once from a computer over USB; after that it just runs. Nothing is flashed — it's a normal app you can uninstall anytime.
+
+```bash
+git clone https://github.com/BeltoAI/Ai_Operating_System.git
+cd Ai_Operating_System/agentos/android
+./gradlew :AgentShell:assembleDebug
+adb install -r AgentShell/build/outputs/apk/debug/AgentShell-debug.apk
+```
+
+Then on the phone: open SlyOS, paste an API key (a free **Gemini** key runs the whole thing at ~$0), and set it as your Home app. The full click-by-click guide is [below](#detailed-setup) and at [slyos.world/#get](https://slyos.world/#get).
+
+## Privacy & safety (read this)
+
+SlyOS is powerful because it can see your notifications and screen — so let's be clear:
+
+- **Everything stays on your device.** The memory brain is a local SQLite database. Nothing is uploaded except the specific prompt you send to the model provider *you* configured.
+- **Permissions are opt-in and reversible.** Notification access, accessibility (screen reading), contacts, SMS — each is granted by you and revocable anytime. It never captures password fields.
+- **It asks before consequential actions.** Sending a message, posting publicly, or spending money is always confirmed — auto-send is opt-in, per-app, and rate-limited.
+- **No root, no exploits, fully reversible.** Change your default Home app or uninstall, and your phone is exactly as it was. Your keys live only on the device.
+
+## Tech
+
+Kotlin · Jetpack Compose · SQLite (FTS4 + a local vector index) · CameraX + ML Kit · Android Accessibility & Notification services · multi-provider LLM routing (Anthropic / OpenAI / Gemini / local) · WorkManager.
+
+## Roadmap
+
+- [x] Agent home screen, memory brain, voice-matched replies
+- [x] Camera Look, practice investing, missions, job hunt, research → Zenodo
+- [x] On-device Cowork + Termux execution
+- [ ] Real-time phone-call answering in your cloned voice
+- [ ] On-device action layer (tap-through any app, with confirmation)
+- [ ] Train a local model to replicate you
+
+## Contributing
+
+Issues and PRs welcome. If SlyOS resonates, a ⭐ genuinely helps — it's how people find it.
+
+**License:** MIT © Belto
+
+---
+
+<h2 id="detailed-setup">Detailed setup (Samsung, step-by-step, no experience needed)</h2>
 
 This works on most Samsung phones running **Android 10 or newer** (Galaxy S20/Note 20 and up).
 You'll need a **Mac**, your **phone + its USB cable**, and about 30 minutes. You install it once

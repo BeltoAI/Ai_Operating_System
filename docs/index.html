@@ -753,6 +753,7 @@
         <span class="pill">Reserve Claude / GPT for papers &amp; design</span>
         <span class="pill">Live projection keeps you under budget</span>
       </div>
+      <p class="muted" style="text-align:center;margin-top:18px;font-size:15px">Ruthlessly lean: about <b id="tokReply" style="color:var(--accent)">255</b> tokens per reply — a fraction of a typical agent's, which is how it stays near-free.</p>
     </div>
   </section>
 
@@ -1133,6 +1134,8 @@
     if (pg && s.portfolioGrowth != null) { var g = Number(s.portfolioGrowth); pg.textContent = (g>=0?'+':'') + g.toFixed(1) + '%'; pg.style.color = g>=0 ? '#2E9E5B' : '#B23A2E'; }
     var pv = document.getElementById('pfValue');
     if (pv && s.portfolioValue != null) pv.textContent = Number(s.portfolioValue).toLocaleString(undefined,{maximumFractionDigits:0});
+    var tr = document.getElementById('tokReply');
+    if (tr && s.tokensPerResponse) tr.textContent = s.tokensPerResponse;
   }).catch(function(){});
 
   // Downloads counter — show the HIGHER of GitHub's real APK download_count (the true number) and the
