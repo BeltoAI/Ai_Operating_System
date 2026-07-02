@@ -1030,7 +1030,24 @@ object AgentClient {
         return if (code == 200) text.trim().removeSurrounding("\"").take(120) else ""
     }
 
-    data class Prospect(val name: String, val company: String, val email: String, val website: String, val why: String)
+    data class Prospect(val name: String, val company: String, val email: String, val website: String, val why: String, val linkedin: String = "")
+
+    /** A polished, professional cold-outreach EMAIL (greeting, value, ask, sign-off) — not a one-liner. */
+    fun outreachEmail(goal: String, name: String, company: String, memory: String): String {
+        val book = bookingLink.trim()
+        val first = name.trim().split(" ").firstOrNull().orEmpty()
+        val greet = if (first.isNotBlank()) first else if (company.isNotBlank()) "$company team" else "there"
+        val sys = persona(memory) +
+            "Write a PROFESSIONAL cold outreach email for the goal — a real email, not a text. Structure: greeting " +
+            "'Hi $greet,'; a one-line specific opener tying to them or $company; ONE tight paragraph on your value " +
+            "(what you do + the concrete benefit to THEM); a clear, low-friction ask; and a professional sign-off " +
+            "with the sender's name. 120-180 words, confident and credible, specific to them. NO clichés ('hope this " +
+            "finds you well', 'wanted to reach out'), NO buzzword soup, NO markdown. " +
+            (if (book.isNotBlank()) "Include this booking link in the ask: $book. " else "") + "Ready to send."
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Recipient: $name at $company. Goal: $goal"))
+        val (code, text) = callMessages(sys, msgs, 500, VOICE)
+        return if (code == 200) text.trim() else "Hi $greet,\n\nI'm reaching out about $goal.\n\nWould you be open to a short call?" + (if (book.isNotBlank()) "\nBook a time: $book" else "") + "\n\nBest"
+    }
 
     /**
      * Web-search for REAL, specific targets that fit the goal — companies (and a named contact where
@@ -1042,8 +1059,9 @@ object AgentClient {
             "the goal. For SELLING, find organizations that would actually BUY it (right industry + use-case). Respect " +
             "any LOCATION named in the goal. For each target give: name (a named person if you find one, else the " +
             "company), company, a real work email ONLY if you actually find one via search (else \"\"), the company " +
-            "website URL, and a one-line why-it-fits. Use web search. NEVER invent emails or URLs. " +
-            "Reply ONLY as JSON: {\"targets\":[{\"name\":\"…\",\"company\":\"…\",\"email\":\"…\",\"website\":\"https://…\",\"why\":\"…\"}]}"
+            "website URL, a LinkedIn URL for the person or company if you find one (else \"\"), and a one-line " +
+            "why-it-fits. Use web search. NEVER invent emails or URLs. " +
+            "Reply ONLY as JSON: {\"targets\":[{\"name\":\"…\",\"company\":\"…\",\"email\":\"…\",\"website\":\"https://…\",\"linkedin\":\"https://…\",\"why\":\"…\"}]}"
         val user = "GOAL: " + goal + "\nABOUT ME: " + memory.take(800)
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
         val (code, text) = callMessages(sys, msgs, 3000, VOICE, 120000, webTool())
@@ -1054,7 +1072,7 @@ object AgentClient {
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
                 Prospect(o.optString("name").trim(), o.optString("company").trim(),
-                    o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim())
+                    o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim(), o.optString("linkedin").trim())
             }.filter { it.company.isNotBlank() || it.name.isNotBlank() }
         } catch (e: Exception) { emptyList() }
     }

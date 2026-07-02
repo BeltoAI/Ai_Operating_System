@@ -60,6 +60,8 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
 
     fun key(p: AgentClient.Prospect) = p.company.ifBlank { p.name }.ifBlank { p.email }
     fun cleanEmail(s: String): String = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(s)?.value ?: ""
+    fun openUrl(u: String) { if (u.isBlank()) return; try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+    fun linkedInOf(p: AgentClient.Prospect) = p.linkedin.ifBlank { "https://www.linkedin.com/search/results/all/?keywords=" + java.net.URLEncoder.encode((p.name + " " + p.company).trim(), "UTF-8") }
     fun goalFor(t: String, d: String) = when (t) {
         "sell" -> "Find organizations that would buy: $d. (Reach out to sell it.)"
         "job" -> "Find companies hiring for this and people who can refer me: $d."
@@ -94,7 +96,11 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         if (reviewBusy) return
         review = p; draft = ""; reviewBusy = true; sendStatus = ""
         scope.launch {
-            draft = withContext(Dispatchers.IO) { AgentClient.tailoredOutreach(goal, p.name.ifBlank { p.company }, "", p.company, MemoryStore.fullProfile(ctx)) }
+            // Professional email if we have an address; a shorter note for pasting into LinkedIn otherwise.
+            draft = withContext(Dispatchers.IO) {
+                if (cleanEmail(p.email).isNotBlank()) AgentClient.outreachEmail(goal, p.name.ifBlank { p.company }, p.company, MemoryStore.fullProfile(ctx))
+                else AgentClient.tailoredOutreach(goal, p.name.ifBlank { p.company }, "", p.company, MemoryStore.fullProfile(ctx))
+            }
             reviewBusy = false
         }
     }
@@ -190,14 +196,15 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                     Text(p.name.ifBlank { p.company }, fontSize = T.body, color = T.ink)
                     if (p.company.isNotBlank() && p.name.isNotBlank()) Text(p.company, fontSize = T.caption, color = T.inkFaint)
                     if (p.why.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(p.why, fontSize = T.caption, color = T.inkSoft) }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (p.website.isNotBlank()) {
-                            Text("Website", fontSize = T.small, color = ACC, modifier = Modifier.clickable {
-                                try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(p.website)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
-                            }.padding(end = 16.dp, top = 4.dp, bottom = 4.dp))
-                        }
-                        Text(if (done) "Reviewed ✓ · again" else if (cleanEmail(p.email).isNotBlank()) "Draft & review" else "Draft (no email found)",
+                        if (p.website.isNotBlank()) Text("Website", fontSize = T.small, color = ACC, modifier = Modifier.clickable { openUrl(p.website) }.padding(end = 18.dp, top = 4.dp, bottom = 4.dp))
+                        Text("LinkedIn", fontSize = T.small, color = ACC, modifier = Modifier.clickable { openUrl(linkedInOf(p)) }.padding(top = 4.dp, bottom = 4.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    val hasEmail = cleanEmail(p.email).isNotBlank()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (done) "Reviewed ✓ · again" else if (hasEmail) "Draft & send email" else "Draft note (paste to LinkedIn)",
                             fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(if (done) T.inkFaint else ACC)
                                 .clickable { openReview(p) }.padding(vertical = 10.dp))
@@ -228,10 +235,13 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val hasEmail = cleanEmail(p.email).isNotBlank()
-                    Text(if (hasEmail && GoogleAuth.isConnected(ctx)) "Send via Gmail" else if (hasEmail) "Open email" else "Copy",
+                    Text(if (hasEmail && GoogleAuth.isConnected(ctx)) "Send via Gmail" else if (hasEmail) "Open email" else "Copy & open LinkedIn",
                         fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(ACC)
-                            .clickable(enabled = !reviewBusy) { if (hasEmail) sendNow(p, draft) else { clip.setText(AnnotatedString(draft)); review = null } }.padding(vertical = 11.dp))
+                            .clickable(enabled = !reviewBusy) {
+                                if (hasEmail) sendNow(p, draft)
+                                else { clip.setText(AnnotatedString(draft)); openUrl(linkedInOf(p)); MissionStore.addContacted(ctx, key(p)); contacted = MissionStore.contacted(ctx); MetricsStore.record(ctx, 180); review = null }
+                            }.padding(vertical = 11.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Copy", fontSize = T.small, color = T.inkSoft,
                         modifier = Modifier.clickable { clip.setText(AnnotatedString(draft)) }.padding(horizontal = 12.dp, vertical = 11.dp))
