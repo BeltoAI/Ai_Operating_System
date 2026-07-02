@@ -482,8 +482,8 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         Spacer(Modifier.height(10.dp))
         androidx.compose.material3.HorizontalDivider(color = T.hairline, thickness = 1.dp)
         Spacer(Modifier.height(10.dp))
-        val mPct = com.agentos.shell.tools.MissionStore.latest(ctx)?.percent
-            ?: com.agentos.shell.tools.MissionStore.milestones(ctx).let { if (it.isNotEmpty()) it.count { m -> m.done } * 100 / it.size else null }
+        val mPct = com.agentos.shell.tools.MissionStore.mission(ctx).takeIf { it.isNotBlank() }
+            ?.let { com.agentos.shell.tools.MissionStore.campaignProgress(ctx) }
         val mGoal = com.agentos.shell.tools.MissionStore.mission(ctx)
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
             .clickable { onMission() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

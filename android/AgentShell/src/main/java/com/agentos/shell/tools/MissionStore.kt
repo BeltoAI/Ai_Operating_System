@@ -72,4 +72,38 @@ object MissionStore {
         val m = milestones(ctx); if (m.isEmpty()) return null
         return m.count { it.done }.toFloat() / m.size
     }
+
+    // ── Outreach campaign: who you're reaching, the shared message, who's been contacted / replied ──
+    fun target(ctx: Context): Int = prefs(ctx).getInt("goal_target", 5)
+    fun setTarget(ctx: Context, n: Int) = prefs(ctx).edit().putInt("goal_target", n.coerceIn(1, 50)).apply()
+
+    fun message(ctx: Context): String = prefs(ctx).getString("out_msg", "") ?: ""
+    fun setMessage(ctx: Context, m: String) = prefs(ctx).edit().putString("out_msg", m).apply()
+
+    fun query(ctx: Context): String = prefs(ctx).getString("out_query", "") ?: ""
+    fun setQuery(ctx: Context, q: String) = prefs(ctx).edit().putString("out_query", q).apply()
+
+    private fun set(ctx: Context, key: String): Set<String> = prefs(ctx).getStringSet(key, emptySet()) ?: emptySet()
+    fun contacted(ctx: Context): Set<String> = set(ctx, "contacted")
+    fun replied(ctx: Context): Set<String> = set(ctx, "replied")
+    fun addContacted(ctx: Context, name: String) = prefs(ctx).edit().putStringSet("contacted", contacted(ctx) + name).apply()
+    fun toggleReplied(ctx: Context, name: String) {
+        val r = replied(ctx); prefs(ctx).edit().putStringSet("replied", if (name in r) r - name else r + name).apply()
+    }
+    /** Campaign progress blends EFFORT and RESULT: messaging everyone gets you to 40%, and replies
+     *  carry the last 60% — so reaching out moves the needle, and replies move it more. */
+    fun campaignProgress(ctx: Context): Int {
+        val t = target(ctx).coerceAtLeast(1)
+        val outreach = (contacted(ctx).size.toFloat() / t).coerceAtMost(1f) * 40f
+        val replies = (replied(ctx).size.toFloat() / t).coerceAtMost(1f) * 60f
+        return (outreach + replies).toInt().coerceIn(0, 100)
+    }
+
+    /** Starting a new campaign clears the old contacted/replied lists. */
+    fun startCampaign(ctx: Context, goal: String, query: String, target: Int) {
+        setMission(ctx, goal)   // also resets checks/plan via setMission
+        prefs(ctx).edit().putString("out_query", query).putInt("goal_target", target)
+            .putStringSet("contacted", emptySet()).putStringSet("replied", emptySet())
+            .putString("out_msg", "").apply()
+    }
 }
