@@ -45,8 +45,13 @@ object LlmProviders {
     // ---------- Anthropic ----------
     private fun anthropic(model: String, apiKey: String, system: String, messages: JSONArray,
                           maxTokens: Int, readMs: Int, tools: JSONArray?): LlmResult {
-        val obj = JSONObject().put("model", model).put("max_tokens", maxTokens)
-            .put("system", system).put("messages", messages)
+        val obj = JSONObject().put("model", model).put("max_tokens", maxTokens).put("messages", messages)
+        // Prompt caching: cache the big, stable system prompt so repeated calls (e.g. every Home ask
+        // reuses the same persona + instructions) pay ~10% on those input tokens instead of full price.
+        if (system.length > 2000) {
+            obj.put("system", JSONArray().put(JSONObject().put("type", "text").put("text", system)
+                .put("cache_control", JSONObject().put("type", "ephemeral"))))
+        } else obj.put("system", system)
         if (tools != null) obj.put("tools", tools)
         val (code, raw) = post("https://api.anthropic.com/v1/messages",
             mapOf("x-api-key" to apiKey, "anthropic-version" to "2023-06-01"), obj.toString(), readMs)

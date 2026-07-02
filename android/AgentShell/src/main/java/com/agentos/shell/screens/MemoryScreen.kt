@@ -607,6 +607,17 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
             }
         }
+        // Hard monthly budget — cross it and everything auto-switches to free Gemini.
+        Spacer(Modifier.height(12.dp))
+        var budget by remember { mutableStateOf(MemoryStore.monthlyBudget(ctx).let { if (it > 0) it.toString().removeSuffix(".0") else "" }) }
+        Text("Monthly budget (USD)", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        BasicTextField(value = budget, onValueChange = { budget = it.filter { c -> c.isDigit() || c == '.' }; MemoryStore.setMonthlyBudget(ctx, budget) },
+            singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
+            decorationBox = { inner -> if (budget.isEmpty()) Text("e.g. 30 — 0 or blank = no cap", fontSize = T.small, color = T.inkFaint); inner() })
+        Text("When this month's spend hits the cap, SlyOS routes everything to free Gemini so the bill can't run away.",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
 
         SectionTitle("Connections")
         var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }

@@ -87,6 +87,11 @@ object MemoryStore {
     fun geminiKey(ctx: Context): String = prefs(ctx).getString("gemini_key", "") ?: ""
     fun setGeminiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("gemini_key", value.trim()).apply()
 
+    /** Monthly spend cap in USD (0 = no cap). When the month's spend crosses it, SlyOS forces every
+     *  paid task onto the free Gemini tier so the bill can't run away. */
+    fun monthlyBudget(ctx: Context): Double = try { (prefs(ctx).getString("monthly_budget", "0") ?: "0").toDouble() } catch (e: Exception) { 0.0 }
+    fun setMonthlyBudget(ctx: Context, v: String) = prefs(ctx).edit().putString("monthly_budget", v.trim().ifBlank { "0" }).apply()
+
     /** Which provider embeds semantic memory: "auto" (Gemini free → OpenAI), "gemini", or "openai".
      *  Lets a user force reliable paid OpenAI indexing when the free Gemini tier is rate-limited. */
     fun embedProvider(ctx: Context): String = prefs(ctx).getString("embed_provider", "auto") ?: "auto"

@@ -48,10 +48,23 @@ object ModelRouter {
      */
     fun choose(ctx: Context?, tier: Tier, needVision: Boolean, needWeb: Boolean): Choice? {
         if (ctx == null) return null
+        val geminiKey = MemoryStore.geminiKey(ctx)
+
+        // HARD BUDGET CAP: if this month's spend crossed the cap, force everything (that free Gemini can
+        // do) onto Gemini so the bill can't blow up. Web tasks still need Anthropic, so only those escape.
+        val budget = MemoryStore.monthlyBudget(ctx)
+        if (budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget && geminiKey.isNotBlank() && !needWeb) {
+            val model = MemoryStore.modelOverride(ctx, "gemini", tier).ifBlank { DEFAULT_MODELS["gemini"]?.get(tier) ?: "gemini-2.0-flash" }
+            return Choice("gemini", model, geminiKey)
+        }
+
         // Per-task routing override takes precedence, then the global preferred, then any keyed provider.
         val tierPref = MemoryStore.tierProvider(ctx, tier)
         val preferred = MemoryStore.preferredProvider(ctx)
-        val order = (listOf(tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
+        // COST DEFAULT: high-volume CHEAP work (triage, understanding commands, memory lookups) goes to
+        // FREE Gemini unless you explicitly set that tier to something else — so everyday use is $0.
+        val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
+        val order = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
         // First pass: respect capability constraints.
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue
