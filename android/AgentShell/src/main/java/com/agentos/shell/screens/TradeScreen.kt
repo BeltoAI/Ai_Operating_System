@@ -75,6 +75,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
 
     var value by remember { mutableStateOf(0.0) }
     var dayPct by remember { mutableStateOf(0.0) }
+    var refreshing by remember { mutableStateOf(false) }   // live price refresh — separate from command busy
     var updatedAt by remember { mutableStateOf(0L) }
     var marketState by remember { mutableStateOf("") }
     var priceMsg by remember { mutableStateOf("") }
@@ -88,25 +89,28 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
     var cmdError by remember { mutableStateOf("") }
 
     fun refreshPortfolio() {
-        busy = "load"
+        if (refreshing) return
+        refreshing = true
         scope.launch {
             val h = TradeStore.holdings(ctx); holdings = h
             val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
-            quotes = q
-            priceMsg = if (h.isNotEmpty() && q.isEmpty()) "Couldn't reach the price feed (network or rate limit) — tap Refresh again in a few seconds." else ""
-            val invested = h.sumOf { (q[it.symbol]?.price ?: it.avgCost) * it.shares }
-            val prevInv = h.sumOf { (q[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
+            if (q.isNotEmpty()) quotes = q
+            priceMsg = if (h.isNotEmpty() && q.isEmpty()) "Couldn't reach the price feed — retrying automatically… (add a free Finnhub key in Settings if stocks stay flat)" else ""
+            val use = if (q.isNotEmpty()) q else quotes
+            val invested = h.sumOf { (use[it.symbol]?.price ?: it.avgCost) * it.shares }
+            val prevInv = h.sumOf { (use[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
             value = TradeStore.cash(ctx) + invested
             val prevVal = TradeStore.cash(ctx) + prevInv
             dayPct = if (prevVal > 0) (value - prevVal) / prevVal * 100.0 else 0.0
-            marketState = q.values.firstOrNull()?.state ?: ""
+            marketState = use.values.firstOrNull()?.state ?: ""
             updatedAt = System.currentTimeMillis()
             TradeStore.saveSnapshot(ctx, value)
             series = TradeStore.valueSeries(ctx)
-            busy = ""
+            refreshing = false
         }
     }
-    LaunchedEffect(Unit) { if (started) refreshPortfolio() }
+    // Auto-refresh live prices every ~15s while viewing the portfolio — no manual button needed.
+    LaunchedEffect(started) { while (started) { refreshPortfolio(); kotlinx.coroutines.delay(15_000) } }
 
     fun build() {
         val amt = amount.toDoubleOrNull() ?: 0.0
@@ -180,6 +184,19 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             cmd = ""; plans = emptyList(); refreshPortfolio()
         }
     }
+    fun sellAll() {
+        if (busy.isNotEmpty()) return
+        busy = "sell"
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val h = TradeStore.holdings(ctx)
+                val q = QuoteClient.quotes(h.map { it.symbol })
+                h.forEach { TradeStore.sell(ctx, it.symbol, it.shares, q[it.symbol]?.price ?: it.avgCost) }
+                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Sold the whole practice portfolio to cash.")
+            }
+            busy = ""; refreshPortfolio()
+        }
+    }
 
     val deposited = TradeStore.deposited(ctx)
     val growth = if (deposited > 0) (value - deposited) / deposited * 100.0 else 0.0
@@ -202,7 +219,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Text("%+.1f%%".format(growth) + " all-time  ·  " + "%+.1f%%".format(dayPct) + " today", fontSize = T.body, color = if (growth >= 0) UP else DOWN)
             Spacer(Modifier.height(4.dp))
             val stamp = if (updatedAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updatedAt)) else "—"
-            Text((if (busy == "load") "updating…" else "updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
+            Text((if (refreshing) "updating…" else "auto · updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
             if (priceMsg.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(priceMsg, fontSize = T.caption, color = T.danger) }
 
             // Value graph — always starts from your deposit baseline so a line shows from the first refresh.
@@ -265,7 +282,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             }
 
             Spacer(Modifier.height(12.dp))
-            bigBtn(if (busy == "load") "Refreshing…" else "Refresh prices", accent = true, enabled = busy.isEmpty()) { refreshPortfolio() }
+            bigBtn(if (busy == "sell") "Selling…" else "Sell everything to cash", accent = false, enabled = busy.isEmpty()) { sellAll() }
             Spacer(Modifier.height(8.dp))
             Text("Start a new practice run", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable { TradeStore.reset(ctx); started = false; holdings = emptyList(); value = 0.0; series = emptyList() }.padding(vertical = 8.dp))
             Spacer(Modifier.height(28.dp))

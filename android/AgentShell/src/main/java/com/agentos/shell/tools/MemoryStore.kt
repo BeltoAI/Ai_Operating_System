@@ -97,6 +97,10 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    /** Optional free Finnhub API key for reliable real-time stock quotes in the Invest screen. */
+    fun finnhubKey(ctx: Context): String = prefs(ctx).getString("finnhub_key", "") ?: ""
+    fun setFinnhubKey(ctx: Context, v: String) = prefs(ctx).edit().putString("finnhub_key", v.trim()).apply()
+
     /** Zenodo personal access token — for one-tap publishing of papers. Stored ONLY on this device. */
     fun zenodoToken(ctx: Context): String = prefs(ctx).getString("zenodo_token", "") ?: ""
     fun setZenodoToken(ctx: Context, value: String) = prefs(ctx).edit().putString("zenodo_token", value.trim()).apply()

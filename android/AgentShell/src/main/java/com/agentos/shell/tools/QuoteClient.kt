@@ -9,9 +9,13 @@ import java.net.URL
  * endpoint, then falls back to Stooq's CSV. Returns null if a symbol can't be priced.
  */
 object QuoteClient {
+    /** Optional free Finnhub key (finnhub.io) for reliable real-time US stock quotes when Yahoo is
+     *  blocked on the network. Set from Settings via MemoryStore. */
+    @Volatile var finnhubKey: String = ""
+
     private fun http(url: String): String? = try {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"; connectTimeout = 12000; readTimeout = 12000; instanceFollowRedirects = true
+            requestMethod = "GET"; connectTimeout = 5000; readTimeout = 5000; instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
             setRequestProperty("Accept", "application/json,text/plain,*/*")
         }
@@ -35,9 +39,20 @@ object QuoteClient {
         if (p > 0) Quote(p, p / (1 + chg / 100.0), "REGULAR") else null
     } catch (e: Exception) { null }
 
+    private fun fromFinnhub(symbol: String): Quote? = try {
+        val k = finnhubKey.trim()
+        if (k.isBlank()) null else {
+            val body = http("https://finnhub.io/api/v1/quote?symbol=$symbol&token=$k")
+            val o = if (body != null) JSONObject(body) else null
+            val c = o?.optDouble("c", 0.0) ?: 0.0; val pc = o?.optDouble("pc", 0.0) ?: 0.0
+            if (c > 0) Quote(c, if (pc > 0) pc else c, "REGULAR") else null
+        }
+    } catch (e: Exception) { null }
+
     fun quote(symbol: String): Quote? {
         val s = symbol.trim().uppercase(); if (s.isBlank()) return null
         if (CG.containsKey(s)) fromCoinGecko(s)?.let { return it }
+        if (finnhubKey.isNotBlank()) fromFinnhub(s)?.let { return it }   // reliable stock feed when set
         // Try both Yahoo hosts (one is often throttled while the other works).
         for (host in listOf("query1", "query2")) {
             val body = http("https://$host.finance.yahoo.com/v8/finance/chart/$s?interval=1m&range=1d") ?: continue
@@ -82,10 +97,19 @@ object QuoteClient {
         return out
     }
 
-    /** Rich quotes for several symbols; missing ones are omitted. */
+    /** Rich quotes for several symbols, fetched IN PARALLEL with a hard overall cap — so one blocked
+     *  host can't hang the whole refresh. Missing ones are omitted. */
     fun quotes(symbols: List<String>): Map<String, Quote> {
-        val out = LinkedHashMap<String, Quote>()
-        for (s in symbols.distinct()) { quote(s)?.let { out[s.uppercase()] = it } }
-        return out
+        val syms = symbols.map { it.uppercase() }.distinct()
+        if (syms.isEmpty()) return emptyMap()
+        val out = java.util.concurrent.ConcurrentHashMap<String, Quote>()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(syms.size.coerceIn(1, 8))
+        try {
+            val futures = syms.map { s -> pool.submit { quote(s)?.let { out[s] = it } } }
+            futures.forEach { try { it.get(18, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Exception) {} }
+        } finally { pool.shutdownNow() }
+        val ordered = LinkedHashMap<String, Quote>()
+        syms.forEach { s -> out[s]?.let { ordered[s] = it } }
+        return ordered
     }
 }

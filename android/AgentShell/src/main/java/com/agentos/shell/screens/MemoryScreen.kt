@@ -207,6 +207,18 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             modifier = Modifier.clickable { headshotPicker.launch("image/*") }.padding(vertical = 6.dp))
         Spacer(Modifier.height(16.dp))
 
+        // ---- Live stock data (optional) ----
+        SectionTitle("Market data (optional)")
+        Text("Stocks not updating in Invest? Paste a free Finnhub key (finnhub.io) for reliable real-time quotes. Crypto works without one.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var finnhub by remember { mutableStateOf(MemoryStore.finnhubKey(ctx)) }
+        BasicTextField(finnhub, { finnhub = it; MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim() },
+            singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+            decorationBox = { inner -> if (finnhub.isEmpty()) Text("Finnhub API key", fontSize = T.small, color = T.inkFaint); inner() })
+        Spacer(Modifier.height(16.dp))
+
         SectionTitle("Booking link")
         Text("Only shared if someone actually asks to schedule a call — never pushed.",
             fontSize = T.small, color = T.inkFaint)
