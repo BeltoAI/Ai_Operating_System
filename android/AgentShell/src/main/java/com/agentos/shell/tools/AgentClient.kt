@@ -970,6 +970,40 @@ object AgentClient {
         return if (code == 200) text.trim() else "Hi ${name.split(" ").firstOrNull() ?: ""}, I'd love to connect about ${goal.take(60)} — open to a quick chat?"
     }
 
+    /** Suggest the missing detail for a mission from the brain (what you sell / what job / who to seek). */
+    fun suggestMissionDetail(type: String, memory: String): String {
+        val q = when (type) {
+            "sell" -> "In one short phrase, what product or service do I sell? Max 12 words."
+            "job" -> "In one short phrase, what job title and location should I target given my background? Max 12 words."
+            else -> "In one short phrase, what kind of people or opportunities should I seek in my network? Max 12 words."
+        }
+        val sys = persona(memory) + "Reply with ONE short phrase only — no preamble, no quotes, no punctuation at the end."
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", q))
+        val (code, text) = callMessages(sys, msgs, 60, MODEL)
+        return if (code == 200) text.trim().removeSurrounding("\"").take(120) else ""
+    }
+
+    data class EmailContact(val name: String, val email: String, val company: String)
+
+    /** Web-search for real people + work emails relevant to the ask (best-effort; Anthropic web only). */
+    fun findContactEmails(query: String, memory: String): List<EmailContact> {
+        val sys = "You are a research assistant WITH web search. Search the web for real, current people and their " +
+            "WORK EMAIL addresses relevant to the request. Only include an email you ACTUALLY find via search — never " +
+            "invent one. Reply ONLY as JSON: {\"contacts\":[{\"name\":\"…\",\"email\":\"…\",\"company\":\"…\"}]}"
+        val user = "REQUEST: " + query + "\nABOUT ME: " + memory.take(800)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 2000, VOICE, 120000, webTool())
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("contacts")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                EmailContact(o.optString("name").trim(), o.optString("email").trim(), o.optString("company").trim())
+            }.filter { it.email.contains("@") }
+        } catch (e: Exception) { emptyList() }
+    }
+
     data class JobLead(val title: String, val company: String, val location: String, val url: String)
 
     /**
