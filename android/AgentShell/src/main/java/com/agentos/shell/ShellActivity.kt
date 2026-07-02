@@ -118,6 +118,7 @@ class ShellActivity : ComponentActivity() {
             var researchTopic by remember { mutableStateOf("") }
             var jobTopic by remember { mutableStateOf("") }
             var networkQuery by remember { mutableStateOf("") }
+            var missionGoal by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
             LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
@@ -162,13 +163,14 @@ class ShellActivity : ComponentActivity() {
                             onResearch = { t -> researchTopic = t; screen = Screen.Research },
                             onJob = { t -> jobTopic = t; screen = Screen.Job },
                             onNetwork = { t -> networkQuery = t; screen = Screen.Network },
+                            onSetMission = { g -> missionGoal = g; screen = Screen.Mission },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }) { screen = Screen.Home }
                         Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
-                        Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
-                        Screen.Mission -> MissionScreen(m) { screen = Screen.Memory }
+                        Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { missionGoal = ""; screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
+                        Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }

@@ -106,6 +106,7 @@ fun HomeScreen(
     onResearch: (String) -> Unit = {},
     onJob: (String) -> Unit = {},
     onNetwork: (String) -> Unit = {},
+    onSetMission: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -286,6 +287,13 @@ fun HomeScreen(
                 val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: emailAct.arg.ifBlank { q }
                 thinking = false
                 onComposeEmail(to, tpc)
+                return@launch
+            }
+            // set_mission opens the Mission screen and starts an outreach campaign for the goal.
+            val misAct = result.actions.firstOrNull { it.type == "set_mission" }
+            if (misAct != null && misAct.arg.isNotBlank()) {
+                thinking = false
+                onSetMission(misAct.arg)
                 return@launch
             }
             // network_search opens the network screen: matching people + a ready message + LinkedIn buttons.

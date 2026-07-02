@@ -35,7 +35,7 @@ private val ACC = Color(0xFFE8642C)
 /** Missions as one-tap outreach campaigns: pick a goal → get the people from your network + a ready
  *  message → tap Send → progress rises as people reply. Built to be idiot-simple. */
 @Composable
-fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
+fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val clip = LocalClipboardManager.current
@@ -65,17 +65,26 @@ fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             busy = false
         }
     }
+    var sending by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        if (query.isNotBlank()) people = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, query, 20) }
+        if (initialGoal.isNotBlank() && initialGoal != goal) runCampaign(initialGoal, initialGoal, 10)
+        else if (query.isNotBlank()) people = withContext(Dispatchers.IO) { ConnectionStore.search(ctx, query, 20) }
     }
     fun send(c: ConnectionStore.Conn) {
-        clip.setText(AnnotatedString(message.replace("{name}", firstName(c.name).ifBlank { "there" })))
-        val url = c.url.ifBlank { "https://www.linkedin.com/search/results/people/?keywords=" + java.net.URLEncoder.encode(c.name, "UTF-8") }
-        try {
-            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) {}
-        MissionStore.addContacted(ctx, c.name); contacted = MissionStore.contacted(ctx)
+        if (sending.isNotEmpty()) return
+        sending = c.name
+        scope.launch {
+            // Write a message tailored to THIS person (their role/company + the goal), not a template.
+            val msg = withContext(Dispatchers.IO) { AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, MemoryStore.fullProfile(ctx)) }
+            clip.setText(AnnotatedString(msg))
+            val url = c.url.ifBlank { "https://www.linkedin.com/search/results/people/?keywords=" + java.net.URLEncoder.encode(c.name, "UTF-8") }
+            try {
+                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {}
+            MissionStore.addContacted(ctx, c.name); contacted = MissionStore.contacted(ctx)
+            sending = ""
+        }
     }
 
     @Composable
@@ -137,7 +146,7 @@ fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         // The shared message (editable).
         if (message.isNotBlank()) {
             Spacer(Modifier.height(18.dp))
-            Text("YOUR MESSAGE — edit if you like; {name} fills in per person", fontSize = T.caption, color = T.inkFaint)
+            Text("MESSAGE STYLE — each person gets their own tailored version when you tap Send", fontSize = T.caption, color = T.inkFaint)
             Spacer(Modifier.height(6.dp))
             BasicTextField(message, { message = it; MissionStore.setMessage(ctx, it) }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 90.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp))
@@ -157,9 +166,9 @@ fun MissionScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         Text(listOf(c.role, c.company).filter { it.isNotBlank() }.joinToString(" @ "), fontSize = T.caption, color = T.inkFaint)
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (isMsg) "Messaged ✓ · send again" else "Send", fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
+                        Text(if (sending == c.name) "Writing…" else if (isMsg) "Messaged ✓ · again" else "Send", fontSize = T.small, color = T.bgElevated, textAlign = TextAlign.Center,
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(if (isMsg) T.inkFaint else ACC)
-                                .clickable { send(c) }.padding(vertical = 10.dp))
+                                .clickable(enabled = sending.isEmpty()) { send(c) }.padding(vertical = 10.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(if (isRep) "Replied 👍" else "Mark reply", fontSize = T.small, color = if (isRep) T.bgElevated else ACC, textAlign = TextAlign.Center,
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(if (isRep) ACC else T.hairline)

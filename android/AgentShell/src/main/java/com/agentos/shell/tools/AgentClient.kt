@@ -178,7 +178,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, navigate, play_music, camera, settings, add_event, timer, alarm, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -191,6 +191,7 @@ object AgentClient {
             append("Use cowork for multi-step BUILD tasks — code, scripts, apps, tools, or 'build me / make me an app / write a program / put together a project / add to my cowork project'; arg = the full instruction. This opens the Cowork workspace which builds real files and can run them. The user may refer to existing work loosely (\"add X to my research about Y\", \"in the chat about Z…\"); resolve it from the paper/chat titles in context and route write_paper (for papers) or cowork (for builds) with the FULL combined instruction so the workspace can find and extend the right item. ")
             append("Use find_job ONLY when the user wants to ACT on a specific job now — 'find me a job at IBM', 'apply to X', 'make my résumé/cover letter'; arg = the company/role. ")
             append("If they ASK which roles/opportunities suit them ('what jobs fit my background?', 'ideal roles for me?', 'what should I apply to?'), do NOT use find_job. ANSWER in 'say' with a clean, concrete list of 4-6 roles grounded in their real work history above — each on its own line as 'Role — one-line why it fits'. Plain text, NO markdown/asterisks/headers. End with one line: 'Say \"find me a job at <one>\" and I'll build the application.' ")
+            append("Use set_mission when the user wants to START a MISSION / GOAL / outreach CAMPAIGN — a standing objective, not a one-off (e.g. 'set a mission to find buyers for my product', 'mission: get me a job through my network', 'start a campaign to find 10 customers', 'find me buyers for my SaaS'); arg = the goal in plain words. This opens the Mission screen and runs it: finds the right people from their network with a ready message to send. Keep 'say' to one short line. ")
             append("Use network_search when the user asks whether they KNOW or HAVE someone in their network, who they know somewhere, or wants to reach out to their contacts (e.g. 'do I have any CTOs in my network?', 'who do I know at Google?', 'find investors in my network', 'message my designer contacts'); arg = the role/type/company to look for. This opens a screen that lists the matching people with a ready-to-send message and a one-tap LinkedIn button. Keep 'say' to one short line. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("checklist_add arg = the item text. ")
@@ -953,6 +954,20 @@ object AgentClient {
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Draft the message."))
         val (code, text) = callMessages(sys, msgs, 300, VOICE)
         return if (code == 200) text.trim() else "Hi {name}, hope you're well! I'm reaching out about $query — would you be open to a quick chat?"
+    }
+
+    /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
+     *  fresh when you actually message them, so it's never a generic template. */
+    fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String): String {
+        val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
+        val sys = persona(memory) +
+            "Write ONE short, SPECIFIC outreach message (2-4 sentences, in the person's own voice) to send to " +
+            "this exact contact for the goal: \"$goal\". Address them by first name, reference who THEY are " +
+            "(their role/company) and why they're relevant, and make one clear, concrete ask. Warm, human, no " +
+            "clichés, no markdown, ready to paste and send."
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Send it to: $who"))
+        val (code, text) = callMessages(sys, msgs, 300, VOICE)
+        return if (code == 200) text.trim() else "Hi ${name.split(" ").firstOrNull() ?: ""}, I'd love to connect about ${goal.take(60)} — open to a quick chat?"
     }
 
     data class JobLead(val title: String, val company: String, val location: String, val url: String)
