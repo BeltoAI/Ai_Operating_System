@@ -84,13 +84,22 @@ object MetricsStore {
         "paper_write"  -> 9000   // ~2.5 h to draft a paper from scratch
         "paper_expand" -> 2400   // ~40 min to write a new chapter
         "paper_edit"   -> 900    // ~15 min to revise a section
-        "outreach", "email_reply" -> 360   // ~6 min for a real email
-        "social_post"  -> 480    // ~8 min to craft + caption a post
+        "cowork"       -> 1800   // ~30 min: it builds real files/tools for you
+        "invest"       -> 1800   // ~30 min: researching + assembling a portfolio
+        "find_job"     -> 1200   // ~20 min: résumé + cover + application
+        "set_mission", "network_search" -> 900   // ~15 min: finding + drafting outreach
+        "shop"         -> 600    // ~10 min of price hunting
+        "write_paper"  -> 9000
+        "outreach", "email_reply", "send_email", "compose_email" -> 360   // ~6 min for a real email
+        "social_post", "compose_post"  -> 480    // ~8 min to craft + caption a post
         "spicy_post"   -> 300
+        "create_doc", "create_sheet", "create_slides", "create_pdf" -> 420  // ~7 min to make a doc
         "doc_answer"   -> 240
         "web_search"   -> 300    // a real lookup + skim
-        "reply", "send_sms" -> 90
-        "add_event"    -> 60
+        "look"         -> 120    // identifying + finding the link yourself
+        "reply", "send_sms", "message" -> 90
+        "remind", "add_event" -> 60
+        "navigate", "play_music" -> 30
         "alarm", "timer" -> 30
         "dial", "sms"  -> 20
         "catch_up"     -> 120

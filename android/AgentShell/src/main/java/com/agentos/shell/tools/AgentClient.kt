@@ -1164,12 +1164,15 @@ object AgentClient {
      *  elsewhere — the model must NOT invent prices, only pick tickers + target weights. */
     fun suggestPortfolio(amount: Double, risk: String, interests: String, memory: String): List<Pick> {
         val sys = "You are a portfolio strategist building a PRACTICE (paper-money) portfolio to be judged on real " +
-            "market performance. Pick 5-8 REAL, liquid, currently-listed US tickers (stocks or ETFs) suited to the " +
-            "risk level and interests, diversified across sectors. Guidance: conservative = mostly broad ETFs " +
-            "(VTI, BND, SCHD) + a few blue chips; balanced = mix of index ETFs and quality large-caps; aggressive = " +
-            "more growth/tech/thematic names with a small ballast. Assign target WEIGHTS (fractions of the total) " +
-            "that sum to ~1.0. Never invent prices or fake tickers. Reply ONLY as JSON: " +
-            "{\"positions\":[{\"symbol\":\"VTI\",\"name\":\"Vanguard Total Market\",\"weight\":0.3,\"why\":\"one short line\"}]}"
+            "market performance. Pick 5-8 REAL, liquid, currently-listed tickers, diversified. " +
+            "THE USER'S INTERESTS ARE A DIRECTIVE, NOT A HINT — you MUST reflect them: if they mention CRYPTO, include " +
+            "real crypto via tickers like BTC-USD, ETH-USD (or a crypto ETF); if GOLD/silver/commodities, include GLD, " +
+            "IAU, or SLV; if a specific company or sector (e.g. 'AI', 'clean energy', 'Tesla'), overweight matching real " +
+            "tickers. Then round out with diversification. Risk guidance: conservative = mostly broad ETFs (VTI, BND, " +
+            "SCHD) + blue chips; balanced = index ETFs + quality large-caps; aggressive = more growth/tech/thematic and " +
+            "MAY include a crypto sleeve. Assign target WEIGHTS (fractions) summing to ~1.0. Valid Yahoo symbols only " +
+            "(crypto as BTC-USD etc). Never invent prices or fake tickers. Reply ONLY as JSON: " +
+            "{\"positions\":[{\"symbol\":\"BTC-USD\",\"name\":\"Bitcoin\",\"weight\":0.15,\"why\":\"one short line\"}]}"
         val user = "Amount: $${amount.toInt()} (fake). Risk: $risk. Interests: ${interests.ifBlank { "none specified" }}. " +
             "About me (for relevance): " + memory.take(600)
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))

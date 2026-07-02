@@ -59,6 +59,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
     var dayPct by remember { mutableStateOf(0.0) }
     var updatedAt by remember { mutableStateOf(0L) }
     var marketState by remember { mutableStateOf("") }
+    var priceMsg by remember { mutableStateOf("") }
     var holdings by remember { mutableStateOf(TradeStore.holdings(ctx)) }
     var series by remember { mutableStateOf(TradeStore.valueSeries(ctx)) }
 
@@ -74,6 +75,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             val h = TradeStore.holdings(ctx); holdings = h
             val q = withContext(Dispatchers.IO) { QuoteClient.quotes(h.map { it.symbol }) }
             quotes = q
+            priceMsg = if (h.isNotEmpty() && q.isEmpty()) "Couldn't reach the price feed (network or rate limit) — tap Refresh again in a few seconds." else ""
             val invested = h.sumOf { (q[it.symbol]?.price ?: it.avgCost) * it.shares }
             val prevInv = h.sumOf { (q[it.symbol]?.prevClose ?: it.avgCost) * it.shares }
             value = TradeStore.cash(ctx) + invested
@@ -183,6 +185,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Spacer(Modifier.height(4.dp))
             val stamp = if (updatedAt > 0) java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(updatedAt)) else "—"
             Text((if (busy == "load") "updating…" else "updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
+            if (priceMsg.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(priceMsg, fontSize = T.caption, color = T.danger) }
 
             // Value graph.
             if (series.size >= 2) {
