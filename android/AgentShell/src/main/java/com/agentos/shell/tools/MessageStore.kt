@@ -12,18 +12,33 @@ object MessageStore {
     data class Hit(val contact: String, val role: String, val body: String)
     data class Row(val contact: String, val platform: String, val sender: String, val role: String, val body: String, val ts: Long)
 
-    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_msgs.db", null, 2) {
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_msgs.db", null, 3) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS messages(contact TEXT, platform TEXT, sender TEXT, role TEXT, body TEXT, ts INTEGER)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_contact ON messages(contact)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON messages(ts)")
+            ensureFts(db)
         }
         // FAULT FIX: the brain is the user's irreplaceable memory — NEVER drop it on a schema bump.
-        // Migrate additively (create the table/indexes if missing) so an upgrade can't wipe years of data.
         override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) = onCreate(db)
-        // Ensure the time index exists on every open, even for installs created before it was added.
         override fun onOpen(db: SQLiteDatabase) {
             try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON messages(ts)") } catch (e: Exception) {}
+            ensureFts(db)
+        }
+        // Full-text search index so keyword search stays instant at MILLIONS of messages (an OS that
+        // lives with you for years can't do a full table scan on every search). External-content FTS4
+        // mirrors the messages table via triggers; rebuilt once for existing data.
+        private fun ensureFts(db: SQLiteDatabase) {
+            try {
+                db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts4(content=\"messages\", contact, body)")
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS msg_ai AFTER INSERT ON messages BEGIN " +
+                    "INSERT INTO messages_fts(docid, contact, body) VALUES(new.rowid, new.contact, new.body); END")
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS msg_ad AFTER DELETE ON messages BEGIN " +
+                    "INSERT INTO messages_fts(messages_fts, docid, contact, body) VALUES('delete', old.rowid, old.contact, old.body); END")
+                val ftsN = db.rawQuery("SELECT count(*) FROM messages_fts", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                val msgN = db.rawQuery("SELECT count(*) FROM messages", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                if (ftsN == 0 && msgN > 0) db.execSQL("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+            } catch (e: Exception) {}
         }
     }
 
@@ -85,7 +100,16 @@ object MessageStore {
         db(ctx).rawQuery("SELECT count(*) FROM messages", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     } catch (e: Exception) { 0 }
 
-    fun clear(ctx: Context) { try { db(ctx).execSQL("DELETE FROM messages") } catch (e: Exception) {} }
+    fun clear(ctx: Context) {
+        try {
+            val d = db(ctx)
+            d.execSQL("DROP TRIGGER IF EXISTS msg_ai"); d.execSQL("DROP TRIGGER IF EXISTS msg_ad")
+            d.execSQL("DELETE FROM messages")
+            try { d.execSQL("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')") } catch (e: Exception) {}
+            d.execSQL("CREATE TRIGGER IF NOT EXISTS msg_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(docid, contact, body) VALUES(new.rowid, new.contact, new.body); END")
+            d.execSQL("CREATE TRIGGER IF NOT EXISTS msg_ad AFTER DELETE ON messages BEGIN INSERT INTO messages_fts(messages_fts, docid, contact, body) VALUES('delete', old.rowid, old.contact, old.body); END")
+        } catch (e: Exception) {}
+    }
 
     /** Stream every row through [action] WITHOUT loading them all into memory — for exporting a huge
      *  brain (hundreds of thousands of messages) without OOM. Returns how many rows were seen. */
@@ -106,8 +130,27 @@ object MessageStore {
         "talking","know","knew","tell","find","there","any","some","can","could","would","should","our","us"
     )
 
-    /** Keyword search: match contact name first (so asking about a person pulls their thread), then body. */
+    /** Keyword search. Uses the FTS index (instant even at millions of rows); falls back to LIKE only
+     *  if FTS is unavailable or empty — so it never regresses. */
     fun search(ctx: Context, query: String, limit: Int = 60): List<Hit> {
+        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 && it !in STOP }
+        if (terms.isEmpty()) return emptyList()
+        val d = db(ctx)
+        // FTS path — index lookup, not a table scan.
+        try {
+            val match = terms.joinToString(" OR ") { it.replace("\"", "") + "*" }
+            val out = LinkedHashMap<String, Hit>()
+            d.rawQuery("SELECT m.contact, m.role, m.body FROM messages_fts f, messages m " +
+                "WHERE f.docid = m.rowid AND messages_fts MATCH ? LIMIT ?", arrayOf(match, (limit * 2).toString())).use { c ->
+                while (c.moveToNext()) { val h = Hit(c.getString(0), c.getString(1), c.getString(2)); out["${h.contact}|${h.body}"] = h }
+            }
+            if (out.isNotEmpty()) return out.values.take(limit)
+        } catch (e: Exception) {}
+        return searchLike(ctx, query, limit)
+    }
+
+    /** Fallback keyword search (full scan via LIKE) — used only when FTS isn't available. */
+    private fun searchLike(ctx: Context, query: String, limit: Int): List<Hit> {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 && it !in STOP }
         if (terms.isEmpty()) return emptyList()
         val d = db(ctx)
@@ -116,7 +159,6 @@ object MessageStore {
             d.rawQuery(sql, args).use { c -> while (c.moveToNext()) {
                 val h = Hit(c.getString(0), c.getString(1), c.getString(2)); out["${h.contact}|${h.body}"] = h } }
         } catch (e: Exception) {}
-        // 1) contacts whose name matches a term → recent thread for each
         try {
             val w = terms.joinToString(" OR ") { "lower(contact) LIKE ?" }
             d.rawQuery("SELECT DISTINCT contact FROM messages WHERE $w LIMIT 10",
@@ -125,7 +167,6 @@ object MessageStore {
                 names.forEach { run("SELECT contact,role,body FROM messages WHERE contact=? ORDER BY ts DESC LIMIT 12", arrayOf(it)) }
             }
         } catch (e: Exception) {}
-        // 2) body matches
         val w = terms.joinToString(" OR ") { "lower(body) LIKE ?" }
         run("SELECT contact,role,body FROM messages WHERE $w ORDER BY ts DESC LIMIT $limit",
             terms.map { "%$it%" }.toTypedArray())
