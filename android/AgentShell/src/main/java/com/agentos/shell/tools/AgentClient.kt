@@ -1030,6 +1030,35 @@ object AgentClient {
         return if (code == 200) text.trim().removeSurrounding("\"").take(120) else ""
     }
 
+    data class Prospect(val name: String, val company: String, val email: String, val website: String, val why: String)
+
+    /**
+     * Web-search for REAL, specific targets that fit the goal — companies (and a named contact where
+     * possible), each with a website, a work email if one can actually be found, and why they fit.
+     * Respects any location in the goal. Runs on Anthropic web search. Empty if unavailable.
+     */
+    fun findProspects(goal: String, memory: String): List<Prospect> {
+        val sys = "You are a research assistant WITH web search. Find 8-12 REAL, current, SPECIFIC targets that fit " +
+            "the goal. For SELLING, find organizations that would actually BUY it (right industry + use-case). Respect " +
+            "any LOCATION named in the goal. For each target give: name (a named person if you find one, else the " +
+            "company), company, a real work email ONLY if you actually find one via search (else \"\"), the company " +
+            "website URL, and a one-line why-it-fits. Use web search. NEVER invent emails or URLs. " +
+            "Reply ONLY as JSON: {\"targets\":[{\"name\":\"…\",\"company\":\"…\",\"email\":\"…\",\"website\":\"https://…\",\"why\":\"…\"}]}"
+        val user = "GOAL: " + goal + "\nABOUT ME: " + memory.take(800)
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(sys, msgs, 3000, VOICE, 120000, webTool())
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}')
+            val arr = JSONObject(text.substring(s, e + 1)).getJSONArray("targets")
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                Prospect(o.optString("name").trim(), o.optString("company").trim(),
+                    o.optString("email").trim(), o.optString("website").trim(), o.optString("why").trim())
+            }.filter { it.company.isNotBlank() || it.name.isNotBlank() }
+        } catch (e: Exception) { emptyList() }
+    }
+
     data class EmailContact(val name: String, val email: String, val company: String)
 
     /** Web-search for real people + work emails relevant to the ask (best-effort; Anthropic web only). */
