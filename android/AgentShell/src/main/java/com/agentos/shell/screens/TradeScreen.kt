@@ -144,7 +144,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                 MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Built a $${amt.toInt()} practice portfolio ($risk): " + picks.joinToString(", ") { "${it.symbol} ${(it.weight * 100).toInt()}%" })
                 MetricsStore.record(ctx, 900)
             }
-            started = true; picks = emptyList(); refreshPortfolio()
+            started = true; picks = emptyList(); busy = ""; refreshPortfolio()   // clear busy or all buttons stay disabled
         }
     }
 
@@ -206,7 +206,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                 }
                 MetricsStore.record(ctx, 120)
             }
-            cmd = ""; plans = emptyList(); refreshPortfolio()
+            cmd = ""; plans = emptyList(); busy = ""; refreshPortfolio()   // clear busy or buttons stay disabled
         }
     }
     fun sellAll() {
