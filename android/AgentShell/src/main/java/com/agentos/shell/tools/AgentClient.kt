@@ -1100,12 +1100,16 @@ object AgentClient {
     // ── Camera "Look" mode: identify what the lens is pointed at, tour-guide + shopping-assistant style ──
     data class LookResult(val title: String, val detail: String, val category: String, val query: String, val place: String)
 
-    /** Identify the main subject of a photo and how to act on it (shop / map / search). Vision call. */
-    fun lookAt(imageB64: String, memory: String = ""): LookResult {
+    /** Identify the main subject of a photo and how to act on it (shop / map / search). Vision call.
+     *  If [focusX]/[focusY] are set (0..1 across/down the frame), identify the object the user TAPPED. */
+    fun lookAt(imageB64: String, memory: String = "", focusX: Float? = null, focusY: Float? = null): LookResult {
+        val focus = if (focusX != null && focusY != null)
+            "The user TAPPED to point at a specific object near ${(focusX * 100).toInt()}% across and ${(focusY * 100).toInt()}% down the frame — identify THAT object, not the overall scene. "
+        else ""
         val content = JSONArray()
         content.put(JSONObject().put("type", "image").put("source",
             JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
-        content.put(JSONObject().put("type", "text").put("text",
+        content.put(JSONObject().put("type", "text").put("text", focus +
             "Identify the MAIN thing in this photo. Reply ONLY as JSON (no prose): " +
             "{\"title\":\"short name of what it is\",\"detail\":\"ONE vivid, specific sentence — brand/model, " +
             "species, dish, or landmark, plus one genuinely useful fact\",\"category\":\"product|place|food|" +
