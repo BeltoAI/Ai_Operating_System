@@ -22,8 +22,22 @@ object QuoteClient {
 
     /** Rich quote from Yahoo's chart endpoint: latest price (intraday when the market's open), the
      *  previous close (for day-change), and market state (REGULAR / CLOSED / PRE / POST). */
+    // Crypto → CoinGecko (free, no key, trades 24/7 so it always moves — proves the live pipe).
+    private val CG = mapOf(
+        "BTC-USD" to "bitcoin", "ETH-USD" to "ethereum", "SOL-USD" to "solana", "DOGE-USD" to "dogecoin",
+        "XRP-USD" to "ripple", "ADA-USD" to "cardano", "BNB-USD" to "binancecoin", "LTC-USD" to "litecoin",
+        "MATIC-USD" to "matic-network", "DOT-USD" to "polkadot", "AVAX-USD" to "avalanche-2", "LINK-USD" to "chainlink")
+    private fun fromCoinGecko(symbol: String): Quote? = try {
+        val id = CG[symbol.uppercase()] ?: return null
+        val body = http("https://api.coingecko.com/api/v3/simple/price?ids=$id&vs_currencies=usd&include_24hr_change=true") ?: return null
+        val o = JSONObject(body).optJSONObject(id) ?: return null
+        val p = o.optDouble("usd", 0.0); val chg = o.optDouble("usd_24h_change", 0.0)
+        if (p > 0) Quote(p, p / (1 + chg / 100.0), "REGULAR") else null
+    } catch (e: Exception) { null }
+
     fun quote(symbol: String): Quote? {
         val s = symbol.trim().uppercase(); if (s.isBlank()) return null
+        if (CG.containsKey(s)) fromCoinGecko(s)?.let { return it }
         // Try both Yahoo hosts (one is often throttled while the other works).
         for (host in listOf("query1", "query2")) {
             val body = http("https://$host.finance.yahoo.com/v8/finance/chart/$s?interval=1m&range=1d") ?: continue

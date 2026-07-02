@@ -46,10 +46,28 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // The invest arg from Home AI may be structured ("amount:1000, risk:balanced") — parse it out so it
+    // sets the amount/risk fields instead of polluting the interests box.
+    val parsed = remember {
+        val low = initialPrompt.lowercase()
+        val amt = Regex("(?:amount[:=]\\s*\\$?|\\$)(\\d{2,7})").find(low)?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("\\b(\\d{3,7})\\b").find(low)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val rsk = when {
+            low.contains("conservativ") || low.contains("careful") || low.contains("safe") -> "conservative"
+            low.contains("aggress") || low.contains("adventur") || low.contains("bold") || low.contains("risky") -> "aggressive"
+            low.contains("balanced") || low.contains("moderate") -> "balanced"; else -> ""
+        }
+        val rest = initialPrompt
+            .replace(Regex("(?i)amount[:=]\\s*\\$?\\d+"), "").replace(Regex("(?i)risk[:=]\\s*\\w+"), "")
+            .replace(Regex("\\$?\\d{3,7}"), "")
+            .replace(Regex("(?i)\\b(conservative|careful|safe|aggressive|adventurous|bold|risky|balanced|moderate|invest|trade|trading|portfolio|for me|make money|money)\\b"), "")
+            .replace(Regex("[,;:]+"), " ").trim()
+        Triple(rest, amt, rsk)
+    }
     var started by remember { mutableStateOf(TradeStore.started(ctx)) }
-    var risk by remember { mutableStateOf(TradeStore.risk(ctx)) }
-    var interests by remember { mutableStateOf(TradeStore.interests(ctx).ifBlank { initialPrompt.take(80) }) }
-    var amount by remember { mutableStateOf("1000") }
+    var risk by remember { mutableStateOf(parsed.third.ifBlank { TradeStore.risk(ctx) }) }
+    var interests by remember { mutableStateOf(TradeStore.interests(ctx).takeUnless { it.contains("amount:") || it.contains("risk:") }.orEmpty().ifBlank { parsed.first }) }
+    var amount by remember { mutableStateOf(if (parsed.second > 0) parsed.second.toString() else "1000") }
     var picks by remember { mutableStateOf<List<AgentClient.Pick>>(emptyList()) }
     var quotes by remember { mutableStateOf<Map<String, QuoteClient.Quote>>(emptyMap()) }
     var busy by remember { mutableStateOf("") }
@@ -187,10 +205,12 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             Text((if (busy == "load") "updating…" else "updated $stamp") + (marketLabel().let { if (it.isNotBlank()) " · $it" else "" }), fontSize = T.caption, color = T.inkFaint)
             if (priceMsg.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(priceMsg, fontSize = T.caption, color = T.danger) }
 
-            // Value graph.
-            if (series.size >= 2) {
+            // Value graph — always starts from your deposit baseline so a line shows from the first refresh.
+            run {
                 Spacer(Modifier.height(12.dp))
-                val vals = series.map { it.second }
+                Text("PORTFOLIO OVER TIME", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(6.dp))
+                val vals = listOf(deposited) + series.map { it.second }
                 val lo = (vals.min()).coerceAtMost(deposited); val hi = (vals.max()).coerceAtLeast(deposited); val span = (hi - lo).coerceAtLeast(0.01)
                 Canvas(Modifier.fillMaxWidth().height(90.dp)) {
                     val w = size.width; val h = size.height
