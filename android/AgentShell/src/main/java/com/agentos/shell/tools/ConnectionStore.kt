@@ -1,6 +1,9 @@
 package com.agentos.shell.tools
 
 import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,35 +23,93 @@ object ConnectionStore {
     )
 
     private const val PREF = "slyos_connections"
-    private const val KEY = "items"
-    private const val KEY_MSG = "contacted"   // name -> last-contacted epoch millis
+    private const val KEY = "items"           // legacy prefs blob — migrated to SQLite once, then removed
+    private const val KEY_MSG = "contacted"   // name -> last-contacted epoch millis (small; stays in prefs)
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
+    // 20k+ connections can't live in a SharedPreferences JSON blob (loaded/rewritten whole, every time).
+    // They now live in SQLite so lookups touch an index, not the entire network.
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_conn.db", null, 1) {
+        override fun onCreate(db: SQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS conns(name TEXT, company TEXT, role TEXT, connectedOn TEXT, url TEXT, source TEXT, reachedOut INTEGER DEFAULT 0)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_conn_name ON conns(name)")
+        }
+        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) = onCreate(db)
+    }
+    @Volatile private var helper: Helper? = null
+    @Volatile private var migrated = false
+    private fun db(ctx: Context): SQLiteDatabase {
+        val h = helper ?: synchronized(this) { helper ?: Helper(ctx).also { helper = it } }
+        val d = h.writableDatabase
+        migrateFromPrefs(ctx, d)
+        return d
+    }
+    // One-time: move any old prefs-JSON connections into SQLite, then free the giant blob.
+    private fun migrateFromPrefs(ctx: Context, d: SQLiteDatabase) {
+        if (migrated) return
+        synchronized(this) {
+            if (migrated) return
+            try {
+                val json = prefs(ctx).getString(KEY, null)
+                if (!json.isNullOrBlank() && json != "[]") {
+                    val n = d.rawQuery("SELECT count(*) FROM conns", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                    if (n == 0) {
+                        val arr = JSONArray(json)
+                        d.beginTransaction()
+                        try {
+                            val stmt = d.compileStatement("INSERT INTO conns(name,company,role,connectedOn,url,source,reachedOut) VALUES(?,?,?,?,?,?,?)")
+                            for (i in 0 until arr.length()) {
+                                val o = arr.getJSONObject(i); stmt.clearBindings()
+                                stmt.bindString(1, o.getString("name")); stmt.bindString(2, o.optString("company")); stmt.bindString(3, o.optString("role"))
+                                stmt.bindString(4, o.optString("connectedOn")); stmt.bindString(5, o.optString("url")); stmt.bindString(6, o.optString("source", "LinkedIn"))
+                                stmt.bindLong(7, if (o.optBoolean("reachedOut", false)) 1L else 0L); stmt.executeInsert()
+                            }
+                            d.setTransactionSuccessful()
+                        } finally { d.endTransaction() }
+                    }
+                    prefs(ctx).edit().remove(KEY).apply()
+                }
+                migrated = true
+            } catch (e: Exception) { migrated = true }
+        }
+    }
+
+    private fun rowToConn(c: Cursor) = Conn(c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "",
+        c.getString(3) ?: "", c.getString(4) ?: "", c.getString(5) ?: "LinkedIn", c.getInt(6) == 1)
+    private const val COLS = "name,company,role,connectedOn,url,source,reachedOut"
+
     fun load(ctx: Context): List<Conn> = try {
-        val arr = JSONArray(prefs(ctx).getString(KEY, "[]"))
-        (0 until arr.length()).map {
-            val o = arr.getJSONObject(it)
-            Conn(o.getString("name"), o.optString("company"), o.optString("role"),
-                o.optString("connectedOn"), o.optString("url"),
-                o.optString("source", "LinkedIn"), o.optBoolean("reachedOut", false))
+        db(ctx).rawQuery("SELECT $COLS FROM conns", null).use { c ->
+            val out = ArrayList<Conn>(); while (c.moveToNext()) out.add(rowToConn(c)); out
         }
     } catch (e: Exception) { emptyList() }
 
-    private fun save(ctx: Context, items: List<Conn>) {
-        val arr = JSONArray()
-        items.forEach {
-            arr.put(JSONObject().put("name", it.name).put("company", it.company).put("role", it.role)
-                .put("connectedOn", it.connectedOn).put("url", it.url)
-                .put("source", it.source).put("reachedOut", it.reachedOut))
-        }
-        prefs(ctx).edit().putString(KEY, arr.toString()).apply()
+    private fun insertAll(ctx: Context, items: List<Conn>) {
+        val d = db(ctx); d.beginTransaction()
+        try {
+            val stmt = d.compileStatement("INSERT INTO conns($COLS) VALUES(?,?,?,?,?,?,?)")
+            items.forEach {
+                stmt.clearBindings()
+                stmt.bindString(1, it.name); stmt.bindString(2, it.company); stmt.bindString(3, it.role)
+                stmt.bindString(4, it.connectedOn); stmt.bindString(5, it.url); stmt.bindString(6, it.source)
+                stmt.bindLong(7, if (it.reachedOut) 1L else 0L); stmt.executeInsert()
+            }
+            d.setTransactionSuccessful()
+        } catch (e: Exception) {} finally { d.endTransaction() }
     }
 
-    fun count(ctx: Context): Int = load(ctx).size
-    fun clear(ctx: Context) = prefs(ctx).edit().remove(KEY).remove(KEY_MSG).apply()
+    fun count(ctx: Context): Int = try {
+        db(ctx).rawQuery("SELECT count(*) FROM conns", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    } catch (e: Exception) { 0 }
 
-    fun markReachedOut(ctx: Context, name: String) =
-        save(ctx, load(ctx).map { if (it.name == name) it.copy(reachedOut = true) else it })
+    fun clear(ctx: Context) {
+        try { db(ctx).execSQL("DELETE FROM conns") } catch (e: Exception) {}
+        prefs(ctx).edit().remove(KEY).remove(KEY_MSG).apply()
+    }
+
+    fun markReachedOut(ctx: Context, name: String) {
+        try { db(ctx).execSQL("UPDATE conns SET reachedOut=1 WHERE name=?", arrayOf(name)) } catch (e: Exception) {}
+    }
 
     // ---- contacted map (from messages.csv) ----
     private fun contacted(ctx: Context): Map<String, Long> = try {
@@ -118,7 +179,17 @@ object ConnectionStore {
             if (w.endsWith("s") && w.length > 3) terms.add(w.dropLast(1)) else terms.add(w + "s")
             SYN[w]?.let { terms.addAll(it) }
         }
-        return load(ctx).map { c ->
+        val tl = terms.toList()
+        // Pull only ROWS THAT MATCH some term from SQLite (bounded), then rank by how many terms hit.
+        val hits = ArrayList<Conn>()
+        try {
+            val where = tl.joinToString(" OR ") { "lower(name||' '||company||' '||role) LIKE ?" }
+            val args = tl.map { "%$it%" }.toTypedArray()
+            db(ctx).rawQuery("SELECT $COLS FROM conns WHERE $where LIMIT 4000", args).use { c ->
+                while (c.moveToNext()) hits.add(rowToConn(c))
+            }
+        } catch (e: Exception) { return emptyList() }
+        return hits.map { c ->
             val hay = (c.name + " " + c.company + " " + c.role).lowercase()
             c to terms.count { hay.contains(it) }
         }.filter { it.second > 0 }.sortedByDescending { it.second }.take(limit).map { it.first }
@@ -205,8 +276,9 @@ object ConnectionStore {
             out.add(Conn(name, g(iC), g(iR), g(iW), g(iU), "LinkedIn"))
         }
         if (out.isEmpty()) return "No connections found."
-        val existing = load(ctx).filter { it.source != "LinkedIn" }   // replace LinkedIn set
-        save(ctx, existing + out)
+        // Replace the LinkedIn set (keep any non-LinkedIn rows), all in SQLite.
+        try { db(ctx).execSQL("DELETE FROM conns WHERE source='LinkedIn'") } catch (e: Exception) {}
+        insertAll(ctx, out)
         return "Imported ${out.size} LinkedIn connections."
     }
 
