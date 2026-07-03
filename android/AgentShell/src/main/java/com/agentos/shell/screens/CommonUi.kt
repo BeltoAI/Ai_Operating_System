@@ -9,6 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -159,7 +161,7 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
  * always emphasized, with a clear indicator for the panel you're on.
  */
 @Composable
-fun SlyBottomNav(current: Screen, nowCount: Int = 0, onNav: (Screen) -> Unit) =
+fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {}, onNav: (Screen) -> Unit) =
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -172,7 +174,13 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onNav: (Screen) -> Unit) =
         val memActive = current == Screen.Memory || current == Screen.MemorySettings
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable { onNav(Screen.Memory) }
+            // Tap → Brain. Press-and-hold ~3s → conversational voice mode.
+            modifier = Modifier.pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onNav(Screen.Memory) },
+                    onPress = { if (kotlinx.coroutines.withTimeoutOrNull(3000L) { tryAwaitRelease() } == null) onBrainHold() }
+                )
+            }
         ) {
             Box(
                 Modifier.size(48.dp).clip(CircleShape)

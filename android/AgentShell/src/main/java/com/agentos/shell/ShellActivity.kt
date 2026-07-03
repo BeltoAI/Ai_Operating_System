@@ -27,7 +27,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -196,6 +196,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Look -> LookScreen(m) { screen = Screen.Home }
                         Screen.Shop -> ShopScreen(m, shopQuery) { shopQuery = ""; screen = Screen.Home }
                         Screen.Trade -> TradeScreen(m, tradePrompt) { tradePrompt = ""; screen = Screen.Home }
+                        Screen.Converse -> ConverseScreen(m) { screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }
@@ -213,7 +214,8 @@ class ShellActivity : ComponentActivity() {
                     Surface(color = T.bg, modifier = Modifier.fillMaxWidth()) {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
                             SlyBottomNav(current = screen,
-                                nowCount = com.agentos.shell.tools.NotificationStore.notes.size) { target -> screen = target }
+                                nowCount = com.agentos.shell.tools.NotificationStore.notes.size,
+                                onBrainHold = { screen = Screen.Converse }) { target -> screen = target }
                         }
                     }
                 }

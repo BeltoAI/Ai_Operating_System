@@ -38,6 +38,8 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBac
     val notes = NotificationStore.notes
     var digest by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var briefHidden by remember { mutableStateOf(false) }
+    var briefDragX by remember { mutableStateOf(0f) }
 
     fun catchUp() {
         if (loading) return
@@ -64,8 +66,16 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBac
         }
         Spacer(Modifier.height(14.dp))
 
-        // ── Briefing card ──
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+        // ── Briefing card (swipe left to dismiss) ──
+        if (!briefHidden) Column(Modifier.fillMaxWidth()
+            .offset { IntOffset(briefDragX.roundToInt(), 0) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { if (briefDragX < -120f) briefHidden = true; briefDragX = 0f },
+                    onDragCancel = { briefDragX = 0f }
+                ) { _, dx -> briefDragX = (briefDragX + dx).coerceAtMost(0f) }
+            }
+            .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("✨  What you missed", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
                 Text(if (loading) "reading…" else "⟳", fontSize = T.small, color = T.accent,
