@@ -47,45 +47,54 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBac
         }
     }
 
+    // Auto-brief on entry: "what you missed" is the first thing you see, not a button you hunt for.
+    LaunchedEffect(Unit) { if (notes.isNotEmpty()) catchUp() }
+
+    val dateStr = remember { java.text.SimpleDateFormat("EEEE, MMM d", java.util.Locale.getDefault()).format(java.util.Date()) }
+
     Column(modifier) {
         ScreenHeader("Now", onBack)
-        Spacer(Modifier.height(12.dp))
-
-        // "What did I miss?" — a quick digest + who to text back personally.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (loading) "thinking…" else "✨ What did I miss?",
-                fontSize = T.small, color = T.bgElevated,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                    .clickable(enabled = !loading) { catchUp() }
-                    .padding(horizontal = 18.dp, vertical = 10.dp))
-            if (digest.isNotEmpty()) {
-                Spacer(Modifier.width(12.dp))
-                Text("clear", fontSize = T.small, color = T.inkFaint,
-                    modifier = Modifier.clickable { digest = "" })
-            }
-            Spacer(Modifier.weight(1f))
-            Text("Reconnect", fontSize = T.small, color = T.inkSoft,
-                modifier = Modifier.clickable { onReconnect() })
-        }
-        if (digest.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp)) {
-                Text(digest, fontSize = T.small, color = T.ink)
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            Text(dateStr, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+            Text("Reconnect", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable { onReconnect() })
         }
         Spacer(Modifier.height(14.dp))
 
+        // ── The briefing card: what you missed + who to reply to ──
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("✨  What you missed", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+                Text(if (loading) "reading…" else "⟳", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable(enabled = !loading) { catchUp() }.padding(4.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            when {
+                loading && digest.isBlank() -> Text("Reading your day…", fontSize = T.small, color = T.accent)
+                digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up — nothing waiting. ✨" else "Tap ⟳ for a summary of what's waiting.", fontSize = T.small, color = T.inkSoft)
+                else -> {
+                    // Style the "Text back:" line in accent so who-needs-you pops.
+                    val idx = digest.indexOf("Text back", ignoreCase = true)
+                    if (idx > 0) {
+                        Text(digest.substring(0, idx).trim(), fontSize = T.small, color = T.ink)
+                        Spacer(Modifier.height(8.dp))
+                        Text(digest.substring(idx).trim(), fontSize = T.small, color = T.accent)
+                    } else Text(digest, fontSize = T.small, color = T.ink)
+                }
+            }
+        }
+
         if (notes.isEmpty()) {
-            Text("Nothing here yet.", fontSize = T.body, color = T.inkSoft)
+            Spacer(Modifier.height(16.dp))
+            Text("Nothing waiting right now.", fontSize = T.body, color = T.inkSoft)
             Spacer(Modifier.height(8.dp))
-            Text(
-                "Send yourself a message — or grant access:\n" +
-                    "Settings → Notifications → Notification access → enable SlyOS.",
-                fontSize = T.small, color = T.inkFaint
-            )
+            Text("Send yourself a message — or grant access:\nSettings → Notifications → Notification access → enable SlyOS.",
+                fontSize = T.caption, color = T.inkFaint)
             return@Column
         }
 
+        Spacer(Modifier.height(20.dp))
+        Text("WAITING ON YOU · ${notes.size}", fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(notes, key = { it.key }) { note -> ReplyCard(note) }
         }
