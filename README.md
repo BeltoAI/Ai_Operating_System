@@ -13,11 +13,15 @@
 ![cost](https://img.shields.io/badge/~255%20tokens%2Freply-runs%20near--free-2E9E5B)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
+<br>
+
+<img src="docs/demo.svg" width="740" alt="SlyOS: type a command, the agent acts — texts Anna, sets a reminder">
+
 </div>
 
 ---
 
-> **📽️ Demo:** _drop a 30–60s screen recording here as `docs/demo.gif`._ This is the single biggest thing that earns stars — show: open SlyOS → "text Anna I'm running late" (drafts in your voice) → point the camera at a shoe (it names it) → "invest $1000" (it builds a portfolio). One take, no cuts.
+> _The animation above is a live SVG. For the real thing, a 30–60s screen recording (`docs/demo.gif`) converts best — open SlyOS → "text Anna I'm running late" → point the camera at a shoe → "invest $1000". One take, no cuts._
 
 ## The idea
 
