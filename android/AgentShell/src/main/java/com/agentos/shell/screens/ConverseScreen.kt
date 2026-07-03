@@ -69,6 +69,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }            // P3: TTS engine init done?
     var pendingSpeak by remember { mutableStateOf<String?>(null) } // P3: queued until the engine is ready
+    val player = remember { mutableStateOf<android.media.MediaPlayer?>(null) }  // P6: cloned-voice playback
     val recog = remember { if (SpeechRecognizer.isRecognitionAvailable(ctx)) SpeechRecognizer.createSpeechRecognizer(ctx) else null }
 
     fun startListening() {
@@ -80,14 +81,34 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         try { recog.startListening(i) } catch (e: Exception) {}
     }
 
-    fun speak(text: String) {
-        phase = "speaking"
+    // Free tier: device on-device TTS (generic voice). P3 init queue keeps the mic from getting stuck.
+    fun deviceSpeak(text: String) {
         val engine = tts.value
-        // P3: if the engine hasn't finished initializing yet, QUEUE the text — a LaunchedEffect flushes it
-        // the moment init completes, so onDone still fires and the mic resumes (fixes the "waits forever" hang).
         if (engine == null || !ttsReady) { pendingSpeak = text; return }
         engine.language = Locale.getDefault()
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "conv")
+    }
+
+    fun speak(text: String) {
+        phase = "speaking"
+        // P6 paid add-on: if the user pasted their own ElevenLabs key + voice, speak in their CLONED voice;
+        // any failure falls back to the free device voice so a call never goes silent.
+        if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+            scope.launch {
+                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, text) }
+                if (f == null) { deviceSpeak(text); return@launch }
+                try {
+                    try { player.value?.release() } catch (e: Exception) {}
+                    val mp = android.media.MediaPlayer()
+                    mp.setDataSource(f.absolutePath)
+                    mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {}; scope.launch { if (pendingActs == null) startListening() } }
+                    mp.setOnErrorListener { _, _, _ -> scope.launch { if (pendingActs == null) startListening() }; true }
+                    mp.prepare(); mp.start(); player.value = mp
+                } catch (e: Exception) { deviceSpeak(text) }
+            }
+            return
+        }
+        deviceSpeak(text)
     }
 
     fun answer(prompt: String) {
@@ -143,7 +164,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             override fun onError(id: String?) { scope.launch { if (pendingActs == null) startListening() } }
         })
         tts.value = engine
-        onDispose { engine.stop(); engine.shutdown() }
+        onDispose { engine.stop(); engine.shutdown(); try { player.value?.release() } catch (e: Exception) {} }
     }
 
     // P3: flush any queued utterance the instant the engine finishes initializing.
@@ -204,7 +225,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(18.dp)
                 .clip(RoundedCornerShape(999.dp)).background(Color(0x33FFFFFF)).clickable {
                     try { recog?.stopListening() } catch (e: Exception) {}
-                    tts.value?.stop(); onBack()
+                    tts.value?.stop(); try { player.value?.release() } catch (e: Exception) {}; onBack()
                 }.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 40.dp, start = 24.dp, end = 24.dp),

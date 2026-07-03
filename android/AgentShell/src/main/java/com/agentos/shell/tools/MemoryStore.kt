@@ -118,6 +118,13 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    // P6: OPTIONAL paid add-on — the user's own ElevenLabs key + voice id for CLONED-VOICE agent calls.
+    // Never shipped in the APK. When blank, the free tier uses the device's generic on-device TTS voice.
+    fun elevenKey(ctx: Context): String = prefs(ctx).getString("eleven_key", "") ?: ""
+    fun setElevenKey(ctx: Context, v: String) = prefs(ctx).edit().putString("eleven_key", v.trim()).apply()
+    fun elevenVoiceId(ctx: Context): String = prefs(ctx).getString("eleven_voice", "") ?: ""
+    fun setElevenVoiceId(ctx: Context, v: String) = prefs(ctx).edit().putString("eleven_voice", v.trim()).apply()
+
     /** Global dark mode for the whole app UI. */
     fun darkMode(ctx: Context): Boolean = prefs(ctx).getBoolean("dark_mode", false)
     fun setDarkMode(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("dark_mode", v).apply()

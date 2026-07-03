@@ -800,6 +800,23 @@ object AgentClient {
             .filter { it.length in 4..200 && !it.startsWith("[") }.take(10)
     }
 
+    /** P5.3: pull a calendar event out of a booking/flight/reservation message. Returns
+     *  {title,start,end,location} (ISO local times) or null if it isn't really a datable booking. Cheap tier. */
+    fun extractEvent(ctx: Context, text: String): JSONObject? {
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val sys = "Extract a single calendar event from this booking/confirmation message if one clearly exists. " +
+            "Current time: $now. Reply ONLY JSON: {\"title\":\"…\",\"start\":\"2026-07-10T14:30\",\"end\":\"2026-07-10T15:30\"," +
+            "\"location\":\"…\"}. Use local ISO times. If there is NO concrete future date/time, reply exactly {}."
+        val (code, out) = callContent(sys, text.take(3000), 300, MODEL)
+        if (code != 200) return null
+        return try {
+            val s = out.indexOf('{'); val e = out.lastIndexOf('}')
+            if (s < 0 || e <= s) return null
+            val o = JSONObject(out.substring(s, e + 1))
+            if (o.optString("start").length < 10 || o.optString("title").isBlank()) null else o
+        } catch (e: Exception) { null }
+    }
+
     /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */
     fun loopTurn(system: String, messages: JSONArray, model: String = MODEL): String {
         val (code, text) = callMessages(system, messages, 1200, model)

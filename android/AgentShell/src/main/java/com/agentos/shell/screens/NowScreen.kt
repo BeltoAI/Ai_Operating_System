@@ -69,6 +69,35 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         }
         Spacer(Modifier.height(14.dp))
 
+        // ── Proactive proposals (P5.3): one-tap suggestions like "add this booking to your calendar" ──
+        com.agentos.shell.tools.ProposalStore.ensureLoaded(ctx)
+        val proposals = com.agentos.shell.tools.ProposalStore.items
+        if (proposals.isNotEmpty()) {
+            Text("SUGGESTED FOR YOU", fontSize = T.caption, color = T.inkFaint)
+            proposals.toList().forEach { p ->
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
+                    Text(p.title, fontSize = T.body, color = T.ink)
+                    if (p.subtitle.isNotBlank()) Text(p.subtitle, fontSize = T.caption, color = T.inkFaint)
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Confirm ✓", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable {
+                                scope.launch {
+                                    val msg = withContext(Dispatchers.IO) { com.agentos.shell.tools.ToolRouter.executeActions(ctx, p.actions, userInitiated = true) }
+                                    com.agentos.shell.tools.OutboxStore.record(ctx, "Proposal", p.title, "proposal", msg.ifBlank { p.subtitle }, "you confirmed a suggestion")
+                                    com.agentos.shell.tools.ProposalStore.remove(ctx, p.id)
+                                }
+                            }.padding(horizontal = 20.dp, vertical = 9.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Text("Dismiss", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clickable { com.agentos.shell.tools.ProposalStore.remove(ctx, p.id) }.padding(6.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+
         // ── Briefing card (swipe left to dismiss) ──
         if (!briefHidden) Column(Modifier.fillMaxWidth()
             .offset { IntOffset(briefDragX.roundToInt(), 0) }

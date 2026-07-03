@@ -36,6 +36,38 @@ class AgentNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val note = ingest(sbn) ?: return
         maybeAutoReply(note)
+        proactiveScan(note)
+    }
+
+    // P5.3: spot a booking/flight/reservation confirmation and drop a one-tap "add to calendar + remind"
+    // proposal into the Now feed. Cheap regex gate first, then ONE background extraction only if it matches.
+    private val bookingRe = Regex("(?i)\\b(booking|reservation|itinerary|flight|boarding|check[- ]?in|e[- ]?ticket|confirmed|confirmation|appointment|reserved|departure|your (order|trip|stay))\\b")
+    private fun proactiveScan(note: NotificationStore.Note) {
+        val body = "${note.title} ${note.text}"
+        if (body.length < 20 || !bookingRe.containsMatchIn(body)) return
+        if (note.isLikelyBot && !note.isEmail) { /* transactional senders are exactly what we want here */ }
+        if (!firstTime("prop|${note.app}|${note.text.take(60)}")) return
+        scope.launch {
+            try {
+                if (!AgentClient.hasKey()) return@launch
+                val ev = AgentClient.extractEvent(applicationContext, body) ?: return@launch
+                val title = ev.optString("title"); val start = ev.optString("start")
+                val addArg = org.json.JSONObject()
+                    .put("title", title).put("start", start).put("end", ev.optString("end").ifBlank { start })
+                    .apply { ev.optString("location").takeIf { it.isNotBlank() }?.let { put("location", it) } }
+                val remindArg = org.json.JSONObject().put("text", "Time to leave for $title").put("at", start)
+                com.agentos.shell.tools.ProposalStore.add(
+                    applicationContext,
+                    title = "Add to calendar: $title",
+                    subtitle = "$start · spotted in ${note.app}",
+                    actions = listOf(
+                        com.agentos.shell.tools.AgentAction("add_event", addArg.toString()),
+                        com.agentos.shell.tools.AgentAction("remind", remindArg.toString())
+                    )
+                )
+                Log.i("SlyOS", "proactive proposal: $title @ $start")
+            } catch (e: Exception) {}
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

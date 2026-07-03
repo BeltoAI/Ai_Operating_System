@@ -262,6 +262,33 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             decorationBox = { inner -> if (booking.isEmpty()) Text("https://calendly.com/…", fontSize = T.small, color = T.inkFaint); inner() }
         )
 
+        // ---- Agent calls (P6) ----
+        SectionTitle("Talk to your agent")
+        Text("FREE: hold the brain on the Home bar to have a live, hands-free voice conversation with your " +
+            "agent — it uses your phone's built-in voice (generic) and can search the web, recall your brain, " +
+            "and act. No cost beyond your model usage.",
+            fontSize = T.small, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        Text("Optional paid add-on — cloned voice (bring your own ElevenLabs key): paste your ElevenLabs API " +
+            "key + a voice ID and calls speak in THAT voice instead of the generic one. Never shipped by SlyOS; " +
+            "left blank, you stay on the free generic voice.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        var elevenKey by remember { mutableStateOf(MemoryStore.elevenKey(ctx)) }
+        var elevenVoice by remember { mutableStateOf(MemoryStore.elevenVoiceId(ctx)) }
+        BasicTextField(elevenKey, { elevenKey = it; MemoryStore.setElevenKey(ctx, it) }, singleLine = true,
+            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+            decorationBox = { inner -> if (elevenKey.isEmpty()) Text("ElevenLabs API key (optional)", fontSize = T.small, color = T.inkFaint); inner() })
+        Spacer(Modifier.height(8.dp))
+        BasicTextField(elevenVoice, { elevenVoice = it; MemoryStore.setElevenVoiceId(ctx, it) }, singleLine = true,
+            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+            decorationBox = { inner -> if (elevenVoice.isEmpty()) Text("ElevenLabs voice ID (optional)", fontSize = T.small, color = T.inkFaint); inner() })
+        Text("Receiving real phone calls to a number (Twilio/SIP) is a separate paid add-on on the roadmap — " +
+            "SlyOS will never claim to answer your carrier calls in a cloned voice for free.",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
+
         // ---- Your voice (learned from real chats) ----
         SectionTitle("Your writing voice")
         Text("Import chat exports from any platform — WhatsApp (.txt), LinkedIn (messages.csv), " +
