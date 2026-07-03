@@ -91,6 +91,35 @@ private fun platformColor(p: String): Color {
     }
 }
 
+/** The REAL rotating 3D memory-brain, reusable, pulsing with [pulse] (0..1) — e.g. to your voice.
+ *  Transparent background, so it drops onto any surface (like the dark voice screen). */
+@Composable
+fun Brain3D(modifier: Modifier = Modifier, pulse: Float = 0f) {
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { if (MemoryGraphStore.isEmpty()) withContext(Dispatchers.IO) { MemoryGraphStore.rebuild(ctx) } }
+    val spin by rememberInfiniteTransition(label = "brainspin").animateFloat(
+        0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(38000, easing = LinearEasing)), label = "spin")
+    val nodes = MemoryGraphStore.nodes; val edges = MemoryGraphStore.edges
+    val acc = Color(0xFFE8642C)
+    Canvas(modifier) {
+        val cx = size.width / 2f; val cy = size.height / 2f
+        // Core glow that swells with the audio level.
+        drawCircle(acc.copy(alpha = 0.06f + pulse * 0.16f), size.minDimension * (0.13f + pulse * 0.12f), Offset(cx, cy))
+        if (nodes.isEmpty()) return@Canvas
+        val ext = (nodes.maxOfOrNull { maxOf(kotlin.math.abs(it.x), kotlin.math.abs(it.y)) } ?: 1f).coerceAtLeast(1f)
+        val scale = (size.minDimension * 0.40f / ext) * (0.88f + pulse * 0.34f)
+        val yaw = spin; val tilt = 0.35f
+        fun P(nn: MemoryGraphStore.Node) = project(nn, cx, cy, scale, yaw, tilt)
+        edges.forEach { e -> if (e.a < nodes.size && e.b < nodes.size) drawLine(acc.copy(alpha = 0.10f), P(nodes[e.a]).first, P(nodes[e.b]).first, strokeWidth = 0.8f) }
+        nodes.sortedBy { -P(it).second }.forEach { n ->
+            val (pos, depth) = P(n)
+            val r = (2.5f + n.strength * 6f) * depth * (0.9f + pulse * 0.7f)
+            val base = if (n.type == "hub") acc else platformColor(n.source)
+            drawCircle(base.copy(alpha = (0.45f + depth * 0.55f).coerceIn(0.3f, 1f)), r, pos)
+        }
+    }
+}
+
 /** Strip markdown so answers render as clean text (no **, #, backticks; tidy bullets). */
 private fun prettify(s: String): String {
     var t = s

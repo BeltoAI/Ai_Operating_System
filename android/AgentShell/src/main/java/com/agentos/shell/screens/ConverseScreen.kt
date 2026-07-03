@@ -81,7 +81,11 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         phase = "thinking"
         scope.launch {
             val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
-            val res = withContext(Dispatchers.IO) { AgentClient.ask(prompt, apps, MemoryStore.fullProfile(ctx), history) }
+            // Bounded so it always replies instead of hanging silently.
+            val res = kotlinx.coroutines.withTimeoutOrNull(45000L) {
+                withContext(Dispatchers.IO) { AgentClient.ask(prompt, apps, MemoryStore.fullProfile(ctx), history) }
+            }
+            if (res == null) { reply = "That took too long — let's try again."; speak(reply); return@launch }
             val actionMsg = withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, res.actions) }
             val out = actionMsg.ifEmpty { res.say }.ifBlank { "I'm not sure how to help with that." }
             reply = out
@@ -155,26 +159,8 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }.padding(horizontal = 16.dp, vertical = 8.dp))
 
         Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            // ── Pulsing brain ──
-            Canvas(Modifier.size(240.dp)) {
-                val cx = size.width / 2f; val cy = size.height / 2f
-                val base = size.minDimension * 0.16f
-                val amp = base * (1f + level * 1.4f)
-                // expanding rings
-                for (i in 0..2) {
-                    val r = amp + i * (base * 0.55f) * (0.7f + level)
-                    drawCircle(ACC.copy(alpha = (0.28f - i * 0.08f).coerceAtLeast(0.05f)), radius = r, center = Offset(cx, cy), style = Stroke(width = 3f))
-                }
-                // core orb
-                drawCircle(ACC.copy(alpha = 0.18f), radius = amp * 0.9f, center = Offset(cx, cy))
-                // brain synapse: 3 nodes + links (scaled)
-                val s = base * 0.9f
-                val nodes = listOf(Offset(cx, cy - s * 0.6f), Offset(cx - s * 0.7f, cy + s * 0.5f), Offset(cx + s * 0.7f, cy + s * 0.5f))
-                nodes.forEach { drawCircle(ACC, radius = 7f + level * 5f, center = it) }
-                drawLine(ACC, nodes[0], nodes[1], strokeWidth = 3f)
-                drawLine(ACC, nodes[0], nodes[2], strokeWidth = 3f)
-                drawLine(ACC, nodes[1], nodes[2], strokeWidth = 3f)
-            }
+            // ── The real rotating 3D memory-brain, pulsing to your voice + its reply ──
+            Brain3D(Modifier.size(300.dp), pulse = level)
             Spacer(Modifier.height(24.dp))
             Text(statusText, color = ACC, fontSize = T.body)
             Spacer(Modifier.height(18.dp))
