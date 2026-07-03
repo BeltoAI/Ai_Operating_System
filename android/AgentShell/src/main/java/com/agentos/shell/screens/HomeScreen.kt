@@ -64,6 +64,7 @@ import com.agentos.shell.theme.T
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.window.Dialog
 import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.AgentLoop
 import com.agentos.shell.tools.AppStore
 import com.agentos.shell.tools.CalendarTool
 import com.agentos.shell.tools.ImageUtil
@@ -308,16 +309,34 @@ fun HomeScreen(
 
             // Consequential actions (send message/email, add event, remind) don't fire silently —
             // they surface as a tap-to-confirm card with the fields pre-filled. Everything else runs now.
-            val confirmables = result.actions.filter { it.type in ActionConfirm.CONFIRM_TYPES }
-            val autoActions = result.actions.filter { it.type !in ActionConfirm.CONFIRM_TYPES }
-            val actionMsg = withContext(Dispatchers.IO) {
-                ToolRouter.executeActions(ctx, autoActions)
+            val actionable = result.actions.filter { it.type.isNotBlank() && it.type != "none" }
+            val confirmables = actionable.filter { it.type in ActionConfirm.CONFIRM_TYPES }
+            // Only pay for the loop when the model actually wants the web (keeps simple Q&A a single call —
+            // it's already brain-grounded from ask()). Voice uses the full loop for multi-step chaining.
+            val needsLoop = actionable.any { it.type == "web_search" }
+            when {
+                confirmables.isNotEmpty() -> {
+                    // Consequential → run benign steps now, confirm the rest via card (existing UX).
+                    val actionMsg = withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, actionable.filter { it.type !in ActionConfirm.CONFIRM_TYPES }) }
+                    pendingConfirm = confirmables
+                    reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
+                }
+                needsLoop -> {
+                    // P1/P2: pure Q&A, a live-web question, or a multi-step request → the agent loop (real
+                    // web search + memory + tool chaining), instead of just opening the browser or answering blind.
+                    pendingConfirm = null
+                    reply = withContext(Dispatchers.IO) { AgentLoop.run(ctx, q, context, history, userInitiated = true).answer }
+                }
+                else -> {
+                    // Concrete benign actions (open app/url, play music…) — just execute them.
+                    val actionMsg = withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, actionable) }
+                    pendingConfirm = null
+                    reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
+                }
             }
-            pendingConfirm = confirmables.ifEmpty { null }
-            reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
             refreshShortcuts()
             if (doSpeak) speak(reply)
-            history = (history + (q to reply)).takeLast(6)
+            history = (history + (q to reply)).takeLast(12)   // P4: keep more context across turns
             // Capture this exchange as connected memories.
             val pk = MemoryLog.add(ctx, "prompt", q, q, "Home prompt")
             MemoryLog.add(ctx, "response", reply, reply, "Agent reply", pk)

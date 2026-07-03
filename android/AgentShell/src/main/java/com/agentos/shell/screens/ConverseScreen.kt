@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentAction
 import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.AgentLoop
 import com.agentos.shell.tools.AgentResult
 import com.agentos.shell.tools.BrainContext
 import com.agentos.shell.tools.MemoryStore
@@ -66,6 +67,8 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     val apps = remember { ToolRouter.installedApps(ctx).map { it.label } }
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
+    var ttsReady by remember { mutableStateOf(false) }            // P3: TTS engine init done?
+    var pendingSpeak by remember { mutableStateOf<String?>(null) } // P3: queued until the engine is ready
     val recog = remember { if (SpeechRecognizer.isRecognitionAvailable(ctx)) SpeechRecognizer.createSpeechRecognizer(ctx) else null }
 
     fun startListening() {
@@ -79,40 +82,34 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     fun speak(text: String) {
         phase = "speaking"
-        tts.value?.apply {
-            language = Locale.getDefault()
-            speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "conv")
-        }
+        val engine = tts.value
+        // P3: if the engine hasn't finished initializing yet, QUEUE the text — a LaunchedEffect flushes it
+        // the moment init completes, so onDone still fires and the mic resumes (fixes the "waits forever" hang).
+        if (engine == null || !ttsReady) { pendingSpeak = text; return }
+        engine.language = Locale.getDefault()
+        engine.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "conv")
     }
 
     fun answer(prompt: String) {
         phase = "thinking"
         scope.launch {
-            // Full brain context + the real agent — so it knows everything about you AND can act.
-            val brain = withContext(Dispatchers.IO) { BrainContext.build(ctx, prompt) }
-            val res = (withTimeoutOrNull(45000L) {
-                withContext(Dispatchers.IO) { AgentClient.ask(prompt, apps, brain, history) }
-            }) ?: AgentResult("That took too long — let's try again.", emptyList(), "")
-            // Auto-grow the brain with any durable fact it learned.
-            if (res.remember.isNotBlank()) withContext(Dispatchers.IO) { MemoryStore.addLearnedFact(ctx, res.remember) }
-
-            val confirmables = res.actions.filter { it.type in ActionConfirm.CONFIRM_TYPES }
-            val autos = res.actions.filter { it.type !in ActionConfirm.CONFIRM_TYPES }
-            val autoMsg = if (autos.isNotEmpty()) withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, autos) } else ""
-            val say = res.say.ifBlank { autoMsg.ifBlank { "Done." } }
+            // P3: bound the brain build so a Gemini embedding stall can't hang the voice loop.
+            val brain = (withTimeoutOrNull(6000L) { withContext(Dispatchers.IO) { BrainContext.build(ctx, prompt) } })
+                ?: withContext(Dispatchers.IO) { BrainContext.profileBlock(ctx) }   // degrade to profile-only
+            // P1: run the real agentic loop — it can web_search, recall memory, find contacts, and chain
+            // steps (find email → send invite), executing side-effects through the gated ToolRouter.
+            val out = (withTimeoutOrNull(60000L) {
+                withContext(Dispatchers.IO) { AgentLoop.run(ctx, prompt, brain, history, userInitiated = true) }
+            }) ?: AgentLoop.Result("That took too long — let's try again.", emptyList())
+            val say = out.answer.ifBlank { "Done." }
             reply = say
-            history = (history + (prompt to say)).takeLast(6)
+            history = (history + (prompt to say)).takeLast(12)   // P4: keep more context across turns
             // Every exchange feeds the brain.
             withContext(Dispatchers.IO) {
                 MessageStore.insertOne(ctx, "Me", "Voice", "me", "me", prompt)
                 if (say.isNotBlank()) MessageStore.insertOne(ctx, "SlyOS", "Voice", "SlyOS", "them", say)
             }
-            if (confirmables.isNotEmpty()) {
-                pendingActs = confirmables
-                speak("$say  Swipe right to confirm, left to cancel.")   // onDone won't auto-listen while a card is up
-            } else {
-                speak(say)
-            }
+            speak(say)
         }
     }
 
@@ -139,7 +136,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     // TTS; when it finishes speaking, listen again — unless a confirm card is waiting for you.
     DisposableEffect(Unit) {
-        val engine = TextToSpeech(ctx) { }
+        val engine = TextToSpeech(ctx) { status -> if (status == TextToSpeech.SUCCESS) ttsReady = true }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) { scope.launch { if (pendingActs == null) startListening() } }
@@ -147,6 +144,19 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         })
         tts.value = engine
         onDispose { engine.stop(); engine.shutdown() }
+    }
+
+    // P3: flush any queued utterance the instant the engine finishes initializing.
+    LaunchedEffect(ttsReady) {
+        if (ttsReady) pendingSpeak?.let { txt -> pendingSpeak = null; speak(txt) }
+    }
+    // P3 watchdog: if we've been "speaking" too long (e.g. TTS silently failed to start), resume the mic
+    // so the conversation can never get stuck forever.
+    LaunchedEffect(phase, reply) {
+        if (phase == "speaking") {
+            delay(20000)
+            if (phase == "speaking") { if (pendingActs == null) startListening() }
+        }
     }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; if (it) startListening() }

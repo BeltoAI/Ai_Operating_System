@@ -20,6 +20,36 @@ object BrainContext {
     fun profileBlock(ctx: Context): String = MemoryStore.fullProfile(ctx)
 
     /**
+     * P4: rank+dedupe recall. Merges semantic (VectorStore, real cosine score) and keyword (MessageStore)
+     * hits, weights semantic higher, dedupes by normalized text keeping the best score, and fills a char
+     * budget best-first — so the most relevant memory is guaranteed into the prompt (no fixed truncation).
+     */
+    private fun rankedRecall(ctx: Context, q: String, budgetChars: Int): String {
+        data class Cand(val text: String, val score: Float)
+        val cands = ArrayList<Cand>()
+        fun fmt(role: String, contact: String, body: String) =
+            (if (role == "me") "you→$contact" else contact) + ": " + body.trim()
+        try { VectorStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
+        try { MessageStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), 0.62f)) } } catch (e: Exception) {}
+        if (cands.isEmpty()) return ""
+        // Dedupe by normalized text, keeping the highest score.
+        val best = HashMap<String, Cand>()
+        for (c in cands) {
+            val key = c.text.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+            if (key.length < 3) continue
+            val prev = best[key]
+            if (prev == null || c.score > prev.score) best[key] = c
+        }
+        val sb = StringBuilder(); var used = 0
+        for (c in best.values.sortedByDescending { it.score }) {
+            val line = c.text.take(280)
+            if (used + line.length + 3 > budgetChars) continue
+            sb.append("• ").append(line).append("\n"); used += line.length + 3
+        }
+        return sb.toString().trim()
+    }
+
+    /**
      * Full retrieval context for a specific query: the profile block plus everything relevant the
      * brain has stored — calendar, semantic + keyword message recall, network, papers, loaded docs,
      * on-screen recall, checklist, mission, portfolio, jobs, and the current time.
@@ -30,12 +60,9 @@ object BrainContext {
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         val recall = if (MemoryStore.recallEnabled(ctx)) InteractionStore.retrieve(ctx, q, 10) else ""
-        val chats = MessageStore.search(ctx, q, 6)
-            .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-            .take(1200)
-        val semantic = VectorStore.search(ctx, q, 4)
-            .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-            .take(1200)
+        // P4: merge keyword + semantic hits into ONE ranked, deduped list, best-first, filled to a token
+        // budget — so the single most relevant memory always survives instead of being truncated away.
+        val ranked = rankedRecall(ctx, q, budgetChars = 1800)
         val net = ConnectionStore.search(ctx, q, 6)
             .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
             .take(800)
@@ -53,8 +80,7 @@ object BrainContext {
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
-            if (semantic.isNotBlank()) append("\nMost relevant memories (semantic match — use if relevant):\n").append(semantic)
-            if (chats.isNotBlank()) append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
+            if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)
             if (papers.isNotBlank()) append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)

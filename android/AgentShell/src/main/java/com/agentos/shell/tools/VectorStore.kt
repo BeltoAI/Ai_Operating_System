@@ -117,11 +117,22 @@ object VectorStore {
         } catch (e: Exception) {}
     }
 
+    /** Run the query embedding on a worker thread and wait at most [ms]; null on timeout (thread finishes
+     *  in the background, harmless). Keeps a slow embed provider from ever blocking a reply. */
+    private fun embedBounded(ctx: Context, query: String, ms: Long): FloatArray? {
+        val ref = java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
+        val t = Thread { try { ref.set(EmbeddingClient.embed(ctx, listOf(query), "RETRIEVAL_QUERY")?.firstOrNull()) } catch (e: Exception) {} }
+        t.isDaemon = true; t.start(); t.join(ms)
+        return ref.get()
+    }
+
     /** Semantic search: embed the query, rank embedded rows by cosine, return the top [k]. */
     fun search(ctx: Context, query: String, k: Int = 6): List<Hit> {
         if (query.isBlank()) return emptyList()
         val provider = EmbeddingClient.provider(ctx) ?: return emptyList()
-        val qv = EmbeddingClient.embed(ctx, listOf(query), "RETRIEVAL_QUERY")?.firstOrNull() ?: return emptyList()
+        // P3: HARD-CAP the query embedding (a network call) at ~4s. On a Gemini throttle/stall this returns
+        // null and the caller degrades to keyword recall — semantic recall can NEVER block a reply.
+        val qv = embedBounded(ctx, query, 4000L) ?: return emptyList()
         val hits = ArrayList<Hit>()
         try {
             db(ctx).rawQuery("SELECT contact, role, body, v, dim FROM vmem WHERE v IS NOT NULL AND provider=? AND dim=?",

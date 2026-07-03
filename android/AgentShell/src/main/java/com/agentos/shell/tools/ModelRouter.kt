@@ -29,7 +29,8 @@ object ModelRouter {
     )
 
     // Only Anthropic exposes the web_search tool the paper writer uses today.
-    private val WEB_PROVIDERS = setOf("anthropic")
+    // P2: Anthropic via webTool(), Gemini via Google Search grounding — both can browse for the agent loop.
+    private val WEB_PROVIDERS = setOf("anthropic", "gemini")
     // All three current providers have vision-capable models.
     private val VISION_PROVIDERS = setOf("anthropic", "openai", "gemini")
 

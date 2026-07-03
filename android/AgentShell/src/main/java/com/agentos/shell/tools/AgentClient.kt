@@ -167,8 +167,9 @@ object AgentClient {
                 val r = LlmProviders.call("anthropic", model, k, system, messages, maxTokens, readMs, tools)
                 return r.code to r.text
             }
-            // Web search only works on Anthropic's tool format; drop tools for other providers.
-            val effTools = if (choice.provider == "anthropic") tools else null
+            // Web search: Anthropic uses webTool(); Gemini uses Google Search grounding (both handled in
+            // LlmProviders). Only OpenAI has no built-in browse tool, so drop tools there.
+            val effTools = if (choice.provider == "openai") null else tools
             val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
             if (r.code == 200 && ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
             // Free Gemini tier: warn the user when we hit the daily/rate quota so it isn't a silent failure.
@@ -221,6 +222,9 @@ object AgentClient {
             append("Use invest for ANYTHING about the user's investing/portfolio/stocks — building one OR just opening/checking it: 'invest', 'my portfolio', 'open my portfolio', 'open invest', 'how are my stocks', 'how's my portfolio doing', 'check my investments', 'show my holdings', 'trade', 'make money for me', 'buy stocks/crypto', 'put my money to work'. It's a PRACTICE paper-trading account; the screen shows their live holdings and lets them build/buy/sell. arg = any hints (risk, interests, amount) or empty. CRITICAL: NEVER use web_search, open_url, or open_app for portfolio/investing/stock requests — ALWAYS use invest. ")
             append("Use look when the user wants to identify something with the camera (e.g. 'what is this', 'what shoe is that', 'identify this plant', 'what building is this'); arg = empty. Opens the camera Look screen. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
+            append("Use web_search for ANY question needing current/live info you can't answer from memory — weather, " +
+                "news, sports scores, 'who won', prices, 'look up X', recent events. It now returns REAL web results " +
+                "that get answered out loud/in chat (no browser toss); arg = the search query. ")
             append("checklist_add arg = the item text. ")
             append("IMPORTANT: any request to add/remember something to a to-do, todo, to-dos, task list, ")
             append("checklist or list MUST use checklist_add — never open_app for that. ")
@@ -257,7 +261,7 @@ object AgentClient {
                 "when the task is obviously finished. Be warm and concise, like a great human assistant.")
         }
         val messages = JSONArray()
-        history.takeLast(4).forEach { (u, a) ->
+        history.takeLast(8).forEach { (u, a) ->   // P4: keep more turns so multi-turn requests aren't re-asked
             messages.put(JSONObject().put("role", "user").put("content", u))
             messages.put(JSONObject().put("role", "assistant").put("content", a))
         }
@@ -769,6 +773,23 @@ object AgentClient {
         "generous whitespace, a cohesive color palette, subtle gradients/shadows/rounded corners, strong " +
         "visual hierarchy, and responsive layout. Treat every document as a portfolio piece. " +
         (if (memory.isNotBlank()) "About the user (use when relevant): $memory. " else "")
+
+    /** P2: real web search — returns grounded TEXT (Anthropic webTool / Gemini Google-Search grounding),
+     *  so the agent loop can answer live questions out loud instead of tossing you to a browser. */
+    fun webSearchText(query: String): String {
+        val sys = "You are a web research assistant WITH live web search. Search the web and answer the question " +
+            "with CURRENT, factual info. Be concise (2-5 sentences), lead with the answer, and name the source when " +
+            "useful. If you genuinely can't find it, say so in one line."
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", query))
+        val (code, text) = callMessages(sys, msgs, 1200, VOICE, 120000, webTool())
+        return if (code == 200 && text.isNotBlank()) text.trim() else "Couldn't reach the web just now."
+    }
+
+    /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */
+    fun loopTurn(system: String, messages: JSONArray, model: String = MODEL): String {
+        val (code, text) = callMessages(system, messages, 1200, model)
+        return if (code == 200) text.trim() else "ANSWER\nSorry, I hit an error ($code) — try again."
+    }
 
     /** One turn of the Cowork loop. [messages] = the running user/assistant transcript. Returns raw text. */
     fun coworkTurn(messages: JSONArray, memory: String = ""): String {

@@ -20,7 +20,8 @@ object LlmProviders {
              messages: JSONArray, maxTokens: Int, readMs: Int, tools: JSONArray?): LlmResult =
         when (provider) {
             "openai" -> openai(model, apiKey, system, messages, maxTokens, readMs)
-            "gemini" -> gemini(model, apiKey, system, messages, maxTokens, readMs)
+            // P2: pass tools through so Gemini can use Google Search grounding (free-tier web search).
+            "gemini" -> gemini(model, apiKey, system, messages, maxTokens, readMs, tools)
             else -> anthropic(model, apiKey, system, messages, maxTokens, readMs, tools)
         }
 
@@ -111,7 +112,7 @@ object LlmProviders {
 
     // ---------- Gemini ----------
     private fun gemini(model: String, apiKey: String, system: String, messages: JSONArray,
-                       maxTokens: Int, readMs: Int): LlmResult {
+                       maxTokens: Int, readMs: Int, tools: JSONArray? = null): LlmResult {
         val contents = JSONArray()
         for (i in 0 until messages.length()) {
             val m = messages.getJSONObject(i)
@@ -139,6 +140,10 @@ object LlmProviders {
         if (system.isNotBlank())
             obj.put("systemInstruction", JSONObject().put("parts",
                 JSONArray().put(JSONObject().put("text", system))))
+        // P2: if a web-search tool was requested, enable Gemini's built-in Google Search grounding
+        // (free-tier). The grounded answer text comes back in the normal candidates/parts payload.
+        if (tools != null)
+            obj.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
         val (code, raw) = post(
             "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey",
             emptyMap(), obj.toString(), readMs)
