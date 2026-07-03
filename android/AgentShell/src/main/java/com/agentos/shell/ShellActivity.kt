@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.agentos.shell.screens.*
 import com.agentos.shell.theme.T
@@ -145,6 +146,17 @@ class ShellActivity : ComponentActivity() {
                 Screen.Home, Screen.Now, Screen.Memory, Screen.MemorySettings,
                 Screen.Research, Screen.Apps, Screen.People, Screen.Checklist, Screen.Manual
             )
+            // Recolor the system status/navigation bars to match the theme (the XML theme hardcodes them
+            // ivory, which is why the lock screen's bars stayed light in dark mode). Re-runs on toggle.
+            LaunchedEffect(T.dark) {
+                val c = T.bg.toArgb()
+                window.statusBarColor = c
+                window.navigationBarColor = c
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !T.dark
+                    isAppearanceLightNavigationBars = !T.dark
+                }
+            }
             Surface(Modifier.fillMaxSize(), color = T.bg) {
               androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
               Column(Modifier.fillMaxSize()) {
