@@ -3,6 +3,7 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -145,7 +146,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
             ) { _, dx -> dragX = (dragX + dx).coerceAtMost(0f) }
         }
         // Separate tap detector so tapping the card opens it (child buttons still consume their own taps).
-        .pointerInput(latest.key) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { NotificationStore.open(ctx, latest) }) }
+        .pointerInput(latest.key) { detectTapGestures(onTap = { NotificationStore.open(ctx, latest) }) }
         .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
