@@ -45,8 +45,10 @@ object MemoryStore {
     /** About + learned facts + LinkedIn work history — the full personal profile to feed the AI. */
     fun fullProfile(ctx: Context): String {
         val a = about(ctx); val l = learnedFacts(ctx); val p = positions(ctx); val e = education(ctx)
+        val c = shippingProfile(ctx)   // Name / Email / Phone / Address from Settings — real contact details for letterheads, résumés, forms.
         return buildString {
-            if (a.isNotBlank()) append(a)
+            if (c.isNotBlank()) append("My contact details (use verbatim in résumé headers, cover-letter sender blocks, and signatures):\n").append(c)
+            if (a.isNotBlank()) { if (isNotEmpty()) append("\n"); append(a) }
             if (p.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My work history (from LinkedIn):\n").append(p) }
             if (e.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My education:\n").append(e) }
             if (l.isNotEmpty()) { if (isNotEmpty()) append("\n"); append("Things you've learned about me: ").append(l.joinToString(" · ")) }

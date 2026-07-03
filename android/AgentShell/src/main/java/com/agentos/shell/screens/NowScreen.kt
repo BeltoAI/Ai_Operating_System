@@ -152,13 +152,26 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
         }
     }
 
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))) {
+        // Reveal layer behind the card: swipe RIGHT to open, LEFT to close.
+        Row(Modifier.matchParentSize().padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Open ↗", fontSize = T.small, color = if (dragX > 20f) T.accent else T.hairline)
+            Spacer(Modifier.weight(1f))
+            Text("Close ✕", fontSize = T.small, color = if (dragX < -20f) T.danger else T.hairline)
+        }
     Column(Modifier.fillMaxWidth()
         .offset { IntOffset(dragX.roundToInt(), 0) }
         .pointerInput(latest.key) {
             detectHorizontalDragGestures(
-                onDragEnd = { if (dragX < -130f) group.forEach { NotificationStore.dismiss(it.key) }; dragX = 0f },
+                onDragEnd = {
+                    when {
+                        dragX < -130f -> group.forEach { NotificationStore.dismiss(it.key) }   // left → close
+                        dragX > 130f  -> NotificationStore.open(ctx, latest)                    // right → open
+                    }
+                    dragX = 0f
+                },
                 onDragCancel = { dragX = 0f }
-            ) { _, dx -> dragX = (dragX + dx).coerceAtMost(0f) }
+            ) { _, dx -> dragX = (dragX + dx).coerceIn(-320f, 320f) }
         }
         .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
     ) {
@@ -222,6 +235,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                 }
             }
         }
+    }
     }
     Spacer(Modifier.height(10.dp))
 }

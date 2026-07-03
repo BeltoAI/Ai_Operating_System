@@ -162,10 +162,20 @@ object NotificationStore {
         remove(key)
     }
 
-    /** Open what the notification points at — its own tap intent, and if that's dead, launch the app. */
+    /** Open what the notification points at — its own tap intent (exact thread/screen), and if that's
+     *  dead or blocked, launch the app's main screen. Opts into background-activity-start where needed. */
     fun open(ctx: Context, note: Note): Boolean {
-        if (note.contentIntent != null) {
-            try { note.contentIntent.send(); return true } catch (e: Exception) { Log.w(TAG, "contentIntent send failed, launching app", e) }
+        note.contentIntent?.let { pi ->
+            try {
+                // On Android 14+ the sender must opt in to background activity starts for the trampoline to fire.
+                val opts = if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    android.app.ActivityOptions.makeBasic()
+                        .setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                        .toBundle()
+                } else null
+                pi.send(ctx, 0, null, null, null, null, opts)
+                return true
+            } catch (e: Exception) { Log.w(TAG, "contentIntent send failed, launching app", e) }
         }
         return try {
             val i = ctx.packageManager.getLaunchIntentForPackage(note.pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

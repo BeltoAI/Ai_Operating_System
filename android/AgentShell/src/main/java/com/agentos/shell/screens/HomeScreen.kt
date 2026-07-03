@@ -120,6 +120,7 @@ fun HomeScreen(
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
     var rememberSuggestion by remember { mutableStateOf("") }
+    var pendingConfirm by remember { mutableStateOf<List<com.agentos.shell.tools.AgentAction>?>(null) }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
     var showAdd by remember { mutableStateOf(false) }
     var showEff by remember { mutableStateOf(false) }
@@ -176,7 +177,7 @@ fun HomeScreen(
     val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
-        thinking = true; reply = ""; rememberSuggestion = ""; text = ""
+        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null
         scope.launch {
             // If photos are attached, this is an image task (vision Q&A or PDF).
             if (photos.isNotEmpty()) {
@@ -356,9 +357,14 @@ fun HomeScreen(
                 return@launch
             }
 
+            // Consequential actions (send message/email, add event, remind) don't fire silently —
+            // they surface as a tap-to-confirm card with the fields pre-filled. Everything else runs now.
+            val confirmables = result.actions.filter { it.type in ActionConfirm.CONFIRM_TYPES }
+            val autoActions = result.actions.filter { it.type !in ActionConfirm.CONFIRM_TYPES }
             val actionMsg = withContext(Dispatchers.IO) {
-                ToolRouter.executeActions(ctx, result.actions)
+                ToolRouter.executeActions(ctx, autoActions)
             }
+            pendingConfirm = confirmables.ifEmpty { null }
             reply = if (actionMsg.isNotEmpty()) actionMsg else result.say
             refreshShortcuts()
             if (doSpeak) speak(reply)
@@ -626,6 +632,16 @@ fun HomeScreen(
                             try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(replyUrl)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                         }.padding(horizontal = 16.dp, vertical = 9.dp))
             }
+        }
+
+        // Consequential actions await a single tap to confirm — fields pre-filled and editable.
+        pendingConfirm?.let { acts ->
+            Spacer(Modifier.height(10.dp))
+            ConfirmActionCard(
+                actions = acts,
+                onResult = { msg -> pendingConfirm = null; if (msg.isNotBlank()) reply = (if (reply.isNotBlank()) reply + "\n\n" else "") + msg },
+                onDismiss = { pendingConfirm = null }
+            )
         }
 
         if (rememberSuggestion.isNotBlank()) {
