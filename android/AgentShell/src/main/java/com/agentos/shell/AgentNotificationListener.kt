@@ -185,8 +185,10 @@ class AgentNotificationListener : NotificationListenerService() {
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
         // Per-app automation level: off / draft / full. Telegram doc-answering always sends.
         var mode = MemoryStore.appMode(applicationContext, note.pkg)
-        // Night schedule forces full-auto inside its window (unless the app is explicitly off).
-        if (mode != "off" && MemoryStore.nightAuto(applicationContext)) {
+        // Night schedule may escalate draft→full ONLY for apps the user EXPLICITLY opted into overnight
+        // auto-send (P0.3). It never overrides an app left at draft/default, and always respects 'off'.
+        if (mode == "draft" && MemoryStore.nightAuto(applicationContext) &&
+            MemoryStore.appNightAuto(applicationContext, note.pkg)) {
             val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
         }
@@ -200,7 +202,7 @@ class AgentNotificationListener : NotificationListenerService() {
         // Rate rail: only NOW (past the dedupe/echo/cooldown checks) do we count this as a real reply.
         // If this contact — or SlyOS overall — has hit the hourly auto-send cap, stage a draft instead
         // of sending, so a fast thread can't loop into a token-burning reply storm.
-        if (autoSend && !com.agentos.shell.tools.AutoReplyGuard.allow(note.title)) {
+        if (autoSend && !com.agentos.shell.tools.AutoReplyGuard.allow(applicationContext, note.title)) {
             Log.i("SlyOS", "auto → draft: rate cap for ${note.title}")
             autoSend = false
         }
@@ -232,6 +234,17 @@ class AgentNotificationListener : NotificationListenerService() {
                 if (isRepeat(note, draft)) {
                     Log.w("SlyOS", "auto reply suppressed — repeat of a recent reply to ${note.title}: \"${draft.take(60)}\"")
                     return@launch
+                }
+                // Outbound safety gate (P0.2): a draft is written from the OTHER person's message, so a
+                // prompt-injection could make it contain a link / money ask / leaked secret. If it trips the
+                // filter, HOLD it as a draft for explicit confirm instead of auto-sending.
+                if (autoSend) {
+                    val hold = com.agentos.shell.tools.OutboundGuard.check(draft)
+                    if (hold != null) {
+                        if (isSendable(draft)) NotificationStore.stageDraft(note.key, draft)
+                        Log.w("SlyOS", "auto reply HELD ($hold) → draft for ${note.title}")
+                        return@launch
+                    }
                 }
                 if (!autoSend) {
                     // Half-automatic: stage the exact reply on the Now card; the user taps Send.

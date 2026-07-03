@@ -38,12 +38,20 @@ fun AppViewScreen(modifier: Modifier = Modifier, appId: Long, onBack: () -> Unit
     var status by remember { mutableStateOf("") }
     val bridge = remember(appId) { AppBridge(ctx, appId, scope) }
 
+    var memGrant by remember(appId) { mutableStateOf(com.agentos.shell.tools.MemoryStore.appMemGranted(ctx, appId)) }
     Column(modifier) {
         ScreenHeader(name, onBack)
         Spacer(Modifier.height(10.dp))
         if (app == null) {
             Text("This app is no longer available.", fontSize = T.body, color = T.inkSoft)
             return@Column
+        }
+        // P1.4: mini-apps can't read/write your brain unless you grant it here (default off).
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+            .clickable { memGrant = !memGrant; com.agentos.shell.tools.MemoryStore.setAppMemGranted(ctx, appId, memGrant) }
+            .padding(bottom = 8.dp)) {
+            Text(if (memGrant) "Memory access: on — this app can read/save your brain" else "Memory access: off (tap to allow this app)",
+                fontSize = T.caption, color = if (memGrant) T.accent else T.inkFaint, modifier = Modifier.weight(1f))
         }
         AndroidView(
             modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(12.dp)),
@@ -53,16 +61,24 @@ fun AppViewScreen(modifier: Modifier = Modifier, appId: Long, onBack: () -> Unit
                     settings.domStorageEnabled = true
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
+                    // P1.4: sandbox — block ALL network loads, no file/content access, no popups. A mini-app
+                    // can only touch data through the (permission-gated) native bridge, never the network.
+                    settings.blockNetworkLoads = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.javaScriptCanOpenWindowsAutomatically = false
+                    settings.setGeolocationEnabled(false)
                     setBackgroundColor(0xFFF4EFE6.toInt())
                     addJavascriptInterface(bridge, "SlyOSNative")
                     bridge.web = this
-                    loadDataWithBaseURL("https://localhost/", AppBridge.wrap(html), "text/html", "utf-8", null)
+                    // Neutral, non-network origin so nothing resolves to a real host.
+                    loadDataWithBaseURL("about:blank", AppBridge.wrap(html), "text/html", "utf-8", null)
                 }
             },
             update = { wv ->
                 if (wv.tag != html) {
                     wv.tag = html
-                    wv.loadDataWithBaseURL("https://localhost/", AppBridge.wrap(html), "text/html", "utf-8", null)
+                    wv.loadDataWithBaseURL("about:blank", AppBridge.wrap(html), "text/html", "utf-8", null)
                 }
             }
         )

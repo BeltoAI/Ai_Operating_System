@@ -324,6 +324,21 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     modifier = Modifier.clickable { com.agentos.shell.tools.MessageStore.clear(ctx); com.agentos.shell.tools.VectorStore.clear(ctx); dbCount = 0; dbPeople = 0 })
             }
         }
+        // P2.3: recall-by-meaning runs on Gemini embeddings (free). If no embedding provider is set, say
+        // so out loud instead of silently returning nothing — and point the user to the free fix.
+        run {
+            val embedOn = com.agentos.shell.tools.EmbeddingClient.provider(ctx) != null
+            Spacer(Modifier.height(4.dp))
+            if (embedOn) {
+                val emb = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+                val pend = com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+                Text("Semantic memory: on · $emb indexed" + (if (pend > 0) " · $pend queued" else ""),
+                    fontSize = T.caption, color = T.inkFaint)
+            } else {
+                Text("Semantic memory: OFF — recall-by-meaning needs a free Gemini key. Add one under Models below to turn it on.",
+                    fontSize = T.caption, color = T.danger)
+            }
+        }
         // Brain compute: how much the models have thought, and how efficiently.
         run {
             val CS = com.agentos.shell.tools.CostStore
@@ -912,6 +927,23 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (it) com.agentos.shell.TelegramService.start(ctx)
                 else com.agentos.shell.TelegramService.stop(ctx)
             })
+        }
+        if (tgBot) {
+            // The bot only talks to YOU. Pair once by sending this code to the bot from your Telegram.
+            val ownerId = remember { MemoryStore.telegramOwnerId(ctx) }
+            if (ownerId == 0L) {
+                val code = remember { MemoryStore.telegramPairCode(ctx) }
+                Spacer(Modifier.height(6.dp))
+                Text("Private — not paired yet. Message your bot with this code to pair: $code",
+                    fontSize = T.small, color = T.accent)
+            } else {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Paired to your account ✓", fontSize = T.small, color = T.inkFaint, modifier = Modifier.weight(1f))
+                    Text("Unpair", fontSize = T.small, color = T.danger,
+                        modifier = Modifier.clickable { MemoryStore.clearTelegramOwner(ctx) }.padding(4.dp))
+                }
+            }
         }
 
         Spacer(Modifier.height(20.dp))

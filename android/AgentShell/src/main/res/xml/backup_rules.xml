@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P0.4: legacy (API <31) auto-backup rules. Exclude all app data — the brain (SharedPreferences +
+     SQLite) and model keys/tokens must never leave the device via backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="."/>
+    <exclude domain="database" path="."/>
+    <exclude domain="file" path="."/>
+</full-backup-content>

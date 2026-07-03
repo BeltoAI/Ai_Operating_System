@@ -56,7 +56,36 @@ class TelegramService : Service() {
         }
     }
 
+    // Chats we've already told "you're not authorized" — so a stranger/spammer gets ONE line, not a storm.
+    private val refused = java.util.Collections.synchronizedSet(HashSet<Long>())
+
+    /**
+     * OWNER ALLOWLIST (P0.1). The bot speaks AS the owner with the owner's full brain, so it must only
+     * ever engage the owner. Returns true if [u] is from the paired owner and processing may continue.
+     * Unpaired: the owner pairs once by sending the in-app code. Everyone else is refused with a single
+     * line and NOTHING is written to the brain, no persona, no document access.
+     */
+    private fun authorized(u: TelegramClient.Update): Boolean {
+        val owner = MemoryStore.telegramOwnerId(applicationContext)
+        if (owner == u.chatId) return true
+        if (owner == 0L) {
+            // Not paired yet — accept the one-time pairing code from whoever holds it (the owner, in-app).
+            val code = MemoryStore.telegramPairCode(applicationContext)
+            if (u.text.trim().equals(code, ignoreCase = true)) {
+                MemoryStore.setTelegramOwnerId(applicationContext, u.chatId)
+                TelegramClient.sendMessage(u.chatId, "Paired ✓ — I'm now your private SlyOS agent. Only you can talk to me here.")
+            } else {
+                TelegramClient.sendMessage(u.chatId, "This is a private SlyOS agent. Open the SlyOS app → Settings and send me your pairing code to connect.")
+            }
+            return false
+        }
+        // A different chat than the paired owner — refuse once, write nothing.
+        if (refused.add(u.chatId)) TelegramClient.sendMessage(u.chatId, "This bot is private and already paired to its owner.")
+        return false
+    }
+
     private fun handle(u: TelegramClient.Update) {
+        if (!authorized(u)) return   // no brain, no persona, no logging for anyone but the paired owner
         val mem = MemoryStore.about(applicationContext)
         val who = u.senderName.ifBlank { "Telegram ${u.chatId}" }   // brain contact name for any branch
         fun brainIn(text: String) = com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "them", text)

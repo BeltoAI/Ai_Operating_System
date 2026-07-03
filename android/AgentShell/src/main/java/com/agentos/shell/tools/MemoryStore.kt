@@ -32,7 +32,11 @@ object MemoryStore {
         val f = fact.trim(); if (f.length < 3) return
         val cur = learnedFacts(ctx).toMutableList()
         if (cur.any { it.equals(f, true) }) return            // dedup
-        cur.add(f); val capped = cur.takeLast(250)            // cap
+        // P1.5: the prefs list stays a BOUNDED working set for the prompt (recency), but the fact is ALSO
+        // written to the unbounded, indexed, deduped brain DB — so fact #251 no longer erases fact #1;
+        // every fact remains permanently retrievable via keyword + semantic search.
+        try { MessageStore.insertOne(ctx, "Learned facts", "Brain", "me", "me", f) } catch (e: Exception) {}
+        cur.add(f); val capped = cur.takeLast(250)            // bounded prompt working set only
         val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
         prefs(ctx).edit().putString(KEY_LEARNED, arr.toString()).apply()
     }
@@ -219,7 +223,9 @@ object MemoryStore {
         if (samples.isEmpty()) return
         val cur = voiceSamples(ctx).toMutableList()
         cur.addAll(samples.map { it.replace("\n", " ").trim() }.filter { it.length in 2..400 })
-        val capped = cur.takeLast(600)
+        // P1.5: keep a large rolling window of your own writing so old samples aren't dropped as you use
+        // the app (the style-learner samples from this pool; the raw messages also live in the brain DB).
+        val capped = cur.distinct().takeLast(5000)
         val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
         prefs(ctx).edit().putString("voice_samples", arr.toString()).apply()
     }
@@ -317,6 +323,21 @@ object MemoryStore {
     fun setAppMode(ctx: Context, pkg: String, mode: String) =
         prefs(ctx).edit().putString("app_mode_$pkg", mode).apply()
 
+    /**
+     * Per-app opt-in for the overnight full-auto window (P0.3). The night window may ONLY escalate an
+     * app to full-send if the user explicitly opted THAT app in here — it never overrides a draft/off/
+     * default app on its own. Default false, so nothing auto-sends overnight unless deliberately enabled.
+     */
+    fun appNightAuto(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("app_night_$pkg", false)
+    fun setAppNightAuto(ctx: Context, pkg: String, v: Boolean) = prefs(ctx).edit().putBoolean("app_night_$pkg", v).apply()
+
+    /**
+     * P1.4: per-mini-app permission to read/write the brain. Default DENY — a generated (or injected)
+     * mini-app cannot see your profile or write facts until you explicitly grant it on the app's screen.
+     */
+    fun appMemGranted(ctx: Context, appId: Long): Boolean = prefs(ctx).getBoolean("app_mem_$appId", false)
+    fun setAppMemGranted(ctx: Context, appId: Long, v: Boolean) = prefs(ctx).edit().putBoolean("app_mem_$appId", v).apply()
+
     /** The effective auto-reply state right now: forced on by the night window, else the toggle. */
     fun autonomousEffective(ctx: Context): Boolean {
         if (nightAuto(ctx)) {
@@ -341,6 +362,21 @@ object MemoryStore {
     /** When true, the Telegram bot service runs (reads attachments, answers, ingests PDFs). */
     fun telegramBot(ctx: Context): Boolean = prefs(ctx).getBoolean("telegram_bot", false)
     fun setTelegramBot(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean("telegram_bot", value).apply()
+
+    // ── Telegram OWNER allowlist. The bot impersonates you and holds your whole brain, so it must ONLY
+    //    ever talk to YOU. The owner pairs once by sending a one-time code (shown in Settings) from their
+    //    own Telegram account; the paired chatId is persisted and every other chat is refused.
+    fun telegramOwnerId(ctx: Context): Long = prefs(ctx).getLong("tg_owner_id", 0L)
+    fun setTelegramOwnerId(ctx: Context, id: Long) = prefs(ctx).edit().putLong("tg_owner_id", id).apply()
+    fun clearTelegramOwner(ctx: Context) = prefs(ctx).edit().remove("tg_owner_id").apply()
+    /** A stable, per-install pairing code shown in-app. The user sends it to the bot once to pair. */
+    fun telegramPairCode(ctx: Context): String {
+        prefs(ctx).getString("tg_pair_code", null)?.let { if (it.isNotBlank()) return it }
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val code = "SLY-" + (1..6).map { chars.random() }.joinToString("")
+        prefs(ctx).edit().putString("tg_pair_code", code).apply()
+        return code
+    }
 
     /**
      * When true, the Accessibility service logs on-screen text into InteractionStore for recall.

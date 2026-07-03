@@ -124,8 +124,9 @@ object NotificationStore {
     fun markReplied(note: Note) { recentReplies[senderKey(note)] = System.currentTimeMillis() }
     fun recordSent(note: Note, message: String) {
         recentSent.addFirst(message.trim() to System.currentTimeMillis())
-        while (recentSent.size > 10) recentSent.removeLast()
+        while (recentSent.size > 20) recentSent.removeLast()
     }
+    private fun normEcho(s: String) = s.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
     fun repliedWithin(note: Note, windowMs: Long): Boolean =
         System.currentTimeMillis() - (recentReplies[senderKey(note)] ?: 0L) < windowMs
 
@@ -144,15 +145,19 @@ object NotificationStore {
     }
 
     /**
-     * True only if this notification is clearly an echo of something we JUST sent (within ~20s)
-     * — strict match so normal short replies like "ok" aren't wrongly suppressed.
+     * True if this notification is an echo of something we sent (P2.5: widened to a 5-minute window with
+     * normalized content matching, so a late self-notification can't make the agent reply to itself and
+     * loop). Still requires a real content match, so a genuine short reply like "ok" from the other
+     * person isn't wrongly suppressed unless we literally just sent that same word.
      */
     fun isOwnEcho(note: Note): Boolean {
-        val t = note.text.trim()
+        val t = normEcho(note.text)
         if (t.isBlank()) return false
         val now = System.currentTimeMillis()
         return recentSent.any { (s, ts) ->
-            now - ts < 20_000L && (t.equals(s, true) || (s.length > 12 && t.contains(s, true)))
+            val ns = normEcho(s)
+            now - ts < 300_000L && ns.isNotEmpty() &&
+                (t == ns || (ns.length > 10 && (t.contains(ns) || ns.contains(t))))
         }
     }
 

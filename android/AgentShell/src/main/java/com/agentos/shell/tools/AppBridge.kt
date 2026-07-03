@@ -20,12 +20,17 @@ class AppBridge(
 ) {
     @Volatile var web: WebView? = null
 
+    // P1.4: brain access is per-app, default DENY. save/load stay app-scoped (their own key/value store).
+    private fun granted() = MemoryStore.appMemGranted(ctx, appId)
+
     @JavascriptInterface fun save(key: String, value: String) = AppStore.saveData(ctx, appId, key, value)
     @JavascriptInterface fun load(key: String): String = AppStore.loadData(ctx, appId, key)
-    @JavascriptInterface fun memory(): String = MemoryStore.about(ctx)
+    /** The profile is returned ONLY if the user granted THIS app memory access; otherwise empty. */
+    @JavascriptInterface fun memory(): String = if (granted()) MemoryStore.about(ctx) else ""
 
-    /** App writes a durable fact back into the brain (memory + graph). */
+    /** App writes a durable fact back into the brain — only if this app was granted memory access. */
     @JavascriptInterface fun remember(fact: String) {
+        if (!granted()) return
         val f = fact.trim()
         if (f.isBlank()) return
         val cur = MemoryStore.about(ctx)
@@ -36,7 +41,9 @@ class AppBridge(
     /** Async AI call; result is delivered back to the JS Promise via __slyosResolve. */
     @JavascriptInterface fun ask(prompt: String, cbId: String) {
         scope.launch {
-            val ans = withContext(Dispatchers.IO) { AgentClient.appAsk(prompt, MemoryStore.about(ctx)) }
+            // Only feed the profile into the app's AI calls if it was granted access.
+            val mem = if (granted()) MemoryStore.about(ctx) else ""
+            val ans = withContext(Dispatchers.IO) { AgentClient.appAsk(prompt, mem) }
             val w = web ?: return@launch
             w.post {
                 w.evaluateJavascript(
@@ -51,6 +58,10 @@ class AppBridge(
         fun wrap(html: String): String {
             val head = """
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- P1.4: restrictive CSP — inline HTML/JS/CSS + data/blob images are fine, but connect-src 'none'
+     blocks all fetch/XHR/WebSocket and form-action 'none' blocks form posts, so a mini-app (even a
+     prompt-injected one) can't exfiltrate memory to the network. Data flows only through the native bridge. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'; base-uri 'none'; object-src 'none'">
 <style>
   html,body{margin:0;max-width:100%;overflow-x:hidden;background:#F4EFE6;color:#1A1714;
     font-family:-apple-system,system-ui,sans-serif;}

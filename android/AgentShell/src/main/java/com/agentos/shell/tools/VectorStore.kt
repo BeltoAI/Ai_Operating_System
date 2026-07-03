@@ -53,8 +53,9 @@ object VectorStore {
         val meta = ctx.getSharedPreferences("slyos_vec_meta", Context.MODE_PRIVATE)
         if (meta.getBoolean("seeded", false)) return
         try {
-            // Seed the SELECTIVE, value-ranked set (your own writing first) — not all 300k+ lines.
-            val rows = MessageStore.valueRows(ctx, 15000)
+            // Seed the value-ranked set (your own writing first). P2.2: raised 15k→50k now that batching
+            // is ~12× more request-efficient, so far more of the brain becomes semantically searchable.
+            val rows = MessageStore.valueRows(ctx, 50000)
             val d = db(ctx); d.beginTransaction()
             try {
                 val stmt = d.compileStatement("INSERT INTO vmem(contact,role,body,provider,dim,v,ts) VALUES(?,?,?,'',0,NULL,?)")
@@ -80,14 +81,17 @@ object VectorStore {
     } catch (e: Exception) { 0 }
 
     /** Embed up to [cap] queued rows, in batches. Safe to call on app start (off the main thread). */
-    fun backfill(ctx: Context, cap: Int = 200) {
+    fun backfill(ctx: Context, cap: Int = 1000) {
         val provider = EmbeddingClient.provider(ctx) ?: return
         ensureSeeded(ctx)   // make sure existing history is queued before we start embedding
         var processed = 0
         try {
             while (processed < cap) {
                 val ids = ArrayList<Long>(); val bodies = ArrayList<String>()
-                db(ctx).rawQuery("SELECT rowid, body FROM vmem WHERE v IS NULL LIMIT 8", null).use { c ->
+                // P2.2: Gemini's batchEmbedContents accepts up to 100 inputs per request — batching ~100
+                // (instead of 8) spends the scarce free-tier REQUEST quota ~12× more efficiently, so a
+                // large brain indexes in far fewer sessions. Token throughput is generous; requests are the cap.
+                db(ctx).rawQuery("SELECT rowid, body FROM vmem WHERE v IS NULL LIMIT 100", null).use { c ->
                     while (c.moveToNext()) { ids.add(c.getLong(0)); bodies.add(c.getString(1)) }
                 }
                 if (ids.isEmpty()) break
@@ -130,6 +134,12 @@ object VectorStore {
             }
         } catch (e: Exception) { return emptyList() }
         return hits.sortedByDescending { it.score }.take(k)
+    }
+
+    /** P1.6: remove one person's vectors so forgotten content can't resurface in semantic search. */
+    fun deleteContact(ctx: Context, contact: String) {
+        if (contact.isBlank()) return
+        try { db(ctx).execSQL("DELETE FROM vmem WHERE contact=?", arrayOf(contact)) } catch (e: Exception) {}
     }
 
     fun clear(ctx: Context) {

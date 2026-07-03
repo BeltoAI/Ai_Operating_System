@@ -522,7 +522,13 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     Row {
                         if (n.type != "hub")
                             Text("Forget", fontSize = T.small, color = T.danger,
-                                modifier = Modifier.clickable { MemoryGraphStore.forget(ctx, n.key); selected = null; version++ })
+                                modifier = Modifier.clickable {
+                                    // P1.6: really forget — for a person, purge their messages AND vectors
+                                    // (off the UI thread), not just the graph node, so they can't resurface.
+                                    if (n.type == "person" && n.key.startsWith("person:"))
+                                        Thread { com.agentos.shell.tools.MessageStore.deleteContact(ctx, n.key.removePrefix("person:")) }.start()
+                                    MemoryGraphStore.forget(ctx, n.key); selected = null; version++
+                                })
                         Spacer(Modifier.width(18.dp))
                         Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { selected = null })
                     }

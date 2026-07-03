@@ -15,9 +15,31 @@ import org.json.JSONObject
  */
 object ChatImport {
     data class Result(val contacts: Int, val messages: Int, val mySamples: List<String>, val source: String)
-    private data class Line(val contact: String, val sender: String, val body: String)
+    // P2.1: carry the REAL export timestamp (epoch ms) when we can parse it; 0 = unknown.
+    private data class Line(val contact: String, val sender: String, val body: String, val ts: Long = 0L)
 
-    private val WA_LINE = Regex("""^\[?\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4},?\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp][Mm])?\]?\s*[-–]?\s*([^:]{1,40}):\s?(.*)$""")
+    // Group 1 now captures the leading date+time so we can preserve real recency (was un-captured).
+    private val WA_LINE = Regex("""^\[?(\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4},?\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp][Mm])?)\]?\s*[-–]?\s*([^:]{1,40}):\s?(.*)$""")
+
+    // WhatsApp's date/time varies by locale; try the common patterns, lenient. 0 on failure.
+    private val WA_FORMATS = listOf(
+        "M/d/yy, h:mm:ss a", "M/d/yy, h:mm a", "M/d/yy, HH:mm:ss", "M/d/yy, HH:mm",
+        "M/d/yyyy, h:mm:ss a", "M/d/yyyy, h:mm a", "M/d/yyyy, HH:mm:ss", "M/d/yyyy, HH:mm",
+        "d/M/yyyy, HH:mm:ss", "d/M/yyyy, HH:mm", "dd/MM/yyyy, HH:mm:ss", "dd/MM/yyyy, HH:mm",
+        "d.M.yyyy, HH:mm:ss", "d.M.yy, HH:mm", "dd.MM.yy, HH:mm", "dd/MM/yy, HH:mm"
+    )
+    private fun parseWhen(s: String, formats: List<String>, utc: Boolean = false): Long {
+        val t = s.replace("[", "").replace("]", "").replace(" UTC", "").trim()
+        for (f in formats) {
+            try {
+                val sdf = java.text.SimpleDateFormat(f, java.util.Locale.US)
+                sdf.isLenient = true
+                if (utc) sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val d = sdf.parse(t); if (d != null) return d.time
+            } catch (e: Exception) {}
+        }
+        return 0L
+    }
 
     fun importAny(ctx: Context, uri: Uri, owner: String): Result {
         val bytes = try {
@@ -70,10 +92,14 @@ object ChatImport {
     private fun ingest(ctx: Context, platform: String, lines: List<Line>, ownerName: String?): Result {
         val clean = lines.filter { it.body.isNotBlank() && it.contact.isNotBlank() }
         if (clean.isEmpty()) return Result(0, 0, emptyList(), platform)
-        var ts = System.currentTimeMillis() - clean.size   // keep import order chronological
-        val rows = clean.map { l ->
+        // P2.1: use the REAL timestamp where the export carried one; only messages with an unknown time
+        // are spread deterministically backwards from import time (1 min apart, in order) — never clustered
+        // at "now", so ORDER BY ts still sorts imported threads in true chronological order.
+        val base = System.currentTimeMillis(); val n = clean.size
+        val rows = clean.mapIndexed { i, l ->
             val role = if (ownerName != null && l.sender.equals(ownerName, true)) "me" else "them"
-            MessageStore.Row(l.contact, platform, l.sender, role, l.body, ts++)
+            val ts = if (l.ts > 0L) l.ts else base - (n - i) * 60_000L
+            MessageStore.Row(l.contact, platform, l.sender, role, l.body, ts)
         }
         // Dedupe against what's already in the brain so re-importing the same export doesn't
         // double-count. Report the number of NEW messages actually added.
@@ -86,7 +112,8 @@ object ChatImport {
     }
 
     private fun whatsApp(ctx: Context, text: String, owner: String): Result {
-        val msgs = ArrayList<Pair<String, String>>()
+        // (sender, body, ts) — ts parsed from each line's real WhatsApp date/time when possible.
+        val msgs = ArrayList<Triple<String, String, Long>>()
         for (line in text.split(Regex("\r?\n"))) {
             // Strip WhatsApp's invisible bidi/format marks + odd spaces that break the regex.
             val raw = line
@@ -94,11 +121,11 @@ object ChatImport {
                 .replace(Regex("[\\u00a0\\u202f\\u2007\\u2009]"), " ").trim()
             val m = WA_LINE.find(raw)
             if (m != null) {
-                val body = m.groupValues[2].trim()
+                val body = m.groupValues[3].trim()
                 if (body.isNotBlank() && !body.contains("end-to-end encrypted"))
-                    msgs.add(m.groupValues[1].trim() to body)
+                    msgs.add(Triple(m.groupValues[2].trim(), body, parseWhen(m.groupValues[1], WA_FORMATS)))
             } else if (raw.isNotBlank() && msgs.isNotEmpty()) {
-                val last = msgs.removeAt(msgs.size - 1); msgs.add(last.first to (last.second + " " + raw.trim()))
+                val last = msgs.removeAt(msgs.size - 1); msgs.add(Triple(last.first, last.second + " " + raw.trim(), last.third))
             }
         }
         if (msgs.isEmpty()) return empty()
@@ -106,7 +133,7 @@ object ChatImport {
         val ownerName = if (owner.isNotBlank()) freq.keys.firstOrNull { it.equals(owner, true) || it.startsWith(owner, true) } else null
         val contact = freq.entries.filter { it.key != ownerName }.maxByOrNull { it.value }?.key
             ?: freq.entries.maxByOrNull { it.value }!!.key
-        return ingest(ctx, "WhatsApp", msgs.map { Line(contact, it.first, it.second) }, ownerName)
+        return ingest(ctx, "WhatsApp", msgs.map { Line(contact, it.first, it.second, it.third) }, ownerName)
     }
 
     private fun linkedIn(ctx: Context, text: String, owner: String): Result {
@@ -114,6 +141,7 @@ object ChatImport {
         val header = rows.firstOrNull { r -> r.any { it.contains("CONVERSATION ID", true) } } ?: return empty()
         val h = header.map { it.trim().uppercase() }
         val iFrom = h.indexOf("FROM"); val iTo = h.indexOf("TO"); val iBody = h.indexOf("CONTENT")
+        val iDate = h.indexOf("DATE")   // LinkedIn's messages.csv carries a real "yyyy-MM-dd HH:mm:ss UTC" date
         if (iFrom < 0 || iBody < 0) return empty()
         val start = rows.indexOf(header) + 1
         val rowsData = rows.drop(start)
@@ -126,7 +154,8 @@ object ChatImport {
             val from = g(iFrom); val to = g(iTo); val body = g(iBody)
             if (from.isBlank() || body.isBlank()) return@mapNotNull null
             val contact = if (from.equals(ownerName, true)) to.substringBefore(",").trim() else from
-            Line(contact.ifBlank { "LinkedIn" }, from, body)
+            val ts = if (iDate >= 0) parseWhen(g(iDate), listOf("yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss"), utc = true) else 0L
+            Line(contact.ifBlank { "LinkedIn" }, from, body, ts)
         }
         return ingest(ctx, "LinkedIn", lines, ownerName)
     }
@@ -158,7 +187,9 @@ object ChatImport {
             if (m.optString("type") != "message") continue
             val sender = m.optString("from")
             val body = flattenText(m.opt("text"))
-            if (sender.isNotBlank() && body.isNotBlank()) lines.add(Line(contact, sender, body))
+            // Telegram exports carry a real unix time — preserve it (seconds → ms).
+            val ts = m.optString("date_unixtime").toLongOrNull()?.times(1000) ?: 0L
+            if (sender.isNotBlank() && body.isNotBlank()) lines.add(Line(contact, sender, body, ts))
         }
         val freq = lines.groupingBy { it.sender }.eachCount()
         val ownerName = if (owner.isNotBlank()) freq.keys.firstOrNull { it.equals(owner, true) || it.startsWith(owner, true) }
@@ -178,7 +209,9 @@ object ChatImport {
             val m = arr.optJSONObject(i) ?: continue
             val sender = m.optString("sender_name")
             val body = m.optString("content")
-            if (sender.isNotBlank() && body.isNotBlank() && !body.endsWith("to your message")) lines.add(Line(title, sender, body))
+            // Meta (Instagram/Messenger) exports carry a real timestamp_ms — preserve it.
+            val ts = m.optLong("timestamp_ms", 0L)
+            if (sender.isNotBlank() && body.isNotBlank() && !body.endsWith("to your message")) lines.add(Line(title, sender, body, ts))
         }
         val freq = lines.groupingBy { it.sender }.eachCount()
         val ownerName = if (owner.isNotBlank()) freq.keys.firstOrNull { it.equals(owner, true) || it.startsWith(owner, true) }

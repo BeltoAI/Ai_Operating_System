@@ -163,6 +163,14 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Text("Add the other providers later in Brain → settings to orchestrate — a cheap model for everyday " +
                     "replies, a powerful one for papers. SlyOS predicts your monthly cost as you go.",
                     fontSize = T.caption, color = T.inkFaint)
+                // P2.3: memory recall-by-meaning runs on Gemini's free embeddings. Tell Claude/OpenAI-first
+                // users so they don't end up with a silently dead semantic brain.
+                if (provider != "gemini" && keyGemini.isBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tip: recall-by-meaning (\"what did I say about the deal?\") is powered by Gemini's FREE " +
+                        "embeddings. Add a free Gemini key too — even on Claude — or semantic memory stays off.",
+                        fontSize = T.caption, color = T.accent)
+                }
             }
             1 -> {
                 Text("About you", fontSize = T.body, color = T.ink)

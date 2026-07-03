@@ -32,7 +32,10 @@
     <application
         android:label="SlyOS"
         android:theme="@style/Theme.SlyOS"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"><!-- P0.4: keep the brain + keys off adb backup / cloud backup -->
 
         <!-- The launcher: registering HOME is what replaces the One UI launcher. -->
         <activity

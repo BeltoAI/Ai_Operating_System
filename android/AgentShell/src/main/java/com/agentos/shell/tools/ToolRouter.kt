@@ -126,12 +126,31 @@ object ToolRouter {
         } catch (e: Exception) { "" }
     }
 
-    /** Run an ordered list of actions, recording metrics; returns combined feedback. */
-    fun executeActions(ctx: Context, actions: List<AgentAction>): String {
-        Log.i("SlyOS", "actions(${actions.size}): " + actions.joinToString { "${it.type}=${it.arg}" })
+    /**
+     * P2.4: consequential / navigation actions that must NEVER fire straight from model output on a
+     * non-user-initiated path (autonomous reply, worker, bot) — an injected message could otherwise
+     * auto-open an attacker URL, place a call, spend, or send. These only run when [userInitiated].
+     */
+    private val GATED = setOf(
+        "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
+        "settings", "send_sms", "message", "send_email", "add_event",
+        "create_doc", "create_sheet", "create_slides", "create_pdf"
+    )
+
+    /**
+     * Run an ordered list of actions, recording metrics; returns combined feedback. Every entry point
+     * routes through here, so the [userInitiated] gate is enforced in ONE place. Autonomous/worker/bot
+     * callers MUST pass userInitiated=false so gated actions are skipped instead of auto-executed.
+     */
+    fun executeActions(ctx: Context, actions: List<AgentAction>, userInitiated: Boolean = true): String {
+        Log.i("SlyOS", "actions(${actions.size}, user=$userInitiated): " + actions.joinToString { "${it.type}=${it.arg}" })
         val msgs = mutableListOf<String>()
         for (a in actions) {
             if (a.type.isBlank() || a.type == "none") continue
+            if (!userInitiated && a.type in GATED) {   // code-level gate: never auto-fire these unattended
+                Log.w("SlyOS", "action gated (non-user-initiated): ${a.type}")
+                continue
+            }
             val m = executeAction(ctx, a.type, a.arg)
             MetricsStore.record(ctx, MetricsStore.secondsFor(a.type))
             if (m.isNotEmpty()) msgs.add(m)
@@ -298,8 +317,8 @@ object ToolRouter {
                     }
                     val digits = c.number.filter { it.isDigit() }
                     start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=" + Uri.encode(body))))
-                    MessageStore.insertOne(ctx, c.name, "WhatsApp", c.name, "me", body)
-                    ConversationStore.add(ctx, "WhatsApp", c.name, "me", body)
+                    // P1.3: this only OPENS WhatsApp with a prefilled draft — the user still taps send. Do
+                    // NOT record it as a sent message, or the brain trains on things you never actually sent.
                     "Opened WhatsApp to ${c.name} with your message — just tap send."
                 }
                 app.contains("telegram") -> {
@@ -308,7 +327,7 @@ object ToolRouter {
                     val intent = ctx.packageManager.getLaunchIntentForPackage("org.telegram.messenger")
                         ?: Intent(Intent.ACTION_VIEW, Uri.parse("tg://"))
                     start(ctx, intent)
-                    if (name.isNotBlank()) { MessageStore.insertOne(ctx, name, "Telegram", name, "me", body); ConversationStore.add(ctx, "Telegram", name, "me", body) }
+                    // P1.3: only copies + opens Telegram to draft — not actually sent, so don't log it.
                     "Copied your message and opened Telegram — open ${name.ifBlank { "the chat" }} and paste."
                 }
                 else -> sendSms(ctx, JSONObject().put("name", name).put("body", body).toString())
