@@ -259,6 +259,9 @@ fun HomeScreen(
                     com.agentos.shell.tools.TradeStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
                         append("\n").append(it).append(" (When the user asks about investing/their portfolio/how it's doing, use these real numbers; they can manage it on the Invest screen.)")
                     }
+                    com.agentos.shell.tools.JobStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
+                        append("\n").append(it).append(" (Use this when the user asks what jobs they applied to or prepared.)")
+                    }
                     append("\nCurrent time: ").append(now)
                 }
             }

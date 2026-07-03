@@ -55,9 +55,21 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var leads by remember { mutableStateOf<List<AgentClient.JobLead>>(emptyList()) }
     var findMsg by remember { mutableStateOf("") }
     var fullView by remember { mutableStateOf("") }   // html shown full-screen
+    var appLabel by remember { mutableStateOf("") }   // "Role — Company" of the current application
 
     fun feed(note: String, s: Int) {
         com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
+        com.agentos.shell.tools.MetricsStore.record(ctx, s)
+    }
+    // Record a SPECIFIC application to the brain (searchable: "what jobs did I apply to?") + history.
+    fun logApplication(status: String, s: Int) {
+        val label = appLabel.ifBlank { "a role" }
+        val linkUsed = link.ifBlank { initialTarget }
+        val note = (if (status == "sent") "Applied to " else "Prepared a job application for ") + label +
+            (if (linkUsed.isNotBlank()) " — $linkUsed" else "") +
+            (if (status == "sent") " · sent tailored résumé + cover letter + email" + (if (jobEmailTo.isNotBlank()) " to $jobEmailTo" else "") else " (tailored résumé + cover letter + email)")
+        com.agentos.shell.tools.MessageStore.insertOne(ctx, "Job application", "Job", "me", "me", note)
+        com.agentos.shell.tools.JobStore.addApplication(ctx, label, linkUsed, status)
         com.agentos.shell.tools.MetricsStore.record(ctx, s)
     }
     suspend fun resolve(p: String): String {
@@ -94,6 +106,8 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         busy = "gen"
         scope.launch {
             val posting = resolve(link.ifBlank { initialTarget })
+            // Identify the role + company so the application is recorded specifically.
+            appLabel = withContext(Dispatchers.IO) { AgentClient.jobLabel(posting) }.ifBlank { appLabel }
             // Grab a contact email off the posting so "Email with attachments" goes to the right place.
             Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(posting)?.value
                 ?.takeUnless { it.contains("example") || it.endsWith(".png") || it.endsWith(".jpg") }?.let { jobEmailTo = it }
@@ -107,7 +121,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
             val ch = withContext(Dispatchers.IO) { AgentClient.jobCoverHtmlDoc(r, posting, MemoryStore.fullProfile(ctx)) }
             if (ch.contains("<")) { coverHtml = ch; coverFile = null; JobDoc.htmlToPdf(ctx, ch, "cover") { f -> coverFile = f } }
             email = withContext(Dispatchers.IO) { AgentClient.jobEmail(r, posting, MemoryStore.fullProfile(ctx)) }
-            feed("Drafted an application (résumé + cover + email)", 1500)
+            logApplication("prepared", 1500)
             busy = ""
         }
     }
@@ -233,7 +247,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
                 JobDoc.emailWithAttachments(ctx, jobEmailTo, "Application",
                     email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
                     listOfNotNull(resumeFile, coverFile))
-                feed("Sent an application (résumé + cover attached)", 1500)
+                logApplication("sent", 1500)
             }
         }
         Spacer(Modifier.height(24.dp))

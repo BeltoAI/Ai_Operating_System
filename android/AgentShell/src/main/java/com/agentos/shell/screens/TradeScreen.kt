@@ -143,7 +143,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
             withContext(Dispatchers.IO) {
                 TradeStore.deposit(ctx, amt)
                 picks.forEach { p -> val sh = sharesFor(p, amt); val px = quotes[p.symbol]?.price ?: 0.0; if (sh > 0 && px > 0) TradeStore.buy(ctx, p.symbol, p.name, sh, px) }
-                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Built a $${amt.toInt()} practice portfolio ($risk): " + picks.joinToString(", ") { "${it.symbol} ${(it.weight * 100).toInt()}%" })
+                MessageStore.insertOne(ctx, "Investing portfolio", "Trade", "me", "me", "Invested $${amt.toInt()} into a practice portfolio ($risk). Holdings: " + picks.joinToString(", ") { "${it.symbol} ${it.name} ${(it.weight * 100).toInt()}%" })
                 MetricsStore.record(ctx, 900)
             }
             started = true; picks = emptyList(); busy = ""; refreshPortfolio()   // clear busy or all buttons stay disabled
@@ -204,7 +204,7 @@ fun TradeScreen(modifier: Modifier = Modifier, initialPrompt: String = "", onBac
                         if (need > 0) TradeStore.deposit(ctx, kotlin.math.ceil(need).toDouble())   // add practice cash to cover
                         TradeStore.buy(ctx, p.symbol, p.name, p.shares, p.price)
                     } else TradeStore.sell(ctx, p.symbol, p.shares, p.price)
-                    MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "${p.action} ${"%.3f".format(p.shares)} ${p.symbol} @ $${"%.2f".format(p.price)}")
+                    MessageStore.insertOne(ctx, "Investing portfolio", "Trade", "me", "me", (if (p.action == "buy") "Bought " else "Sold ") + "%.3f".format(p.shares) + " ${p.symbol}" + (if (p.name.isNotBlank() && !p.name.equals(p.symbol, true)) " (${p.name})" else "") + " @ $${"%.2f".format(p.price)}")
                 }
                 MetricsStore.record(ctx, 120)
             }

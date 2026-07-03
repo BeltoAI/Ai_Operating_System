@@ -959,6 +959,15 @@ object AgentClient {
         "leave a clearly marked [add: …] placeholder. No markdown symbols.",
         "WHAT I KNOW ABOUT THE PERSON:\n$memory")
 
+    /** Extract a clean "Role — Company" label from a posting, so applications are recorded specifically. */
+    fun jobLabel(posting: String): String {
+        if (posting.isBlank()) return ""
+        val sys = "Extract the job's role and company from this posting. Reply with ONLY 'Role — Company' " +
+            "(e.g. 'Senior Android Engineer — Stripe'). If the company is unclear, use the role alone. No other text."
+        val (code, t) = call(sys, posting.take(2500))
+        return if (code == 200) t.trim().lines().firstOrNull()?.take(90).orEmpty() else ""
+    }
+
     /** Suggest target roles + a short rationale, when the user isn't sure what to go for. */
     fun jobIdeas(resume: String, memory: String): String = jobCall(
         "You are a career coach. Based on the résumé and background, suggest 4-6 specific job titles worth " +
