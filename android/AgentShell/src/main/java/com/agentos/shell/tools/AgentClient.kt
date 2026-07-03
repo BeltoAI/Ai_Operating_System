@@ -262,6 +262,22 @@ object AgentClient {
         return r
     }
 
+    /** Fast, cheap SPOKEN reply for the voice conversation — no action JSON, no web tool, short. */
+    fun converse(prompt: String, memory: String = "", history: List<Pair<String, String>> = emptyList()): String {
+        val sys = persona(memory) +
+            "You're having a quick SPOKEN conversation — the user is talking to you out loud. Reply in 1-3 short, " +
+            "natural spoken sentences. No markdown, no lists, no headings. Warm and direct. If something truly needs " +
+            "live web browsing you can't do here, say so in one short sentence instead of stalling."
+        val messages = JSONArray()
+        history.takeLast(4).forEach { (u, a) ->
+            messages.put(JSONObject().put("role", "user").put("content", u))
+            messages.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", prompt))
+        val (code, text) = callMessages(sys, messages, 300, MODEL)   // cheap tier, short → fast
+        return if (code == 200) text.trim() else "Sorry, I couldn't get that just now."
+    }
+
     /** Vision Q&A: answer a question about photos. Returns plain text. */
     fun askVision(prompt: String, imagesB64: List<String>, memory: String = ""): String {
         val content = JSONArray()

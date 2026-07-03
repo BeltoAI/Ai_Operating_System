@@ -80,14 +80,11 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun answer(prompt: String) {
         phase = "thinking"
         scope.launch {
-            val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
-            // Bounded so it always replies instead of hanging silently.
-            val res = kotlinx.coroutines.withTimeoutOrNull(45000L) {
-                withContext(Dispatchers.IO) { AgentClient.ask(prompt, apps, MemoryStore.fullProfile(ctx), history) }
-            }
-            if (res == null) { reply = "That took too long — let's try again."; speak(reply); return@launch }
-            val actionMsg = withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, res.actions) }
-            val out = actionMsg.ifEmpty { res.say }.ifBlank { "I'm not sure how to help with that." }
+            // Fast conversational path — cheap model, short answer, no browser/web tool. Bounded so it
+            // always replies instead of hanging.
+            val out = (kotlinx.coroutines.withTimeoutOrNull(30000L) {
+                withContext(Dispatchers.IO) { AgentClient.converse(prompt, MemoryStore.fullProfile(ctx), history) }
+            } ?: "That took too long — let's try again.").ifBlank { "I'm not sure how to help with that." }
             reply = out
             history = (history + (prompt to out)).takeLast(6)
             withContext(Dispatchers.IO) {
@@ -152,7 +149,12 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         "listening" -> "listening…"; "thinking" -> "thinking…"; "speaking" -> "speaking…"; else -> "starting…"
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF12100C))) {
+    Box(Modifier.fillMaxSize().background(
+        androidx.compose.ui.graphics.Brush.radialGradient(listOf(Color(0xFF1C1712), Color(0xFF050505)))
+    )) {
+        // The brain fills the whole screen, floating in space.
+        if (granted) Brain3D(Modifier.fillMaxSize(), pulse = level)
+
         Text("End", color = Color.White, fontSize = T.small,
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(18.dp)
                 .clip(RoundedCornerShape(999.dp)).background(Color(0x33FFFFFF)).clickable {
@@ -160,19 +162,17 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     tts.value?.stop(); onBack()
                 }.padding(horizontal = 16.dp, vertical = 8.dp))
 
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            // ── The real rotating 3D memory-brain, pulsing to your voice + its reply ──
-            Brain3D(Modifier.fillMaxWidth().height(400.dp), pulse = level)
-            Spacer(Modifier.height(24.dp))
+        // Status + transcript overlaid at the bottom.
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 48.dp, start = 28.dp, end = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            if (youSaid.isNotBlank()) { Text("“" + youSaid + "”", color = Color(0xFFDDD6CC), fontSize = T.small, textAlign = TextAlign.Center); Spacer(Modifier.height(10.dp)) }
+            if (reply.isNotBlank() && phase != "listening") { Text(reply, color = Color.White, fontSize = T.small, textAlign = TextAlign.Center); Spacer(Modifier.height(12.dp)) }
             Text(statusText, color = ACC, fontSize = T.body)
-            Spacer(Modifier.height(18.dp))
-            if (youSaid.isNotBlank()) Text("“" + youSaid + "”", color = Color(0xFFDDD6CC), fontSize = T.small, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 28.dp))
-            if (reply.isNotBlank() && phase != "listening") { Spacer(Modifier.height(12.dp)); Text(reply, color = Color.White, fontSize = T.small, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 28.dp)) }
         }
 
         if (!granted)
             Text("Allow microphone to talk", color = Color.White, fontSize = T.small,
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp)
+                modifier = Modifier.align(Alignment.Center)
                     .clip(RoundedCornerShape(999.dp)).background(ACC).clickable { permLauncher.launch(Manifest.permission.RECORD_AUDIO) }.padding(horizontal = 20.dp, vertical = 12.dp))
     }
 }

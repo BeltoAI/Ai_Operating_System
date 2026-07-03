@@ -107,23 +107,26 @@ fun Brain3D(modifier: Modifier = Modifier, pulse: Float = 0f) {
     Canvas(modifier) {
         if (nodes.isEmpty()) return@Canvas
         val cx = size.width / 2f; val cy = size.height / 2f
-        val ext = (nodes.maxOfOrNull { maxOf(kotlin.math.abs(it.x), kotlin.math.abs(it.y)) } ?: 1f).coerceAtLeast(1f)
-        // The WHOLE brain breathes subtly with the voice — no separate glowing disc.
+        // Scale to the BULK of the cloud (72nd percentile), not the farthest outlier — so the brain
+        // fills the frame instead of shrinking to a dot; outliers simply extend off-screen.
+        val dists = FloatArray(nodes.size) { maxOf(kotlin.math.abs(nodes[it].x), kotlin.math.abs(nodes[it].y)) }
+        dists.sort()
+        val ext = dists[(dists.size * 0.72f).toInt().coerceIn(0, dists.size - 1)].coerceAtLeast(1f)
         val breathe = 1f + pulse * 0.06f
-        val scale = (size.minDimension * 0.46f / ext) * breathe
+        val scale = (size.minDimension * 0.60f / ext) * breathe
         val yaw = spin; val tilt = 0.42f
         fun P(nn: MemoryGraphStore.Node) = project(nn, cx, cy, scale, yaw, tilt)
         // faint web
-        edges.forEach { e -> if (e.a < nodes.size && e.b < nodes.size) drawLine(acc.copy(alpha = 0.05f), P(nodes[e.a]).first, P(nodes[e.b]).first, strokeWidth = 0.7f) }
-        // a rotating handful of edges light up with a travelling spark — synapses drawing themselves
+        edges.forEach { e -> if (e.a < nodes.size && e.b < nodes.size) drawLine(acc.copy(alpha = 0.06f), P(nodes[e.a]).first, P(nodes[e.b]).first, strokeWidth = 0.7f) }
+        // rotating set of edges light up with a travelling spark — synapses drawing themselves
         val ne = edges.size
-        if (ne > 0) for (k in 0 until 7) {
+        if (ne > 0) for (k in 0 until 12) {
             val e = edges[(((spin * 9f).toInt()) * 31 + k * 977).mod(ne)]
             if (e.a < nodes.size && e.b < nodes.size) {
                 val pa = P(nodes[e.a]).first; val pb = P(nodes[e.b]).first
-                val ph = (flow + k * 0.14f).mod(1f)
-                drawLine(acc.copy(alpha = 0.22f + pulse * 0.15f), pa, pb, strokeWidth = 1.1f)
-                drawCircle(acc, 2.2f + pulse * 2f, Offset(pa.x + (pb.x - pa.x) * ph, pa.y + (pb.y - pa.y) * ph))
+                val ph = (flow + k * 0.083f).mod(1f)
+                drawLine(acc.copy(alpha = 0.30f + pulse * 0.2f), pa, pb, strokeWidth = 1.3f)
+                drawCircle(acc, 2.6f + pulse * 3f, Offset(pa.x + (pb.x - pa.x) * ph, pa.y + (pb.y - pa.y) * ph))
             }
         }
         // nodes (subtle size reaction, colored by platform like the Memory tab)
