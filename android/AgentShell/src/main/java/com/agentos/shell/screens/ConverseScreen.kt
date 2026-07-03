@@ -103,7 +103,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         recog?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(p: Bundle?) {}
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) { if (phase == "listening") level = ((rmsdB + 2f) / 12f).coerceIn(0.05f, 1f) }
+            override fun onRmsChanged(rmsdB: Float) { if (phase == "listening") level = (level * 0.72f + ((rmsdB + 2f) / 12f).coerceIn(0f, 1f) * 0.28f) }   // smoothed
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onError(e: Int) { if (phase == "listening") startListening() }   // silence/timeout → keep listening
@@ -139,8 +139,10 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (phase == "speaking" || phase == "thinking") {
             var t = 0f
             while (phase == "speaking" || phase == "thinking") {
-                t += 0.18f
-                level = if (phase == "speaking") (0.4f + 0.5f * ((sin(t) + 1f) / 2f)) else (0.2f + 0.12f * ((sin(t * 0.6f) + 1f) / 2f))
+                t += 0.16f
+                // Gentle breathing — smoothed so it feels natural, not strobing.
+                val target = if (phase == "speaking") (0.3f + 0.3f * ((sin(t) + 1f) / 2f)) else (0.14f + 0.08f * ((sin(t * 0.6f) + 1f) / 2f))
+                level = level * 0.82f + target * 0.18f
                 delay(45)
             }
         }
@@ -160,7 +162,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         Column(Modifier.align(Alignment.Center).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             // ── The real rotating 3D memory-brain, pulsing to your voice + its reply ──
-            Brain3D(Modifier.size(300.dp), pulse = level)
+            Brain3D(Modifier.fillMaxWidth().height(400.dp), pulse = level)
             Spacer(Modifier.height(24.dp))
             Text(statusText, color = ACC, fontSize = T.body)
             Spacer(Modifier.height(18.dp))

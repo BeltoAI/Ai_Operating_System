@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Switch
@@ -205,6 +206,19 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         pField(pfAddr, "Shipping address", true) { pfAddr = it; MemoryStore.setProfileAddress(ctx, it) }
         Text(if (headshot.isNotBlank()) "Headshot saved ✓ · replace" else "Add a headshot", fontSize = T.small, color = T.accent,
             modifier = Modifier.clickable { headshotPicker.launch("image/*") }.padding(vertical = 6.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // ---- Appearance ----
+        SectionTitle("Appearance")
+        var darkOn by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.darkMode(ctx)) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+            .clickable { darkOn = !darkOn; com.agentos.shell.tools.MemoryStore.setDarkMode(ctx, darkOn); com.agentos.shell.theme.T.dark = darkOn }
+            .padding(vertical = 6.dp)) {
+            Text(if (darkOn) "Dark mode · on" else "Dark mode · off", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+            Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (darkOn) T.accent else T.hairline)) {
+                Box(Modifier.align(if (darkOn) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bgElevated))
+            }
+        }
         Spacer(Modifier.height(16.dp))
 
         // ---- Live stock data (optional) ----

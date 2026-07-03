@@ -40,6 +40,7 @@ class ShellActivity : ComponentActivity() {
         com.agentos.shell.tools.AgentClient.bookingLink = com.agentos.shell.tools.MemoryStore.effectiveBookingLink(this)
         com.agentos.shell.tools.AgentClient.styleProfile = com.agentos.shell.tools.MemoryStore.styleProfile(this)
         com.agentos.shell.tools.QuoteClient.finnhubKey = com.agentos.shell.tools.MemoryStore.finnhubKey(this)
+        com.agentos.shell.theme.T.dark = com.agentos.shell.tools.MemoryStore.darkMode(this)
         // Auto-relearn your writing voice as new samples accumulate (sent posts/replies grow the pool),
         // so the profile keeps sharpening instead of going stale after the one-time learn.
         run {

@@ -98,22 +98,38 @@ fun Brain3D(modifier: Modifier = Modifier, pulse: Float = 0f) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { if (MemoryGraphStore.isEmpty()) withContext(Dispatchers.IO) { MemoryGraphStore.rebuild(ctx) } }
     val spin by rememberInfiniteTransition(label = "brainspin").animateFloat(
-        0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(38000, easing = LinearEasing)), label = "spin")
+        0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(46000, easing = LinearEasing)), label = "spin")
+    // Synapses that fire + draw themselves through the cloud (the "alive" feel).
+    val flow by rememberInfiniteTransition(label = "synapse").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(2200, easing = LinearEasing)), label = "flow")
     val nodes = MemoryGraphStore.nodes; val edges = MemoryGraphStore.edges
     val acc = Color(0xFFE8642C)
     Canvas(modifier) {
-        val cx = size.width / 2f; val cy = size.height / 2f
-        // Core glow that swells with the audio level.
-        drawCircle(acc.copy(alpha = 0.06f + pulse * 0.16f), size.minDimension * (0.13f + pulse * 0.12f), Offset(cx, cy))
         if (nodes.isEmpty()) return@Canvas
+        val cx = size.width / 2f; val cy = size.height / 2f
         val ext = (nodes.maxOfOrNull { maxOf(kotlin.math.abs(it.x), kotlin.math.abs(it.y)) } ?: 1f).coerceAtLeast(1f)
-        val scale = (size.minDimension * 0.40f / ext) * (0.88f + pulse * 0.34f)
-        val yaw = spin; val tilt = 0.35f
+        // The WHOLE brain breathes subtly with the voice — no separate glowing disc.
+        val breathe = 1f + pulse * 0.06f
+        val scale = (size.minDimension * 0.46f / ext) * breathe
+        val yaw = spin; val tilt = 0.42f
         fun P(nn: MemoryGraphStore.Node) = project(nn, cx, cy, scale, yaw, tilt)
-        edges.forEach { e -> if (e.a < nodes.size && e.b < nodes.size) drawLine(acc.copy(alpha = 0.10f), P(nodes[e.a]).first, P(nodes[e.b]).first, strokeWidth = 0.8f) }
+        // faint web
+        edges.forEach { e -> if (e.a < nodes.size && e.b < nodes.size) drawLine(acc.copy(alpha = 0.05f), P(nodes[e.a]).first, P(nodes[e.b]).first, strokeWidth = 0.7f) }
+        // a rotating handful of edges light up with a travelling spark — synapses drawing themselves
+        val ne = edges.size
+        if (ne > 0) for (k in 0 until 7) {
+            val e = edges[(((spin * 9f).toInt()) * 31 + k * 977).mod(ne)]
+            if (e.a < nodes.size && e.b < nodes.size) {
+                val pa = P(nodes[e.a]).first; val pb = P(nodes[e.b]).first
+                val ph = (flow + k * 0.14f).mod(1f)
+                drawLine(acc.copy(alpha = 0.22f + pulse * 0.15f), pa, pb, strokeWidth = 1.1f)
+                drawCircle(acc, 2.2f + pulse * 2f, Offset(pa.x + (pb.x - pa.x) * ph, pa.y + (pb.y - pa.y) * ph))
+            }
+        }
+        // nodes (subtle size reaction, colored by platform like the Memory tab)
         nodes.sortedBy { -P(it).second }.forEach { n ->
             val (pos, depth) = P(n)
-            val r = (2.5f + n.strength * 6f) * depth * (0.9f + pulse * 0.7f)
+            val r = (2.5f + n.strength * 6f) * depth * (1f + pulse * 0.16f)
             val base = if (n.type == "hub") acc else platformColor(n.source)
             drawCircle(base.copy(alpha = (0.45f + depth * 0.55f).coerceIn(0.3f, 1f)), r, pos)
         }

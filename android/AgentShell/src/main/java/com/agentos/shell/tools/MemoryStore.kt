@@ -97,6 +97,10 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    /** Global dark mode for the whole app UI. */
+    fun darkMode(ctx: Context): Boolean = prefs(ctx).getBoolean("dark_mode", false)
+    fun setDarkMode(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("dark_mode", v).apply()
+
     /** Optional free Finnhub API key for reliable real-time stock quotes in the Invest screen. */
     fun finnhubKey(ctx: Context): String = prefs(ctx).getString("finnhub_key", "") ?: ""
     fun setFinnhubKey(ctx: Context, v: String) = prefs(ctx).edit().putString("finnhub_key", v.trim()).apply()
