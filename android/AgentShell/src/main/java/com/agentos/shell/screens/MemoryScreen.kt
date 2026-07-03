@@ -216,7 +216,14 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         SectionTitle("Appearance")
         var darkOn by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.darkMode(ctx)) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
-            .clickable { darkOn = !darkOn; com.agentos.shell.tools.MemoryStore.setDarkMode(ctx, darkOn); com.agentos.shell.theme.T.dark = darkOn }
+            .clickable {
+                darkOn = !darkOn
+                com.agentos.shell.tools.MemoryStore.setDarkMode(ctx, darkOn)
+                com.agentos.shell.theme.T.dark = darkOn
+                // Keep the SlyOS lock-screen wallpaper in sync with the theme if it's been applied.
+                if (com.agentos.shell.tools.WallpaperTool.isSet(ctx))
+                    Thread { com.agentos.shell.tools.WallpaperTool.setLockScreen(ctx) }.start()
+            }
             .padding(vertical = 6.dp)) {
             Text(if (darkOn) "Dark mode · on" else "Dark mode · off", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
             Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (darkOn) T.accent else T.hairline)) {
