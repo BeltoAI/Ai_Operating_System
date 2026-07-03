@@ -26,7 +26,8 @@ object NotificationStore {
         val text: String,
         val replyAction: Notification.Action?,
         val picture: android.graphics.Bitmap? = null,
-        val pkg: String = ""
+        val pkg: String = "",
+        val contentIntent: PendingIntent? = null   // fires when the notification is tapped (opens the app/thread)
     ) {
         val canReply: Boolean get() = replyAction?.remoteInputs?.isNotEmpty() == true
         val isSocial: Boolean get() = pkg in setOf(
@@ -160,6 +161,15 @@ object NotificationStore {
         try { listener?.cancelNotification(key) } catch (e: Exception) { Log.w(TAG, "dismiss failed", e) }
         remove(key)
     }
+
+    /** Open what the notification points at — its own tap intent, else just launch the app. */
+    fun open(ctx: Context, note: Note): Boolean = try {
+        if (note.contentIntent != null) { note.contentIntent.send(); true }
+        else {
+            val i = ctx.packageManager.getLaunchIntentForPackage(note.pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (i != null) { ctx.startActivity(i); true } else false
+        }
+    } catch (e: Exception) { Log.w(TAG, "open failed", e); false }
 
     fun put(note: Note) {
         // Don't re-show an echo of our own reply, or a message we've already handled (replied to) —

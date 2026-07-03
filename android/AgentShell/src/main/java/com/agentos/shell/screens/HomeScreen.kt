@@ -216,26 +216,26 @@ fun HomeScreen(
                 val cal = CalendarTool.upcoming(ctx)
                 val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date())
+                // Context is trimmed to keep per-call INPUT tokens (and cost) down — retrieval only needs
+                // the top few hits, not a wall of text on every message.
                 val recall = if (MemoryStore.recallEnabled(ctx))
-                    com.agentos.shell.tools.InteractionStore.retrieve(ctx, q, 20) else ""
-                // Tap the brain directly so the Home agent can answer about people, chats and your
-                // network — not just your bio. (Cheap SQLite lookups; empty for plain commands.)
-                val chats = com.agentos.shell.tools.MessageStore.search(ctx, q, 10)
+                    com.agentos.shell.tools.InteractionStore.retrieve(ctx, q, 10) else ""
+                val chats = com.agentos.shell.tools.MessageStore.search(ctx, q, 6)
                     .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-                    .take(2200)
-                // Semantic recall: finds relevant memories even when the wording differs ("deal" ↔ "acquisition").
-                val semantic = com.agentos.shell.tools.VectorStore.search(ctx, q, 6)
-                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-                    .take(2000)
-                val net = com.agentos.shell.tools.ConnectionStore.search(ctx, q, 10)
-                    .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
                     .take(1200)
-                val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 1600)
+                // Semantic recall: finds relevant memories even when the wording differs ("deal" ↔ "acquisition").
+                val semantic = com.agentos.shell.tools.VectorStore.search(ctx, q, 4)
+                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                    .take(1200)
+                val net = com.agentos.shell.tools.ConnectionStore.search(ctx, q, 6)
+                    .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
+                    .take(800)
+                val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 900)
                 // If they're asking ABOUT their papers, also list every paper by title (content-match alone misses this).
                 val paperList = if (Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi", RegexOption.IGNORE_CASE).containsMatchIn(q))
                     com.agentos.shell.tools.PaperStore.list(ctx).joinToString("\n") { "- “${it.title}” (${it.docType})" } else ""
                 val docText = if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
-                    com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 1600) else ""
+                    com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 1000) else ""
                 buildString {
                     if (mem.isNotBlank()) append(mem)
                     if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)

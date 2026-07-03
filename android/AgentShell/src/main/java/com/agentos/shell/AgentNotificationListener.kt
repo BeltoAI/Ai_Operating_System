@@ -74,7 +74,7 @@ class AgentNotificationListener : NotificationListenerService() {
             extras.get(android.app.Notification.EXTRA_PICTURE) as? android.graphics.Bitmap
         } catch (e: Exception) { null }
 
-        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture, sbn.packageName)
+        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture, sbn.packageName, n.contentIntent)
         // Drop engagement-bait / digests ONLY when they're non-interactive (no reply box). Real
         // DMs always carry a reply action, so they're never filtered.
         if (note.isLowValue && !note.canReply) return null
