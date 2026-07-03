@@ -8,7 +8,7 @@ import android.content.Context
  * per-chat replies actually informed instead of generic.
  */
 object ReplyContext {
-    fun forSender(ctx: Context, app: String, title: String): String {
+    fun forSender(ctx: Context, app: String, title: String, query: String = ""): String {
         val sb = StringBuilder()
 
         // Per-platform persona FIRST and loud: this is how YOU come across on THIS app (CEO on LinkedIn,
@@ -48,6 +48,17 @@ object ReplyContext {
                     .map { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
             if (dbThread.isNotEmpty())
                 sb.append("\nYour history with $name: ").append(dbThread.joinToString(" · "))
+
+            // TRUE RAG: semantic recall from the whole brain, matched by MEANING to what they just said —
+            // surfaces relevant memories even when the words differ. This is what makes replies informed.
+            val semQuery = query.ifBlank { name }
+            if (semQuery.length > 2) {
+                val sem = VectorStore.search(ctx, semQuery, 5)
+                    .map { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                    .filter { it.length in 4..400 }.take(5)
+                if (sem.isNotEmpty())
+                    sb.append("\nRelevant memories (semantic match — use if they help you reply): ").append(sem.joinToString(" · "))
+            }
 
             // The REAL chat history we otherwise can't see: the conversation currently/recently on
             // screen in this app (captured by Total Recall). This is the biggest context win.

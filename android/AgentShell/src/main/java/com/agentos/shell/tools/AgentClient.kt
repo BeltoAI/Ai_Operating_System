@@ -1462,14 +1462,21 @@ object AgentClient {
     }
 
     /** Context-aware reply: sees the whole conversation thread with this person. */
-    fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null): String {
-        if (thread.isEmpty()) return draftReply(sender, "", memory, imageB64)
+    fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null, latest: String = ""): String {
+        if (thread.isEmpty()) return draftReply(sender, latest, memory, imageB64)
         val system = persona(memory) +
             "You're texting with $sender in an ongoing conversation. FIRST read the notes above — they contain " +
             "your profile, what you know about $sender, and your prior + on-screen conversation history with them. " +
             "Ground your reply in that history: stay consistent, remember names/plans/details already mentioned, " +
             "reference what was actually said, and pick up exactly where things left off — never reset or ask " +
-            "something already answered. Then reply like a real person texting: short (a line or two), warm, casual, " +
+            "something already answered. " +
+            "RESPOND TO THEIR SINGLE MOST RECENT MESSAGE — the final 'user' turn below" +
+            (if (latest.isNotBlank()) " (their newest message is: \"${latest.take(300)}\")" else "") + ". " +
+            "CRITICAL: NEVER resend, repeat, or lightly reword a message YOU already sent earlier in this thread — " +
+            "look at your own previous replies (the 'assistant' turns) and make sure this reply is genuinely new. If " +
+            "you've already said what needed saying, respond briefly and naturally to their latest line instead " +
+            "(acknowledge it, answer their question, react, or move the conversation forward) — do not loop. " +
+            "Then reply like a real person texting: short (a line or two), warm, casual, " +
             "contractions, mirror their energy and length, emoji only if it fits. No assistant tone, no over-explaining, " +
             "no sign-offs. Write ONLY the next reply text — no quotes, no preamble."
         // Normalize to alternating user/assistant turns, starting with user.
@@ -1481,8 +1488,17 @@ object AgentClient {
             else merged.add(r to text)
         }
         while (merged.isNotEmpty() && merged.first().first == "assistant") merged.removeAt(0)
-        if (merged.isEmpty()) return draftReply(sender, "", memory, imageB64)
+        if (merged.isEmpty()) return draftReply(sender, latest, memory, imageB64)
         val recent = if (merged.size > 40) ArrayList(merged.takeLast(40)) else merged
+        // Make sure their newest message is the FINAL user turn — never leave the model replying to a
+        // stale turn (or to its own last message), which is what causes verbatim repeat-sends.
+        if (latest.isNotBlank()) {
+            val last = recent.lastOrNull()
+            if (last == null || last.first != "user" || !last.second.contains(latest.trim())) {
+                if (last != null && last.first == "user") recent[recent.size - 1] = "user" to (last.second + "\n" + latest.trim())
+                else recent.add("user" to latest.trim())
+            }
+        }
         val arr = JSONArray()
         recent.forEachIndexed { i, (r, t) ->
             val content: Any = if (i == recent.size - 1 && r == "user" && imageB64 != null)

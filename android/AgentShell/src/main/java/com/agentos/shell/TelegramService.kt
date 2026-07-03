@@ -98,7 +98,7 @@ class TelegramService : Service() {
                 val doc = if (KnowledgeStore.hasDoc(applicationContext))
                     KnowledgeStore.retrieve(applicationContext, u.text, 6000) else ""
                 // Pull EVERYTHING the brain knows about this person (cross-platform), not just your bio.
-                val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(applicationContext, "Telegram", who)
+                val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(applicationContext, "Telegram", who, u.text)
                 val ans = AgentClient.telegramSmartReply(thread, doc, ctxMem.ifBlank { mem })
                 TelegramClient.sendMessage(u.chatId, ans)
                 ConversationStore.add(applicationContext, "Telegram", chat, "me", ans)

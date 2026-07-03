@@ -253,8 +253,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val paperTitles = if (paperQuery) withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.list(ctx) }
                 .map { "Your paper: “${it.title}” (${it.docType})" } else emptyList()
             val corpus = ArrayList<String>(); var chars = 0
+            // ALWAYS lead with the core profile (contact details, About, learned facts, work history) so
+            // "what's my address / email / phone / where did I work" is answerable no matter the wording.
+            val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.profileBlock(ctx) }
+                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "About you: $it" }
             // Lead with whatever the question is really about.
-            val ordered = when {
+            val ordered = profile + when {
                 paperQuery -> paperTitles + paperHits + conns + dbHits + docHits + taskLines + rankedExtra
                 schedQ     -> calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
                 taskQuery  -> taskLines + conns + dbHits + paperHits + docHits + rankedExtra

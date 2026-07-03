@@ -1,0 +1,76 @@
+package com.agentos.shell.tools
+
+import android.content.Context
+
+/**
+ * THE single source of truth for what the brain knows on any given request.
+ *
+ * Every answer path — Home AI, Conversation mode, and (via [profileBlock]) Memory search — pulls
+ * its context from here, so they can never drift apart. If a piece of the user's life should be
+ * knowable, it belongs in this function. The rule is simple: the brain knows everything about the
+ * user, and every surface reads from the same place.
+ */
+object BrainContext {
+
+    /**
+     * The always-on core of who the user is: contact details (address/email/phone), the About text,
+     * learned facts, LinkedIn work history + education. This must be present in EVERY answer,
+     * regardless of the question, so "what's my address / email / phone" always works.
+     */
+    fun profileBlock(ctx: Context): String = MemoryStore.fullProfile(ctx)
+
+    /**
+     * Full retrieval context for a specific query: the profile block plus everything relevant the
+     * brain has stored — calendar, semantic + keyword message recall, network, papers, loaded docs,
+     * on-screen recall, checklist, mission, portfolio, jobs, and the current time.
+     */
+    fun build(ctx: Context, q: String): String {
+        val mem = profileBlock(ctx)
+        val cal = CalendarTool.upcoming(ctx)
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val recall = if (MemoryStore.recallEnabled(ctx)) InteractionStore.retrieve(ctx, q, 10) else ""
+        val chats = MessageStore.search(ctx, q, 6)
+            .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+            .take(1200)
+        val semantic = VectorStore.search(ctx, q, 4)
+            .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+            .take(1200)
+        val net = ConnectionStore.search(ctx, q, 6)
+            .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
+            .take(800)
+        val papers = PaperStore.libraryContext(ctx, 0L, q, 900)
+        val paperList = if (Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi", RegexOption.IGNORE_CASE).containsMatchIn(q))
+            PaperStore.list(ctx).joinToString("\n") { "- “${it.title}” (${it.docType})" } else ""
+        val docText = if (KnowledgeStore.hasDoc(ctx)) KnowledgeStore.retrieve(ctx, q, 1000) else ""
+        // Checklist: pull tasks in whenever the question is about them, or matches task text.
+        val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
+        val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|outstanding|pending", RegexOption.IGNORE_CASE).containsMatchIn(q)
+        val tasks = if (taskQuery || terms.isNotEmpty())
+            ChecklistStore.load(ctx).filter { t -> taskQuery || terms.any { t.text.lowercase().contains(it) } }
+                .joinToString(" · ") { it.text + (if (it.done) " (done)" else "") }.take(600) else ""
+
+        return buildString {
+            if (mem.isNotBlank()) append(mem)
+            if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+            if (semantic.isNotBlank()) append("\nMost relevant memories (semantic match — use if relevant):\n").append(semantic)
+            if (chats.isNotBlank()) append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
+            if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
+            if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)
+            if (papers.isNotBlank()) append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
+            if (docText.isNotBlank()) append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
+            if (tasks.isNotBlank()) append("\nYour checklist/tasks (use if relevant):\n").append(tasks)
+            if (recall.isNotBlank()) append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
+            MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {
+                append("\nYOUR STANDING MISSION (you are acting as this person; keep this goal in mind and, when relevant, proactively suggest concrete next steps toward it): ").append(it)
+            }
+            TradeStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
+                append("\n").append(it).append(" (When the user asks about investing/their portfolio/how it's doing, use these real numbers; they can manage it on the Invest screen.)")
+            }
+            JobStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
+                append("\n").append(it).append(" (Use this when the user asks what jobs they applied to or prepared.)")
+            }
+            append("\nCurrent time: ").append(now)
+        }
+    }
+}

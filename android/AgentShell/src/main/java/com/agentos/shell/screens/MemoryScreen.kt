@@ -208,6 +208,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         pField(pfAddr, "Shipping address", true) { pfAddr = it; MemoryStore.setProfileAddress(ctx, it) }
         Text(if (headshot.isNotBlank()) "Headshot saved ✓ · replace" else "Add a headshot", fontSize = T.small, color = T.accent,
             modifier = Modifier.clickable { headshotPicker.launch("image/*") }.padding(vertical = 6.dp))
+        // When you leave Settings, write your profile into the searchable brain (idempotent, off-thread).
+        DisposableEffect(Unit) { onDispose { Thread { MemoryStore.syncProfileToBrain(ctx) }.start() } }
         Spacer(Modifier.height(16.dp))
 
         // ---- Appearance ----

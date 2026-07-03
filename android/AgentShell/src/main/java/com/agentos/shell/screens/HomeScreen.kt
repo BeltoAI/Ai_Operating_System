@@ -212,60 +212,9 @@ fun HomeScreen(
             }
 
             val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
-            val context = withContext(Dispatchers.IO) {
-                val mem = MemoryStore.fullProfile(ctx)
-                val cal = CalendarTool.upcoming(ctx)
-                val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-                // Context is trimmed to keep per-call INPUT tokens (and cost) down — retrieval only needs
-                // the top few hits, not a wall of text on every message.
-                val recall = if (MemoryStore.recallEnabled(ctx))
-                    com.agentos.shell.tools.InteractionStore.retrieve(ctx, q, 10) else ""
-                val chats = com.agentos.shell.tools.MessageStore.search(ctx, q, 6)
-                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-                    .take(1200)
-                // Semantic recall: finds relevant memories even when the wording differs ("deal" ↔ "acquisition").
-                val semantic = com.agentos.shell.tools.VectorStore.search(ctx, q, 4)
-                    .joinToString(" · ") { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-                    .take(1200)
-                val net = com.agentos.shell.tools.ConnectionStore.search(ctx, q, 6)
-                    .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
-                    .take(800)
-                val papers = com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 900)
-                // If they're asking ABOUT their papers, also list every paper by title (content-match alone misses this).
-                val paperList = if (Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi", RegexOption.IGNORE_CASE).containsMatchIn(q))
-                    com.agentos.shell.tools.PaperStore.list(ctx).joinToString("\n") { "- “${it.title}” (${it.docType})" } else ""
-                val docText = if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
-                    com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 1000) else ""
-                buildString {
-                    if (mem.isNotBlank()) append(mem)
-                    if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
-                    if (semantic.isNotBlank())
-                        append("\nMost relevant memories (semantic match — use if relevant):\n").append(semantic)
-                    if (chats.isNotBlank())
-                        append("\nFrom your message history (use ONLY if relevant):\n").append(chats)
-                    if (net.isNotBlank())
-                        append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
-                    if (paperList.isNotBlank())
-                        append("\nYour research papers (these are the papers you have):\n").append(paperList)
-                    if (papers.isNotBlank())
-                        append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
-                    if (docText.isNotBlank())
-                        append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
-                    if (recall.isNotBlank())
-                        append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
-                    com.agentos.shell.tools.MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {
-                        append("\nYOUR STANDING MISSION (you are acting as this person; keep this goal in mind and, when relevant, proactively suggest concrete next steps toward it): ").append(it)
-                    }
-                    com.agentos.shell.tools.TradeStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
-                        append("\n").append(it).append(" (When the user asks about investing/their portfolio/how it's doing, use these real numbers; they can manage it on the Invest screen.)")
-                    }
-                    com.agentos.shell.tools.JobStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
-                        append("\n").append(it).append(" (Use this when the user asks what jobs they applied to or prepared.)")
-                    }
-                    append("\nCurrent time: ").append(now)
-                }
-            }
+            // One shared brain context (profile + calendar + memories + network + papers + tasks +
+            // mission + portfolio + jobs) — the SAME builder Conversation mode uses, so nothing drifts.
+            val context = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
             val result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
             // Auto-grow the brain: durable facts learned in conversation are saved automatically
             // (to the separate learned-facts store, not your curated About).

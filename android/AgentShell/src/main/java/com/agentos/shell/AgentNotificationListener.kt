@@ -155,6 +155,18 @@ class AgentNotificationListener : NotificationListenerService() {
         return (typing + jitter).coerceIn(4000L, 45_000L)
     }
 
+    private fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+    /** True if [draft] just repeats (or lightly rewords) one of our recent replies to this contact. */
+    private fun isRepeat(note: NotificationStore.Note, draft: String): Boolean {
+        val d = norm(draft)
+        if (d.isBlank()) return false
+        val mine = com.agentos.shell.tools.ConversationStore
+            .thread(applicationContext, note.app, note.title)
+            .filter { it.role == "me" }.takeLast(4).map { norm(it.text) }
+        return mine.any { it == d || (d.length > 12 && (it.contains(d) || d.contains(it))) }
+    }
+
     /** A draft is only safe to auto-send if it's real text — not an error, placeholder, or empty. */
     private fun isSendable(draft: String): Boolean {
         val d = draft.trim()
@@ -210,9 +222,16 @@ class AgentNotificationListener : NotificationListenerService() {
                         val thread = com.agentos.shell.tools.ConversationStore
                             .thread(applicationContext, note.app, note.title).map { it.role to it.text }
                         val ctxMem = com.agentos.shell.tools.ReplyContext
-                            .forSender(applicationContext, note.app, note.title)
-                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
+                            .forSender(applicationContext, note.app, note.title, note.text)
+                        // Pass the newest incoming line explicitly so the model always answers THAT.
+                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img, note.text)
                     }
+                }
+                // Anti-repeat rail: never send a message that just repeats one of our last replies to this
+                // person — the #1 cause of the "same line over and over" loop. Suppress instead of sending.
+                if (isRepeat(note, draft)) {
+                    Log.w("SlyOS", "auto reply suppressed — repeat of a recent reply to ${note.title}: \"${draft.take(60)}\"")
+                    return@launch
                 }
                 if (!autoSend) {
                     // Half-automatic: stage the exact reply on the Now card; the user taps Send.

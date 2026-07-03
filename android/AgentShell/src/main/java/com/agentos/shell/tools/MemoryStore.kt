@@ -95,6 +95,21 @@ object MemoryStore {
         if (profileAddress(ctx).isNotBlank()) append("Address: ").append(profileAddress(ctx))
     }.trim()
 
+    /**
+     * Write the owner's profile into the searchable brain DB (idempotent — MessageStore de-dupes by
+     * content hash, so calling this repeatedly is safe). This makes address/email/phone/name
+     * retrievable by semantic + keyword search too, not only via the always-injected profile block.
+     */
+    fun syncProfileToBrain(ctx: Context) {
+        val facts = buildList {
+            profileName(ctx).ifBlank { ownerName(ctx) }.takeIf { it.isNotBlank() }?.let { add("My name is $it.") }
+            profileEmail(ctx).takeIf { it.isNotBlank() }?.let { add("My email address is $it.") }
+            profilePhone(ctx).takeIf { it.isNotBlank() }?.let { add("My phone number is $it.") }
+            profileAddress(ctx).takeIf { it.isNotBlank() }?.let { add("My home/shipping address is $it.") }
+        }
+        for (f in facts) try { MessageStore.insertOne(ctx, "You", "Profile", "me", "me", f) } catch (e: Exception) {}
+    }
+
     /** A booking/scheduling link (e.g. Calendly) the agent shares when someone wants to talk live. */
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()

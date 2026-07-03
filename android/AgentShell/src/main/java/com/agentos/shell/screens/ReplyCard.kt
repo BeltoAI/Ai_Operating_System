@@ -190,8 +190,8 @@ fun ReplyCard(note: NotificationStore.Note) {
                                     val img = note.picture?.let { com.agentos.shell.tools.ImageUtil.encodeBitmap(it) }
                                     val thread = com.agentos.shell.tools.ConversationStore
                                         .thread(ctx, note.app, note.title).map { it.role to it.text }
-                                    val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
-                                    AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img)
+                                    val ctxMem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title, note.text)
+                                    AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img, note.text)
                                 }
                             }
                             // Don't hand the user an error placeholder as an editable, sendable draft.

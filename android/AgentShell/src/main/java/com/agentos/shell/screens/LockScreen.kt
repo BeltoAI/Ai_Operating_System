@@ -26,6 +26,10 @@ fun LockScreen(modifier: Modifier = Modifier, onEnter: () -> Unit) {
     val ctx = LocalContext.current
     val notes = NotificationStore.notes
 
+    // Always match the saved appearance: keeps the lock screen (the first thing shown at boot) in sync
+    // with the dark/light choice, so it can never render in the wrong theme.
+    LaunchedEffect(Unit) { T.dark = MemoryStore.darkMode(ctx) }
+
     // Generate an AI brief from the real notifications (cached, max once / 5 min).
     LaunchedEffect(notes.size) {
         if (notes.isNotEmpty() && AgentClient.hasKey() && BriefStore.stale() && !BriefStore.loading) {
