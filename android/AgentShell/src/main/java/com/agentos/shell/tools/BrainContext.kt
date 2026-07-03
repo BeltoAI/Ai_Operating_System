@@ -76,10 +76,23 @@ object BrainContext {
         val tasks = if (taskQuery || terms.isNotEmpty())
             ChecklistStore.load(ctx).filter { t -> taskQuery || terms.any { t.text.lowercase().contains(it) } }
                 .joinToString(" · ") { it.text + (if (it.done) " (done)" else "") }.take(600) else ""
+        // Recency question ("who did I email/message/text last?") → the keyword index can't answer it, so
+        // pull the actual most-recent messages you SENT (optionally scoped to a platform) straight from the DB.
+        val sentQuery = Regex("(?i)\\b(sent|send|email(?:ed|s)?|messag(?:e|ed|es)|text(?:ed|s)?|wrote|dm(?:ed|s)?|reach(?:ed)? out|last .*(email|message|text)|who did i|who have i|recent(ly)? (email|messag|text|sent))\\b").containsMatchIn(q)
+        val sent = if (sentQuery) {
+            val plat = when {
+                Regex("(?i)email|gmail|mail").containsMatchIn(q) -> "Email"
+                Regex("(?i)whatsapp").containsMatchIn(q) -> "WhatsApp"
+                Regex("(?i)telegram").containsMatchIn(q) -> "Telegram"
+                else -> null
+            }
+            MessageStore.recentSent(ctx, 8, plat).joinToString("\n").take(900)
+        } else ""
 
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+            if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)

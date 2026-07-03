@@ -212,17 +212,29 @@ object GmailClient {
     fun syncToBrain(ctx: Context, maxMessages: Int = 30): Int {
         val token = GoogleAuth.accessToken(ctx)
         if (token.isBlank()) return 0
-        val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode("in:inbox newer_than:60d", "UTF-8"), token)
+        val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
+        val seen = LinkedHashSet(prefs.getStringSet("seen", emptySet()) ?: emptySet())
+        // Sync BOTH received AND SENT mail — so "who did I email last?" works. Sent mail is filed as role
+        // "me" against the recipient (the To header), received mail as role "them" against the sender.
+        var added = 0
+        added += syncQuery(ctx, token, "in:inbox newer_than:60d", "them", "From", maxMessages, seen)
+        added += syncQuery(ctx, token, "in:sent newer_than:60d", "me", "To", maxMessages, seen)
+        if (added > 0) {
+            val capped = if (seen.size > 1200) seen.toList().takeLast(1200).toSet() else seen
+            prefs.edit().putStringSet("seen", capped).apply()
+            Log.i(TAG, "gmail synced $added new emails to brain")
+        }
+        return added
+    }
+
+    /** Ingest up to [maxMessages] messages matching [q]. [role] = "me"/"them"; [whoHeader] = From/To. */
+    private fun syncQuery(ctx: Context, token: String, q: String, role: String, whoHeader: String, maxMessages: Int, seen: LinkedHashSet<String>): Int {
+        val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
         if (lc !in 200..299) { Log.w(TAG, "gmail list $lc: ${lb.take(160)}"); return 0 }
         val ids = try {
             val arr = JSONObject(lb).optJSONArray("messages") ?: return 0
             (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
         } catch (e: Exception) { return 0 }
-        val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
-        // Insertion-ordered so the 600-cap below evicts the OLDEST ids, not arbitrary ones. With a plain
-        // HashSet, takeLast(600) kept a random subset — recently-seen ids could be dropped and their
-        // emails re-ingested as duplicates once the inbox history passed 600.
-        val seen = LinkedHashSet(prefs.getStringSet("seen", emptySet()) ?: emptySet())
         var added = 0
         for (id in ids) {
             if (id.isBlank() || seen.contains(id)) continue
@@ -231,21 +243,15 @@ object GmailClient {
             try {
                 val msg = JSONObject(mb)
                 val payload = msg.optJSONObject("payload") ?: continue
-                val from = header(payload, "From")
                 val subject = header(payload, "Subject").ifBlank { "(no subject)" }
-                val who = senderName(from)
+                val who = senderName(header(payload, whoHeader))
                 val sb = StringBuilder()
                 extract(ctx, id, token, payload, sb, 0)
                 val bodyText = sb.toString().replace(Regex("\\s+\n"), "\n").trim().take(8000)
-                val full = "Subject: $subject\n$bodyText"
-                MessageStore.insertOne(ctx, who, "Email", who, "them", full)
+                val prefix = if (role == "me") "Sent to $who — " else ""
+                MessageStore.insertOne(ctx, who, "Email", who, role, prefix + "Subject: $subject\n$bodyText")
                 seen.add(id); added++
             } catch (e: Exception) { Log.w(TAG, "gmail parse $id failed", e) }
-        }
-        if (added > 0) {
-            val capped = if (seen.size > 600) seen.toList().takeLast(600).toSet() else seen
-            prefs.edit().putStringSet("seen", capped).apply()
-            Log.i(TAG, "gmail synced $added new emails to brain")
         }
         return added
     }
