@@ -1170,11 +1170,16 @@ object AgentClient {
     /** Web-search for real, current purchase options matching the ask. Empty if web search unavailable. */
     fun findProducts(query: String, memory: String): List<Product> {
         val sys = "You are a savvy shopping assistant WITH web search. Find 4-8 REAL, current places to BUY exactly " +
-            "what the user asked for, best value first. Every item MUST have a real product/listing URL you actually " +
-            "found via search (never invent one), the price as shown (with currency), and the merchant/store name. Add " +
-            "a SHORT note only when it helps decide (e.g. 'cheapest', 'official', 'ships free', 'best rated'). " +
+            "what the user asked for, best value first. Every item MUST have a real, DIRECT product-listing URL you " +
+            "actually found via search (the exact product page, NOT a search/category/home page, and NEVER invented), " +
+            "and the merchant/store name. " +
+            "PRICE HONESTY: only include \"price\" if you saw a specific current price for THAT exact listing in the " +
+            "search results AND you're confident it's live; otherwise set \"price\" to \"\" (empty). NEVER guess, round, " +
+            "or carry over a price from memory/training — a wrong price shown to the user is worse than none, because " +
+            "the store page will show a different number. Prefer listings whose price you could actually verify. " +
+            "Add a SHORT note only when it helps decide (e.g. 'cheapest verified', 'official', 'ships free', 'best rated'). " +
             "Respect any budget, size, colour, or brand in the request. " +
-            "Reply ONLY as JSON: {\"products\":[{\"name\":\"…\",\"price\":\"$…\",\"merchant\":\"…\",\"url\":\"https://…\",\"note\":\"…\"}]}"
+            "Reply ONLY as JSON: {\"products\":[{\"name\":\"…\",\"price\":\"$… or empty\",\"merchant\":\"…\",\"url\":\"https://…\",\"note\":\"…\"}]}"
         val user = "BUY: " + query + "\nSHIP TO / ABOUT ME (for region & fit): " + memory.take(600)
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
         val (code, text) = callMessages(sys, msgs, 2500, VOICE, 120000, webTool())

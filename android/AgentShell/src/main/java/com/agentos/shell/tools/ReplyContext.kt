@@ -80,6 +80,10 @@ object ReplyContext {
             if (papers.isNotBlank())
                 sb.append("\nFrom your own research papers (cite/use ONLY if relevant): ").append(papers)
         }
-        return sb.toString().trim()
+        val out = sb.toString().trim()
+        // Verifiable proof (watch `adb logcat -s SlyOS`) that the brain + your per-app character feed EVERY
+        // reply: shows whether a persona is set for this app and how many chars of brain context went in.
+        android.util.Log.i("SlyOS", "ReplyContext[$app → ${title.ifBlank { app }}] persona=${if (style.isNotBlank()) "SET(${style.take(40)})" else "NONE — set it in Settings"} · brainChars=${out.length}")
+        return out
     }
 }

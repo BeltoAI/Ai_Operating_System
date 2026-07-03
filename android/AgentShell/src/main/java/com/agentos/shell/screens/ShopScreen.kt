@@ -82,12 +82,16 @@ fun ShopScreen(modifier: Modifier = Modifier, initialQuery: String = "", onBack:
 
         if (products.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
+            Text("≈ prices are estimates from search — the store page shows the real, current price.",
+                fontSize = T.caption, color = T.inkFaint)
             products.forEachIndexed { i, p ->
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (i == 0) T.accent.copy(alpha = 0.10f) else T.bgElevated).padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(p.name, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
-                        if (p.price.isNotBlank()) { Spacer(Modifier.width(8.dp)); Text(p.price, fontSize = T.body, color = T.accent) }
+                        // Prices are best-effort from search and can be stale/variant-specific — mark them "≈"
+                        // so the real number is confirmed on the store page (never shown as authoritative).
+                        if (p.price.isNotBlank()) { Spacer(Modifier.width(8.dp)); Text("≈ " + p.price, fontSize = T.body, color = T.accent) }
                     }
                     Text(p.merchant + (if (p.note.isNotBlank()) "  ·  ${p.note}" else "") + (if (i == 0) "  ·  best pick" else ""), fontSize = T.caption, color = T.inkFaint)
                     Spacer(Modifier.height(10.dp))
