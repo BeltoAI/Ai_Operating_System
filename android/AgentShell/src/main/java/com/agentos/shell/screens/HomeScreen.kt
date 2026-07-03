@@ -520,12 +520,18 @@ fun HomeScreen(
                 .take(3)
         }
         if (appMatches.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.Top) {
                 appMatches.forEach { app ->
-                    Text("↗ ${app.label}", fontSize = T.small, color = T.ink, maxLines = 1,
-                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                            .clickable { text = ""; ToolRouter.launchApp(ctx, app.pkg) }
-                            .padding(horizontal = 12.dp, vertical = 7.dp))
+                    val appIcon = remember(app.pkg) { appIconBitmap(ctx, app.pkg) }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(end = 16.dp).clickable { text = ""; ToolRouter.launchApp(ctx, app.pkg) }) {
+                        Box(Modifier.size(52.dp).clip(RoundedCornerShape(15.dp)).background(T.bgElevated), contentAlignment = Alignment.Center) {
+                            if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.label, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(15.dp)))
+                            else Text(app.label.firstOrNull()?.uppercase() ?: "•", fontSize = T.body, color = T.ink)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(app.label.take(10), fontSize = T.caption, color = T.inkSoft, maxLines = 1)
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))

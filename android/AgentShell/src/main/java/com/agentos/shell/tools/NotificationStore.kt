@@ -162,14 +162,16 @@ object NotificationStore {
         remove(key)
     }
 
-    /** Open what the notification points at — its own tap intent, else just launch the app. */
-    fun open(ctx: Context, note: Note): Boolean = try {
-        if (note.contentIntent != null) { note.contentIntent.send(); true }
-        else {
+    /** Open what the notification points at — its own tap intent, and if that's dead, launch the app. */
+    fun open(ctx: Context, note: Note): Boolean {
+        if (note.contentIntent != null) {
+            try { note.contentIntent.send(); return true } catch (e: Exception) { Log.w(TAG, "contentIntent send failed, launching app", e) }
+        }
+        return try {
             val i = ctx.packageManager.getLaunchIntentForPackage(note.pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (i != null) { ctx.startActivity(i); true } else false
-        }
-    } catch (e: Exception) { Log.w(TAG, "open failed", e); false }
+        } catch (e: Exception) { Log.w(TAG, "open launch failed", e); false }
+    }
 
     fun put(note: Note) {
         // Don't re-show an echo of our own reply, or a message we've already handled (replied to) —

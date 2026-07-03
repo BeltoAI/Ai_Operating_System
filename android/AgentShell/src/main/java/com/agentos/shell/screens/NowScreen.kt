@@ -144,9 +144,11 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                 onDragCancel = { dragX = 0f }
             ) { _, dx -> dragX = (dragX + dx).coerceAtMost(0f) }
         }
+        // Separate tap detector so tapping the card opens it (child buttons still consume their own taps).
+        .pointerInput(latest.key) { androidx.compose.foundation.gestures.detectTapGestures(onTap = { NotificationStore.open(ctx, latest) }) }
         .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
     ) {
-        Row(Modifier.fillMaxWidth().clickable { NotificationStore.open(ctx, latest) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(CircleShape).background(appColor(latest.pkg)), contentAlignment = Alignment.Center) {
                 Text(contact.trim().firstOrNull()?.uppercase() ?: "•", color = Color.White, fontSize = T.body)
             }

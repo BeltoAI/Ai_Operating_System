@@ -373,7 +373,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         }
         Spacer(Modifier.height(8.dp))
 
-        Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFFF6F1E7))) {
+        Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (T.dark) T.bg else Color(0xFFF6F1E7))) {
             Canvas(
                 Modifier.fillMaxSize()
                     .pointerInput(Unit) {
@@ -410,7 +410,7 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                     val a = nodes[e.a]; val b = nodes[e.b]
                     val hot = selected != null && (e.a == selected || e.b == selected)
                     drawLine(
-                        if (hot) ACCENT.copy(alpha = 0.35f) else Color(0xFF1A1714).copy(alpha = if (selected != null) 0.035f else 0.07f),
+                        if (hot) ACCENT.copy(alpha = 0.35f) else (if (T.dark) Color(0xFFB8AE9E) else Color(0xFF1A1714)).copy(alpha = if (selected != null) 0.05f else 0.10f),
                         P(a).first, P(b).first,
                         strokeWidth = if (hot) 1.4f else 0.8f
                     )
@@ -460,12 +460,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                         else -> typeColor(n.type)
                     }
                     drawCircle(col.copy(alpha = a), r, Offset(X, Y))
-                    drawCircle(Color(0xFF1A1714).copy(alpha = 0.12f * a), r, Offset(X, Y), style = Stroke(width = 0.8f))
+                    drawCircle((if (T.dark) Color(0xFFB8AE9E) else Color(0xFF1A1714)).copy(alpha = 0.12f * a), r, Offset(X, Y), style = Stroke(width = 0.8f))
                     if (sel || inPath) drawCircle(ACCENT, r + 5f, Offset(X, Y), style = Stroke(width = 1.6f))
                     if (sel || hub || inPath || scale > 1.4f) {
                         drawIntoCanvas { c ->
                             val p = android.graphics.Paint().apply {
-                                color = android.graphics.Color.parseColor("#6B6258")
+                                color = android.graphics.Color.parseColor(if (T.dark) "#C7BEB0" else "#6B6258")
                                 textSize = 10.5f * density; textAlign = android.graphics.Paint.Align.CENTER
                                 isAntiAlias = true; alpha = (a * 220).toInt()
                             }
