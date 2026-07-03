@@ -3,13 +3,14 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,9 +134,23 @@ private fun appColor(pkg: String): Color = when {
 @Composable
 private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: List<NotificationStore.Note>) {
     val latest = group.first()
+    val scope = rememberCoroutineScope()
     var expanded by remember(latest.key) { mutableStateOf(false) }
     var dragX by remember(latest.key) { mutableStateOf(0f) }
     val staged = NotificationStore.stagedDrafts[latest.key]
+    var draft by remember(latest.key) { mutableStateOf(staged ?: "") }
+    var replyBusy by remember(latest.key) { mutableStateOf(false) }
+    var sendMsg by remember(latest.key) { mutableStateOf("") }
+
+    // Draft a reply the first time this card is opened — in your voice, from the brain.
+    LaunchedEffect(expanded) {
+        if (expanded && draft.isBlank() && latest.canReply) {
+            replyBusy = true
+            val d = withContext(Dispatchers.IO) { AgentClient.draftReply(latest.title.ifBlank { latest.app }, latest.text, MemoryStore.about(ctx)) }
+            if (!AgentClient.looksLikeError(d)) draft = d
+            replyBusy = false
+        }
+    }
 
     Column(Modifier.fillMaxWidth()
         .offset { IntOffset(dragX.roundToInt(), 0) }
@@ -145,33 +160,68 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                 onDragCancel = { dragX = 0f }
             ) { _, dx -> dragX = (dragX + dx).coerceAtMost(0f) }
         }
-        // Separate tap detector so tapping the card opens it (child buttons still consume their own taps).
-        .pointerInput(latest.key) { detectTapGestures(onTap = { NotificationStore.open(ctx, latest) }) }
         .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
     ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(appColor(latest.pkg)), contentAlignment = Alignment.Center) {
+        // Header — tap opens the actual conversation/app.
+        Row(Modifier.fillMaxWidth().clickable { NotificationStore.open(ctx, latest) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(42.dp).clip(CircleShape).background(appColor(latest.pkg)), contentAlignment = Alignment.Center) {
                 Text(contact.trim().firstOrNull()?.uppercase() ?: "•", color = Color.White, fontSize = T.body)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(contact.take(30), fontSize = T.body, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (group.size > 1) Text("${group.size}", fontSize = T.caption, color = T.bgElevated, textAlign = TextAlign.Center,
+                    if (group.size > 1) Text("${group.size}", fontSize = T.caption, color = Color.White, textAlign = TextAlign.Center,
                         modifier = Modifier.clip(CircleShape).background(T.accent).padding(horizontal = 7.dp, vertical = 2.dp))
                 }
-                if (latest.text.isNotBlank()) { Spacer(Modifier.height(2.dp)); Text(latest.text.take(100), fontSize = T.caption, color = T.inkSoft, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                Spacer(Modifier.height(2.dp)); Text(latest.app + (if (staged != null) "  ·  ✦ reply ready" else ""), fontSize = T.caption, color = if (staged != null) T.accent else T.inkFaint)
+                if (latest.text.isNotBlank()) { Spacer(Modifier.height(3.dp)); Text(latest.text.take(100), fontSize = T.small, color = T.inkSoft, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
         }
+        // Actions — Reply (opens inline draft) and Open. Nothing else.
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (latest.canReply || staged != null)
+            if (latest.canReply)
                 Text(if (expanded) "Close" else if (staged != null) "✦ Reply ready" else "✦ Reply", fontSize = T.small, color = T.accent,
                     modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp, horizontal = 2.dp))
             Spacer(Modifier.weight(1f))
             Text("Open ↗", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { NotificationStore.open(ctx, latest) }.padding(4.dp))
         }
-        if (expanded) Box(Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) { ReplyCard(latest) }
+        // Clean inline reply — draft box + Send. No second header, no event icons.
+        if (expanded) {
+            Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp)) {
+                if (replyBusy && draft.isBlank()) {
+                    Text("drafting in your voice…", fontSize = T.small, color = T.accent)
+                } else {
+                    BasicTextField(draft, { draft = it },
+                        textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(T.accent),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)
+                            .clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp))
+                }
+                Spacer(Modifier.height(9.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Send", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (draft.isBlank()) T.hairline else T.accent)
+                            .clickable(enabled = draft.isNotBlank()) {
+                                val d = draft
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) { NotificationStore.sendReply(ctx, latest, d) }
+                                    sendMsg = if (ok) "sent ✓" else "couldn't send"
+                                }
+                            }.padding(horizontal = 22.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(if (replyBusy) "…" else "Regenerate", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable(enabled = !replyBusy) {
+                            scope.launch {
+                                replyBusy = true
+                                val d = withContext(Dispatchers.IO) { AgentClient.draftReply(latest.title.ifBlank { latest.app }, latest.text, MemoryStore.about(ctx)) }
+                                if (!AgentClient.looksLikeError(d)) draft = d
+                                replyBusy = false
+                            }
+                        }.padding(6.dp))
+                    if (sendMsg.isNotBlank()) { Spacer(Modifier.width(12.dp)); Text(sendMsg, fontSize = T.caption, color = T.accent) }
+                }
+            }
+        }
     }
     Spacer(Modifier.height(10.dp))
 }
