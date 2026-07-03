@@ -1,0 +1,30 @@
+package com.agentos.shell
+
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.MemoryStore
+import com.agentos.shell.tools.MessageStore
+
+/**
+ * P5.4 — nightly memory consolidation. Instead of letting recall get noisier forever, once a day this
+ * distills a batch of recent raw messages into a few DURABLE facts ("Anna = designer, prefers mornings")
+ * and writes them via the durable brain path (which de-dupes). Cheap on the free tier (one small call).
+ * Every downstream reply gets a little sharper.
+ */
+class MemoryConsolidationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        return try {
+            val ctx = applicationContext
+            if (!AgentClient.hasKey()) return Result.success()
+            // A compact digest of recent conversation, newest first — bounded so it's a single cheap call.
+            val digest = MessageStore.recentLines(ctx, 120).joinToString("\n")
+            if (digest.length < 40) return Result.success()
+            val facts = AgentClient.distillFacts(digest)
+            // addLearnedFact de-dupes AND dual-writes to the unbounded brain DB (P1.5), so nothing is lost.
+            facts.forEach { MemoryStore.addLearnedFact(ctx, it) }
+            Result.success()
+        } catch (e: Exception) { Result.success() }   // never crash the scheduler
+    }
+}

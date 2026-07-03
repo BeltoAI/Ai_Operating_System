@@ -192,6 +192,9 @@ class AgentNotificationListener : NotificationListenerService() {
             val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
         }
+        // P5.2: per-contact trust caps the mode — an unknown/first-time sender is DRAFTED even in a
+        // full-auto app, so we never auto-send to a stranger on first contact.
+        if (!docMode) mode = com.agentos.shell.tools.TrustStore.effectiveTier(applicationContext, note.title, mode)
         if (!docMode && mode == "off") return
         var autoSend = docMode || mode == "full"
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
@@ -241,7 +244,11 @@ class AgentNotificationListener : NotificationListenerService() {
                 if (autoSend) {
                     val hold = com.agentos.shell.tools.OutboundGuard.check(draft)
                     if (hold != null) {
-                        if (isSendable(draft)) NotificationStore.stageDraft(note.key, draft)
+                        if (isSendable(draft)) {
+                            NotificationStore.stageDraft(note.key, draft)
+                            com.agentos.shell.tools.OutboxStore.record(applicationContext, note.app, note.title, "reply", draft,
+                                "held for your review — safety filter: $hold", status = "held")
+                        }
                         Log.w("SlyOS", "auto reply HELD ($hold) → draft for ${note.title}")
                         return@launch
                     }
@@ -263,7 +270,12 @@ class AgentNotificationListener : NotificationListenerService() {
                     } else {
                         val ok = NotificationStore.sendReply(applicationContext, note, draft)
                         Log.i("SlyOS", "auto reply sent=$ok to ${note.title}: \"$draft\"")
-                        if (ok) NotificationStore.dismiss(note.key)
+                        if (ok) {
+                            // P5.1: log every autonomous send to the visible outbox (what/who/why).
+                            com.agentos.shell.tools.OutboxStore.record(applicationContext, note.app, note.title, "reply", draft,
+                                "auto-replied on your behalf ($mode) — drafted in your voice from your brain + persona")
+                            NotificationStore.dismiss(note.key)
+                        }
                     }
                 }
             } catch (e: Exception) {

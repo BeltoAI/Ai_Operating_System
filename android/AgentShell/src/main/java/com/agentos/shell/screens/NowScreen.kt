@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 /** Everything happening now — an auto "what you missed" briefing, then people who need you as
  *  swipeable cards grouped per person: tap to open, swipe left to dismiss, ✦ to reply. */
 @Composable
-fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBack: () -> Unit) {
+fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOutbox: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val notes = NotificationStore.notes
@@ -64,6 +64,7 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onBac
         ScreenHeader("Now", onBack)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
             Text(dateStr, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+            Text("Sent for you", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable { onOutbox() }.padding(end = 14.dp))
             Text("Reconnect", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable { onReconnect() })
         }
         Spacer(Modifier.height(14.dp))

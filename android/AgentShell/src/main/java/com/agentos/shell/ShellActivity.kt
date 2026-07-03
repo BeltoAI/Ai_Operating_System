@@ -28,7 +28,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,6 +100,14 @@ class ShellActivity : ComponentActivity() {
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_trade", androidx.work.ExistingPeriodicWorkPolicy.KEEP, tradeReq)
+        } catch (e: Exception) {}
+        // P5.4: nightly memory consolidation — distill recent messages into durable facts.
+        try {
+            val consReq = androidx.work.PeriodicWorkRequestBuilder<MemoryConsolidationWorker>(1, java.util.concurrent.TimeUnit.DAYS)
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_consolidate", androidx.work.ExistingPeriodicWorkPolicy.KEEP, consReq)
         } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
@@ -193,7 +201,7 @@ class ShellActivity : ComponentActivity() {
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
-                        Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }) { screen = Screen.Home }
+                        Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
                         Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
                         Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { missionGoal = ""; screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
@@ -210,6 +218,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Shop -> ShopScreen(m, shopQuery) { shopQuery = ""; screen = Screen.Home }
                         Screen.Trade -> TradeScreen(m, tradePrompt) { tradePrompt = ""; screen = Screen.Home }
                         Screen.Converse -> ConverseScreen(m) { screen = Screen.Home }
+                        Screen.Outbox -> OutboxScreen(m) { screen = Screen.Now }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }

@@ -785,6 +785,21 @@ object AgentClient {
         return if (code == 200 && text.isNotBlank()) text.trim() else "Couldn't reach the web just now."
     }
 
+    /** P5.4: distill DURABLE facts from a batch of recent messages, for nightly memory consolidation.
+     *  Cheap tier. Returns short 'X = Y' style facts worth remembering long-term (skips chit-chat). */
+    fun distillFacts(recentDigest: String): List<String> {
+        if (recentDigest.isBlank()) return emptyList()
+        val sys = "You maintain a person's long-term memory. From the recent messages below, extract only DURABLE, " +
+            "stable facts worth remembering for months — a person's role/relationship/preference, an ongoing project, " +
+            "a commitment or deadline, a decision. Write each as ONE short line ('Anna = designer, prefers mornings'). " +
+            "SKIP small talk, one-off logistics, and anything already obvious. Output 0-10 lines, one fact per line, " +
+            "no numbering, no preamble. If nothing is durable, output nothing."
+        val (code, text) = callContent(sys, "RECENT MESSAGES:\n" + recentDigest.take(9000), 500, MODEL)
+        if (code != 200) return emptyList()
+        return text.lines().map { it.trim().removePrefix("- ").trim() }
+            .filter { it.length in 4..200 && !it.startsWith("[") }.take(10)
+    }
+
     /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */
     fun loopTurn(system: String, messages: JSONArray, model: String = MODEL): String {
         val (code, text) = callMessages(system, messages, 1200, model)
