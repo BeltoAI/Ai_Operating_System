@@ -13,7 +13,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +45,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -123,7 +123,7 @@ fun HomeScreen(
     var pendingConfirm by remember { mutableStateOf<List<com.agentos.shell.tools.AgentAction>?>(null) }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
     var showAdd by remember { mutableStateOf(false) }
-    var showEff by remember { mutableStateOf(false) }
+    var showAddBtn by remember { mutableStateOf(false) }   // the + reveals only after a long-press on Home
     val shortcuts = remember { mutableStateListOf<ShortcutStore.Shortcut>().apply { addAll(ShortcutStore.list(ctx)) } }
     fun refreshShortcuts() { shortcuts.clear(); shortcuts.addAll(ShortcutStore.list(ctx)) }
     var editing by remember { mutableStateOf(false) }
@@ -426,7 +426,10 @@ fun HomeScreen(
         }
     }
 
-    Column(modifier) {
+    Column(modifier.pointerInput(Unit) {
+        // Long-press empty Home space → reveal the + (add apps / SlyOS tools), like a stock launcher.
+        detectTapGestures(onLongPress = { showAddBtn = true })
+    }) {
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(clock, fontSize = T.caption, color = T.inkSoft)
             Spacer(Modifier.weight(1f))
@@ -434,15 +437,17 @@ fun HomeScreen(
                 Text("$battery%" + if (charging) " ⚡" else "", fontSize = T.caption,
                     color = if (battery <= 15 && !charging) T.accent else T.inkSoft)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.combinedClickable(onClick = { onManual() }, onLongClick = { onArchitect() })) { Wordmark() }
-            Spacer(Modifier.weight(1f))
-            if (editMode) {
-                Text("Done", fontSize = T.small, color = T.accent,
-                    modifier = Modifier.clickable { editMode = false }.padding(end = 12.dp))
+        // The + appears only after a long-press on Home; hidden otherwise for a clean panel.
+        if (editMode || showAddBtn) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                if (editMode) {
+                    Text("Done", fontSize = T.small, color = T.accent,
+                        modifier = Modifier.clickable { editMode = false }.padding(end = 12.dp))
+                }
+                if (showAddBtn) Icon(Icons.Filled.Add, contentDescription = "Add shortcut", tint = T.inkSoft,
+                    modifier = Modifier.size(26.dp).clickable { showAdd = true })
             }
-            Icon(Icons.Filled.Add, contentDescription = "Add shortcut", tint = T.inkSoft,
-                modifier = Modifier.size(26.dp).clickable { showAdd = true })
         }
 
         if (shortcuts.isNotEmpty()) {
@@ -673,80 +678,10 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
-        val online = AgentClient.hasKey()
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
-                    .clickable { showEff = true }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Box(Modifier.size(7.dp).clip(CircleShape)
-                    .background(if (online) Color(0xFF4E9A5B) else T.danger))
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    if (!online) "agent offline — add API key"
-                    else "online" + (com.agentos.shell.tools.MetricsStore.savedLabelToday(ctx).let { if (it.isNotEmpty()) "  ·  $it" else "" }),
-                    fontSize = T.caption, color = T.inkSoft
-                )
-            }
-        }
-    }
-
-    if (showEff) {
-        val score = remember { com.agentos.shell.tools.MetricsStore.efficiencyScore(ctx) }
-        val trend = remember { com.agentos.shell.tools.MetricsStore.trendPct(ctx) }
-        val hist = remember { com.agentos.shell.tools.MetricsStore.history(ctx, 14) }
-        val weekMin = remember { hist.takeLast(7).sumOf { it.savedMin } }
-        Dialog(onDismissRequest = { showEff = false }) {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)
-            ) {
-                Text("Efficiency", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("$score", fontSize = 46.sp, color = T.accent, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(4.dp))
-                    Text("/100", fontSize = T.body, color = T.inkFaint, modifier = Modifier.padding(bottom = 8.dp))
-                    Spacer(Modifier.weight(1f))
-                    val up = trend >= 0
-                    Text((if (up) "▲ +" else "▼ ") + "$trend%",
-                        fontSize = T.body, color = if (up) Color(0xFF4E9A5B) else T.danger,
-                        modifier = Modifier.padding(bottom = 8.dp))
-                }
-                Text("vs last week · ~${if (weekMin >= 60) "${weekMin / 60}h ${weekMin % 60}m" else "$weekMin min"} saved this week",
-                    fontSize = T.caption, color = T.inkFaint)
-                Spacer(Modifier.height(16.dp))
-
-                // 14-day minutes-saved bar chart.
-                val maxV = (hist.maxOfOrNull { it.savedMin } ?: 0).coerceAtLeast(1)
-                Canvas(Modifier.fillMaxWidth().height(110.dp)) {
-                    val n = hist.size
-                    val gap = 6f
-                    val bw = (size.width - gap * (n - 1)) / n
-                    hist.forEachIndexed { i, d ->
-                        val h = (d.savedMin.toFloat() / maxV) * (size.height - 6f)
-                        val x = i * (bw + gap)
-                        val today = i == n - 1
-                        drawRect(
-                            color = if (today) T.accent else T.accent.copy(alpha = 0.35f),
-                            topLeft = Offset(x, size.height - h),
-                            size = Size(bw, h)
-                        )
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(hist.firstOrNull()?.label ?: "", fontSize = T.caption, color = T.inkFaint)
-                    Text("14 days", fontSize = T.caption, color = T.inkFaint)
-                    Text("today", fontSize = T.caption, color = T.inkSoft)
-                }
-                Spacer(Modifier.height(14.dp))
-                Text("Score = your 7-day average time saved (≈1 hr/day is 100). Keep letting the agent handle things to push it up.",
-                    fontSize = T.caption, color = T.inkFaint)
-                Spacer(Modifier.height(12.dp))
-                Text("Close", fontSize = T.small, color = T.accent,
-                    modifier = Modifier.clickable { showEff = false })
+        // Efficiency moved to Settings. Keep only a quiet offline warning so setup isn't missed.
+        if (!AgentClient.hasKey()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Text("agent offline — add API key in Settings", fontSize = T.caption, color = T.danger)
             }
         }
     }
@@ -754,17 +689,20 @@ fun HomeScreen(
     if (showAdd) {
         val apps = remember { ToolRouter.installedApps(ctx) }
         val miniApps = remember { AppStore.load(ctx) }
-        Dialog(onDismissRequest = { showAdd = false }) {
+        Dialog(onDismissRequest = { showAdd = false; showAddBtn = false }) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 480.dp)
                     .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(16.dp)
             ) {
-                Text("Add to Home", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Text("SlyOS", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f)) {
                     item {
-                        Text("＋ Create a new mini-app (Opus)", fontSize = T.small, color = T.accent,
-                            modifier = Modifier.fillMaxWidth().clickable { showAdd = false; onArchitect() }.padding(vertical = 10.dp))
+                        Text("⌨  Manual mode", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.fillMaxWidth().clickable { showAdd = false; showAddBtn = false; onManual() }.padding(vertical = 10.dp))
+                        Text("＋  Create a new mini-app (Opus)", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.fillMaxWidth().clickable { showAdd = false; showAddBtn = false; onArchitect() }.padding(vertical = 10.dp))
+                        Text("ADD TO HOME", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 10.dp))
                         if (miniApps.isNotEmpty()) Text("MINI-APPS", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
                     }
                     items(miniApps, key = { "m" + it.id }) { a ->
@@ -782,7 +720,7 @@ fun HomeScreen(
                     }
                 }
                 Text("Close", fontSize = T.small, color = T.inkSoft,
-                    modifier = Modifier.clickable { showAdd = false }.padding(top = 8.dp))
+                    modifier = Modifier.clickable { showAdd = false; showAddBtn = false }.padding(top = 8.dp))
             }
         }
     }
