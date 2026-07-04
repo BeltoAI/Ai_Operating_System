@@ -802,7 +802,7 @@ object AgentClient {
 
     /** P5.3: pull a calendar event out of a booking/flight/reservation message. Returns
      *  {title,start,end,location} (ISO local times) or null if it isn't really a datable booking. Cheap tier. */
-    fun extractEvent(ctx: Context, text: String): JSONObject? {
+    fun extractEvent(ctx: android.content.Context, text: String): JSONObject? {
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
         val sys = "Extract a single calendar event from this booking/confirmation message if one clearly exists. " +
             "Current time: $now. Reply ONLY JSON: {\"title\":\"…\",\"start\":\"2026-07-10T14:30\",\"end\":\"2026-07-10T15:30\"," +

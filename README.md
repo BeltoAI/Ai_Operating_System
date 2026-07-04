@@ -33,8 +33,12 @@ It runs as a normal **custom launcher** on a stock, **locked** phone. No root, n
 
 | | |
 |---|---|
-| 💬 **Answers your messages in your voice** | Reads notifications across WhatsApp, Telegram, SMS, email — drafts (or auto-sends) replies that sound like you, because it learned from your real chats. |
-| 🧠 **A brain that becomes you** | Every conversation, contact, email and note flows into a local memory + semantic index. Ask it anything about your life; it answers from *your* data. |
+| 🔁 **Acts in a loop, not one shot** | Give it a goal and it works in steps — search the live web, recall your brain, find a contact, then do it. "Find Anna's email and send her the invite" completes both steps in one ask. |
+| 🌐 **Real answers from the web** | Voice or text: "what's the weather / who won / look up X" is answered out loud with real results — no browser toss. Free on Gemini's grounded search, or Anthropic's web tool. |
+| 📤 **Automation you can see & undo** | A "Sent for you" timeline logs every autonomous action — what, to whom, and *why* — each with one-tap Recall. Unknown senders are drafted, trusted contacts get full auto. |
+| 💬 **Answers your messages in your voice** | Reads notifications across WhatsApp, Telegram, SMS, email — drafts (or auto-sends) replies that sound like you, because it learned from your real chats and your per-app persona. |
+| 🧠 **A brain that becomes you** | Every conversation, contact, email (sent *and* received) and note flows into a local memory + semantic index. Ask it anything about your life; it answers from *your* data. It even distills your chats into durable facts overnight. |
+| 🗣️ **Talk to your agent** | Hold the brain for a hands-free voice call — it searches, recalls, and acts while you talk. Free uses your phone's voice; bring your own ElevenLabs key for a cloned voice. |
 | 📷 **Look** | Point the camera at anything — a shoe, a landmark, a dish — tap the object, and it identifies it with one-tap shop / map / search. |
 | 📈 **Practice investing** | "Invest $1000" → it designs a real portfolio (stocks, ETFs, gold, crypto), you confirm the buy, and it tracks live performance with a value graph and daily news alerts. |
 | 🎯 **Missions & outreach** | "Find 10 buyers for my product" → it web-finds real people, drafts tailored messages with your Calendly, and tracks replies. |
@@ -73,7 +77,9 @@ SlyOS is powerful because it can see your notifications and screen — so let's 
 
 - **Everything stays on your device.** The memory brain is a local SQLite database. Nothing is uploaded except the specific prompt you send to the model provider *you* configured.
 - **Permissions are opt-in and reversible.** Notification access, accessibility (screen reading), contacts, SMS — each is granted by you and revocable anytime. It never captures password fields.
-- **It asks before consequential actions.** Sending a message, posting publicly, or spending money is always confirmed — auto-send is opt-in, per-app, and rate-limited.
+- **It asks before consequential actions.** Sending a message, posting publicly, or spending money is always confirmed — auto-send is opt-in, per-app, per-contact, and rate-limited.
+- **Aggressive automation, made safe.** Everything the agent sends on its own lands in a visible **"Sent for you"** timeline (what, to whom, and *why*) with one-tap **Recall**. Unknown/first-time senders are drafted, never auto-sent. An outbound safety filter holds anything that looks like an injected link or money/credential request. Incoming messages are treated as untrusted data, never instructions.
+- **Locked down at rest.** Secrets and the brain are excluded from cloud/USB backup (`allowBackup=false`), the Telegram bot only talks to you (one-time pairing), and every model key stays on your device — none is ever compiled into a shared build.
 - **No root, no exploits, fully reversible.** Change your default Home app or uninstall, and your phone is exactly as it was. Your keys live only on the device.
 
 ## Tech
@@ -85,7 +91,11 @@ Kotlin · Jetpack Compose · SQLite (FTS4 + a local vector index) · CameraX + M
 - [x] Agent home screen, memory brain, voice-matched replies
 - [x] Camera Look, practice investing, missions, job hunt, research → Zenodo
 - [x] On-device Cowork + Termux execution
-- [ ] Real-time phone-call answering in your cloned voice
+- [x] **Agentic tool-use loop** — multi-step web search + memory + actions, provider-agnostic
+- [x] **Real web answers** in chat & voice (Anthropic web tool / free Gemini grounding)
+- [x] **Automation suite** — outbox with undo, per-contact trust tiers, proactive proposals, nightly memory consolidation, activity log
+- [x] **Talk to your agent** (free in-app voice) + cloned-voice add-on (your own ElevenLabs key)
+- [ ] Real-time *carrier* call answering (VoIP/Twilio number — paid add-on, your keys)
 - [ ] On-device action layer (tap-through any app, with confirmation)
 - [ ] Train a local model to replicate you
 
@@ -409,11 +419,17 @@ except prompts you trigger, using your own keys.
 ## Honest limitations
 
 - It's a launcher, not a flashed OS — the power-on boot logo stays Samsung's.
-- Can't read other apps' private files (WhatsApp media, voice notes) or pick up cellular calls
-  — OS-blocked on a locked phone. Telegram works fully via its open bot API.
+- Can't read other apps' private files (WhatsApp media, voice notes) or pick up **cellular** calls
+  — OS-blocked on a locked phone. But you can hold the brain for a free hands-free **in-app voice call**
+  with the agent; a real phone number is a roadmap paid add-on (your own Twilio/SIP). Telegram works
+  fully via its open bot API.
+- WhatsApp only sees messages that fire a notification, so your *own* typed-and-sent messages aren't
+  captured live — they reach the brain via an import, an agent-sent reply, or on-screen recall. **Gmail
+  syncs both inbox and sent**, so "who did I email last?" works.
 - Email/social auto-send isn't possible without each platform's API; SlyOS drafts and hands off
-  for a one-tap send (X has a real-API path if keys are set).
-- The Architect's mini-apps are sandboxed (no access to SlyOS data yet).
+  for a one-tap send (X and Gmail have real-API send paths if connected).
+- The Architect's mini-apps are sandboxed: **network-blocked by default (CSP + no network loads), and
+  brain access is per-app and off until you grant it.**
 - Document Q&A needs a text-layer PDF (scanned PDFs need OCR, not yet added).
 - True LaTeX typesetting needs a TeX engine; papers render via HTML+MathJax → PDF.
 - The memory "synapse path" is reconstructed by relevance matching, not a token-level trace.
