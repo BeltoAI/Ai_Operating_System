@@ -28,7 +28,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,7 +111,10 @@ class ShellActivity : ComponentActivity() {
         } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
-            Thread { try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {} }.start()
+            Thread {
+                try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {}
+                try { com.agentos.shell.tools.GmailClient.syncReceipts(applicationContext) } catch (e: Exception) {}   // expense receipts
+            }.start()
         if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
@@ -199,6 +202,7 @@ class ShellActivity : ComponentActivity() {
                             onLook = { screen = Screen.Look },
                             onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
+                            onExpenses = { screen = Screen.Expenses },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
@@ -219,6 +223,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Trade -> TradeScreen(m, tradePrompt) { tradePrompt = ""; screen = Screen.Home }
                         Screen.Converse -> ConverseScreen(m) { screen = Screen.Home }
                         Screen.Outbox -> OutboxScreen(m) { screen = Screen.Now }
+                        Screen.Expenses -> ExpensesScreen(m) { screen = Screen.Home }
                         Screen.Compose -> ComposeScreen(m, composePlatform, composeTopic) { screen = Screen.Home }
                         Screen.EmailCompose -> EmailComposeScreen(m, emailTo, emailTopic) { screen = Screen.Home }
                         Screen.SpicyPost -> SpicyPostScreen(m, spicyTopic) { screen = Screen.Home }

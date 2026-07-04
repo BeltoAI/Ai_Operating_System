@@ -111,6 +111,7 @@ fun HomeScreen(
     onLook: () -> Unit = {},
     onShop: (String) -> Unit = {},
     onInvest: (String) -> Unit = {},
+    onExpenses: () -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -299,6 +300,13 @@ fun HomeScreen(
                 onInvest(investAct.arg)
                 return@launch
             }
+            // expenses opens the spending screen (log a receipt / see spending).
+            val expenseAct = result.actions.firstOrNull { it.type == "expenses" }
+            if (expenseAct != null) {
+                thinking = false
+                onExpenses()
+                return@launch
+            }
             // write_paper navigates to the Research workspace, pre-filled.
             val paperAct = result.actions.firstOrNull { it.type == "write_paper" }
             if (paperAct != null) {
@@ -311,9 +319,10 @@ fun HomeScreen(
             // they surface as a tap-to-confirm card with the fields pre-filled. Everything else runs now.
             val actionable = result.actions.filter { it.type.isNotBlank() && it.type != "none" }
             val confirmables = actionable.filter { it.type in ActionConfirm.CONFIRM_TYPES }
-            // Only pay for the loop when the model actually wants the web (keeps simple Q&A a single call —
-            // it's already brain-grounded from ask()). Voice uses the full loop for multi-step chaining.
-            val needsLoop = actionable.any { it.type == "web_search" }
+            // Only pay for the loop when the model wants the web, OR the user is asking about spending
+            // (so the review pulls REAL numbers via expense_lookup, not a guess). Simple Q&A stays one call.
+            val financeQ = Regex("(?i)\\b(spen[dt]|spending|expense|expenditure|budget|spending review|where.?s my money|how much (did|have) i (spend|spent))\\b").containsMatchIn(q)
+            val needsLoop = actionable.any { it.type == "web_search" } || (financeQ && confirmables.isEmpty())
             when {
                 confirmables.isNotEmpty() -> {
                     // Consequential → run benign steps now, confirm the rest via card (existing UX).

@@ -23,7 +23,7 @@ object AgentLoop {
     /** [answer] is what to say to the user; [actions] are the side-effect tools actually executed. */
     data class Result(val answer: String, val actions: List<AgentAction>)
 
-    private val READ_TOOLS = setOf("web_search", "memory_search", "find_contact", "calendar_lookup", "read_url")
+    private val READ_TOOLS = setOf("web_search", "memory_search", "find_contact", "calendar_lookup", "read_url", "expense_lookup")
 
     private fun system(memory: String): String {
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
@@ -44,6 +44,8 @@ READ tools (I return text for you to use):
 - memory_search   ARG: what to recall       → matching memories from the user's brain (people, emails, facts)
 - find_contact    ARG: a person's name      → their phone number if in contacts
 - calendar_lookup ARG: (empty)              → the user's upcoming events
+- expense_lookup  ARG: {"range":"this month","category":"Food"} → real spending totals from their receipts
+                    (range: "this month"|"last month"|"this year"|"last 30 days"|"all"; category optional)
 
 ACTION tools (these DO things; I return a confirmation):
 - send_sms   ARG: {"name":"Alex","body":"..."}
@@ -51,9 +53,15 @@ ACTION tools (these DO things; I return a confirmation):
 - send_email ARG: {"to":"a@x.com","subject":"...","body":"..."}
 - add_event  ARG: {"title":"...","start":"2026-07-05T16:00","end":"2026-07-05T16:30","attendees":["a@x.com"]}
 - remind     ARG: {"text":"call mom","in":1200}  OR  {"text":"...","at":"2026-07-05T15:00"}
+- create_sheet ARG: {"title":"…","rows":[["Merchant","Category","Total"],["Costco","Food","82.10"]]} (real Google Sheet)
+- create_pdf   ARG: {"title":"…","content":"the full report text"} (real PDF saved to Downloads)
 
 RULES: prefer web_search over guessing on facts. Chain steps (e.g. find_contact or memory_search to get an
-email, THEN send_email). If a tool result says it can't (no contact, nothing found), do NOT invent — put a
+email, THEN send_email). For any SPENDING question ("how much did I spend on food this month", "where's my
+money going", "give me a spending review") use expense_lookup for the real numbers — never guess. For a
+"spending review/report", narrate the biggest categories + notable changes + any subscriptions, then offer
+(or, if they asked for a sheet/PDF, create) create_sheet or create_pdf with the itemized totals.
+If a tool result says it can't (no contact, nothing found), do NOT invent — put a
 short clarifying question in ANSWER. Never send a message/email or add an event unless the user clearly asked
 for it. Keep ANSWER concise and human.
 Current time: $now.
@@ -118,6 +126,13 @@ ${if (memory.isNotBlank()) "About the user (draw on this): ${memory.take(1600)}"
                 "web_search" -> AgentClient.webSearchText(arg.ifBlank { "" }).ifBlank { "No results." }
                 "read_url" -> AgentClient.webSearchText("Read and summarize this page: $arg")
                 "calendar_lookup" -> CalendarTool.upcoming(ctx).ifBlank { "No upcoming events." }
+                "expense_lookup" -> {
+                    val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject() }
+                    val (from, to) = ExpenseStore.rangeFor(o.optString("range", "this month"))
+                    val cat = o.optString("category").takeIf { it.isNotBlank() }
+                    "Spending (${o.optString("range", "this month")}${if (cat != null) ", $cat" else ""}):\n" +
+                        ExpenseStore.summaryText(ctx, from, to, cat)
+                }
                 "find_contact" -> when (val r = ContactsTool.resolve(ctx, arg)) {
                     is ContactsTool.Resolution.Found -> "Contact: ${r.contact.name} — ${r.contact.number}"
                     is ContactsTool.Resolution.Ambiguous -> "Several match \"$arg\": ${r.options.joinToString(", ") { it.name }}. Ask which one."

@@ -227,6 +227,49 @@ object GmailClient {
         return added
     }
 
+    /**
+     * P3: scan recent receipt/order/invoice emails and turn the real ones into expense rows (deduped by
+     * ExpenseStore hash). Runs each candidate through the vision-schema text extractor; non-receipts (a
+     * newsletter that merely says "order") return receipt:false and are skipped. Bounded per run for the
+     * free tier. Returns how many NEW expenses were added.
+     */
+    fun syncReceipts(ctx: Context, maxMessages: Int = 15): Int {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank() || !AgentClient.hasKey()) return 0
+        val q = "newer_than:90d (subject:(receipt OR invoice OR \"order confirmation\" OR \"your order\") OR from:(no-reply OR orders OR receipts))"
+        val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
+        if (lc !in 200..299) return 0
+        val ids = try {
+            val arr = JSONObject(lb).optJSONArray("messages") ?: return 0
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        } catch (e: Exception) { return 0 }
+        val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
+        val seen = LinkedHashSet(prefs.getStringSet("seen_receipts", emptySet()) ?: emptySet())
+        var added = 0
+        for (id in ids) {
+            if (id.isBlank() || seen.contains(id)) continue
+            seen.add(id)
+            val (mc, mb) = get("$BASE/messages/$id?format=full", token)
+            if (mc !in 200..299) continue
+            try {
+                val payload = JSONObject(mb).optJSONObject("payload") ?: continue
+                val subject = header(payload, "Subject")
+                val sb = StringBuilder(); extract(ctx, id, token, payload, sb, 0)
+                val text = ("Subject: $subject\n" + sb.toString()).trim()
+                val r = AgentClient.extractReceiptText(text) ?: continue   // not a real receipt → skip
+                // Only save confident, priced receipts — never a garbage $0 / unknown row.
+                if (r.total <= 0.0 || r.confidence < 0.55) continue
+                val rid = ExpenseStore.record(ctx, r.merchant, r.dateIso, r.total, r.currency, r.tax,
+                    r.category, r.itemsJson, "email", "", text.take(1500), r.confidence)
+                if (rid > 0) added++
+            } catch (e: Exception) {}
+        }
+        val capped = if (seen.size > 800) seen.toList().takeLast(800).toSet() else seen
+        prefs.edit().putStringSet("seen_receipts", capped).apply()
+        if (added > 0) Log.i(TAG, "gmail synced $added receipts to expenses")
+        return added
+    }
+
     /** Ingest up to [maxMessages] messages matching [q]. [role] = "me"/"them"; [whoHeader] = From/To. */
     private fun syncQuery(ctx: Context, token: String, q: String, role: String, whoHeader: String, maxMessages: Int, seen: LinkedHashSet<String>): Int {
         val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)

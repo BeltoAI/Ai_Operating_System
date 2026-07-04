@@ -88,11 +88,19 @@ object BrainContext {
             }
             MessageStore.recentSent(ctx, 8, plat).joinToString("\n").take(900)
         } else ""
+        // Finance question ("how much did I spend…", "spending review") → inject REAL totals from the
+        // receipt ledger (this month), gated so it never bloats unrelated prompts.
+        val financeQuery = Regex("(?i)\\b(spen[dt]|spending|expense|expenditure|budget|receipt|how much (did|have) i|money (go|going)|cost me|this month.*spend)\\b").containsMatchIn(q)
+        val expenses = if (financeQuery && ExpenseStore.count(ctx) > 0) {
+            val (from, to) = ExpenseStore.rangeFor("this month")
+            "This month — " + ExpenseStore.summaryText(ctx, from, to)
+        } else ""
 
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
+            if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)

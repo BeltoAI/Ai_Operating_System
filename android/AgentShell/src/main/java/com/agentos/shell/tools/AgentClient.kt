@@ -203,7 +203,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -221,6 +221,7 @@ object AgentClient {
             append("Use shop when the user wants to BUY something or find the best price for a product (e.g. 'buy me running shoes under $100', 'find the cheapest iPhone 15 case', 'order more coffee beans'); arg = the product to buy, in plain words including any brand/size/budget. This web-searches real buy options and shows them to tap-to-open (the user always taps buy themselves). Keep 'say' one short line. ")
             append("Use invest for ANYTHING about the user's investing/portfolio/stocks — building one OR just opening/checking it: 'invest', 'my portfolio', 'open my portfolio', 'open invest', 'how are my stocks', 'how's my portfolio doing', 'check my investments', 'show my holdings', 'trade', 'make money for me', 'buy stocks/crypto', 'put my money to work'. It's a PRACTICE paper-trading account; the screen shows their live holdings and lets them build/buy/sell. arg = any hints (risk, interests, amount) or empty. CRITICAL: NEVER use web_search, open_url, or open_app for portfolio/investing/stock requests — ALWAYS use invest. ")
             append("Use look when the user wants to identify something with the camera (e.g. 'what is this', 'what shoe is that', 'identify this plant', 'what building is this'); arg = empty. Opens the camera Look screen. ")
+            append("Use expenses when the user wants to LOG a receipt/expense or OPEN their spending screen ('log a receipt', 'track this expense', 'snap a receipt', 'show my expenses', 'open my spending'); arg = empty. For a spending QUESTION like 'how much did I spend on food' do NOT use expenses — just answer from the numbers. ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("Use web_search for ANY question needing current/live info you can't answer from memory — weather, " +
                 "news, sports scores, 'who won', prices, 'look up X', recent events. It now returns REAL web results " +
@@ -815,6 +816,53 @@ object AgentClient {
             val o = JSONObject(out.substring(s, e + 1))
             if (o.optString("start").length < 10 || o.optString("title").isBlank()) null else o
         } catch (e: Exception) { null }
+    }
+
+    // ── Receipt parsing (expense tracking). Shared schema for photos (vision) and email text. ──
+    data class Receipt(val merchant: String, val dateIso: String, val total: Double, val currency: String,
+                       val tax: Double, val category: String, val itemsJson: String, val confidence: Double)
+
+    private fun receiptSys() =
+        "You are a precise receipt/order/invoice parser. Return ONLY a JSON object, no prose. Schema: " +
+        "{\"receipt\":true,\"merchant\":\"store name\",\"date\":\"YYYY-MM-DD\",\"total\":12.34,\"currency\":\"USD\"," +
+        "\"tax\":1.00,\"category\":\"Food\",\"items\":[{\"name\":\"\",\"qty\":1,\"price\":0.0}]}. " +
+        "category MUST be exactly one of: Food, Transport, Shopping, Bills, Travel, Health, Subscriptions, " +
+        "Entertainment, Other. total and tax are plain numbers (no currency symbol). If this is NOT actually a " +
+        "purchase receipt/order/invoice (e.g. a newsletter, shipping notice with no prices, or promo), return " +
+        "exactly {\"receipt\":false}."
+
+    private fun parseReceipt(text: String): Receipt? {
+        return try {
+            val s = text.indexOf('{'); val e = text.lastIndexOf('}'); if (s < 0 || e <= s) return null
+            val o = JSONObject(text.substring(s, e + 1))
+            if (!o.optBoolean("receipt", true)) return null
+            val total = o.optDouble("total", Double.NaN)
+            val merchant = o.optString("merchant").trim()
+            if (merchant.isBlank() && total.isNaN()) return null   // nothing usable → not a receipt
+            val items = o.optJSONArray("items")?.toString() ?: "[]"
+            Receipt(merchant.ifBlank { "(unknown)" }, o.optString("date"), if (total.isNaN()) 0.0 else total,
+                o.optString("currency", "USD").ifBlank { "USD" }, o.optDouble("tax", 0.0),
+                o.optString("category", "Other"), items, o.optDouble("confidence", 0.7))
+        } catch (e: Exception) { null }
+    }
+
+    /** P2: parse a photographed receipt (vision). Null if it isn't a receipt or the call failed. */
+    fun extractReceipt(imageB64: String): Receipt? {
+        val content = JSONArray()
+            .put(JSONObject().put("type", "image").put("source",
+                JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
+            .put(JSONObject().put("type", "text").put("text", "Parse this receipt."))
+        val (code, text) = callContent(receiptSys(), content, 900, VOICE)
+        if (code != 200 || looksLikeError(text)) return null
+        return parseReceipt(text)
+    }
+
+    /** P3: parse a receipt from email text/PDF body. Cheap tier. Null if not a receipt. */
+    fun extractReceiptText(emailText: String): Receipt? {
+        if (emailText.length < 30) return null
+        val (code, text) = callContent(receiptSys(), "Parse this order/receipt email:\n" + emailText.take(4500), 900, MODEL)
+        if (code != 200 || looksLikeError(text)) return null
+        return parseReceipt(text)
     }
 
     /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */
