@@ -113,6 +113,8 @@ object NotificationStore {
     val stagedDrafts = androidx.compose.runtime.mutableStateMapOf<String, String>()
     fun stageDraft(key: String, text: String) { stagedDrafts[key] = text }
     fun clearDraft(key: String) { stagedDrafts.remove(key) }
+    /** Drop ALL staged (unsent) drafts at once — e.g. to clear a pile-up of X/social reply drafts. */
+    fun clearAllDrafts() { stagedDrafts.clear() }
 
     /** Set by the listener service so we can dismiss real notifications. */
     @Volatile var listener: NotificationListenerService? = null

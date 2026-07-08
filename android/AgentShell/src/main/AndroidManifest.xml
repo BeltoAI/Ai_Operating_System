@@ -123,5 +123,8 @@
 
         <!-- Fires timed reminders ("remind me in 20 min to…") as notifications. -->
         <receiver android:name=".ReminderReceiver" android:exported="false"/>
+
+        <!-- STOP button for the action layer ("SlyOS is controlling your screen"). -->
+        <receiver android:name=".StopActionReceiver" android:exported="false"/>
     </application>
 </manifest>

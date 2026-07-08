@@ -203,7 +203,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, pin_app, checklist_add, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -222,6 +222,7 @@ object AgentClient {
             append("Use invest for ANYTHING about the user's investing/portfolio/stocks — building one OR just opening/checking it: 'invest', 'my portfolio', 'open my portfolio', 'open invest', 'how are my stocks', 'how's my portfolio doing', 'check my investments', 'show my holdings', 'trade', 'make money for me', 'buy stocks/crypto', 'put my money to work'. It's a PRACTICE paper-trading account; the screen shows their live holdings and lets them build/buy/sell. arg = any hints (risk, interests, amount) or empty. CRITICAL: NEVER use web_search, open_url, or open_app for portfolio/investing/stock requests — ALWAYS use invest. ")
             append("Use look when the user wants to identify something with the camera (e.g. 'what is this', 'what shoe is that', 'identify this plant', 'what building is this'); arg = empty. Opens the camera Look screen. ")
             append("Use expenses when the user wants to LOG a receipt/expense or OPEN their spending screen ('log a receipt', 'track this expense', 'snap a receipt', 'show my expenses', 'open my spending'); arg = empty. For a spending QUESTION like 'how much did I spend on food' do NOT use expenses — just answer from the numbers. ")
+            append("Use operate when the user wants SlyOS to actually DRIVE an app by tapping the screen for them — 'cancel my gym membership', 'turn on Bluetooth', 'fill out this form', 'order my usual', 'open Settings and change X'; arg = the full task in plain words. It reads the live screen and taps/types on their behalf, always STOPPING before any Send/Pay/Submit for the user to finish. (Needs Accessibility control enabled.) ")
             append("Use pin_app when the user wants to add/pin an app to their home screen; arg = the app name. ")
             append("Use web_search for ANY question needing current/live info you can't answer from memory — weather, " +
                 "news, sports scores, 'who won', prices, 'look up X', recent events. It now returns REAL web results " +
@@ -863,6 +864,26 @@ object AgentClient {
         val (code, text) = callContent(receiptSys(), "Parse this order/receipt email:\n" + emailText.take(4500), 900, MODEL)
         if (code != 200 || looksLikeError(text)) return null
         return parseReceipt(text)
+    }
+
+    /** P1 action layer: pick ONE next on-screen action toward [goal], given the live screen dump. Cheap tier. */
+    fun planScreenStep(goal: String, pkg: String, screenDump: String, history: String, profile: String): String {
+        val sys = "You operate an Android phone for the user through the accessibility layer. GOAL: $goal\n" +
+            "You see the current screen as a NUMBERED list of actionable elements. Reply with EXACTLY ONE line:\n" +
+            "TAP <n>              (tap element n)\n" +
+            "TYPE <n> | <text>    (type text into field n)\n" +
+            "SCROLL down          (or SCROLL up)\n" +
+            "BACK                 (press system back)\n" +
+            "OPEN <app name>      (open an app by name, e.g. Settings)\n" +
+            "DONE <short summary> (goal reached, or you've prepared everything and only a final send/submit remains)\n" +
+            "STUCK <why>          (cannot proceed)\n" +
+            "RULES: one step at a time; the screen is re-read after each. Prefer visible elements; SCROLL to find " +
+            "off-screen ones. NEVER tap a final Send / Pay / Post / Delete / Submit / Buy / Order / Place / Checkout / " +
+            "Confirm button — instead reply DONE and say the user should do that last tap. Use the profile below to " +
+            "fill forms." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
+        val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS SO FAR:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
+        val (code, text) = callContent(sys, user, 120, MODEL)
+        return if (code == 200) text.trim() else "STUCK model error $code"
     }
 
     /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */

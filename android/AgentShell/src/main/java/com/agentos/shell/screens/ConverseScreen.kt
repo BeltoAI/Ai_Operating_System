@@ -118,7 +118,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             val brain = (withTimeoutOrNull(6000L) { withContext(Dispatchers.IO) { BrainContext.build(ctx, prompt) } })
                 ?: withContext(Dispatchers.IO) { BrainContext.profileBlock(ctx) }   // degrade to profile-only
             // P1: run the real agentic loop — it can web_search, recall memory, find contacts, and chain
-            // steps (find email → send invite), executing side-effects through the gated ToolRouter.
+            // steps. P0: any consequential step it prepared comes back as a CONFIRM card, never auto-sent.
             val out = (withTimeoutOrNull(60000L) {
                 withContext(Dispatchers.IO) { AgentLoop.run(ctx, prompt, brain, history, userInitiated = true) }
             }) ?: AgentLoop.Result("That took too long — let's try again.", emptyList())
@@ -130,7 +130,10 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 MessageStore.insertOne(ctx, "Me", "Voice", "me", "me", prompt)
                 if (say.isNotBlank()) MessageStore.insertOne(ctx, "SlyOS", "Voice", "SlyOS", "them", say)
             }
-            speak(say)
+            if (out.actions.isNotEmpty()) {
+                pendingActs = out.actions   // swipe-right confirms, left cancels (onDone won't auto-listen)
+                speak("$say  Swipe right to confirm, left to cancel.")
+            } else speak(say)
         }
     }
 

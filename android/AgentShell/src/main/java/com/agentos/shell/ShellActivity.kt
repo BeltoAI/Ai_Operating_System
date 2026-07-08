@@ -203,6 +203,7 @@ class ShellActivity : ComponentActivity() {
                             onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onExpenses = { screen = Screen.Expenses },
+                            onOperate = { g -> com.agentos.shell.tools.ScreenAgent.start(applicationContext, g) },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }

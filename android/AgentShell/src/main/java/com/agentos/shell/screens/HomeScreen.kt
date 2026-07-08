@@ -112,6 +112,7 @@ fun HomeScreen(
     onShop: (String) -> Unit = {},
     onInvest: (String) -> Unit = {},
     onExpenses: () -> Unit = {},
+    onOperate: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -307,6 +308,14 @@ fun HomeScreen(
                 onExpenses()
                 return@launch
             }
+            // operate → the action layer drives an app by tapping the screen (with STOP + stop-before-send).
+            val operateAct = result.actions.firstOrNull { it.type == "operate" }
+            if (operateAct != null) {
+                thinking = false
+                reply = "On it — I'll drive it on screen. Watch the STOP banner; I'll stop before anything final."
+                onOperate(operateAct.arg.ifBlank { q })
+                return@launch
+            }
             // write_paper navigates to the Research workspace, pre-filled.
             val paperAct = result.actions.firstOrNull { it.type == "write_paper" }
             if (paperAct != null) {
@@ -333,8 +342,9 @@ fun HomeScreen(
                 needsLoop -> {
                     // P1/P2: pure Q&A, a live-web question, or a multi-step request → the agent loop (real
                     // web search + memory + tool chaining), instead of just opening the browser or answering blind.
-                    pendingConfirm = null
-                    reply = withContext(Dispatchers.IO) { AgentLoop.run(ctx, q, context, history, userInitiated = true).answer }
+                    val out = withContext(Dispatchers.IO) { AgentLoop.run(ctx, q, context, history, userInitiated = true) }
+                    reply = out.answer
+                    pendingConfirm = out.actions.ifEmpty { null }   // P0: consequential steps → confirm card
                 }
                 else -> {
                     // Concrete benign actions (open app/url, play music…) — just execute them.

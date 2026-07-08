@@ -67,6 +67,13 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             Text("Sent for you", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable { onOutbox() }.padding(end = 14.dp))
             Text("Reconnect", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.clickable { onReconnect() })
         }
+        // If drafts have piled up (e.g. lots of X/social replies), offer a one-tap clear-all.
+        val draftCount = NotificationStore.stagedDrafts.size
+        if (draftCount >= 5) {
+            Spacer(Modifier.height(6.dp))
+            Text("Clear $draftCount unsent drafts", fontSize = T.caption, color = T.danger,
+                modifier = Modifier.clickable { NotificationStore.clearAllDrafts() })
+        }
         Spacer(Modifier.height(14.dp))
 
         // ── Proactive proposals (P5.3): one-tap suggestions like "add this booking to your calendar" ──

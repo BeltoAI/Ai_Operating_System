@@ -322,9 +322,17 @@ object MemoryStore {
      * users keep their behavior: a previously-disabled app stays "off"; otherwise "full" when the
      * global auto-reply master is on, else "draft" (pre-write & stage — the new helpful default).
      */
+    // Public social feeds fire huge volumes of reply-able "mention/reply" notifications. Auto-drafting a
+    // reply to each one buries the Now feed (the "100 unsent X replies" pile-up) and is a real ban risk on
+    // those platforms — so they default to OFF and only auto-draft if the user EXPLICITLY turns them on.
+    private val NOISY_SOCIAL = setOf(
+        "com.twitter.android", "com.x.android", "com.reddit.frontpage", "com.instagram.android",
+        "com.linkedin.android", "com.zhiliaoapp.musically"
+    )
     fun appMode(ctx: Context, pkg: String): String {
-        prefs(ctx).getString("app_mode_$pkg", null)?.let { return it }
+        prefs(ctx).getString("app_mode_$pkg", null)?.let { return it }   // explicit choice always wins
         if (!appAutoEnabled(ctx, pkg)) return "off"
+        if (pkg in NOISY_SOCIAL) return "off"                            // noisy feeds: opt-in only
         return if (autonomous(ctx)) "full" else "draft"
     }
     fun setAppMode(ctx: Context, pkg: String, mode: String) =
