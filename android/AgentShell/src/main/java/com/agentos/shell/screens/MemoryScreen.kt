@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.KnowledgeStore
 import com.agentos.shell.tools.MemoryStore
+import com.agentos.shell.tools.KeyValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,6 +54,78 @@ private fun SectionTitle(t: String) {
         Text(t, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
     }
     Spacer(Modifier.height(14.dp))
+}
+
+/** One API key: tap the row to reveal a paste field, then Save & check confirms it against the provider
+ *  and shows a live Valid / Invalid dot — so you're never guessing whether a paste actually worked. */
+@Composable
+private fun KeyEntry(label: String, hint: String, provider: String, initial: String, onSave: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var value by remember { mutableStateOf(initial) }
+    var open by remember { mutableStateOf(false) }
+    var state by remember { mutableStateOf(if (initial.isBlank()) KeyValidator.State.EMPTY else KeyValidator.State.CHECKING) }
+    LaunchedEffect(Unit) {
+        if (initial.isNotBlank()) state = withContext(Dispatchers.IO) { KeyValidator.check(provider, initial) }
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
+            Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+            StatusDot(state)
+            Spacer(Modifier.width(8.dp))
+            Text(if (open) "▾" else "▸", fontSize = T.small, color = T.inkSoft)
+        }
+        if (open) {
+            Spacer(Modifier.height(8.dp))
+            BasicTextField(value, { value = it }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (value.isEmpty()) Text(hint, fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Save & check", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable {
+                            val k = value.trim(); onSave(k); state = KeyValidator.State.CHECKING
+                            scope.launch { state = withContext(Dispatchers.IO) { KeyValidator.check(provider, k) } }
+                        }.padding(horizontal = 16.dp, vertical = 8.dp))
+                if (value.isNotBlank()) {
+                    Spacer(Modifier.width(10.dp))
+                    Text("Clear", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { value = ""; onSave(""); state = KeyValidator.State.EMPTY }.padding(8.dp))
+                }
+            }
+        }
+    }
+}
+
+/** All provider keys in one clean, collapsible card — no more hunting for where a key goes. */
+@Composable
+private fun ApiKeysCard() {
+    val ctx = LocalContext.current
+    Collapsible("API keys & model", "Paste a key — SlyOS checks it's actually valid. Gemini is free.") {
+        KeyEntry("Gemini (free tier)", "AIza…", "gemini", MemoryStore.geminiKey(ctx)) { MemoryStore.setGeminiKey(ctx, it) }
+        KeyEntry("Claude / Anthropic", "sk-ant-…", "anthropic", MemoryStore.anthropicKey(ctx)) {
+            MemoryStore.setAnthropicKey(ctx, it); com.agentos.shell.tools.AgentClient.apiKeyOverride = it.trim()
+        }
+        KeyEntry("OpenAI", "sk-…", "openai", MemoryStore.openaiKey(ctx)) { MemoryStore.setOpenaiKey(ctx, it) }
+        KeyEntry("Finnhub (market data)", "token…", "finnhub", MemoryStore.finnhubKey(ctx)) {
+            MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim()
+        }
+        Spacer(Modifier.height(8.dp))
+        var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
+        Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(6.dp))
+        Row {
+            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
+                val sel = pref == id
+                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                        .background(if (sel) T.accent else T.hairline)
+                        .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
+                        .padding(horizontal = 14.dp, vertical = 7.dp))
+            }
+        }
+    }
 }
 
 /**
@@ -311,15 +384,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         // ---- Live stock data (optional) ----
-        SectionTitle("Market data (optional)")
-        Text("Stocks not updating in Invest? Paste a free Finnhub key (finnhub.io) for reliable real-time quotes. Crypto works without one.",
+        SectionTitle("Investing")
+        Text("For reliable real-time stock quotes, add a free Finnhub key in the “API keys & model” card above. Crypto works without one.",
             fontSize = T.small, color = T.inkFaint)
-        Spacer(Modifier.height(8.dp))
-        var finnhub by remember { mutableStateOf(MemoryStore.finnhubKey(ctx)) }
-        BasicTextField(finnhub, { finnhub = it; MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim() },
-            singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
-            decorationBox = { inner -> if (finnhub.isEmpty()) Text("Finnhub API key", fontSize = T.small, color = T.inkFaint); inner() })
         Spacer(Modifier.height(12.dp))
         // Hands-off investing: let the AI execute practice buy/sell moves itself (else it just proposes them).
         var handsOff by remember { mutableStateOf(MemoryStore.autoTrade(ctx)) }
@@ -654,48 +721,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             "model for everyday replies and a powerful one for papers — same memory and voice on all of them.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
-        var keyGemini by remember { mutableStateOf(MemoryStore.geminiKey(ctx)) }
-        var keyAnthropic by remember { mutableStateOf(MemoryStore.anthropicKey(ctx)) }
-        var keyOpenai by remember { mutableStateOf(MemoryStore.openaiKey(ctx)) }
-        var prefProvider by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
-        // Card-based: each provider key is its own clean card with a status pill and an in-card field.
-        @Composable
-        fun keyRow(label: String, value: String, onChange: (String) -> Unit) {
-            val set = value.isNotBlank()
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                .background(if (set) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
-                    Text(if (set) "✓ set" else "not set", fontSize = T.caption,
-                        color = if (set) androidx.compose.ui.graphics.Color(0xFF1FA855) else T.inkFaint,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(if (set) androidx.compose.ui.graphics.Color(0x2229C46A) else T.hairline).padding(horizontal = 8.dp, vertical = 2.dp))
-                }
-                Spacer(Modifier.height(7.dp))
-                BasicTextField(value = value, onValueChange = onChange, singleLine = true,
-                    textStyle = TextStyle(color = if (set) T.inkSoft else T.ink, fontSize = T.small),
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp),
-                    decorationBox = { inner -> if (value.isEmpty()) Text("paste key…", fontSize = T.small, color = T.inkFaint); inner() })
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-        keyRow("Gemini key (free tier)", keyGemini) { keyGemini = it; MemoryStore.setGeminiKey(ctx, it) }
-        keyRow("Claude / Anthropic key", keyAnthropic) {
-            keyAnthropic = it; MemoryStore.setAnthropicKey(ctx, it); com.agentos.shell.tools.AgentClient.apiKeyOverride = it.trim()
-        }
-        keyRow("OpenAI key", keyOpenai) { keyOpenai = it; MemoryStore.setOpenaiKey(ctx, it) }
-        Text("Prefer", fontSize = T.caption, color = T.inkSoft)
-        Spacer(Modifier.height(4.dp))
-        Row {
-            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
-                val sel = prefProvider == id
-                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
-                        .background(if (sel) T.accent else T.hairline)
-                        .clickable { prefProvider = id; MemoryStore.setPreferredProvider(ctx, id) }
-                        .padding(horizontal = 14.dp, vertical = 7.dp))
-            }
-        }
+        ApiKeysCard()
         Spacer(Modifier.height(14.dp))
         var embN by remember { mutableStateOf(0) }
         var pendN by remember { mutableStateOf(0) }
@@ -743,7 +769,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         // Choose which provider indexes memory. Forcing OpenAI is the reliable fast path when the free
         // Gemini tier is rate-limited. Switching re-indexes from scratch (vector sizes differ).
-        if (keyGemini.isNotBlank() && keyOpenai.isNotBlank()) {
+        if (MemoryStore.geminiKey(ctx).isNotBlank() && MemoryStore.openaiKey(ctx).isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             var embChoice by remember { mutableStateOf(MemoryStore.embedProvider(ctx)) }
             Text("Index with", fontSize = T.caption, color = T.inkSoft)
