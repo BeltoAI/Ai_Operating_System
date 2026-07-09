@@ -138,10 +138,13 @@ class ShellActivity : ComponentActivity() {
             ReconnectScheduler.set(this, true)
         val startVoice = intent?.getBooleanExtra("start_voice", false) == true
         val openReconnect = intent?.getBooleanExtra("open_reconnect", false) == true
+        // The floating nav panel launches us with a target screen name.
+        val navTarget = intent?.getStringExtra("nav")?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
         setContent {
             var screen by remember {
                 mutableStateOf(when {
                     !com.agentos.shell.tools.AgentClient.hasKey() -> Screen.Setup   // first run: paste your key
+                    navTarget != null -> navTarget
                     startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
             }
             var pendingVoice by remember { mutableStateOf(startVoice) }   // one-shot: cleared after the mic opens
@@ -286,11 +289,17 @@ class ShellActivity : ComponentActivity() {
     // activity so it lands on Home and fires voice capture.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra("start_voice", false) || intent.getBooleanExtra("open_reconnect", false)) { setIntent(intent); recreate() }
+        if (intent.getBooleanExtra("start_voice", false) || intent.getBooleanExtra("open_reconnect", false) ||
+            intent.getStringExtra("nav") != null) { setIntent(intent); recreate() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
     }
+
+    // The floating nav panel is redundant inside SlyOS (which has its own bar), so hide it here and only
+    // show it once the user switches to another app.
+    override fun onResume() { super.onResume(); OverlayNavService.instance?.setBarVisible(false) }
+    override fun onPause() { super.onPause(); OverlayNavService.instance?.setBarVisible(true) }
 }

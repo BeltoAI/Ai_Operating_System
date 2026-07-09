@@ -133,9 +133,9 @@ private fun OverlayNavCard() {
     val ctx = LocalContext.current
     var on by remember { mutableStateOf(com.agentos.shell.OverlayNavService.running) }
     Collapsible("Floating nav panel", "A SlyOS bar over every app + read-this-screen") {
-        Text("Adds a small SlyOS bar (Back · Home · ✦ Brain) that floats over every app. Tap ✦ Brain and SlyOS " +
-            "reads the current screen, explains it out loud, and saves it to your brain. Needs “Display over other " +
-            "apps” plus Accessibility (for reading the screen).",
+        Text("Floats the same SlyOS bar (Home · Now · Brain · Research · Apps) over every app. Tap the centre " +
+            "Brain over another app and SlyOS reads that screen, explains it, and saves it to your brain. Needs " +
+            "“Display over other apps” plus Accessibility (to read the screen).",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
         val canDraw = android.provider.Settings.canDrawOverlays(ctx)
@@ -157,6 +157,11 @@ private fun OverlayNavCard() {
                 Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
             }
         }
+        Spacer(Modifier.height(10.dp))
+        Text("Turn on Accessibility (needed for “read this screen”)", fontSize = T.small, color = T.accent,
+            modifier = Modifier.clickable {
+                try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+            }.padding(vertical = 6.dp))
     }
 }
 
@@ -390,7 +395,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v9 · floating nav panel", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v10 · nav panel 1:1 + only over other apps", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 

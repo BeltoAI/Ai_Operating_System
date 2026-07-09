@@ -16,28 +16,72 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.agentos.shell.screens.SlyBottomNav
+import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MessageStore
+import com.agentos.shell.tools.NotificationStore
 
 /**
- * The persistent SlyOS nav panel: a small bar that floats over EVERY app (Back · Home · Brain), plus the
- * "hold the brain over any app" feature — tapping Brain has SlyOS read the current screen via the
- * accessibility service, explain it, show it in a floating bubble, and store it in the brain. Opt-in:
- * only runs after the user enables it and grants "Display over other apps".
+ * The persistent SlyOS nav panel — the SAME bar as inside the app (Home · Now · Brain · Research · Apps),
+ * rendered in a floating window over every app via a ComposeView. Tapping a tab opens SlyOS on that
+ * screen. Tapping the centre Brain over another app has SlyOS read + explain the current screen and store
+ * it in the brain (needs Accessibility). Opt-in; runs as a foreground service.
  */
-class OverlayNavService : Service() {
+class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val vmStore = ViewModelStore()
+    private val savedStateController = SavedStateRegistryController.create(this)
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val viewModelStore: ViewModelStore get() = vmStore
+    override val savedStateRegistry: SavedStateRegistry get() = savedStateController.savedStateRegistry
+
     private var wm: WindowManager? = null
     private var bar: View? = null
     private var bubble: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        savedStateController.performRestore(null)
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    }
+
+    /** Hide the floating bar while SlyOS itself is in the foreground (it has its own nav); show it over
+     *  every other app. Driven by ShellActivity's onResume/onPause. */
+    fun setBarVisible(visible: Boolean) {
+        Handler(Looper.getMainLooper()).post {
+            try { bar?.visibility = if (visible) View.VISIBLE else View.GONE } catch (e: Exception) {}
+            if (!visible) try { bubble?.let { wm?.removeView(it) }; bubble = null } catch (e: Exception) {}
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureForeground()
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) { stopSelf(); return START_NOT_STICKY }
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         if (bar == null) addBar()
         running = true
         return START_STICKY
@@ -53,42 +97,56 @@ class OverlayNavService : Service() {
         val n = Notification.Builder(this, ch)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentTitle("SlyOS nav panel is on")
-            .setContentText("Tap the brain over any app to have SlyOS read the screen.")
+            .setContentText("Tap Brain over any app to have SlyOS read the screen.")
             .build()
         startForeground(9971, n)
     }
 
-    private fun pill(label: String, onTap: () -> Unit): TextView = TextView(this).apply {
-        text = label
-        setTextColor(0xFFF4EFE6.toInt())
-        textSize = 15f
-        setPadding(dp(16), dp(10), dp(16), dp(10))
-        setOnClickListener { onTap() }
-    }
+    private fun overlayType() =
+        if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else WindowManager.LayoutParams.TYPE_PHONE
 
     private fun addBar() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(6), dp(4), dp(6), dp(4))
-            background = GradientDrawable().apply { setColor(0xF01A1714.toInt()); cornerRadius = dp(26).toFloat() }
+        val view = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@OverlayNavService)
+            setViewTreeViewModelStoreOwner(this@OverlayNavService)
+            setViewTreeSavedStateRegistryOwner(this@OverlayNavService)
+            setContent {
+                MaterialTheme {
+                    Surface(color = T.bg) {
+                        Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
+                            SlyBottomNav(
+                                current = Screen.Home,
+                                nowCount = NotificationStore.notes.size,
+                                onBrainHold = { launchSly(Screen.Memory) }
+                            ) { target -> onTab(target) }
+                        }
+                    }
+                }
+            }
         }
-        row.addView(pill("‹") { InteractionLogService.instance?.back() })
-        row.addView(pill("⌂") { openHome() })
-        row.addView(pill("✦ Brain") { analyzeScreen() })
-        row.addView(pill("✕") { stop(this) })
-        val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                   else WindowManager.LayoutParams.TYPE_PHONE
         val p = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            type, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(28) }
-        try { wm?.addView(row, p); bar = row } catch (e: Exception) {}
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(), WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.BOTTOM }
+        // Start hidden: the panel is enabled from inside SlyOS, so it should only appear once the user
+        // switches to another app (ShellActivity.onPause shows it; onResume hides it again).
+        view.visibility = View.GONE
+        try { wm?.addView(view, p); bar = view } catch (e: Exception) {}
     }
 
-    private fun openHome() {
+    /** Brain tap over another app = explain THIS screen. Any other tab opens SlyOS on that screen. */
+    private fun onTab(target: Screen) {
+        if (target == Screen.Memory) analyzeScreen() else launchSly(target)
+    }
+
+    private fun launchSly(target: Screen) {
         try {
-            startActivity(packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val i = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); putExtra("nav", target.name)
+            }
+            startActivity(i)
         } catch (e: Exception) {}
     }
 
@@ -117,28 +175,30 @@ class OverlayNavService : Service() {
             background = GradientDrawable().apply { setColor(0xF01A1714.toInt()); cornerRadius = dp(18).toFloat() }
             setOnClickListener { try { wm?.removeView(this); bubble = null } catch (e: Exception) {} }
         }
-        val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                   else WindowManager.LayoutParams.TYPE_PHONE
         val p = WindowManager.LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.88).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
-            type, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(92) }
+            (resources.displayMetrics.widthPixels * 0.9).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(), WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(110) }
         try { wm?.addView(tv, p); bubble = tv } catch (e: Exception) {}
         Handler(Looper.getMainLooper()).postDelayed({
             try { if (bubble === tv) { wm?.removeView(tv); bubble = null } } catch (e: Exception) {}
-        }, 14000)
+        }, 15000)
     }
 
     override fun onDestroy() {
         running = false
+        instance = null
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         try { bar?.let { wm?.removeView(it) } } catch (e: Exception) {}
         try { bubble?.let { wm?.removeView(it) } } catch (e: Exception) {}
+        try { vmStore.clear() } catch (e: Exception) {}
         bar = null; bubble = null
         super.onDestroy()
     }
 
     companion object {
         @Volatile var running = false
+        @Volatile var instance: OverlayNavService? = null
         fun start(ctx: Context) {
             val i = Intent(ctx, OverlayNavService::class.java)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
