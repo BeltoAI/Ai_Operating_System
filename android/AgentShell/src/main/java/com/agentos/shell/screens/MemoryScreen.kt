@@ -286,10 +286,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v5 · keys unified + brain stats", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v6 · collapsible cards", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
+        Collapsible("Character", "How the agent should sound like you", initiallyOpen = true) {
         Text("What should the agent know about you?", fontSize = T.body, color = T.ink)
         Spacer(Modifier.height(6.dp))
         Text(
@@ -335,6 +336,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
                 .padding(horizontal = 22.dp, vertical = 10.dp)
         )
+        }
 
         // ---- Brain backup (Google Drive) — the safety net so memory is never lost to a wipe again ----
         run {
@@ -409,7 +411,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         // ---- You: real-world details for shopping, forms, signups, letterheads ----
-        SectionTitle("You — for shopping, forms & signatures")
+        Collapsible("Your details", "Address, contact & booking link") {
         Text("Saved only on this device. Used to pre-fill checkout, sign-ups and documents — never sent unless you tap send.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -442,7 +444,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         // ---- Appearance ----
-        SectionTitle("Appearance")
+        }
+        Collapsible("Appearance") {
         var darkOn by remember { mutableStateOf(com.agentos.shell.tools.MemoryStore.darkMode(ctx)) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
             .clickable {
@@ -462,7 +465,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         // ---- Live stock data (optional) ----
-        SectionTitle("Investing")
+        }
+        Collapsible("Investing") {
         Text("For reliable real-time stock quotes, add a free Finnhub key in the “API keys & model” card above. Crypto works without one.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
@@ -482,7 +486,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
 
-        SectionTitle("Booking link")
+        }
+        Collapsible("Booking link") {
         Text("Only shared if someone actually asks to schedule a call — never pushed.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -501,7 +506,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         )
 
         // ---- Agent calls (P6) ----
-        SectionTitle("Talk to your agent")
+        }
+        Collapsible("Talk to your agent") {
         Text("FREE: hold the brain on the Home bar to have a live, hands-free voice conversation with your " +
             "agent — it uses your phone's built-in voice (generic) and can search the web, recall your brain, " +
             "and act. No cost beyond your model usage.",
@@ -520,7 +526,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
 
         // ---- Your voice (learned from real chats) ----
-        SectionTitle("Your writing voice")
+        }
+        Collapsible("Your writing voice") {
         Text("Import chat exports from any platform — WhatsApp (.txt), LinkedIn (messages.csv), " +
             "Instagram/Messenger (.json), Telegram (.json). Import as many as you like; SlyOS pools " +
             "them and learns exactly how you write, then mimics it everywhere.",
@@ -657,7 +664,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         // ---- Per-platform persona ----
-        SectionTitle("Persona per platform")
+        }
+        Collapsible("Persona per platform") {
         Text("How you want to come across on each app — e.g. LinkedIn: professional, warm CEO · Instagram: funny & casual.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -715,8 +723,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
-        SectionTitle("Brain data")
-        BrainStatsCard(importStatus + "|" + brainMsg + "|" + voiceStatus + "|" + sampleCount)
+        }
+        Collapsible("Your uploads", "See exactly what's in your brain", initiallyOpen = true) {
+        BrainStatsCard(importStatus + "|" + brainMsg + "|" + sampleCount)
         Text("Feed ANY file into your brain (PDF, txt, md, csv…), or back the whole brain up and restore it.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
@@ -734,7 +743,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         if (brainMsg.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(brainMsg, fontSize = T.caption, color = T.accent) }
 
-        SectionTitle("Import data & voice")
+        }
+        Collapsible("Import & voice") {
         Text("Add chat exports anytime — they feed the memory brain (and get indexed for semantic recall). " +
             "Then learn your writing voice from them whenever you want.",
             fontSize = T.small, color = T.inkFaint)
@@ -787,7 +797,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (importStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(importStatus, fontSize = T.caption, color = T.accent) }
         if (voiceStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(voiceStatus, fontSize = T.caption, color = if (voiceStatus.startsWith("Learned")) T.accent else T.danger) }
 
-        SectionTitle("Models & spending")
+        }
+        Collapsible("Models & spending") {
         Text("Bring a key for any provider. Gemini has a free tier. With more than one, SlyOS uses a cheap " +
             "model for everyday replies and a powerful one for papers — same memory and voice on all of them.",
             fontSize = T.small, color = T.inkFaint)
@@ -973,7 +984,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Text("When this month's spend hits the cap, SlyOS routes everything to free Gemini so the bill can't run away.",
             fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
 
-        SectionTitle("Connections")
+        }
+        Collapsible("Connections") {
         var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }
         val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
@@ -1008,7 +1020,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             "(make one at github.com/settings/tokens — classic, scope: repo). Then tell Cowork “put this on my GitHub.”",
             fontSize = T.small, color = T.inkFaint)
 
-        SectionTitle("Per-app responses")
+        }
+        Collapsible("Per-app responses") {
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
             "just tap Send. Auto sends it for you after an 8-second undo window.",
             fontSize = T.small, color = T.inkFaint)
@@ -1092,7 +1105,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             )
         }
 
-        SectionTitle("Document Q&A")
+        }
+        Collapsible("Document Q&A") {
         Text("Load a PDF; SlyOS answers Telegram messages using only that document.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -1200,7 +1214,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             })
         }
 
-        SectionTitle("Lock screen")
+        }
+        Collapsible("Lock screen") {
         Text("Set a SlyOS-styled lock-screen wallpaper (the clock/widgets stay Samsung's).",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
@@ -1219,6 +1234,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 "part of a prompt you trigger.",
             fontSize = T.caption, color = T.inkFaint
         )
+        }
     }
 }
 
