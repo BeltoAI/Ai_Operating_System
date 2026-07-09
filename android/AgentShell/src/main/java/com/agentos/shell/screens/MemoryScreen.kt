@@ -38,15 +38,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** A clear section break: a rule + a bold accent heading, so Settings reads as distinct groups
- *  instead of one endless scroll. */
+/** A card-style section header: an elevated band with an accent bar and bold title, so Settings reads
+ *  as clean, distinct groups instead of one endless scroll. */
 @Composable
 private fun SectionTitle(t: String) {
-    Spacer(Modifier.height(22.dp))
-    androidx.compose.material3.Divider(color = T.hairline, thickness = 1.dp)
-    Spacer(Modifier.height(16.dp))
-    Text(t, fontSize = T.body, color = T.accent, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(2.dp))
+    Spacer(Modifier.height(24.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Box(Modifier.width(4.dp).height(20.dp).clip(RoundedCornerShape(999.dp)).background(T.accent))
+        Spacer(Modifier.width(12.dp))
+        Text(t, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+    }
+    Spacer(Modifier.height(14.dp))
 }
 
 /**
