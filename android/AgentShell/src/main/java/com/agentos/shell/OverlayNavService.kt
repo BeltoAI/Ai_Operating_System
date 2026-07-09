@@ -18,13 +18,36 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -36,11 +59,9 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.agentos.shell.screens.SlyBottomNav
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MessageStore
-import com.agentos.shell.tools.NotificationStore
 
 /**
  * The persistent SlyOS nav panel — the SAME bar as inside the app (Home · Now · Brain · Research · Apps),
@@ -112,33 +133,56 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
             setViewTreeLifecycleOwner(this@OverlayNavService)
             setViewTreeViewModelStoreOwner(this@OverlayNavService)
             setViewTreeSavedStateRegistryOwner(this@OverlayNavService)
-            setContent {
-                MaterialTheme {
-                    Surface(color = T.bg) {
-                        Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-                            SlyBottomNav(
-                                current = Screen.Home,
-                                nowCount = NotificationStore.notes.size,
-                                onBrainHold = { launchSly(Screen.Memory) }
-                            ) { target -> onTab(target) }
-                        }
-                    }
-                }
-            }
+            setContent { MaterialTheme { BarContent() } }
         }
+        // WRAP_CONTENT window: the overlay only occupies the pill itself, so the whole rest of the screen
+        // stays fully usable (no more full-width bar eating content/taps). Floats just above the system nav.
         val p = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(), WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM }
+        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(52) }
         // Start hidden: the panel is enabled from inside SlyOS, so it should only appear once the user
         // switches to another app (ShellActivity.onPause shows it; onResume hides it again).
         view.visibility = View.GONE
         try { wm?.addView(view, p); bar = view } catch (e: Exception) {}
     }
 
-    /** Brain tap over another app = explain THIS screen. Any other tab opens SlyOS on that screen. */
-    private fun onTab(target: Screen) {
-        if (target == Screen.Memory) analyzeScreen() else launchSly(target)
+    /** A compact, dark, floating pill with the SlyOS tabs. Dark so its light icons read over any app;
+     *  wrap-content so it never covers more than itself. Brain = read + explain the current screen. */
+    @Composable
+    private fun BarContent() {
+        Row(
+            Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xF01A1714)).padding(horizontal = 8.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            navItem(Icons.Filled.Home, "Home") { launchSly(Screen.Home) }
+            navItem(Icons.Filled.Bolt, "Now") { launchSly(Screen.Now) }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { analyzeScreen() }.padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Box(Modifier.size(44.dp).clip(CircleShape).background(T.accent), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Memory, "Brain", tint = Color.White, modifier = Modifier.size(24.dp))
+                }
+                Spacer(Modifier.height(2.dp))
+                Text("Brain", fontSize = 9.sp, color = T.accent)
+            }
+            navItem(Icons.Filled.Science, "Research") { launchSly(Screen.Research) }
+            navItem(Icons.Filled.Apps, "Apps") { launchSly(Screen.Apps) }
+        }
+    }
+
+    @Composable
+    private fun navItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { onClick() }.padding(horizontal = 9.dp, vertical = 4.dp)
+        ) {
+            Icon(icon, label, tint = Color(0xFFEFE9DE), modifier = Modifier.size(22.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(label, fontSize = 9.sp, color = Color(0xFFB9B0A2))
+        }
     }
 
     private fun launchSly(target: Screen) {
