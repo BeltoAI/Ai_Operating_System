@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -165,8 +166,39 @@ private fun appColor(pkg: String): Color = when {
     pkg.contains("slack") -> Color(0xFF4A154B)
     pkg.contains("discord") -> Color(0xFF5865F2)
     pkg.contains("securesms") || pkg.contains("signal") -> Color(0xFF3A76F0)
+    pkg.contains("facebook") || pkg.contains("orca") -> Color(0xFF0866FF)
+    pkg.contains("snapchat") -> Color(0xFFFFFC00)
+    pkg.contains("reddit") -> Color(0xFFFF4500)
+    pkg.contains("teams") -> Color(0xFF6264A7)
+    pkg.contains("viber") -> Color(0xFF7360F2)
+    pkg.contains("line") -> Color(0xFF06C755)
+    pkg.contains("outlook") -> Color(0xFF0078D4)
     else -> T.accent
 }
+
+/** Real launcher icon for a package — this is what gives the Now feed true per-app recognition
+ *  (any installed app, not just the hardcoded colors). Rasterized once and cached per package. */
+private val iconCache = HashMap<String, androidx.compose.ui.graphics.ImageBitmap?>()
+private fun appIcon(ctx: android.content.Context, pkg: String): androidx.compose.ui.graphics.ImageBitmap? {
+    if (pkg.isBlank()) return null
+    iconCache[pkg]?.let { return it }
+    if (iconCache.containsKey(pkg)) return null
+    val img = try {
+        val d = ctx.packageManager.getApplicationIcon(pkg)
+        val w = d.intrinsicWidth.coerceIn(1, 144); val h = d.intrinsicHeight.coerceIn(1, 144)
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp); d.setBounds(0, 0, w, h); d.draw(c)
+        bmp.asImageBitmap()
+    } catch (e: Exception) { null }
+    iconCache[pkg] = img
+    return img
+}
+
+/** Human app name for a package (e.g. "WhatsApp"), falling back to the note's own label. */
+private fun appName(ctx: android.content.Context, pkg: String, fallback: String): String = try {
+    if (pkg.isBlank()) fallback
+    else ctx.packageManager.getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0)).toString()
+} catch (e: Exception) { fallback }
 
 @Composable
 private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: List<NotificationStore.Note>) {
@@ -219,8 +251,17 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
     ) {
         // Header — tap opens the actual conversation/app.
         Row(Modifier.fillMaxWidth().clickable { NotificationStore.open(ctx, latest) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp).clip(CircleShape).background(appColor(latest.pkg)), contentAlignment = Alignment.Center) {
-                Text(contact.trim().firstOrNull()?.uppercase() ?: "•", color = Color.White, fontSize = T.body)
+            // Avatar = contact initial in the app's brand color, with the REAL app icon as a corner
+            // badge — so you recognize at a glance which app each card came from.
+            val icon = appIcon(ctx, latest.pkg)
+            Box(Modifier.size(46.dp)) {
+                Box(Modifier.size(42.dp).clip(CircleShape).background(appColor(latest.pkg)), contentAlignment = Alignment.Center) {
+                    Text(contact.trim().firstOrNull()?.uppercase() ?: "•", color = Color.White, fontSize = T.body)
+                }
+                if (icon != null) androidx.compose.foundation.Image(
+                    bitmap = icon, contentDescription = null,
+                    modifier = Modifier.align(Alignment.BottomEnd).size(18.dp)
+                        .clip(CircleShape).background(Color.White).padding(1.dp).clip(CircleShape))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -229,6 +270,8 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                     if (group.size > 1) Text("${group.size}", fontSize = T.caption, color = Color.White, textAlign = TextAlign.Center,
                         modifier = Modifier.clip(CircleShape).background(T.accent).padding(horizontal = 7.dp, vertical = 2.dp))
                 }
+                Spacer(Modifier.height(2.dp))
+                Text("via ${appName(ctx, latest.pkg, latest.app)}", fontSize = T.caption, color = appColor(latest.pkg))
                 if (latest.text.isNotBlank()) { Spacer(Modifier.height(3.dp)); Text(latest.text.take(100), fontSize = T.small, color = T.inkSoft, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
         }
