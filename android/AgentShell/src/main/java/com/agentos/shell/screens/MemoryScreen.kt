@@ -126,6 +126,40 @@ private fun BrainBackupCard() {
     }
 }
 
+/** Floating nav panel toggle — turns the over-every-app SlyOS bar on/off and walks through the
+ *  "Display over other apps" permission. */
+@Composable
+private fun OverlayNavCard() {
+    val ctx = LocalContext.current
+    var on by remember { mutableStateOf(com.agentos.shell.OverlayNavService.running) }
+    Collapsible("Floating nav panel", "A SlyOS bar over every app + read-this-screen") {
+        Text("Adds a small SlyOS bar (Back · Home · ✦ Brain) that floats over every app. Tap ✦ Brain and SlyOS " +
+            "reads the current screen, explains it out loud, and saves it to your brain. Needs “Display over other " +
+            "apps” plus Accessibility (for reading the screen).",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(12.dp))
+        val canDraw = android.provider.Settings.canDrawOverlays(ctx)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable {
+            if (!on) {
+                if (android.provider.Settings.canDrawOverlays(ctx)) { com.agentos.shell.OverlayNavService.start(ctx); on = true }
+                else try {
+                    ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {}
+            } else { com.agentos.shell.OverlayNavService.stop(ctx); on = false }
+        }) {
+            Column(Modifier.weight(1f)) {
+                Text(if (on) "On — the bar is floating" else "Off", fontSize = T.small, color = T.ink)
+                Text(if (canDraw) "Permission granted — tap to turn on." else "Tap to grant “Display over other apps”, then tap again.",
+                    fontSize = T.caption, color = if (canDraw) T.inkFaint else T.danger)
+            }
+            Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (on) T.accent else T.hairline)) {
+                Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
+            }
+        }
+    }
+}
+
 /** A single big-number stat tile (messages, people, voice samples, indexed…). Lights up in accent when
  *  it holds real data, so you can see at a glance what's actually in the brain. */
 @Composable
@@ -356,7 +390,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v8 · keys promoted to top", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v9 · floating nav panel", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -1228,7 +1262,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }.padding(horizontal = 18.dp, vertical = 10.dp))
         }
 
-        // Brain backup lives at the very bottom — the last, most important safety net.
+        // Floating nav panel toggle, then brain backup as the final safety net.
+        OverlayNavCard()
         BrainBackupCard()
 
         Spacer(Modifier.height(20.dp))

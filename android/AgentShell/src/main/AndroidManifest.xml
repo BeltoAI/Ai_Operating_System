@@ -13,6 +13,8 @@
     <!-- Telegram bot runs as a foreground service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- Floating nav panel that draws over other apps (user-granted "Display over other apps"). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Live "Look" camera (point-and-identify). -->
@@ -84,6 +86,12 @@
         <!-- Telegram bot brain (foreground service). -->
         <service
             android:name=".TelegramService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
+
+        <!-- Persistent floating nav panel that overlays other apps. -->
+        <service
+            android:name=".OverlayNavService"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 

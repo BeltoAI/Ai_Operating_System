@@ -328,6 +328,17 @@ object AgentClient {
         return try { JSONObject(out.substring(start, end + 1)) } catch (e: Exception) { null }
     }
 
+    /** Explain what's on the user's screen right now (from the accessibility text dump), for the floating
+     *  "hold the brain over any app" panel. Concise + helpful; the caller also stores it in the brain. */
+    fun explainScreen(pkg: String, screenText: String): String {
+        if (screenText.isBlank()) return "Nothing readable on this screen."
+        val sys = "You can see what's on the user's phone screen right now (app package: $pkg). In 2-4 short " +
+            "sentences, explain what this screen is and the key things on it, and if there's an obvious next " +
+            "step, say it. Be plain and genuinely useful. No preamble."
+        val (code, t) = call(sys, screenText.take(4000))
+        return if (code == 200) t.trim() else "Couldn't read the screen right now."
+    }
+
     /** Match a freshly-captured face against a roster of known people (each a name + reference photo).
      *  Returns the matching name, or "UNKNOWN". Uses the model's vision — best-effort, on-device only. */
     fun identifyPerson(shotB64: String, roster: List<Pair<String, String>>): String {

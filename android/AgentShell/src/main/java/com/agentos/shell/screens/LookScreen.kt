@@ -270,6 +270,27 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
     }
 
+    // Scan any document (form / invoice / ID / letter) from the full-res camera → extract fields → auto-file.
+    fun scanDoc() {
+        if (busy || !granted) return
+        busy = true; answer = ""; result = null; box = null
+        capture { raw, rot ->
+            if (raw == null) { busy = false; return@capture }
+            val up = rotate(raw, rot)
+            scope.launch {
+                val b64 = withContext(Dispatchers.IO) { ImageUtil.encodeBitmap(up, 1568) }
+                val j = if (b64 == null) null else withContext(Dispatchers.IO) { AgentClient.extractForm(b64) }
+                if (j == null) { answer = "Couldn't read that document — hold steady and fill the frame."; busy = false; return@launch }
+                val folder = withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.DocStore.add(ctx, j.optString("category", "other"), j.optString("title", "Document"),
+                        j.optString("summary", ""), j.optJSONObject("fields") ?: org.json.JSONObject(), up)
+                }
+                answer = "Filed in $folder ✓ — ${j.optString("title", "Document")}"
+                busy = false; speak(answer)
+            }
+        }
+    }
+
     val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val said = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!said.isNullOrBlank()) askAboutFrame(said)
@@ -380,6 +401,7 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 CamPill("Who's this", enabled = !busy && granted) { recognizeFace() }
                 CamPill("Scan receipt", enabled = !busy && granted) { scanReceipt() }
+                CamPill("Scan doc", enabled = !busy && granted) { scanDoc() }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Same mic as Home: an accent dot + "tap to talk".

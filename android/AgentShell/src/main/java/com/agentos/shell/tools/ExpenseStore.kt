@@ -85,8 +85,14 @@ object ExpenseStore {
         if (id > 0) {
             try {
                 val day = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date(ts))
+                // Include the actual items bought so "what did I buy at X?" is answerable from the brain.
+                val itemNames = try {
+                    val arr = org.json.JSONArray(itemsJson)
+                    (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name")?.takeIf { n -> n.isNotBlank() } }
+                } catch (e: Exception) { emptyList() }
+                val itemsStr = if (itemNames.isNotEmpty()) " · items: " + itemNames.take(25).joinToString(", ") else ""
                 MessageStore.insertOne(ctx, merchant.ifBlank { "Expense" }, "Expenses", "system", "system",
-                    "Spent ${currency.ifBlank { "USD" }} ${"%.2f".format(total)} at $merchant on $day — ${normalizeCategory(category)}")
+                    "Spent ${currency.ifBlank { "USD" }} ${"%.2f".format(total)} at $merchant on $day — ${normalizeCategory(category)}$itemsStr")
             } catch (e: Exception) {}
         }
         return id
