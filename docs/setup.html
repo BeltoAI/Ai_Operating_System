@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlyOS — Setup &amp; Help</title>
+<meta name="description" content="Step-by-step setup for SlyOS: install, set as home, add a key, and grant each permission — with exact Samsung/Android taps and fixes for common issues.">
+<meta name="theme-color" content="#15120E">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .steps{counter-reset:step;margin-top:26px}
+  .step{position:relative;padding:20px 22px 20px 66px;margin-bottom:14px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+  .step:before{counter-increment:step;content:counter(step);position:absolute;left:18px;top:18px;width:32px;height:32px;border-radius:50%;background:var(--accent);color:#151109;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .step h3{margin:0 0 6px}
+  .path{display:inline-block;margin-top:8px;padding:7px 12px;border-radius:10px;background:rgba(232,100,44,.12);border:1px solid rgba(232,100,44,.3);font-size:14px;color:var(--accent)}
+  .faq details{border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:12px;padding:4px 18px}
+  .faq summary{cursor:pointer;padding:16px 0;font-weight:600;list-style:none}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary:before{content:"＋";color:var(--accent);margin-right:12px;font-weight:700}
+  .faq details[open] summary:before{content:"－"}
+  .faq p{margin:0 0 16px;color:var(--muted,#b9b0a2)}
+  .tag{display:inline-block;padding:3px 9px;border-radius:999px;background:rgba(232,100,44,.14);color:var(--accent);font-size:12px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><a href="/" style="color:inherit;text-decoration:none">Sly<b>OS</b></a></div>
+    <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
+    <div class="navlinks" onclick="this.classList.remove('open')">
+      <a href="/">Home</a>
+      <a href="/features.html">Features</a>
+      <a href="/setup.html">Setup</a>
+      <a href="/vision.html">Vision</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="/#get" class="navdl">Download</a>
+    </div>
+  </nav>
+
+  <section style="padding-top:20px">
+    <p class="eyebrow">Setup &amp; Help</p>
+    <h2>Get SlyOS running in 10 minutes</h2>
+    <p class="muted">Follow these in order. Each step is written plainly, with the exact taps for Samsung (One UI) and most Android phones. Nothing here leaves your phone.</p>
+  </section>
+
+  <!-- INSTALL -->
+  <section>
+    <p class="eyebrow">Part 1 · Install</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Download the app</h3>
+        <p class="muted">On your phone, tap <a href="https://github.com/BeltoAI/Ai_Operating_System/releases/latest/download/SlyOS.apk">Download SlyOS.apk</a>. When it finishes, tap the file to open it.</p>
+      </div>
+      <div class="step">
+        <h3>Allow install &amp; tap Install</h3>
+        <p class="muted">Android will ask to allow installing from your browser/files app — tap <strong>Allow</strong> (this is one-time), then tap <strong>Install</strong>, then <strong>Open</strong>.</p>
+      </div>
+      <div class="step">
+        <h3>Make SlyOS your Home screen</h3>
+        <p class="muted">This is what turns your phone into SlyOS. In the app tap “Set SlyOS as my Home app,” or set it manually:</p>
+        <span class="path">Settings → search “Default apps” → Home app → SlyOS</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- KEY -->
+  <section>
+    <p class="eyebrow">Part 2 · Give it a brain</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Add an API key (free option)</h3>
+        <p class="muted">SlyOS needs a model key to think. Gemini is free: make one at <a href="https://aistudio.google.com/app/apikey">aistudio.google.com/app/apikey</a>, then in SlyOS go to <strong>Memory → gear (top-right) → “API keys &amp; model”</strong>, paste it, and tap <strong>Save &amp; check</strong>. The dot turns <strong style="color:#1FA855">✓ Valid</strong> when it's accepted. You can also add Claude or OpenAI keys the same way.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PERMISSIONS -->
+  <section>
+    <p class="eyebrow">Part 3 · Turn on the powers</p>
+    <h2>Permissions, one by one</h2>
+    <p class="muted">Each unlocks a feature. After any <strong>reinstall</strong>, Android resets these — you'll need to re-grant them.</p>
+    <div class="row2" style="margin-top:24px">
+      <div class="card">
+        <h3>🔔 Notification access <span class="tag">Now feed + auto-reply</span></h3>
+        <p class="muted">Lets SlyOS see and reply to your messages. This is the #1 thing people forget.</p>
+        <span class="path">Settings → search “Notification access” → SlyOS → on → Allow</span>
+        <p class="muted" style="margin-top:10px">Manual: Settings → Apps → ⋮ → Special access → Notification access → SlyOS.</p>
+      </div>
+      <div class="card">
+        <h3>♿ Accessibility <span class="tag">Action layer</span></h3>
+        <p class="muted">Lets SlyOS tap/scroll on your behalf and read the current screen. It never taps anything final (Send/Pay/Post) without you.</p>
+        <span class="path">Settings → Accessibility → Installed apps → SlyOS → on</span>
+      </div>
+      <div class="card">
+        <h3>🪟 Display over other apps <span class="tag">Nav panel</span></h3>
+        <p class="muted">Lets the SlyOS nav bar float over other apps (rolling out).</p>
+        <span class="path">Settings → search “Appear on top” / “Display over other apps” → SlyOS → on</span>
+      </div>
+      <div class="card">
+        <h3>🔗 Connect Google <span class="tag">Docs · Gmail · Drive backup</span></h3>
+        <p class="muted">Enables real Google Docs/Sheets/Slides, Gmail send, calendar, and the all-important <strong>brain backup to Drive</strong>.</p>
+        <span class="path">SlyOS → Memory → Connections → Connect</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUP -->
+  <section>
+    <p class="eyebrow">Part 4 · Protect your brain</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Turn on brain backup</h3>
+        <p class="muted">Your on-device memory is precious — back it up so a reinstall or new phone never loses it. After connecting Google, open <strong>Memory → gear → scroll to “🛡 Brain backup” (bottom) → Back up now</strong>. You want to see “Drive ✓”. Automatic backup is on by default and also drops a copy in your Downloads folder.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="faq">
+    <p class="eyebrow">Troubleshooting</p>
+    <h2>Common issues</h2>
+    <details>
+      <summary>My Now feed is empty / notifications stopped showing</summary>
+      <p>This almost always means <strong>Notification access got turned off</strong> — Android revokes it whenever the app is reinstalled or updated a certain way. Re-enable it: Settings → search “Notification access” → turn SlyOS back on. Then text yourself; it should appear within a second.</p>
+    </details>
+    <details>
+      <summary>I updated the app but nothing looks different</summary>
+      <p>The new version installed, but the app was still running the old screen from memory. Fully close SlyOS (recents → swipe it away, or Settings → Apps → SlyOS → Force stop) and reopen it. The Memory settings screen shows a small “build” badge at the top so you can confirm you're on the latest.</p>
+    </details>
+    <details>
+      <summary>Is my API key actually working?</summary>
+      <p>Open Memory → gear → “API keys &amp; model” and look at the colored dot next to each key: grey “Not set,” orange “Checking…,” green “✓ Valid,” or red “✗ Invalid.” SlyOS pings the provider to confirm, so you're never guessing. If it's red, re-copy the key (no extra spaces) and Save &amp; check again.</p>
+    </details>
+    <details>
+      <summary>Where do my API keys go? Are they safe?</summary>
+      <p>Keys are stored only on your phone and are never uploaded to us. All your keys live in one place: Memory → gear → “API keys &amp; model.”</p>
+    </details>
+    <details>
+      <summary>I got a new phone / reinstalled — how do I get my brain back?</summary>
+      <p>Reconnect Google, then Memory → gear → “🛡 Brain backup” (bottom) → <strong>Restore from Drive</strong>. It downloads your latest backup and relaunches. (This only works if backup was on before — it's on by default.)</p>
+    </details>
+    <details>
+      <summary>Auto-replies aren't sending (or are only drafting)</summary>
+      <p>By design, unknown/first-time senders are <strong>drafted, not sent</strong>, and each app has its own level (off / draft / full) under Memory → gear → “Per-app responses.” Set an app to “full” to allow auto-send. Risky drafts (links, money, secrets) are always held for your review.</p>
+    </details>
+    <details>
+      <summary>How do I go back to my normal launcher?</summary>
+      <p>It's fully reversible: Settings → Default apps → Home app → pick your old launcher.</p>
+    </details>
+  </section>
+
+  <section style="text-align:center"><a class="btn" href="/#get">↓ Download SlyOS</a></section>
+
+  <footer>
+    <div style="margin-bottom:12px">
+      <a href="/">Home</a><a href="/features.html">Features</a>
+      <a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="mailto:support@belto.world">Contact</a>
+    </div>
+    <strong>SlyOS</strong> by Belto · everything stays on-device, on your own key · reversible anytime via Settings → Default apps → Home. © 2026 Belto.
+  </footer>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
