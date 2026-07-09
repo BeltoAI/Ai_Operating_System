@@ -27,10 +27,12 @@ object BrainContext {
     private fun rankedRecall(ctx: Context, q: String, budgetChars: Int): String {
         data class Cand(val text: String, val score: Float)
         val cands = ArrayList<Cand>()
-        fun fmt(role: String, contact: String, body: String) =
+        val dfmt = java.text.SimpleDateFormat("MMM d yyyy", java.util.Locale.getDefault())
+        fun fmt(role: String, contact: String, body: String, ts: Long = 0L) =
+            (if (ts > 0) "[" + dfmt.format(java.util.Date(ts)) + "] " else "") +
             (if (role == "me") "you→$contact" else contact) + ": " + body.trim()
         try { VectorStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
-        try { MessageStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), 0.62f)) } } catch (e: Exception) {}
+        try { MessageStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body, it.ts), 0.62f)) } } catch (e: Exception) {}
         if (cands.isEmpty()) return ""
         // Dedupe by normalized text, keeping the highest score.
         val best = HashMap<String, Cand>()
@@ -95,12 +97,20 @@ object BrainContext {
             val (from, to) = ExpenseStore.rangeFor("this month")
             "This month — " + ExpenseStore.summaryText(ctx, from, to)
         } else ""
+        // Date questions ("what did I do yesterday / this week / last Tuesday") → pull everything that
+        // flowed through the brain in that window, with times, so the model can answer by date.
+        val win = dateWindow(q)
+        val tf = java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault())
+        val dayLog = if (win != null) MessageStore.between(ctx, win.first, win.second).joinToString("\n") {
+            "[" + tf.format(java.util.Date(it.ts)) + "] " + (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body.trim()
+        }.take(1700) else ""
 
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)
+            if (dayLog.isNotBlank()) append("\nWhat flowed through your brain in the time window you asked about (newest first, with times — use these to answer the date question):\n").append(dayLog)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)
@@ -118,6 +128,35 @@ object BrainContext {
                 append("\n").append(it).append(" (Use this when the user asks what jobs they applied to or prepared.)")
             }
             append("\nCurrent time: ").append(now)
+        }
+    }
+
+    private val WEEKDAYS = listOf("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
+
+    /** Parse a date window from a question ("yesterday", "this week", "last Tuesday"…). null if none. */
+    private fun dateWindow(q: String): Pair<Long, Long>? {
+        val ql = q.lowercase()
+        val c = java.util.Calendar.getInstance()
+        c.set(java.util.Calendar.HOUR_OF_DAY, 0); c.set(java.util.Calendar.MINUTE, 0)
+        c.set(java.util.Calendar.SECOND, 0); c.set(java.util.Calendar.MILLISECOND, 0)
+        val startToday = c.timeInMillis
+        val day = 24L * 60 * 60 * 1000
+        return when {
+            Regex("\\byesterday\\b").containsMatchIn(ql) -> (startToday - day) to startToday
+            Regex("\\btoday\\b").containsMatchIn(ql) -> startToday to (startToday + day)
+            Regex("\\blast week\\b").containsMatchIn(ql) -> (startToday - 14 * day) to (startToday - 7 * day)
+            Regex("\\bthis week\\b").containsMatchIn(ql) -> (startToday - 7 * day) to (startToday + day)
+            Regex("\\b(this|last|past) month\\b").containsMatchIn(ql) -> (startToday - 31 * day) to (startToday + day)
+            else -> {
+                val idx = WEEKDAYS.indexOfFirst { Regex("\\b(on |last )?$it\\b").containsMatchIn(ql) }
+                if (idx < 0) null else {
+                    val todayDow = c.get(java.util.Calendar.DAY_OF_WEEK) - 1   // 0=Sun..6=Sat
+                    var back = (todayDow - idx + 7) % 7
+                    if (back == 0) back = 7
+                    val start = startToday - back * day
+                    start to (start + day)
+                }
+            }
         }
     }
 }
