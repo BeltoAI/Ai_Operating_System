@@ -214,7 +214,7 @@ object AgentClient {
                 "to see big, BEGIN \"say\" with exactly one tag, then the sentence. Tags: " +
                 "[[card:score;TeamA;scoreA;TeamB;scoreB]] for a game result, " +
                 "[[card:stat;LABEL;BIG;UNIT;subtitle]] for weather/a price/a number, " +
-                "[[card:stock;TICKER;$PRICE;+X%;subtitle]] for a stock move, " +
+                "[[card:stock;TICKER;\$PRICE;+X%;subtitle]] for a stock move, " +
                 "[[card:quote;the quote;Author]] for a quotation, [[card:yesno;yes;short why]] for yes/no. " +
                 "ONLY when there's a clear headline value; otherwise omit the tag entirely. ")
             append("Installed apps: ").append(apps.joinToString(", ")).append(". ")
