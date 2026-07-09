@@ -23,42 +23,49 @@ object JobDoc {
     private const val PAGE_H = 1123   // A4 height @ ~96dpi
     private const val AUTHORITY = "com.agentos.shell.fileprovider"
 
-    /** Render [html] to a PDF file in the cache. Runs on the main thread; returns via [onDone]. */
+    /** Render [html] to a PDF file in the cache. Runs on the main thread; returns via [onDone]. Guaranteed
+     *  to call [onDone] exactly once — even if the WebView never fires onPageFinished — so the caller can
+     *  never hang. */
     fun htmlToPdf(ctx: Context, html: String, baseName: String, onDone: (File?) -> Unit) {
         Handler(Looper.getMainLooper()).post {
             try {
                 val wv = WebView(ctx)
                 wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)   // draw-to-canvas needs software layer
                 wv.settings.javaScriptEnabled = false
+                var finished = false
+                fun render() {
+                    if (finished) return
+                    finished = true
+                    try {
+                        wv.measure(
+                            View.MeasureSpec.makeMeasureSpec(PAGE_W, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                        wv.layout(0, 0, PAGE_W, wv.measuredHeight)
+                        val contentH = wv.measuredHeight.coerceAtLeast(PAGE_H)
+                        val doc = PdfDocument()
+                        var y = 0; var page = 1
+                        while (y < contentH && page <= 12) {
+                            val info = PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, page).create()
+                            val p = doc.startPage(info)
+                            p.canvas.save(); p.canvas.translate(0f, -y.toFloat())
+                            wv.draw(p.canvas); p.canvas.restore()
+                            doc.finishPage(p)
+                            y += PAGE_H; page++
+                        }
+                        val dir = File(ctx.cacheDir, "jobdocs").apply { mkdirs() }
+                        val f = File(dir, "$baseName.pdf")
+                        FileOutputStream(f).use { doc.writeTo(it) }
+                        doc.close()
+                        onDone(if (f.length() > 0) f else null)
+                    } catch (e: Exception) { onDone(null) }
+                }
                 wv.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        view.postDelayed({
-                            try {
-                                view.measure(
-                                    View.MeasureSpec.makeMeasureSpec(PAGE_W, View.MeasureSpec.EXACTLY),
-                                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                                view.layout(0, 0, PAGE_W, view.measuredHeight)
-                                val contentH = view.measuredHeight.coerceAtLeast(PAGE_H)
-                                val doc = PdfDocument()
-                                var y = 0; var page = 1
-                                while (y < contentH && page <= 12) {
-                                    val info = PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, page).create()
-                                    val p = doc.startPage(info)
-                                    p.canvas.save(); p.canvas.translate(0f, -y.toFloat())
-                                    view.draw(p.canvas); p.canvas.restore()
-                                    doc.finishPage(p)
-                                    y += PAGE_H; page++
-                                }
-                                val dir = File(ctx.cacheDir, "jobdocs").apply { mkdirs() }
-                                val f = File(dir, "$baseName.pdf")
-                                FileOutputStream(f).use { doc.writeTo(it) }
-                                doc.close()
-                                onDone(f)
-                            } catch (e: Exception) { onDone(null) }
-                        }, 400)
-                    }
+                    override fun onPageFinished(view: WebView, url: String?) { view.postDelayed({ render() }, 400) }
                 }
                 wv.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                // Failsafe: onPageFinished can silently not fire on some devices — render anyway after 3.5s
+                // so the flow always completes instead of hanging on "Preparing PDFs…".
+                Handler(Looper.getMainLooper()).postDelayed({ render() }, 3500)
             } catch (e: Exception) { onDone(null) }
         }
     }
