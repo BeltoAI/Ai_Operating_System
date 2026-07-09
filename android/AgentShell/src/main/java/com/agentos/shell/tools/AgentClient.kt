@@ -156,28 +156,40 @@ object AgentClient {
         val tier = when (model) { OPUS -> ModelRouter.Tier.HEAVY; VOICE -> ModelRouter.Tier.STANDARD; else -> ModelRouter.Tier.CHEAP }
         val needVision = messagesHaveImage(messages)
         val needWeb = tools != null
-        val choice = if (ctx != null) ModelRouter.choose(ctx, tier, needVision, needWeb) else null
+        val choices = if (ctx != null) ModelRouter.chooseAll(ctx, tier, needVision, needWeb) else emptyList()
 
         Busy.start()   // drives the global "generating" animation; every model call is covered here
         return try {
-            if (choice == null) {
+            if (choices.isEmpty()) {
                 // No keys via context (e.g. very early startup) — use the legacy Anthropic path.
                 val k = key()
                 if (k.isBlank()) return -1 to "No API key set. Open Brain → settings and add a model key (Claude, OpenAI, or free Gemini)."
                 val r = LlmProviders.call("anthropic", model, k, system, messages, maxTokens, readMs, tools)
                 return r.code to r.text
             }
-            // Web search: Anthropic uses webTool(); Gemini uses Google Search grounding (both handled in
-            // LlmProviders). Only OpenAI has no built-in browse tool, so drop tools there.
-            val effTools = if (choice.provider == "openai") null else tools
-            val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
-            if (r.code == 200 && ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
-            // Free Gemini tier: warn the user when we hit the daily/rate quota so it isn't a silent failure.
-            if (ctx != null && choice.provider == "gemini" &&
-                (r.code == 429 || r.text.contains("RESOURCE_EXHAUSTED", true) || r.text.contains("quota", true)))
-                GeminiLimit.hit(ctx)
-            Log.i("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} in=${r.inTokens} out=${r.outTokens}")
-            r.code to r.text
+            // Try providers best-first; on a provider-level failure (network / 5xx / quota / auth) fall
+            // through to the next keyed provider so quality + uptime stay consistent across models.
+            var last: Pair<Int, String> = -1 to "network error"
+            for (choice in choices) {
+                // Web search: Anthropic uses webTool(); Gemini uses Google Search grounding. OpenAI has no
+                // built-in browse tool, so drop tools there.
+                val effTools = if (choice.provider == "openai") null else tools
+                val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+                if (r.code == 200) {
+                    if (ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+                    Log.i("SlyOS", "llm ${choice.provider}/${choice.model} OK in=${r.inTokens} out=${r.outTokens}")
+                    return 200 to r.text
+                }
+                if (ctx != null && choice.provider == "gemini" &&
+                    (r.code == 429 || r.text.contains("RESOURCE_EXHAUSTED", true) || r.text.contains("quota", true)))
+                    GeminiLimit.hit(ctx)
+                Log.w("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} — trying next provider")
+                last = r.code to r.text
+                // A 400 is a malformed request (image too large, bad body) — every provider would reject it,
+                // so don't burn the others; anything else (auth/quota/5xx/network) is worth a fallback.
+                if (r.code == 400) break
+            }
+            last
         } catch (e: Exception) {
             -1 to (e.message ?: "network error")
         } finally {

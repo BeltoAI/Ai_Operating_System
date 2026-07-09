@@ -84,4 +84,43 @@ object ModelRouter {
         }
         return null
     }
+
+    /**
+     * The FULL ordered list of usable provider+model choices for a task — best first, capability-respecting
+     * choices ahead of best-effort ones. The caller tries them in order, so if the preferred provider is
+     * down / quota-exhausted / rejecting the key, SlyOS transparently falls back to another keyed provider.
+     * This is what makes quality/uptime consistent no matter which models you've configured.
+     */
+    fun chooseAll(ctx: Context?, tier: Tier, needVision: Boolean, needWeb: Boolean): List<Choice> {
+        if (ctx == null) return emptyList()
+        val geminiKey = MemoryStore.geminiKey(ctx)
+        val budget = MemoryStore.monthlyBudget(ctx)
+        val budgetCapped = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget && geminiKey.isNotBlank() && !needWeb
+        val tierPref = MemoryStore.tierProvider(ctx, tier)
+        val preferred = MemoryStore.preferredProvider(ctx)
+        val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
+        val order = (listOf(if (budgetCapped) "gemini" else "", cheapFree, tierPref, preferred) + PROVIDERS)
+            .filter { it.isNotBlank() }.distinct()
+        val out = ArrayList<Choice>()
+        fun modelFor(p: String): String? {
+            val ov = MemoryStore.modelOverride(ctx, p, tier)
+            return if (ov.isNotBlank()) ov else DEFAULT_MODELS[p]?.get(tier)
+        }
+        // Capability-respecting choices first (best quality for the task)…
+        for (p in order) {
+            val k = keyFor(ctx, p); if (k.isBlank()) continue
+            if (needWeb && p !in WEB_PROVIDERS) continue
+            if (needVision && p !in VISION_PROVIDERS) continue
+            val m = modelFor(p) ?: continue
+            out.add(Choice(p, m, k))
+        }
+        // …then any other keyed provider as a fallback (better a degraded answer than none).
+        for (p in order) {
+            if (out.any { it.provider == p }) continue
+            val k = keyFor(ctx, p); if (k.isBlank()) continue
+            val m = modelFor(p) ?: continue
+            out.add(Choice(p, m, k))
+        }
+        return out
+    }
 }

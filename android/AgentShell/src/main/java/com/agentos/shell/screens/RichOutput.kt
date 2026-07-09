@@ -46,6 +46,11 @@ object RichParse {
     private val score = Regex("([A-Z][A-Za-z.&'0-9 ]{1,20}?)\\s+(\\d{1,3})\\s*[-–—]\\s*(\\d{1,3})\\s+([A-Z][A-Za-z.&'0-9 ]{1,20})")
     private val gameWord = Regex("(?i)\\b(beat|defeat|final|score|won|win|vs\\.?|versus|match|game|quarter|half[- ]?time|inning|goals?|touchdown|nba|nfl|mlb|nhl|premier league|la liga)\\b")
     private val stopTickers = setOf("THE", "AND", "FOR", "USD", "CEO", "ETF", "IPO", "USA", "GDP", "API", "AI", "PM", "AM", "EPS", "YOY", "Q1", "Q2", "Q3", "Q4")
+    // "3 days until launch", "2 weeks left" — a clear time-to-event headline.
+    private val countdown = Regex("(?i)\\b(\\d{1,4})\\s*(day|days|week|weeks|hour|hours|month|months)\\s+(?:until|till|til|to go|left|remaining|away|before)\\b")
+    // A rating like "4.5 out of 5" or "9/10" — only trusted when the text is clearly about a rating.
+    private val ratingCtx = Regex("(?i)\\b(star|stars|rating|rated|review|reviews)\\b")
+    private val rating = Regex("\\b(\\d(?:\\.\\d)?)\\s*(?:/|out of)\\s*(\\d{1,2})\\b")
 
     /** A hero card for [reply], or null to fall back to plain text. */
     fun detect(reply: String): Hero? {
@@ -55,6 +60,18 @@ object RichParse {
         temp.find(r)?.takeIf { it.range.first < 60 }?.let { m ->
             val (t, u) = m.destructured
             return Hero.Metric("Weather", "$t°${u.uppercase()}", "", firstSentence(r))
+        }
+
+        // Countdown — "3 days until launch", "2 weeks left".
+        countdown.find(r)?.takeIf { it.range.first < 90 }?.let { m ->
+            val (num, unit) = m.destructured
+            return Hero.Metric("Countdown", num, unit.lowercase(), firstSentence(r))
+        }
+
+        // Rating — only when the text clearly talks about a rating/review (avoids "5/10 people").
+        if (ratingCtx.containsMatchIn(r)) rating.find(r)?.let { m ->
+            val (a, b) = m.destructured
+            return Hero.Metric("Rating", "$a/$b", "", firstSentence(r))
         }
 
         // Game score — only when the text clearly reads like a match result (avoids "iPhone 15 - 128 GB").
