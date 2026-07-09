@@ -56,6 +56,70 @@ private fun SectionTitle(t: String) {
     Spacer(Modifier.height(14.dp))
 }
 
+/** A single big-number stat tile (messages, people, voice samples, indexed…). Lights up in accent when
+ *  it holds real data, so you can see at a glance what's actually in the brain. */
+@Composable
+private fun StatTile(value: String, label: String, active: Boolean) {
+    Column(
+        Modifier.padding(end = 10.dp).clip(RoundedCornerShape(14.dp))
+            .background(if (active) T.accentSoft else T.bg).padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = if (active) T.accent else T.inkFaint)
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = T.caption, color = T.inkSoft)
+    }
+}
+
+/** A yes/no capability badge — ✓ when SlyOS is actually using that upload, ○ when it isn't there yet. */
+@Composable
+private fun BrainBadge(label: String, on: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+            .background(if (on) T.accentSoft else T.hairline).padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(if (on) "✓" else "○", fontSize = T.caption, color = if (on) T.accent else T.inkFaint)
+        Spacer(Modifier.width(6.dp))
+        Text(label, fontSize = T.caption, color = if (on) T.accent else T.inkFaint)
+    }
+}
+
+/** "What's in your brain" — a live, at-a-glance panel of exactly what's been uploaded and whether it's in
+ *  use. [refreshKey] changes whenever an import finishes, forcing the counts to re-read. */
+@Composable
+private fun BrainStatsCard(refreshKey: String) {
+    val ctx = LocalContext.current
+    val msgs = try { com.agentos.shell.tools.MessageStore.count(ctx) } catch (e: Exception) { 0 }
+    val ppl = try { com.agentos.shell.tools.MessageStore.peopleCount(ctx) } catch (e: Exception) { 0 }
+    val samples = try { MemoryStore.voiceSamples(ctx).size } catch (e: Exception) { 0 }
+    val indexed = try { com.agentos.shell.tools.VectorStore.embeddedCount(ctx) } catch (e: Exception) { 0 }
+    val pending = try { com.agentos.shell.tools.VectorStore.pendingCount(ctx) } catch (e: Exception) { 0 }
+    val voiceSet = MemoryStore.styleProfile(ctx).isNotBlank()
+    val doc = try { com.agentos.shell.tools.KnowledgeStore.name(ctx) } catch (e: Exception) { "" }
+    if (refreshKey.isEmpty()) { /* refreshKey only drives recomposition */ }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+        Text("What's in your brain", fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            StatTile("$msgs", "messages", msgs > 0)
+            StatTile("$ppl", "people", ppl > 0)
+            StatTile("$samples", "voice samples", samples > 0)
+            StatTile("$indexed", if (pending > 0) "indexed · $pending queued" else "indexed", indexed > 0)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            BrainBadge("Writing voice learned", voiceSet)
+            BrainBadge("Document loaded", doc.isNotBlank())
+            BrainBadge("Semantic recall on", indexed > 0)
+        }
+        if (doc.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text("Loaded document: $doc", fontSize = T.caption, color = T.inkFaint)
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+}
+
 /** One API key: tap the row to reveal a paste field, then Save & check confirms it against the provider
  *  and shows a live Valid / Invalid dot — so you're never guessing whether a paste actually worked. */
 @Composable
@@ -222,7 +286,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v4 · keys unified & validated", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v5 · keys unified + brain stats", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -652,6 +716,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         SectionTitle("Brain data")
+        BrainStatsCard(importStatus + "|" + brainMsg + "|" + voiceStatus + "|" + sampleCount)
         Text("Feed ANY file into your brain (PDF, txt, md, csv…), or back the whole brain up and restore it.",
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
