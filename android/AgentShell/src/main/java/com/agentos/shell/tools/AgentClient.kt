@@ -203,8 +203,9 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, documents, none. ")
             append("Use faces when the user wants to recognize/identify a person, asks 'who is this', or wants to add someone to recognize. ")
+            append("Use documents when the user wants to scan/file a document, receipt, invoice, ID or form, or asks to see their scanned documents. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -310,6 +311,21 @@ object AgentClient {
         val sys = persona(memory) + "Answer the question about the photo concisely, in your own natural voice."
         val (code, text) = callContent(sys, content, 600)
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
+    }
+
+    /** Universal form/document scan: extract the category + key fields from ANY document photo (receipt,
+     *  invoice, ID, form, letter…). Returns parsed JSON {category,title,summary,fields{}} or null. */
+    fun extractForm(imageB64: String): JSONObject? {
+        if (imageB64.isBlank()) return null
+        val prompt = "You are a document scanner. Look at this document photo and return ONLY compact JSON " +
+            "(no prose, no markdown) of the form: " +
+            "{\"category\":\"receipt|invoice|id|form|letter|statement|other\",\"title\":\"short title\"," +
+            "\"summary\":\"one-line summary\",\"fields\":{\"key\":\"value\"}}. In fields, capture the important " +
+            "details you can read: dates, names, amounts, totals, tax, account/ID numbers, addresses, due dates."
+        val out = askVision(prompt, listOf(imageB64), "")
+        val start = out.indexOf('{'); val end = out.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        return try { JSONObject(out.substring(start, end + 1)) } catch (e: Exception) { null }
     }
 
     /** Match a freshly-captured face against a roster of known people (each a name + reference photo).

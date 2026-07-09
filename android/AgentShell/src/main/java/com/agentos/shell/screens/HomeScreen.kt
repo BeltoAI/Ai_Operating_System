@@ -111,6 +111,7 @@ fun HomeScreen(
     onSetMission: (String) -> Unit = {},
     onLook: () -> Unit = {},
     onFaces: () -> Unit = {},
+    onDocs: () -> Unit = {},
     onShop: (String) -> Unit = {},
     onInvest: (String) -> Unit = {},
     onExpenses: () -> Unit = {},
@@ -318,6 +319,12 @@ fun HomeScreen(
             if (result.actions.any { it.type == "faces" }) {
                 thinking = false
                 onFaces()
+                return@launch
+            }
+            // documents → scan a form/receipt/ID; the model reads fields and auto-files it in a folder.
+            if (result.actions.any { it.type == "documents" || it.type == "scan_doc" }) {
+                thinking = false
+                onDocs()
                 return@launch
             }
             // operate → the action layer drives an app by tapping the screen (with STOP + stop-before-send).

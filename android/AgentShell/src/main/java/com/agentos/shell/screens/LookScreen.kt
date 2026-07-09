@@ -65,6 +65,23 @@ import java.util.Locale
 private val SCRIM = Color(0xCC141210)
 private val ACC = Color(0xFFE8642C)
 
+/** A uniform, clean pill button for the camera overlay — same size/shape everywhere, single line so it
+ *  never wraps or jumps. */
+@Composable
+private fun CamPill(label: String, active: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    Text(
+        label,
+        color = if (active) ACC else Color.White,
+        fontSize = T.small,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (active) Color(0x33E8642C) else SCRIM)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    )
+}
+
 /**
  * "Look" — full-frame live camera. Tap an object: on-device ML Kit finds it and draws a real box
  * around it, then SlyOS identifies it. Mic for spoken follow-ups. One tap to shop / map / search.
@@ -290,20 +307,16 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("← Back", color = Color.White, fontSize = T.small,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { onBack() }.padding(horizontal = 14.dp, vertical = 8.dp))
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CamPill("Back") { onBack() }
             Spacer(Modifier.weight(1f))
-            Text("🙂 Who's this?", color = Color.White, fontSize = T.small,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM)
-                    .clickable(enabled = !busy && granted) { recognizeFace() }.padding(horizontal = 12.dp, vertical = 8.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("⟲ Flip", color = Color.White, fontSize = T.small,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM)
-                    .clickable { lensBack = !lensBack }.padding(horizontal = 12.dp, vertical = 8.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (auto) "Auto ●" else "Auto ○", color = if (auto) ACC else Color.White, fontSize = T.small,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { auto = !auto }.padding(horizontal = 14.dp, vertical = 8.dp))
+            CamPill("Who's this", enabled = !busy && granted) { recognizeFace() }
+            CamPill("Flip") { lensBack = !lensBack }
+            CamPill("Auto", active = auto) { auto = !auto }
         }
         if (result == null && answer.isBlank())
             Text(if (busy) "Looking…" else "Tap any object to identify it", color = Color.White, fontSize = T.small,
