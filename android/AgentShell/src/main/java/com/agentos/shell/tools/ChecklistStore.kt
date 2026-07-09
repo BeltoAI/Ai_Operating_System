@@ -79,4 +79,11 @@ object ChecklistStore {
 
     fun clearDone(ctx: Context) =
         save(ctx, load(ctx).filterNot { it.done })
+
+    /** Remove EVERY item. Returns how many were cleared (for honest feedback + brain logging). */
+    fun clearAll(ctx: Context): Int {
+        val n = load(ctx).size
+        save(ctx, emptyList())
+        return n
+    }
 }

@@ -117,6 +117,15 @@ object ToolRouter {
                 "remind" -> remind(ctx, arg)
                 "trade" -> executeTrade(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
+                "checklist_clear" -> {
+                    // Actually clear (all, or just completed) AND record it in the brain, so what the AI says
+                    // matches reality — the executed task always goes through the brain.
+                    val doneOnly = arg.contains("done", true) || arg.contains("complet", true) || arg.contains("finish", true)
+                    val msg = if (doneOnly) { ChecklistStore.clearDone(ctx); "Cleared completed checklist items." }
+                              else { val n = ChecklistStore.clearAll(ctx); "Cleared your checklist ($n item${if (n == 1) "" else "s"})." }
+                    try { MessageStore.insertOne(ctx, "Checklist", "Checklist", "system", "system", msg) } catch (e: Exception) {}
+                    msg
+                }
                 "pin_app" -> {
                     val app = installedApps(ctx).firstOrNull { it.label.lowercase().contains(arg.lowercase()) }
                     if (app != null) { ShortcutStore.add(ctx, "app", app.label, app.pkg); "Pinned ${app.label} to Home." }
