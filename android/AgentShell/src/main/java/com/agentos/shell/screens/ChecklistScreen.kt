@@ -28,6 +28,8 @@ fun ChecklistScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val items = remember { mutableStateListOf<ChecklistStore.Item>().apply { ChecklistStore.prune(ctx); addAll(ChecklistStore.load(ctx)) } }
     var text by remember { mutableStateOf("") }
+    var editingId by remember { mutableStateOf<Long?>(null) }
+    var editText by remember { mutableStateOf("") }
     fun refresh() { items.clear(); items.addAll(ChecklistStore.load(ctx)) }
 
     Column(modifier) {
@@ -42,7 +44,7 @@ fun ChecklistScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 textStyle = TextStyle(color = T.ink, fontSize = T.body),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
-                    ChecklistStore.add(ctx, text); text = ""; refresh()
+                    ChecklistStore.addManual(ctx, text); text = ""; refresh()
                 }),
                 modifier = Modifier.weight(1f)
                     .clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
@@ -54,7 +56,7 @@ fun ChecklistScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Text("Add", fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                    .clickable { ChecklistStore.add(ctx, text); text = ""; refresh() }
+                    .clickable { ChecklistStore.addManual(ctx, text); text = ""; refresh() }
                     .padding(horizontal = 16.dp, vertical = 10.dp))
         }
 
@@ -75,15 +77,28 @@ fun ChecklistScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         contentAlignment = Alignment.Center
                     ) { if (it2.done) Text("✓", color = T.bgElevated, fontSize = T.caption) }
                     Spacer(Modifier.width(12.dp))
-                    Text(
-                        it2.text, fontSize = T.body,
-                        color = if (it2.done) T.inkFaint else T.ink,
-                        textDecoration = if (it2.done) TextDecoration.LineThrough else null,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text("✕", fontSize = T.small, color = T.inkFaint,
-                        modifier = Modifier.clickable { ChecklistStore.remove(ctx, it2.id); refresh() }
-                            .padding(start = 10.dp))
+                    if (editingId == it2.id) {
+                        BasicTextField(
+                            value = editText, onValueChange = { editText = it }, singleLine = true,
+                            textStyle = TextStyle(color = T.ink, fontSize = T.body),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { ChecklistStore.edit(ctx, it2.id, editText); editingId = null; refresh() }),
+                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(T.bgElevated).padding(8.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.clickable { ChecklistStore.edit(ctx, it2.id, editText); editingId = null; refresh() })
+                    } else {
+                        Text(
+                            it2.text, fontSize = T.body,
+                            color = if (it2.done) T.inkFaint else T.ink,
+                            textDecoration = if (it2.done) TextDecoration.LineThrough else null,
+                            modifier = Modifier.weight(1f).clickable { editingId = it2.id; editText = it2.text }   // tap to edit
+                        )
+                        Text("✕", fontSize = T.small, color = T.inkFaint,
+                            modifier = Modifier.clickable { ChecklistStore.remove(ctx, it2.id); refresh() }
+                                .padding(start = 10.dp))
+                    }
                 }
                 Hairline()
             }

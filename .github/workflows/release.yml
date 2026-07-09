@@ -1,0 +1,48 @@
+name: Build & publish latest APK
+
+# Every push to main rebuilds the keyless APK and refreshes the "latest" GitHub Release asset
+# (SlyOS.apk). The website's download button points at releases/latest/download/SlyOS.apk — a stable
+# link — so people ALWAYS get the newest build with zero manual steps.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed to create/update the release
+
+concurrency:
+  group: latest-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build APK (keyless — no apikey.properties in CI, each user brings their own key)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :AgentShell:assembleDebug --no-daemon
+          cp AgentShell/build/outputs/apk/debug/AgentShell-debug.apk "$GITHUB_WORKSPACE/SlyOS.apk"
+
+      - name: Publish to the rolling "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A single rolling release tagged "latest" — always the newest build, stable download URL.
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest "$GITHUB_WORKSPACE/SlyOS.apk" \
+            --title "SlyOS — latest build" \
+            --notes "Auto-published from main ($(date -u +%Y-%m-%d\ %H:%M) UTC). Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted."

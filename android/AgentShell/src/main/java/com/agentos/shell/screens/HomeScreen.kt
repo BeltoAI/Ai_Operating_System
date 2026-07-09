@@ -122,6 +122,8 @@ fun HomeScreen(
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    var replyDragX by remember { mutableStateOf(0f) }     // swipe the answer card: left=dismiss, right=open/Google
+    var lastQuery by remember { mutableStateOf("") }
     var rememberSuggestion by remember { mutableStateOf("") }
     var pendingConfirm by remember { mutableStateOf<List<com.agentos.shell.tools.AgentAction>?>(null) }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
@@ -180,7 +182,7 @@ fun HomeScreen(
     val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
-        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null
+        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f
         scope.launch {
             // If photos are attached, this is an image task (vision Q&A or PDF).
             if (photos.isNotEmpty()) {
@@ -585,9 +587,27 @@ fun HomeScreen(
 
         if (thinking || reply.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
+            // Tinder-style: swipe the answer card LEFT to dismiss, RIGHT to open its link / Google the question.
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .offset { androidx.compose.ui.unit.IntOffset(replyDragX.toInt(), 0) }
+                    .let { m -> if (thinking) m else m.pointerInput(reply) {
+                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                            onDragEnd = {
+                                when {
+                                    replyDragX < -130f -> { reply = ""; rememberSuggestion = "" }
+                                    replyDragX > 130f -> {
+                                        val url = Regex("https?://\\S+").find(reply)?.value?.trimEnd('.', ')', ',')
+                                            ?: "https://www.google.com/search?q=" + android.net.Uri.encode(lastQuery.ifBlank { reply.take(60) })
+                                        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                                    }
+                                }
+                                replyDragX = 0f
+                            },
+                            onDragCancel = { replyDragX = 0f }
+                        ) { _, dx -> replyDragX = (replyDragX + dx).coerceIn(-320f, 320f) }
+                    } }
                     .clip(RoundedCornerShape(16.dp))
                     .background(T.bgElevated)
                     .padding(16.dp)

@@ -42,6 +42,18 @@ android {
         buildConfigField("String", "GOOGLE_REDIRECT_SCHEME", "\"$googleRedirectScheme\"")
         manifestPlaceholders["googleRedirectScheme"] = googleRedirectScheme
     }
+    // Consistent signing across every machine AND CI, so a newer APK always installs OVER the old one as
+    // an update (no uninstall needed). This is the standard Android DEBUG key (password "android") — it
+    // carries no secrecy value, it just fixes the signature so releases are interchangeable. Committed on
+    // purpose. (For a Play-Store-grade release key, override via CI secrets instead.)
+    signingConfigs {
+        val ks = rootProject.file("debug.keystore")
+        if (ks.exists()) {
+            getByName("debug") {
+                storeFile = ks; storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+            }
+        }
+    }
     buildFeatures {
         compose = true
         buildConfig = true

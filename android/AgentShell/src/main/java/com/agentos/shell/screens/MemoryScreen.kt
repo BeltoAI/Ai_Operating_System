@@ -242,6 +242,21 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
             decorationBox = { inner -> if (finnhub.isEmpty()) Text("Finnhub API key", fontSize = T.small, color = T.inkFaint); inner() })
+        Spacer(Modifier.height(12.dp))
+        // Hands-off investing: let the AI execute practice buy/sell moves itself (else it just proposes them).
+        var handsOff by remember { mutableStateOf(MemoryStore.autoTrade(ctx)) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+            .clickable { handsOff = !handsOff; MemoryStore.setAutoTrade(ctx, handsOff) }.padding(vertical = 6.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Hands-off investing", fontSize = T.small, color = T.ink)
+                Text(if (handsOff) "AI executes practice buy/sell moves on its own (logged + reversible)."
+                     else "AI proposes moves to your Now feed for one-tap confirm (default).",
+                    fontSize = T.caption, color = T.inkFaint)
+            }
+            Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (handsOff) T.accent else T.hairline)) {
+                Box(Modifier.align(if (handsOff) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bgElevated))
+            }
+        }
         Spacer(Modifier.height(16.dp))
 
         SectionTitle("Booking link")
@@ -565,22 +580,26 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         var keyAnthropic by remember { mutableStateOf(MemoryStore.anthropicKey(ctx)) }
         var keyOpenai by remember { mutableStateOf(MemoryStore.openaiKey(ctx)) }
         var prefProvider by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
+        // Card-based: each provider key is its own clean card with a status pill and an in-card field.
         @Composable
         fun keyRow(label: String, value: String, onChange: (String) -> Unit) {
             val set = value.isNotBlank()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
-                if (set) Text("✓ set", fontSize = T.caption, color = androidx.compose.ui.graphics.Color(0xFF1FA855),
-                    modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                        .background(androidx.compose.ui.graphics.Color(0x2229C46A)).padding(horizontal = 8.dp, vertical = 2.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(if (set) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                    Text(if (set) "✓ set" else "not set", fontSize = T.caption,
+                        color = if (set) androidx.compose.ui.graphics.Color(0xFF1FA855) else T.inkFaint,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(if (set) androidx.compose.ui.graphics.Color(0x2229C46A) else T.hairline).padding(horizontal = 8.dp, vertical = 2.dp))
+                }
+                Spacer(Modifier.height(7.dp))
+                BasicTextField(value = value, onValueChange = onChange, singleLine = true,
+                    textStyle = TextStyle(color = if (set) T.inkSoft else T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp),
+                    decorationBox = { inner -> if (value.isEmpty()) Text("paste key…", fontSize = T.small, color = T.inkFaint); inner() })
             }
-            Spacer(Modifier.height(3.dp))
-            BasicTextField(value = value, onValueChange = onChange, singleLine = true,
-                textStyle = TextStyle(color = if (set) T.inkSoft else T.ink, fontSize = T.small),
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                    .background(if (set) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(10.dp),
-                decorationBox = { inner -> if (value.isEmpty()) Text("not set — paste key", fontSize = T.small, color = T.inkFaint); inner() })
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
         }
         keyRow("Gemini key (free tier)", keyGemini) { keyGemini = it; MemoryStore.setGeminiKey(ctx, it) }
         keyRow("Claude / Anthropic key", keyAnthropic) {

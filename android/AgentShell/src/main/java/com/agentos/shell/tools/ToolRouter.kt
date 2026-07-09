@@ -115,6 +115,7 @@ object ToolRouter {
                 "timer" -> setTimer(ctx, arg)
                 "alarm" -> setAlarm(ctx, arg)
                 "remind" -> remind(ctx, arg)
+                "trade" -> executeTrade(ctx, arg)
                 "checklist_add" -> { ChecklistStore.add(ctx, arg); "Added to checklist: \"$arg\"" }
                 "pin_app" -> {
                     val app = installedApps(ctx).firstOrNull { it.label.lowercase().contains(arg.lowercase()) }
@@ -134,7 +135,7 @@ object ToolRouter {
     private val GATED = setOf(
         "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
         "settings", "send_sms", "message", "send_email", "add_event",
-        "create_doc", "create_sheet", "create_slides", "create_pdf"
+        "create_doc", "create_sheet", "create_slides", "create_pdf", "trade"
     )
 
     /**
@@ -156,6 +157,26 @@ object ToolRouter {
             if (m.isNotEmpty()) msgs.add(m)
         }
         return msgs.joinToString("  ")
+    }
+
+    /** Execute a PRACTICE buy/sell at the live price and log it to the brain. arg = {symbol,action,shares,name?}. */
+    private fun executeTrade(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val symbol = o.optString("symbol").trim().uppercase()
+            val action = o.optString("action").trim().lowercase()
+            val shares = o.optDouble("shares", 0.0)
+            if (symbol.isBlank() || shares <= 0) return "Which stock and how many shares?"
+            val price = QuoteClient.quotes(listOf(symbol))[symbol]?.price
+                ?: return "Couldn't get a live price for $symbol right now."
+            val ok = if (action == "sell") TradeStore.sell(ctx, symbol, shares, price)
+                     else TradeStore.buy(ctx, symbol, o.optString("name", symbol), shares, price)
+            if (ok) {
+                MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system",
+                    "${action.replaceFirstChar { it.uppercase() }} ${"%.4f".format(shares)} $symbol @ $${"%.2f".format(price)} (practice)")
+                "${action.replaceFirstChar { it.uppercase() }} ${"%.4f".format(shares)} $symbol at $${"%.2f".format(price)} — done (practice account)."
+            } else if (action == "sell") "You don't hold that many $symbol." else "Not enough practice cash for that."
+        } catch (e: Exception) { "I couldn't place that trade." }
     }
 
     private fun sendSms(ctx: Context, arg: String): String {

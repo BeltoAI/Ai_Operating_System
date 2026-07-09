@@ -52,6 +52,26 @@ class TradeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
             .setContentIntent(pi).setAutoCancel(true).build()
         nm.notify(9931, note)
         try { MessageStore.insertOne(ctx, "Trading", "Trade", "system", "system", "Daily update: " + body.take(600)) } catch (e: Exception) {}
+
+        // Semi-automated trading: the AI suggests concrete moves. Hands-off ON → execute + log; else drop a
+        // one-tap "Confirm / counter" proposal into Now. Everything is logged to the brain + outbox.
+        try {
+            val moves = AgentClient.portfolioMoves(TradeStore.summary(ctx), "$dayStr today", MemoryStore.about(ctx))
+            val handsOff = MemoryStore.autoTrade(ctx)
+            for (m in moves) {
+                val argJson = org.json.JSONObject().put("symbol", m.symbol).put("action", m.action).put("shares", m.shares).toString()
+                if (handsOff) {
+                    val res = com.agentos.shell.tools.ToolRouter.executeAction(ctx, "trade", argJson)
+                    com.agentos.shell.tools.OutboxStore.record(ctx, "Trading", m.symbol, "trade",
+                        "${m.action} ${m.shares} ${m.symbol} — ${m.why}", "auto-traded (hands-off): $res")
+                } else {
+                    com.agentos.shell.tools.ProposalStore.add(ctx,
+                        "${m.action.replaceFirstChar { it.uppercase() }} ${"%.2f".format(m.shares)} ${m.symbol}",
+                        "${m.why} · one-tap (practice)",
+                        listOf(com.agentos.shell.tools.AgentAction("trade", argJson)))
+                }
+            }
+        } catch (e: Exception) {}
         return Result.success()
     }
 }

@@ -118,6 +118,14 @@ object MemoryStore {
     fun bookingLink(ctx: Context): String = prefs(ctx).getString("booking_link", "") ?: ""
     fun setBookingLink(ctx: Context, value: String) = prefs(ctx).edit().putString("booking_link", value.trim()).apply()
 
+    /**
+     * "Hands-off" investing: when ON, the AI may EXECUTE practice buy/sell moves itself (still logged +
+     * reversible), instead of only proposing them for one-tap confirm. Default OFF — money moves are
+     * proposed and confirmed unless the user deliberately opts in.
+     */
+    fun autoTrade(ctx: Context): Boolean = prefs(ctx).getBoolean("auto_trade", false)
+    fun setAutoTrade(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("auto_trade", v).apply()
+
     // P6: OPTIONAL paid add-on — the user's own ElevenLabs key + voice id for CLONED-VOICE agent calls.
     // Never shipped in the APK. When blank, the free tier uses the device's generic on-device TTS voice.
     fun elevenKey(ctx: Context): String = prefs(ctx).getString("eleven_key", "") ?: ""

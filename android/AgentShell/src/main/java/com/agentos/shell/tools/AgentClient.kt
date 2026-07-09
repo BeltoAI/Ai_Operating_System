@@ -1387,6 +1387,41 @@ object AgentClient {
         return if (code == 200) t.trim() else ""
     }
 
+    /** Expert-analyst review of the PRACTICE portfolio — diversification, concentration, risk, one takeaway. */
+    fun analyzePortfolio(summary: String, dayChange: String, memory: String): String {
+        if (summary.isBlank()) return "You don't have a portfolio yet — say \"invest $1000\" to build one."
+        val sys = "You are a seasoned portfolio analyst reviewing the user's PRACTICE (paper) portfolio. Give a sharp, " +
+            "honest review in plain text (no markdown headers): concentration/diversification, sector or asset skew, the " +
+            "biggest risk, what's working, and ONE clear takeaway. 4-6 tight sentences. Never invent prices. It's practice " +
+            "money, so be direct and educational."
+        val user = "PORTFOLIO: $summary\nTODAY: $dayChange\nABOUT ME: " + memory.take(400)
+        val (code, t) = callContent(sys, user, 550, VOICE)
+        return if (code == 200) t.trim() else "Couldn't analyze it just now."
+    }
+
+    data class Move(val symbol: String, val action: String, val shares: Double, val why: String)
+    /** Suggest 0-2 concrete rebalancing moves for the practice portfolio (buy/sell tickers). Conservative. */
+    fun portfolioMoves(summary: String, dayChange: String, memory: String): List<Move> {
+        if (summary.isBlank()) return emptyList()
+        val sys = "You manage a PRACTICE portfolio conservatively. Given the holdings + today's move, suggest 0-2 " +
+            "CONCRETE rebalancing moves ONLY if clearly worthwhile (trim an over-run position, add to a laggard, take a " +
+            "small profit) — otherwise none. Use real, valid tickers already held or obvious diversifiers. Reply ONLY as " +
+            "JSON: {\"moves\":[{\"symbol\":\"NVDA\",\"action\":\"sell\",\"shares\":2,\"why\":\"trim after +40% run\"}]}. Empty array if nothing is worth doing."
+        val user = "PORTFOLIO: $summary\nTODAY: $dayChange\nABOUT ME: " + memory.take(300)
+        val (code, t) = callContent(sys, user, 400, MODEL)
+        if (code != 200) return emptyList()
+        return try {
+            val s = t.indexOf('{'); val e = t.lastIndexOf('}')
+            val arr = JSONObject(t.substring(s, e + 1)).optJSONArray("moves") ?: return emptyList()
+            (0 until arr.length()).mapNotNull {
+                val o = arr.getJSONObject(it)
+                val sym = o.optString("symbol").trim().uppercase(); val act = o.optString("action").trim().lowercase()
+                val sh = o.optDouble("shares", 0.0)
+                if (sym.isBlank() || sh <= 0 || act !in setOf("buy", "sell")) null else Move(sym, act, sh, o.optString("why").take(80))
+            }.take(2)
+        } catch (e: Exception) { emptyList() }
+    }
+
     data class EmailContact(val name: String, val email: String, val company: String)
 
     /** Web-search for real people + work emails relevant to the ask (best-effort; Anthropic web only). */

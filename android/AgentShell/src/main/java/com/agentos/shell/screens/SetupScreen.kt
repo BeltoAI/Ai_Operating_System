@@ -14,8 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -271,8 +273,26 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
 
         if (step == 3) {
             Spacer(Modifier.height(20.dp))
-            Text("After Finish: press Home → choose SlyOS → Always to make it your launcher. " +
-                "Change anything later in Brain → About.", fontSize = T.caption, color = T.inkFaint)
+            Text("Make SlyOS your phone", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+            Text("SlyOS REPLACES your home screen — it's your launcher, not an app you reopen each time. " +
+                "Tap below and choose SlyOS → Always, so it's what you see every time you press Home.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(10.dp))
+            Text("Set SlyOS as my Home app", fontSize = T.small, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable {
+                        try {
+                            val rm = ctx.getSystemService(android.app.role.RoleManager::class.java)
+                            if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME) && !rm.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
+                                (ctx as? android.app.Activity)?.startActivity(rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME))
+                            } else ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
+                        } catch (e: Exception) {
+                            try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS)) } catch (e2: Exception) {}
+                        }
+                    }.padding(vertical = 11.dp))
+            Spacer(Modifier.height(6.dp))
+            Text("If it asks again after Finish: press Home → SlyOS → Always. Change anything later in Brain → About.",
+                fontSize = T.caption, color = T.inkFaint)
         }
         Spacer(Modifier.height(16.dp))
     }

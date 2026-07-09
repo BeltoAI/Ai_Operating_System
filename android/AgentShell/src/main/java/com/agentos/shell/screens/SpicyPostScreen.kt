@@ -68,6 +68,9 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
 
     fun publish() {
         if (post.isBlank()) return
+        // Always copy the post so it's paste-ready even if the target app doesn't prefill (posting never fails).
+        try { (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+            .setPrimaryClip(android.content.ClipData.newPlainText("post", post)) } catch (e: Exception) {}
         com.agentos.shell.tools.MetricsStore.record(ctx, com.agentos.shell.tools.MetricsStore.secondsFor("spicy_post"))
         // Feed the brain: your published posts are searchable + grow your learned voice.
         val plat = if (isReddit) "Reddit" else "X"

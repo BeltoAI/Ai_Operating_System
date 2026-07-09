@@ -44,6 +44,21 @@ object ChecklistStore {
         save(ctx, (items + Item(System.currentTimeMillis(), t, false)).takeLast(300))   // cap so it can't grow forever
     }
 
+    /** MANUAL add (from the user typing) — only blocks EXACT duplicates, so the user is never stopped from
+     *  adding a task they want by the fuzzy de-dupe that's meant only for the auto-agents. */
+    fun addManual(ctx: Context, text: String) {
+        val t = text.trim(); if (t.isBlank()) return
+        val items = load(ctx)
+        if (items.any { it.text.trim().equals(t, ignoreCase = true) }) return
+        save(ctx, (items + Item(System.currentTimeMillis(), t, false)).takeLast(300))
+    }
+
+    /** Edit an item's text in place. */
+    fun edit(ctx: Context, id: Long, text: String) {
+        val t = text.trim(); if (t.isBlank()) return
+        save(ctx, load(ctx).map { if (it.id == id) it.copy(text = t) else it })
+    }
+
     /** Collapse existing near-duplicate items (keep the newest of each cluster). Safe to call anytime. */
     fun prune(ctx: Context) {
         val items = load(ctx).sortedByDescending { it.id }
