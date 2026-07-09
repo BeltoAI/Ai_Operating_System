@@ -37,7 +37,11 @@ ARG: <one line, or JSON>
 
 Or finish:
 ANSWER
-<final reply to the user, in their voice, short and natural>
+<final reply, in their voice, short and natural. If it has ONE striking headline value, BEGIN with exactly
+one card tag, then the sentence — [[card:score;TeamA;scoreA;TeamB;scoreB]] for a game result ·
+[[card:stat;LABEL;BIG;UNIT;subtitle]] for weather/a price/a number · [[card:stock;TICKER;$PRICE;+X%;subtitle]]
+for a stock move · [[card:quote;the quote;Author]] · [[card:yesno;yes;short why]]. Only when there's a clear
+headline value; otherwise no tag.>
 
 READ tools (I return text for you to use):
 - web_search      ARG: search query        → current facts from the live web (use for anything time-sensitive)

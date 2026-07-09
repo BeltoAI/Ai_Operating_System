@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +36,8 @@ sealed class Hero {
     data class Metric(val eyebrow: String, val big: String, val unit: String, val sub: String) : Hero()
     data class Stock(val eyebrow: String, val price: String, val delta: String, val up: Boolean, val sub: String) : Hero()
     data class Score(val teamA: String, val a: Int, val teamB: String, val b: Int) : Hero()
+    data class YesNo(val yes: Boolean, val sub: String) : Hero()
+    data class Quote(val text: String, val author: String) : Hero()
 }
 
 private val GREEN = Color(0xFF1FA855)
@@ -51,6 +55,18 @@ object RichParse {
     // A rating like "4.5 out of 5" or "9/10" — only trusted when the text is clearly about a rating.
     private val ratingCtx = Regex("(?i)\\b(star|stars|rating|rated|review|reviews)\\b")
     private val rating = Regex("\\b(\\d(?:\\.\\d)?)\\s*(?:/|out of)\\s*(\\d{1,2})\\b")
+    // Currency conversion — "€100 = $108", "£50 ≈ $63".
+    private val convert = Regex("([$€£¥]\\s?[0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(?:=|≈|~|is about|is roughly|equals?)\\s*([$€£¥]\\s?[0-9][0-9,]*(?:\\.[0-9]+)?)")
+    // Time in a place — "3:45 PM in Tokyo".
+    private val timeIn = Regex("(?i)\\b(\\d{1,2}:\\d{2}\\s*(?:[ap]\\.?m\\.?)?)\\s+in\\s+([A-Z][A-Za-z .'-]{2,28})")
+    // A bare calculation result — a short reply that ends in "= number".
+    private val mathEq = Regex("=\\s*(-?[0-9][0-9,]*(?:\\.[0-9]+)?)\\s*\\.?\\s*$")
+    // Translation — "in Spanish: hola" / "in French is « bonjour »".
+    private val translate = Regex("(?i)\\bin (spanish|french|german|italian|portuguese|japanese|chinese|korean|russian|arabic|hindi|dutch|greek|latin)\\b\\s*(?:is|:|,)?\\s*[\"“«']?([\\p{L} ]{1,40})[\"”»']?")
+    // A quotation with attribution — "…" — Author.
+    private val quote = Regex("[\"“](.{12,220}?)[\"”]\\s*[—–-]\\s*([A-Z][A-Za-z. '-]{2,40})")
+    // Distance / weight with a unit, near the start.
+    private val measure = Regex("(?i)\\b([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(km|kilometers?|miles?|kg|kilograms?|pounds?|lbs)\\b")
 
     /** A hero card for [reply], or null to fall back to plain text. */
     fun detect(reply: String): Hero? {
@@ -72,6 +88,42 @@ object RichParse {
         if (ratingCtx.containsMatchIn(r)) rating.find(r)?.let { m ->
             val (a, b) = m.destructured
             return Hero.Metric("Rating", "$a/$b", "", firstSentence(r))
+        }
+
+        // Quotation with attribution — "…" — Author.
+        quote.find(r)?.let { m ->
+            val (txt, author) = m.destructured
+            return Hero.Quote(txt.trim(), author.trim())
+        }
+
+        // Currency conversion — show the converted value big.
+        convert.find(r)?.takeIf { it.range.first < 90 }?.let { m ->
+            val (from, to) = m.destructured
+            return Hero.Metric("Conversion", to.trim(), "", from.trim() + " = " + to.trim())
+        }
+
+        // Time in a place — "3:45 PM in Tokyo".
+        timeIn.find(r)?.takeIf { it.range.first < 60 }?.let { m ->
+            val (t, place) = m.destructured
+            return Hero.Metric("Time · " + place.trim(), t.trim().uppercase(), "", firstSentence(r))
+        }
+
+        // Translation — a single word/phrase in another language.
+        translate.find(r)?.let { m ->
+            val lang = m.groupValues[1].replaceFirstChar { it.uppercase() }
+            val word = m.groupValues[2].trim()
+            if (word.length in 1..40) return Hero.Metric(lang, word, "", firstSentence(r))
+        }
+
+        // Measurement — distance / weight with a unit near the start.
+        measure.find(r)?.takeIf { it.range.first < 55 }?.let { m ->
+            val (n, unit) = m.destructured
+            return Hero.Metric("Measurement", n, unit.lowercase(), firstSentence(r))
+        }
+
+        // Bare calculation result — only for a short reply ending in "= number".
+        if (r.length < 70) mathEq.find(r)?.let { m ->
+            return Hero.Metric("Result", m.groupValues[1], "", firstSentence(r))
         }
 
         // Game score — only when the text clearly reads like a match result (avoids "iPhone 15 - 128 GB").
@@ -100,7 +152,41 @@ object RichParse {
             }
             return Hero.Metric("Price", priceStr, "", firstSentence(r))
         }
+
+        // Yes / No — a clear affirmative or negative opener on a concise answer.
+        if (r.length < 280) Regex("(?i)^(yes|yep|yeah|correct|absolutely|no|nope|nah)\\b[,.!: ]").find(r)?.let { m ->
+            val w = m.groupValues[1].lowercase()
+            return Hero.YesNo(w in setOf("yes", "yep", "yeah", "correct", "absolutely"), firstSentence(r))
+        }
         return null
+    }
+
+    /**
+     * The reliable path: the model may prefix an answer with a machine card tag it controls, e.g.
+     * `[[card:score;Warriors;121;Lakers;118]]`. We parse that (100% reliable, phrasing-independent) and
+     * strip it from the displayed text. Types: score, stat, stock, quote, yesno.
+     */
+    fun fromTag(reply: String): Pair<Hero?, String> {
+        val m = Regex("^\\s*\\[\\[card:([^\\]]+)\\]\\]\\s*", RegexOption.IGNORE_CASE).find(reply) ?: return null to reply
+        val body = reply.removeRange(m.range).trim()
+        val p = m.groupValues[1].split(";").map { it.trim() }
+        fun g(i: Int) = p.getOrElse(i) { "" }
+        val hero: Hero? = when (g(0).lowercase()) {
+            "score" -> { val a = g(2).toIntOrNull(); val b = g(4).toIntOrNull(); if (a != null && b != null) Hero.Score(g(1), a, g(3), b) else null }
+            "stat", "metric" -> if (g(2).isNotBlank()) Hero.Metric(g(1).ifBlank { "" }, g(2), g(3), g(4)) else null
+            "stock" -> if (g(2).isNotBlank()) Hero.Stock(g(1).ifBlank { "Market" }, g(2), g(3), !g(3).startsWith("-"), g(4)) else null
+            "quote" -> if (g(1).isNotBlank()) Hero.Quote(g(1), g(2)) else null
+            "yesno" -> Hero.YesNo(g(1).lowercase().startsWith("y"), g(2))
+            else -> null
+        }
+        return hero to body
+    }
+
+    /** Card from the model's tag if present, otherwise from best-effort detection — plus the clean text. */
+    fun render(reply: String): Pair<Hero?, String> {
+        val (tagHero, body) = fromTag(reply)
+        if (tagHero != null) return tagHero to body
+        return detect(body) to body
     }
 
     private fun tickerOf(s: String): String {
@@ -157,6 +243,24 @@ fun HeroCardView(hero: Hero) {
                 TeamRow(hero.teamA, hero.a, hero.a >= hero.b)
                 Spacer(Modifier.height(10.dp))
                 TeamRow(hero.teamB, hero.b, hero.b >= hero.a)
+            }
+            is Hero.YesNo -> {
+                val c = if (hero.yes) GREEN else T.danger
+                Eyebrow("Answer")
+                Spacer(Modifier.height(8.dp))
+                Text(if (hero.yes) "Yes" else "No", fontSize = 48.sp, fontWeight = FontWeight.Bold, color = c, letterSpacing = (-1).sp)
+                if (hero.sub.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(hero.sub, fontSize = T.small, color = T.inkSoft) }
+            }
+            is Hero.Quote -> {
+                Row {
+                    Box(Modifier.width(3.dp).heightIn(min = 30.dp).clip(RoundedCornerShape(999.dp)).background(T.accent))
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text("“" + hero.text + "”", fontSize = 20.sp, fontWeight = FontWeight.Light, color = T.ink, fontStyle = FontStyle.Italic)
+                        Spacer(Modifier.height(8.dp))
+                        Text("— " + hero.author, fontSize = T.small, fontWeight = FontWeight.Medium, color = T.accent)
+                    }
+                }
             }
         }
     }

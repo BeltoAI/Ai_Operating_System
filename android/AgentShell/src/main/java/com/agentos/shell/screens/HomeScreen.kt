@@ -400,18 +400,20 @@ fun HomeScreen(
                 }
             }
             refreshShortcuts()
-            if (doSpeak) speak(reply)
-            history = (history + (q to reply)).takeLast(12)   // P4: keep more context across turns
+            // The visual card tag stays in `reply` (the card reads it) but must never be spoken or stored.
+            val cleanReply = RichParse.fromTag(reply).second
+            if (doSpeak) speak(cleanReply)
+            history = (history + (q to cleanReply)).takeLast(12)   // P4: keep more context across turns
             // Capture this exchange as connected memories.
             val pk = MemoryLog.add(ctx, "prompt", q, q, "Home prompt")
-            MemoryLog.add(ctx, "response", reply, reply, "Agent reply", pk)
+            MemoryLog.add(ctx, "response", cleanReply, cleanReply, "Agent reply", pk)
             // Persist into the real brain DB too, so daily use actually GROWS the brain (and the
             // semantic index) — not just the capped 80-entry graph log. This is what makes the
             // memory count climb over time instead of sitting flat.
             withContext(Dispatchers.IO) {
                 com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
-                if (reply.isNotBlank())
-                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", reply)
+                if (cleanReply.isNotBlank())
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", cleanReply)
             }
             saved = MetricsStore.savedMinutesToday(ctx)
             thinking = false
@@ -668,22 +670,21 @@ fun HomeScreen(
                         Text("thinking…", fontSize = T.body, color = T.inkFaint)
                     }
                 } else {
-                    // Rich Visual Output: if the answer leads with a score / temperature / price, show a
-                    // stylized hero card above the text. Conservative — null for ordinary answers.
-                    val hero = remember(reply) { RichParse.detect(reply) }
+                    // Rich Visual Output: a stylized hero card from the model's card tag (reliable) or from
+                    // best-effort detection — plus the clean answer text with the tag stripped.
+                    val (hero, body) = remember(reply) { RichParse.render(reply) }
                     if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(12.dp)) }
-                    // Full answer: bigger, and scrollable so long replies aren't cut to a few lines.
-                    Text(
-                        reply.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1").replace(Regex("(?m)^#{1,6}\\s*"), ""),
-                        fontSize = T.body, color = T.ink,
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())
-                    )
+                    // Full answer rendered as elegant markdown (headings, bold, bullets, steps, quotes),
+                    // scrollable so long replies aren't cut to a few lines.
+                    Box(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                        MarkdownText(body)
+                    }
                     Spacer(Modifier.height(10.dp))
                     Text("Copy", fontSize = T.small, color = T.accent,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                             .clickable {
                                 (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                                    .setPrimaryClip(android.content.ClipData.newPlainText("reply", reply))
+                                    .setPrimaryClip(android.content.ClipData.newPlainText("reply", body))
                             }.padding(horizontal = 12.dp, vertical = 6.dp))
                 }
             }

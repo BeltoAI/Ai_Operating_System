@@ -210,6 +210,13 @@ object AgentClient {
                     "into unrelated answers): $memory. ")
             append("You are SlyOS, an agent living on the user's phone. ")
             append("Decide the single best thing to do for their request. ")
+            append("VISUAL CARD (optional): if your \"say\" has ONE striking headline value the user would love " +
+                "to see big, BEGIN \"say\" with exactly one tag, then the sentence. Tags: " +
+                "[[card:score;TeamA;scoreA;TeamB;scoreB]] for a game result, " +
+                "[[card:stat;LABEL;BIG;UNIT;subtitle]] for weather/a price/a number, " +
+                "[[card:stock;TICKER;$PRICE;+X%;subtitle]] for a stock move, " +
+                "[[card:quote;the quote;Author]] for a quotation, [[card:yesno;yes;short why]] for yes/no. " +
+                "ONLY when there's a clear headline value; otherwise omit the tag entirely. ")
             append("Installed apps: ").append(apps.joinToString(", ")).append(". ")
             append("Respond with ONLY a JSON object (no prose, no markdown) with keys: ")
             append("\"say\" (one short sentence to show the user), ")

@@ -433,7 +433,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v18 · cross-model fallback + more widgets", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v19 · stunning answers + model card tags", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
