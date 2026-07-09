@@ -44,8 +44,8 @@ object BrainBackup {
         prefs(ctx).edit().putLong(K_LAST, System.currentTimeMillis()).putString(K_LAST_OK, note).apply()
 
     /**
-     * Build a full snapshot zip in the cache dir and return it. Includes shared_prefs/*, databases/*
-     * (with -wal/-shm so no committed data is lost), and files/cowork/* .
+     * Build a full snapshot zip in the cache dir and return it. Includes the shared_prefs and databases
+     * folders (with any -wal/-shm files so no committed data is lost), plus the Cowork workspace files.
      */
     fun snapshot(ctx: Context): File {
         val out = File(ctx.cacheDir, FILE_NAME)
