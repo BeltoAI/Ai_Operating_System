@@ -1120,6 +1120,19 @@ object AgentClient {
         return if (code == 200) t.trim().lines().firstOrNull()?.take(90).orEmpty() else ""
     }
 
+    /** Find — or best-guess — the single email to send an application to. Prefers a real address in the
+     *  posting; otherwise infers the most likely careers/recruiting address from the company's domain. */
+    fun guessApplicationEmail(posting: String, roleCompany: String): String {
+        val sys = "From this job posting, output ONLY the single best email address to send an application to. " +
+            "Prefer a real recruiter / careers / jobs / hr / talent address that appears in the text. If none " +
+            "appears, INFER the most likely one from the company's website domain (e.g. careers@company.com, " +
+            "jobs@company.com, or recruiting@company.com). Output ONLY the email address and nothing else. " +
+            "Only if you cannot even guess the company's domain, output NONE."
+        val (code, t) = call(sys, "ROLE/COMPANY: $roleCompany\n\nPOSTING:\n" + posting.take(2500))
+        if (code != 200) return ""
+        return Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(t)?.value?.trim().orEmpty()
+    }
+
     /** Suggest target roles + a short rationale, when the user isn't sure what to go for. */
     fun jobIdeas(resume: String, memory: String): String = jobCall(
         "You are a career coach. Based on the résumé and background, suggest 4-6 specific job titles worth " +

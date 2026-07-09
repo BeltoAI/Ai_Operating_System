@@ -113,9 +113,14 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
             val posting = if (leadHint.isNotBlank()) "TARGET ROLE: $leadHint\n\n$fetched" else fetched
             // Identify the role + company so the application is recorded specifically.
             appLabel = withContext(Dispatchers.IO) { AgentClient.jobLabel(posting) }.ifBlank { leadHint.ifBlank { appLabel } }
-            // Grab a contact email off the posting so "Email with attachments" goes to the right place.
+            // Grab a contact email off the posting so "Send via Gmail" goes to the right place.
             Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(posting)?.value
                 ?.takeUnless { it.contains("example") || it.endsWith(".png") || it.endsWith(".jpg") }?.let { jobEmailTo = it }
+            // None on the page → have the model find/guess the most likely careers address from the company.
+            if (jobEmailTo.isBlank()) {
+                val guessed = withContext(Dispatchers.IO) { AgentClient.guessApplicationEmail(posting, appLabel) }
+                if (guessed.isNotBlank() && guessed != "NONE") jobEmailTo = guessed
+            }
             var r = resume
             if (r.isBlank()) {
                 r = withContext(Dispatchers.IO) { AgentClient.jobResumeFromBrain(MemoryStore.fullProfile(ctx)) }
