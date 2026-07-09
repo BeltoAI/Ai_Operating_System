@@ -235,32 +235,38 @@
     if (tr && s.tokensPerResponse) tr.textContent = s.tokensPerResponse;
   }).catch(function(){});
 
-  // Downloads counter — show the HIGHER of GitHub's real APK download_count (the true number) and the
-  // live click counter (Abacus), so it never reads below your actual downloads but still ticks instantly.
-  var COUNTER = 'https://abacus.jasoncameron.dev', NS = 'slyos-world', KEY = 'downloads';
-  var gh = 0, ab = 0, haveAny = false;
-  function showDL(){ var el = document.getElementById('dlcount'); if (!el) return; var n = Math.max(gh, ab);
-    // Republishing makes a fresh GitHub release (count resets to 0), so the number could drop. Keep a
-    // monotonic floor in localStorage so the displayed count never goes backwards.
-    try { var floor = parseInt(localStorage.getItem('slyos_dlmax') || '0', 10) || 0; if (n < floor) { n = floor; } else if (n > floor) { localStorage.setItem('slyos_dlmax', String(n)); } } catch (e) {}
-    el.textContent = haveAny ? (n > 0 ? n.toLocaleString() : '0') : '—'; }
-  fetch('https://api.github.com/repos/BeltoAI/Ai_Operating_System/releases')
-    .then(function(r){ return r.json(); })
-    .then(function(rs){ var n = 0; (rs||[]).forEach(function(rel){ (rel.assets||[]).forEach(function(a){ if (/\.apk$/i.test(a.name)) n += (a.download_count||0); }); }); gh = n; haveAny = true; showDL(); })
-    .catch(function(){ showDL(); });
-  fetch(COUNTER + '/get/' + NS + '/' + KEY)
-    .then(function(r){ return r.json(); })
-    .then(function(j){ if (j && typeof j.value === 'number') { ab = j.value; haveAny = true; showDL(); } })
-    .catch(function(){});
-
-  // Each download click ticks the live counter (and the display, if it now leads GitHub's count).
-  document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
-    a.addEventListener('click', function(){
-      try { fetch(COUNTER + '/hit/' + NS + '/' + KEY)
+  // Downloads counter — stored in Supabase (same project as the feedback wall). Base 80 + one row per
+  // real download click. No external counter service, no GitHub reset problem.
+  (function(){
+    var el = document.getElementById('dlcount'); if (!el) return;
+    var U = 'https://xfftheaprdedypqlcvzg.supabase.co';
+    var K = 'sb_publishable_AxUM6xdI_3L-no-9MbNsxQ__u_eLmsQ';
+    var BASE = 80;
+    function show(rows){
+      var n = BASE + (rows || 0);
+      try { var f = parseInt(localStorage.getItem('slyos_dlmax') || '0', 10) || 0; if (n < f) n = f; else localStorage.setItem('slyos_dlmax', String(n)); } catch (e) {}
+      el.textContent = n.toLocaleString();
+    }
+    function refresh(){
+      fetch(U + '/rest/v1/downloads?select=id', { headers: { apikey: K, Authorization: 'Bearer ' + K } })
         .then(function(r){ return r.json(); })
-        .then(function(j){ if (j && typeof j.value === 'number') { ab = j.value; haveAny = true; showDL(); } }); } catch (e) {}
+        .then(function(rows){ show(Array.isArray(rows) ? rows.length : 0); })
+        .catch(function(){ show(0); });
+    }
+    show(0);      // show 80 immediately
+    refresh();    // then reflect real downloads
+    document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
+      a.addEventListener('click', function(){
+        try {
+          fetch(U + '/rest/v1/downloads', {
+            method: 'POST',
+            headers: { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+            body: '{}'
+          }).then(refresh).catch(function(){});
+        } catch (e) {}
+      });
     });
-  });
+  })();
 
   // ---- Live feedback wall (Supabase REST — paste your 2 public values below; no server code) ----
   var SB_URL = 'https://xfftheaprdedypqlcvzg.supabase.co';
