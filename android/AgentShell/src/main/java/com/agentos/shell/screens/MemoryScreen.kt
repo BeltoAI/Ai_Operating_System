@@ -164,6 +164,85 @@ private fun EfficiencyCard() {
     }
 }
 
+/** On-device model manager — pick / download / switch a local LLM, see if the phone can run it, and turn
+ *  on offline + cost-saving orchestration. It plugs into the same router as the cloud endpoints. */
+@Composable
+private fun OnDeviceModelCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val LL = com.agentos.shell.tools.LocalLlm
+    var enabled by remember { mutableStateOf(LL.enabled(ctx)) }
+    var preprocess by remember { mutableStateOf(LL.preprocess(ctx)) }
+    var selectedId by remember { mutableStateOf(LL.selectedId(ctx)) }
+    var downloadingId by remember { mutableStateOf("") }
+    var progress by remember { mutableStateOf(0) }
+    var tick by remember { mutableStateOf(0) }
+    val ramGb = remember { LL.deviceRamGb(ctx) }
+    Collapsible("On-device model", "Free, private, offline — no key needed") {
+        Text("Run a small AI right on your phone: free, private, works with no internet. It's not as sharp as " +
+            "the cloud models and can't browse the web or read images — so SlyOS keeps using your cloud key for " +
+            "those, and can use this one for quick tasks to save on API cost. Everything still flows through your " +
+            "brain and the same beautiful outputs. Your phone has ${"%.0f".format(ramGb)} GB RAM.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(12.dp))
+        // Enable + prefer-for-cheap toggles.
+        listOf(
+            Triple("Use on-device model", enabled) { v: Boolean -> enabled = v; LL.setEnabled(ctx, v) },
+            Triple("Prefer it for quick tasks (saves API cost)", preprocess) { v: Boolean -> preprocess = v; LL.setPreprocess(ctx, v) }
+        ).forEach { (label, on, set) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+                .clickable { set(!on) }.padding(vertical = 5.dp)) {
+                Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (on) T.accent else T.hairline)) {
+                    Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Choose a model", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        LL.MODELS.forEach { m ->
+            val downloaded = remember(tick) { LL.isDownloaded(ctx, m) }
+            val verdict = remember(tick) { LL.canRun(ctx, m) }
+            val active = selectedId == m.id
+            val vColor = when (verdict.fit) { com.agentos.shell.tools.LocalLlm.Fit.NO -> T.danger; com.agentos.shell.tools.LocalLlm.Fit.RISKY -> T.danger; else -> T.inkSoft }
+            Column(Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(RoundedCornerShape(12.dp))
+                .background(if (active) T.accentSoft else T.bg).padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(m.name + " · " + m.quant, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    if (active) Text("✓ active", fontSize = T.caption, color = T.accent)
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(m.note, fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(3.dp))
+                Text(verdict.plain, fontSize = T.caption, color = vColor)
+                Spacer(Modifier.height(8.dp))
+                when {
+                    downloadingId == m.id -> Text("Downloading… $progress%", fontSize = T.small, color = T.accent)
+                    !downloaded -> Text("Download (${m.fileMb} MB)", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (downloadingId.isNotBlank()) T.hairline else T.accent)
+                            .clickable(enabled = downloadingId.isBlank()) {
+                                downloadingId = m.id; progress = 0
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) { LL.download(ctx, m) { p -> progress = p } }
+                                    downloadingId = ""; tick++
+                                    if (ok) { selectedId = m.id; LL.setSelectedId(ctx, m.id); if (!enabled) { enabled = true; LL.setEnabled(ctx, true) } }
+                                }
+                            }.padding(horizontal = 14.dp, vertical = 8.dp))
+                    else -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (active) "Active" else "Use this", fontSize = T.small, color = if (active) T.inkSoft else T.bgElevated,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (active) T.hairline else T.accent)
+                                .clickable(enabled = !active) { selectedId = m.id; LL.setSelectedId(ctx, m.id) }.padding(horizontal = 14.dp, vertical = 8.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Delete", fontSize = T.small, color = T.danger,
+                            modifier = Modifier.clickable { LL.delete(ctx, m); if (selectedId == m.id) selectedId = ""; tick++ }.padding(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Floating nav panel toggle — turns the over-every-app SlyOS bar on/off and walks through the
  *  "Display over other apps" permission. */
 @Composable
@@ -433,7 +512,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v19 · stunning answers + model card tags", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v20 · on-device model", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -524,6 +603,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Efficiency as its own top-level card (promoted out of "Your writing voice").
         EfficiencyCard()
+
+        // On-device model — free/offline endpoint that plugs into the same router as the cloud keys.
+        OnDeviceModelCard()
 
         // ---- Appearance ----
         Collapsible("Appearance") {

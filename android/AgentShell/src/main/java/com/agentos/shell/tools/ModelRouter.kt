@@ -121,6 +121,14 @@ object ModelRouter {
             val m = modelFor(p) ?: continue
             out.add(Choice(p, m, k))
         }
+        // On-device model: a free, private endpoint. It can't browse the web or read images, so it only
+        // joins for plain text tasks — first when the user prefers it or for cheap pre-processing (to save
+        // API cost), otherwise as a last-resort fallback so SlyOS still works fully offline.
+        if (LocalLlm.ready(ctx) && !needVision && !needWeb) {
+            val lc = Choice("local", LocalLlm.selectedId(ctx), "local")
+            val first = MemoryStore.preferredProvider(ctx) == "local" || (LocalLlm.preprocess(ctx) && tier == Tier.CHEAP)
+            if (first) out.add(0, lc) else out.add(lc)
+        }
         return out
     }
 }

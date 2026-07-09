@@ -171,6 +171,14 @@ object AgentClient {
             // through to the next keyed provider so quality + uptime stay consistent across models.
             var last: Pair<Int, String> = -1 to "network error"
             for (choice in choices) {
+                // On-device model runs through the same context/persona, then falls back to cloud on failure.
+                if (choice.provider == "local") {
+                    val lp = if (ctx != null) LocalLlm.generate(ctx, system, messages, maxTokens) else (-1 to "no context")
+                    if (lp.first == 200) { Log.i("SlyOS", "llm local/${choice.model} OK"); return 200 to lp.second }
+                    Log.w("SlyOS", "llm local ${lp.first} — trying next provider")
+                    last = lp
+                    continue
+                }
                 // Web search: Anthropic uses webTool(); Gemini uses Google Search grounding. OpenAI has no
                 // built-in browse tool, so drop tools there.
                 val effTools = if (choice.provider == "openai") null else tools
