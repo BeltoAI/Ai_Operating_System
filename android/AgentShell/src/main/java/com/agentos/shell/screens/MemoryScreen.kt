@@ -179,6 +179,78 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 .padding(horizontal = 22.dp, vertical = 10.dp)
         )
 
+        // ---- Brain backup (Google Drive) — the safety net so memory is never lost to a wipe again ----
+        run {
+            var autoBk by remember { mutableStateOf(com.agentos.shell.tools.BrainBackup.autoEnabled(ctx)) }
+            var bkBusy by remember { mutableStateOf(false) }
+            var bkMsg by remember { mutableStateOf("") }
+            var lastBk by remember { mutableStateOf(com.agentos.shell.tools.BrainBackup.lastBackup(ctx)) }
+            val connected = com.agentos.shell.tools.GoogleAuth.isConnected(ctx)
+            Spacer(Modifier.height(20.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🛡  Brain backup", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+                    Text(
+                        if (lastBk == 0L) "never" else "backed up " +
+                            android.text.format.DateUtils.getRelativeTimeSpanString(lastBk),
+                        fontSize = T.caption, color = if (lastBk == 0L) T.danger else T.inkSoft
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Your whole brain — messages, facts, checklist, conversations, keys — is zipped and saved " +
+                    "to your Google Drive (and your Downloads folder). It survives uninstalls, wipes and new phones.",
+                    fontSize = T.caption, color = T.inkFaint)
+                if (!connected) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Connect Google (below) to enable Drive backup.", fontSize = T.caption, color = T.danger)
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+                    .clickable { autoBk = !autoBk; com.agentos.shell.tools.BrainBackup.setAuto(ctx, autoBk) }) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Automatic backup", fontSize = T.small, color = T.ink)
+                        Text(if (autoBk) "Backs up every few hours + on launch." else "Off — back up manually.",
+                            fontSize = T.caption, color = T.inkFaint)
+                    }
+                    Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (autoBk) T.accent else T.hairline)) {
+                        Box(Modifier.align(if (autoBk) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (bkBusy) "Working…" else "Back up now", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (bkBusy) T.hairline else T.accent)
+                            .clickable(enabled = !bkBusy) {
+                                bkBusy = true; bkMsg = "Backing up your brain…"
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainBackup.backupNow(ctx) }
+                                    lastBk = com.agentos.shell.tools.BrainBackup.lastBackup(ctx)
+                                    bkMsg = r; bkBusy = false
+                                }
+                            }.padding(horizontal = 18.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Restore from Drive", fontSize = T.small, color = T.accent,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable(enabled = !bkBusy) {
+                                bkBusy = true; bkMsg = "Restoring from Google Drive…"
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.DriveBackup.restoreLatest(ctx) }
+                                    bkBusy = false
+                                    if (r.ok) {
+                                        bkMsg = "Restored ✓ Reopening…"
+                                        try {
+                                            val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+                                                ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                            ctx.startActivity(i); Runtime.getRuntime().exit(0)
+                                        } catch (e: Exception) {}
+                                    } else bkMsg = "Restore failed: ${r.error}"
+                                }
+                            }.padding(horizontal = 18.dp, vertical = 9.dp))
+                }
+                if (bkMsg.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(bkMsg, fontSize = T.caption, color = T.inkSoft) }
+            }
+        }
+
         // ---- You: real-world details for shopping, forms, signups, letterheads ----
         SectionTitle("You — for shopping, forms & signatures")
         Text("Saved only on this device. Used to pre-fill checkout, sign-ups and documents — never sent unless you tap send.",

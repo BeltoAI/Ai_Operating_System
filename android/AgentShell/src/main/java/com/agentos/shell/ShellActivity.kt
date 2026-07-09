@@ -109,6 +109,21 @@ class ShellActivity : ComponentActivity() {
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_consolidate", androidx.work.ExistingPeriodicWorkPolicy.KEEP, consReq)
         } catch (e: Exception) {}
+        // Continuous brain backup to Google Drive (+ local Downloads) every 6h, so the memory is never
+        // one uninstall away from gone again. Plus a one-shot on launch so there's always a fresh copy.
+        try {
+            val bkReq = androidx.work.PeriodicWorkRequestBuilder<BackupWorker>(6, java.util.concurrent.TimeUnit.HOURS)
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_backup", androidx.work.ExistingPeriodicWorkPolicy.KEEP, bkReq)
+            val bkNow = androidx.work.OneTimeWorkRequestBuilder<BackupWorker>()
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .setInitialDelay(2, java.util.concurrent.TimeUnit.MINUTES)
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniqueWork("slyos_backup_boot", androidx.work.ExistingWorkPolicy.KEEP, bkNow)
+        } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))
             Thread {
