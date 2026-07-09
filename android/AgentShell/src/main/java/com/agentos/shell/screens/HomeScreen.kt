@@ -45,6 +45,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -593,7 +594,7 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .offset { androidx.compose.ui.unit.IntOffset(replyDragX.toInt(), 0) }
                     .let { m -> if (thinking) m else m.pointerInput(reply) {
-                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                        detectHorizontalDragGestures(
                             onDragEnd = {
                                 when {
                                     replyDragX < -130f -> { reply = ""; rememberSuggestion = "" }
