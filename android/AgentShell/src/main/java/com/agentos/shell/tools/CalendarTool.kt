@@ -108,6 +108,28 @@ object CalendarTool {
         } catch (e: Exception) { emptyList() }
     }
 
+    data class Event(val title: String, val begin: Long, val end: Long, val location: String)
+
+    /** Structured events within [startMs, endMs], time-ordered — powers the rich calendar view. */
+    fun eventsBetween(ctx: Context, startMs: Long, endMs: Long, limit: Int = 60): List<Event> {
+        if (!hasPermission(ctx)) return emptyList()
+        return try {
+            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
+                ContentUris.appendId(it, startMs); ContentUris.appendId(it, endMs); it.build()
+            }
+            val proj = arrayOf(
+                CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                CalendarContract.Instances.END, CalendarContract.Instances.EVENT_LOCATION
+            )
+            val out = ArrayList<Event>()
+            ctx.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
+                while (c.moveToNext() && out.size < limit)
+                    out.add(Event(c.getString(0) ?: "(busy)", c.getLong(1), c.getLong(2), c.getString(3) ?: ""))
+            }
+            out
+        } catch (e: Exception) { emptyList() }
+    }
+
     /** Your schedule over the next month, as plain text — so the agent knows when you're blocked. */
     fun upcoming(ctx: Context): String {
         if (!hasPermission(ctx)) return ""

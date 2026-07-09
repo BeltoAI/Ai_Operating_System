@@ -130,6 +130,7 @@ fun HomeScreen(
     var rememberSuggestion by remember { mutableStateOf("") }
     var showChecklist by remember { mutableStateOf(false) }   // show the live checklist card under the answer
     var checklistTick by remember { mutableStateOf(0) }       // bump to re-read ChecklistStore after a change
+    var calCard by remember { mutableStateOf<Pair<String, List<com.agentos.shell.tools.CalendarTool.Event>>?>(null) }
     var pendingConfirm by remember { mutableStateOf<List<com.agentos.shell.tools.AgentAction>?>(null) }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
     var showAdd by remember { mutableStateOf(false) }
@@ -187,7 +188,7 @@ fun HomeScreen(
     val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
-        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f
+        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null
         scope.launch {
             // If photos are attached, this is an image task (vision Q&A or PDF).
             if (photos.isNotEmpty()) {
@@ -218,6 +219,23 @@ fun HomeScreen(
                 }
                 if (doSpeak) speak(reply)
                 thinking = false
+                return@launch
+            }
+
+            // Calendar questions ("what's on my calendar today / this week") render a real agenda card
+            // instead of a plain text list — and skip the LLM call entirely.
+            val calWin = CalendarQuery.parse(q)
+            if (calWin != null && com.agentos.shell.tools.CalendarTool.hasPermission(ctx)) {
+                val evs = withContext(Dispatchers.IO) { com.agentos.shell.tools.CalendarTool.eventsBetween(ctx, calWin.start, calWin.end) }
+                calCard = calWin.label to evs
+                reply = ""; thinking = false
+                withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them",
+                        "Showed calendar (${calWin.label}): ${evs.size} event" + (if (evs.size == 1) "" else "s") + (if (evs.isEmpty()) " — free" else ""))
+                }
+                history = (history + (q to "Showed calendar: ${calWin.label} — ${evs.size} events")).takeLast(12)
+                saved = MetricsStore.savedMinutesToday(ctx)
                 return@launch
             }
 
@@ -609,6 +627,11 @@ fun HomeScreen(
                 "📷 ${photos.size} photo${if (photos.size > 1) "s" else ""} attached · ask about it, or say \"save as PDF\"",
                 fontSize = T.caption, color = T.accent
             )
+        }
+
+        calCard?.let { (label, evs) ->
+            Spacer(Modifier.height(14.dp))
+            CalendarCard(label, evs)
         }
 
         if (thinking || reply.isNotEmpty()) {
