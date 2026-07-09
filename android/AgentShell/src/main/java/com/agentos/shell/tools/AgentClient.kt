@@ -300,7 +300,7 @@ object AgentClient {
     }
 
     /** Vision Q&A: answer a question about photos. Returns plain text. */
-    fun askVision(prompt: String, imagesB64: List<String>, memory: String = ""): String {
+    fun askVision(prompt: String, imagesB64: List<String>, memory: String = "", model: String = MODEL, maxTokens: Int = 700): String {
         val content = JSONArray()
         imagesB64.forEach { b64 ->
             content.put(JSONObject().put("type", "image").put(
@@ -309,7 +309,7 @@ object AgentClient {
         }
         content.put(JSONObject().put("type", "text").put("text", prompt))
         val sys = persona(memory) + "Answer the question about the photo concisely, in your own natural voice."
-        val (code, text) = callContent(sys, content, 600)
+        val (code, text) = callContent(sys, content, maxTokens, model)
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
     }
 
@@ -322,7 +322,7 @@ object AgentClient {
             "{\"category\":\"receipt|invoice|id|form|letter|statement|other\",\"title\":\"short title\"," +
             "\"summary\":\"one-line summary\",\"fields\":{\"key\":\"value\"}}. In fields, capture the important " +
             "details you can read: dates, names, amounts, totals, tax, account/ID numbers, addresses, due dates."
-        val out = askVision(prompt, listOf(imageB64), "")
+        val out = askVision(prompt, listOf(imageB64), "", OPUS, 1400)   // strong vision model for real OCR
         val start = out.indexOf('{'); val end = out.lastIndexOf('}')
         if (start < 0 || end <= start) return null
         return try { JSONObject(out.substring(start, end + 1)) } catch (e: Exception) { null }
@@ -904,7 +904,7 @@ object AgentClient {
             .put(JSONObject().put("type", "image").put("source",
                 JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
             .put(JSONObject().put("type", "text").put("text", "Parse this receipt. Read EVERY line item (name, qty, price), the subtotal, tax, and the final total exactly as printed."))
-        val (code, text) = callContent(receiptSys(), content, 1400, VOICE)
+        val (code, text) = callContent(receiptSys(), content, 1400, OPUS)   // strong vision model for real OCR
         if (code != 200 || looksLikeError(text)) return null
         return parseReceipt(text)
     }

@@ -18,8 +18,10 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -152,16 +154,18 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
     }
 
     /** A glassy, Instagram-style floating pill with the SlyOS tabs (icons only). Wrap-content so it never
-     *  covers more than itself. Swipe it DOWN to close. Center Brain = ask about the current screen. */
+     *  covers more than itself. Swipe it UP or DOWN to close. Center Brain: TAP = explain this screen in a
+     *  bubble (without leaving the app); LONG-PRESS = open SlyOS with the mic to ask a specific question. */
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun BarContent() {
         val dragY = remember { androidx.compose.runtime.mutableStateOf(0f) }
         Row(
             Modifier
-                .offset { IntOffset(0, dragY.value.toInt().coerceAtLeast(0)) }
+                .offset { IntOffset(0, dragY.value.toInt()) }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
-                        onDragEnd = { if (dragY.value > 130f) stop(this@OverlayNavService) else dragY.value = 0f },
+                        onDragEnd = { if (kotlin.math.abs(dragY.value) > 120f) stop(this@OverlayNavService) else dragY.value = 0f },
                         onDragCancel = { dragY.value = 0f }
                     ) { _, dy -> dragY.value += dy }
                 }
@@ -175,7 +179,8 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
             iconOnly(Icons.Filled.Bolt) { launchSly(Screen.Now) }
             Box(
                 Modifier.clip(RoundedCornerShape(26.dp)).background(Color(0x14000000))
-                    .clickable { onBrain() }.padding(horizontal = 22.dp, vertical = 9.dp),
+                    .combinedClickable(onClick = { analyzeScreen() }, onLongClick = { onBrain() })
+                    .padding(horizontal = 22.dp, vertical = 9.dp),
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Filled.Memory, "Brain", tint = T.accent, modifier = Modifier.size(27.dp)) }
             iconOnly(Icons.Filled.Science) { launchSly(Screen.Research) }
