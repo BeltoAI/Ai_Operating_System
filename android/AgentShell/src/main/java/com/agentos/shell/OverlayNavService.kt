@@ -20,12 +20,14 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -40,14 +42,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -147,42 +151,60 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
         try { wm?.addView(view, p); bar = view } catch (e: Exception) {}
     }
 
-    /** A compact, dark, floating pill with the SlyOS tabs. Dark so its light icons read over any app;
-     *  wrap-content so it never covers more than itself. Brain = read + explain the current screen. */
+    /** A glassy, Instagram-style floating pill with the SlyOS tabs (icons only). Wrap-content so it never
+     *  covers more than itself. Swipe it DOWN to close. Center Brain = ask about the current screen. */
     @Composable
     private fun BarContent() {
+        val dragY = remember { androidx.compose.runtime.mutableStateOf(0f) }
         Row(
-            Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xF01A1714)).padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            Modifier
+                .offset { IntOffset(0, dragY.value.toInt().coerceAtLeast(0)) }
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = { if (dragY.value > 130f) stop(this@OverlayNavService) else dragY.value = 0f },
+                        onDragCancel = { dragY.value = 0f }
+                    ) { _, dy -> dragY.value += dy }
+                }
+                .clip(RoundedCornerShape(36.dp))
+                .background(Color(0xE8F3F1EB))   // glassy light — reads over any app
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            navItem(Icons.Filled.Home, "Home") { launchSly(Screen.Home) }
-            navItem(Icons.Filled.Bolt, "Now") { launchSly(Screen.Now) }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { analyzeScreen() }.padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Box(Modifier.size(44.dp).clip(CircleShape).background(T.accent), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Memory, "Brain", tint = Color.White, modifier = Modifier.size(24.dp))
-                }
-                Spacer(Modifier.height(2.dp))
-                Text("Brain", fontSize = 9.sp, color = T.accent)
-            }
-            navItem(Icons.Filled.Science, "Research") { launchSly(Screen.Research) }
-            navItem(Icons.Filled.Apps, "Apps") { launchSly(Screen.Apps) }
+            iconOnly(Icons.Filled.Home) { launchSly(Screen.Home) }
+            iconOnly(Icons.Filled.Bolt) { launchSly(Screen.Now) }
+            Box(
+                Modifier.clip(RoundedCornerShape(26.dp)).background(Color(0x14000000))
+                    .clickable { onBrain() }.padding(horizontal = 22.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Filled.Memory, "Brain", tint = T.accent, modifier = Modifier.size(27.dp)) }
+            iconOnly(Icons.Filled.Science) { launchSly(Screen.Research) }
+            iconOnly(Icons.Filled.Apps) { launchSly(Screen.Apps) }
         }
     }
 
     @Composable
-    private fun navItem(icon: ImageVector, label: String, onClick: () -> Unit) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { onClick() }.padding(horizontal = 9.dp, vertical = 4.dp)
-        ) {
-            Icon(icon, label, tint = Color(0xFFEFE9DE), modifier = Modifier.size(22.dp))
-            Spacer(Modifier.height(2.dp))
-            Text(label, fontSize = 9.sp, color = Color(0xFFB9B0A2))
+    private fun iconOnly(icon: ImageVector, onClick: () -> Unit) {
+        Box(Modifier.clip(CircleShape).clickable { onClick() }.padding(12.dp)) {
+            Icon(icon, null, tint = Color(0xFF1A1714), modifier = Modifier.size(26.dp))
         }
+    }
+
+    /** Capture the current screen (if Accessibility is on), then open SlyOS with the mic so the user can
+     *  ASK about it — answered in the full app with the screen text as context. */
+    private fun onBrain() {
+        val svc = InteractionLogService.instance
+        if (svc != null) {
+            val pkg = svc.currentPackage()
+            val dump = try { svc.readScreen().joinToString("\n") { it.text }.trim() } catch (e: Exception) { "" }
+            com.agentos.shell.tools.ScreenSnap.text = dump.take(4000); com.agentos.shell.tools.ScreenSnap.pkg = pkg
+        } else { com.agentos.shell.tools.ScreenSnap.text = ""; com.agentos.shell.tools.ScreenSnap.pkg = "" }
+        try {
+            val i = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); putExtra("nav", "Home"); putExtra("start_voice", true)
+            }
+            startActivity(i)
+        } catch (e: Exception) {}
     }
 
     private fun launchSly(target: Screen) {

@@ -224,7 +224,11 @@ fun HomeScreen(
             val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
             // One shared brain context (profile + calendar + memories + network + papers + tasks +
             // mission + portfolio + jobs) — the SAME builder Conversation mode uses, so nothing drifts.
-            val context = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
+            // If the user tapped the floating Brain over another app, prepend what was on that screen so
+            // this question is answered in context (one-shot — cleared after use).
+            val snap = com.agentos.shell.tools.ScreenSnap.take()
+            val screenCtx = if (snap.first.isNotBlank()) "WHAT WAS ON SCREEN (" + snap.second + "):\n" + snap.first + "\n\n" else ""
+            val context = screenCtx + withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
             val result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
             // Auto-grow the brain: durable facts learned in conversation are saved automatically
             // (to the separate learned-facts store, not your curated About).
