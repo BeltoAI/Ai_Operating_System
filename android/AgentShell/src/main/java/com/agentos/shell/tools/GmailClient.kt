@@ -270,6 +270,47 @@ object GmailClient {
         return added
     }
 
+    /**
+     * Scan recent mail that likely carries a DOCUMENT (attachments, invoices, statements, forms, contracts)
+     * and auto-file the real ones into Documents (which also logs to the brain). Text-based (email body +
+     * PDF-attachment text). Deduped per run. Returns how many NEW documents were filed.
+     */
+    fun syncDocs(ctx: Context, maxMessages: Int = 12): Int {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank() || !AgentClient.hasKey()) return 0
+        val q = "newer_than:120d (has:attachment OR subject:(invoice OR statement OR form OR contract OR ticket OR policy OR agreement OR document))"
+        val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
+        if (lc !in 200..299) return 0
+        val ids = try {
+            val arr = JSONObject(lb).optJSONArray("messages") ?: return 0
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        } catch (e: Exception) { return 0 }
+        val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
+        val seen = LinkedHashSet(prefs.getStringSet("seen_docs", emptySet()) ?: emptySet())
+        var added = 0
+        for (id in ids) {
+            if (id.isBlank() || seen.contains(id)) continue
+            seen.add(id)
+            val (mc, mb) = get("$BASE/messages/$id?format=full", token)
+            if (mc !in 200..299) continue
+            try {
+                val payload = JSONObject(mb).optJSONObject("payload") ?: continue
+                val subject = header(payload, "Subject")
+                val sb = StringBuilder(); extract(ctx, id, token, payload, sb, 0)
+                val text = ("Subject: $subject\n" + sb.toString()).trim()
+                if (text.length < 40) continue
+                val j = AgentClient.extractFormText(text) ?: continue   // not a real document → skip
+                DocStore.addText(ctx, j.optString("category", "other"), j.optString("title", subject.ifBlank { "Document" }),
+                    j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), "email")
+                added++
+            } catch (e: Exception) {}
+        }
+        val capped = if (seen.size > 800) seen.toList().takeLast(800).toSet() else seen
+        prefs.edit().putStringSet("seen_docs", capped).apply()
+        if (added > 0) Log.i(TAG, "gmail filed $added documents")
+        return added
+    }
+
     /** Ingest up to [maxMessages] messages matching [q]. [role] = "me"/"them"; [whoHeader] = From/To. */
     private fun syncQuery(ctx: Context, token: String, q: String, role: String, whoHeader: String, maxMessages: Int, seen: LinkedHashSet<String>): Int {
         val (lc, lb) = get("$BASE/messages?maxResults=$maxMessages&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)

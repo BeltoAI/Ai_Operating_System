@@ -42,7 +42,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # A single rolling release tagged "latest" — always the newest build, stable download URL.
-          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest "$GITHUB_WORKSPACE/SlyOS.apk" \
+          # IMPORTANT: do NOT delete the release each push (that resets GitHub's download_count to 0).
+          # Create it once if missing, then just replace the APK asset in place with --clobber.
+          gh release view latest >/dev/null 2>&1 || gh release create latest \
             --title "SlyOS — latest build" \
-            --notes "Auto-published from main ($(date -u +%Y-%m-%d\ %H:%M) UTC). Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted."
+            --notes "Auto-published from main. Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted."
+          gh release upload latest "$GITHUB_WORKSPACE/SlyOS.apk" --clobber

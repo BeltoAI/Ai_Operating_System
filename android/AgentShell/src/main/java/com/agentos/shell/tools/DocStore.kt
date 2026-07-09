@@ -63,6 +63,19 @@ object DocStore {
         return folderPath(cat)
     }
 
+    /** File a document that arrived as TEXT (email body, PDF text) — no photo. Also logged to the brain,
+     *  so "what invoices did I get?" is answerable. Deduped by category+title so re-syncs don't pile up. */
+    fun addText(ctx: Context, category: String, title: String, summary: String, fields: JSONObject, source: String): String {
+        val cat = safe(category)
+        val t = title.trim().ifBlank { "Document" }
+        if (list(ctx).any { it.category == cat && it.title.equals(t, ignoreCase = true) }) return folderPath(cat)
+        val id = System.currentTimeMillis()
+        save(ctx, list(ctx) + Doc(id, cat, t, summary.trim(), fields.toString(), id))
+        try { MessageStore.insertOne(ctx, "Documents", "Docs", "system", "system",
+            "Filed $cat from $source: $t — ${summary.trim()}") } catch (e: Exception) {}
+        return folderPath(cat)
+    }
+
     fun byCategory(ctx: Context): Map<String, List<Doc>> = list(ctx).groupBy { it.category }
 
     fun remove(ctx: Context, id: Long) {

@@ -15,7 +15,11 @@ class GmailSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
         val ctx = applicationContext
         if (!GoogleAuth.isConnected(ctx)) return Result.success()
         return try {
-            withContext(Dispatchers.IO) { GmailClient.syncToBrain(ctx) }
+            withContext(Dispatchers.IO) {
+                GmailClient.syncToBrain(ctx)      // subjects + bodies + PDF text → brain
+                GmailClient.syncReceipts(ctx)     // receipts / orders / invoices → Expenses (+ brain)
+                GmailClient.syncDocs(ctx)         // invoices / forms / contracts / attachments → Documents (+ brain)
+            }
             Result.success()
         } catch (e: Exception) { Result.retry() }
     }

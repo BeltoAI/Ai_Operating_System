@@ -339,6 +339,21 @@ object AgentClient {
         return if (code == 200) t.trim() else "Couldn't read the screen right now."
     }
 
+    /** Classify + extract a document from TEXT (email body or PDF text) — for auto-filing incoming mail.
+     *  Returns parsed JSON {category,title,summary,fields} or null when it isn't a real document. */
+    fun extractFormText(text: String): JSONObject? {
+        if (text.isBlank()) return null
+        val sys = "You classify + extract documents from email/PDF TEXT. Output ONLY compact JSON: " +
+            "{\"isdoc\":true,\"category\":\"invoice|statement|form|contract|ticket|policy|id|letter|other\"," +
+            "\"title\":\"short title\",\"summary\":\"one line\",\"fields\":{\"key\":\"value\"}}. Capture dates, " +
+            "amounts, totals, due dates, names, account/reference/ID numbers. If this is NOT a real document/form/" +
+            "invoice/statement (just a normal email, newsletter, promo or chat), output exactly {\"isdoc\":false}."
+        val (code, out) = callContent(sys, text.take(6000), 700, VOICE)
+        if (code != 200) return null
+        val s = out.indexOf('{'); val e = out.lastIndexOf('}'); if (s < 0 || e <= s) return null
+        return try { val o = JSONObject(out.substring(s, e + 1)); if (o.optBoolean("isdoc", false)) o else null } catch (ex: Exception) { null }
+    }
+
     /** Match a freshly-captured face against a roster of known people (each a name + reference photo).
      *  Returns the matching name, or "UNKNOWN". Uses the model's vision — best-effort, on-device only. */
     fun identifyPerson(shotB64: String, roster: List<Pair<String, String>>): String {
