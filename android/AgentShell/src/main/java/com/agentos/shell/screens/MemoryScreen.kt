@@ -219,6 +219,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     Column(modifier.verticalScroll(rememberScrollState())) {
         ScreenHeader("Memory", onBack)
+        Spacer(Modifier.height(10.dp))
+        // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
+        // Bumped every settings change so "did it update?" is never a mystery again.
+        Text("✦ Settings build v4 · keys unified & validated", fontSize = T.caption, color = T.accent,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
         Text("What should the agent know about you?", fontSize = T.body, color = T.ink)
