@@ -57,6 +57,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     var findMsg by remember { mutableStateOf("") }
     var fullView by remember { mutableStateOf("") }   // html shown full-screen
     var appLabel by remember { mutableStateOf("") }   // "Role — Company" of the current application
+    var sending by remember { mutableStateOf(false) }   // rendering PDFs + handing off to Gmail
 
     fun feed(note: String, s: Int) {
         com.agentos.shell.tools.MessageStore.insertOne(ctx, "Career", "Job hunt", "me", "me", note)
@@ -250,16 +251,41 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
                 modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(14.dp))
         }
 
-        if (resumeFile != null || coverFile != null) {
+        // Show the send button as soon as the documents exist — the PDFs are (re)rendered fresh on tap,
+        // so it works even if the background render didn't, and always includes your latest edits.
+        if (resumeHtml.isNotBlank() || coverHtml.isNotBlank()) {
             Spacer(Modifier.height(16.dp))
             if (jobEmailTo.isNotBlank()) { Text("To: $jobEmailTo", fontSize = T.caption, color = T.inkFaint); Spacer(Modifier.height(6.dp)) }
-            bigBtn(if (jobEmailTo.isNotBlank()) "Send via Gmail to $jobEmailTo (PDFs attached)" else "Send via Gmail (PDFs attached)", accent = true) {
+            bigBtn(
+                when {
+                    sending -> "Preparing PDFs…"
+                    jobEmailTo.isNotBlank() -> "Send via Gmail to $jobEmailTo (PDFs attached)"
+                    else -> "Send via Gmail (PDFs attached)"
+                },
+                accent = true, enabled = !sending
+            ) {
+                sending = true
                 val subject = if (appLabel.isNotBlank()) "Application — $appLabel" else "Application"
-                JobDoc.emailWithAttachments(ctx, jobEmailTo, subject,
-                    email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
-                    listOfNotNull(resumeFile, coverFile))
-                logApplication("sent", 1500)
+                val body = email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," }
+                val out = mutableListOf<File>()
+                fun finish() {
+                    JobDoc.emailWithAttachments(ctx, jobEmailTo, subject, body, out.toList())
+                    logApplication("sent", 1500); sending = false
+                }
+                // Render résumé PDF (if present), then cover PDF (if present), then hand off to Gmail.
+                if (resumeHtml.isNotBlank()) {
+                    JobDoc.htmlToPdf(ctx, resumeHtml, "resume") { rf ->
+                        if (rf != null) { out.add(rf); resumeFile = rf }
+                        if (coverHtml.isNotBlank()) {
+                            JobDoc.htmlToPdf(ctx, coverHtml, "cover") { cf -> if (cf != null) { out.add(cf); coverFile = cf }; finish() }
+                        } else finish()
+                    }
+                } else {
+                    JobDoc.htmlToPdf(ctx, coverHtml, "cover") { cf -> if (cf != null) { out.add(cf); coverFile = cf }; finish() }
+                }
             }
+            Text("Opens Gmail with your résumé + cover-letter PDFs attached, ready to send.",
+                fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
         }
         Spacer(Modifier.height(24.dp))
     }
