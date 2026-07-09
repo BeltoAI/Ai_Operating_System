@@ -126,6 +126,14 @@ object ToolRouter {
                     try { MessageStore.insertOne(ctx, "Checklist", "Checklist", "system", "system", msg) } catch (e: Exception) {}
                     msg
                 }
+                "checklist_remove" -> {
+                    // Remove specific item(s) by text AND record the truth in the brain.
+                    val removed = ChecklistStore.removeMatching(ctx, arg)
+                    val msg = if (removed.isEmpty()) "No checklist item matched: " + arg
+                              else "Removed from checklist: " + removed.joinToString("; ")
+                    if (removed.isNotEmpty()) try { MessageStore.insertOne(ctx, "Checklist", "Checklist", "system", "system", msg) } catch (e: Exception) {}
+                    msg
+                }
                 "pin_app" -> {
                     val app = installedApps(ctx).firstOrNull { it.label.lowercase().contains(arg.lowercase()) }
                     if (app != null) { ShortcutStore.add(ctx, "app", app.label, app.pkg); "Pinned ${app.label} to Home." }

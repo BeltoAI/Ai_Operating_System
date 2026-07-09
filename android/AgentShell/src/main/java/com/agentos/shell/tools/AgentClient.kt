@@ -203,7 +203,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, none. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -233,6 +233,8 @@ object AgentClient {
             append("Use checklist_clear when the user wants to CLEAR/empty/wipe their checklist or remove completed " +
                 "items — arg = \"done\" to clear only completed, or \"all\" (or empty) to clear everything. NEVER claim " +
                 "you cleared the list without emitting this action — it's what actually clears it. ")
+            append("Use checklist_remove to delete a SPECIFIC item — arg = a few words of the item to remove " +
+                "(e.g. 'call dentist'). NEVER claim you removed an item without emitting this action. ")
             append("If the user lists several items, emit one checklist_add action per item. ")
             append("Use compose_post when the user wants to create/take photos for a social media post; ")
             append("its arg = {\"platform\":\"LinkedIn\",\"topic\":\"...\"}. ")

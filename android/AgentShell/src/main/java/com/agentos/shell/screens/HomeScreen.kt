@@ -126,6 +126,8 @@ fun HomeScreen(
     var replyDragX by remember { mutableStateOf(0f) }     // swipe the answer card: left=dismiss, right=open/Google
     var lastQuery by remember { mutableStateOf("") }
     var rememberSuggestion by remember { mutableStateOf("") }
+    var showChecklist by remember { mutableStateOf(false) }   // show the live checklist card under the answer
+    var checklistTick by remember { mutableStateOf(0) }       // bump to re-read ChecklistStore after a change
     var pendingConfirm by remember { mutableStateOf<List<com.agentos.shell.tools.AgentAction>?>(null) }
     var saved by remember { mutableStateOf(MetricsStore.savedMinutesToday(ctx)) }
     var showAdd by remember { mutableStateOf(false) }
@@ -331,6 +333,11 @@ fun HomeScreen(
             // they surface as a tap-to-confirm card with the fields pre-filled. Everything else runs now.
             val actionable = result.actions.filter { it.type.isNotBlank() && it.type != "none" }
             val confirmables = actionable.filter { it.type in ActionConfirm.CONFIRM_TYPES }
+            // Any checklist change, or a "show my checklist / to-do / list" query → reveal the live checklist
+            // card under the answer so what SlyOS shows always matches the brain (no more phantom clears).
+            val touchedChecklist = actionable.any { it.type.startsWith("checklist") }
+            val asksChecklist = Regex("(?i)\\b(show|see|view|what'?s on|open|my)\\b.*\\b(check ?list|to-?do'?s?|task list|list)\\b").containsMatchIn(q)
+            if (touchedChecklist || asksChecklist) { showChecklist = true; checklistTick++ } else showChecklist = false
             // Only pay for the loop when the model wants the web, OR the user is asking about spending
             // (so the review pulls REAL numbers via expense_lookup, not a guess). Simple Q&A stays one call.
             val financeQ = Regex("(?i)\\b(spen[dt]|spending|expense|expenditure|budget|spending review|where.?s my money|how much (did|have) i (spend|spent))\\b").containsMatchIn(q)
@@ -597,7 +604,7 @@ fun HomeScreen(
                         detectHorizontalDragGestures(
                             onDragEnd = {
                                 when {
-                                    replyDragX < -130f -> { reply = ""; rememberSuggestion = "" }
+                                    replyDragX < -130f -> { reply = ""; rememberSuggestion = ""; showChecklist = false }
                                     replyDragX > 130f -> {
                                         val url = Regex("https?://\\S+").find(reply)?.value?.trimEnd('.', ')', ',')
                                             ?: "https://www.google.com/search?q=" + android.net.Uri.encode(lastQuery.ifBlank { reply.take(60) })
@@ -644,6 +651,51 @@ fun HomeScreen(
                         .clickable {
                             try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(replyUrl)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                         }.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+        }
+
+        // Live checklist card — appears when the user touches or asks to see the checklist. It reads
+        // straight from ChecklistStore (the brain's source of truth), so it can NEVER disagree with what
+        // SlyOS just said. Tap a row to toggle done; tap ✕ to remove; both persist and stay in sync.
+        if (showChecklist) {
+            val items = remember(checklistTick) { com.agentos.shell.tools.ChecklistStore.load(ctx) }
+            Spacer(Modifier.height(10.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Checklist", fontSize = T.body, fontWeight = FontWeight.SemiBold, color = T.ink, modifier = Modifier.weight(1f))
+                    Text("${items.count { !it.done }} open", fontSize = T.small, color = T.inkSoft)
+                }
+                if (items.isEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Nothing on your checklist.", fontSize = T.small, color = T.inkFaint)
+                } else {
+                    items.forEach { item ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (item.done) "☑" else "☐", fontSize = T.body,
+                                color = if (item.done) T.accent else T.inkSoft,
+                                modifier = Modifier.clickable {
+                                    com.agentos.shell.tools.ChecklistStore.toggle(ctx, item.id); checklistTick++
+                                }
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                item.text, fontSize = T.small,
+                                color = if (item.done) T.inkFaint else T.ink,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("✕", fontSize = T.small, color = T.inkFaint,
+                                modifier = Modifier.clickable {
+                                    com.agentos.shell.tools.ChecklistStore.remove(ctx, item.id)
+                                    try { com.agentos.shell.tools.MessageStore.insertOne(ctx, "Checklist", "Checklist", "system", "system", "Removed from checklist: \"${item.text}\"") } catch (e: Exception) {}
+                                    checklistTick++
+                                }.padding(start = 10.dp))
+                        }
+                    }
+                }
             }
         }
 

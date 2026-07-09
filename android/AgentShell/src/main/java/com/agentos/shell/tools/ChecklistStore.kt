@@ -86,4 +86,19 @@ object ChecklistStore {
         save(ctx, emptyList())
         return n
     }
+
+    /** Remove item(s) matching the given text (exact, contains, or fuzzy-similar). Returns the texts
+     *  of what was removed — so the agent gives honest feedback and logs the truth to the brain. */
+    fun removeMatching(ctx: Context, query: String): List<String> {
+        val q = query.trim(); if (q.isBlank()) return emptyList()
+        val ql = q.lowercase(); val qs = sig(q)
+        val items = load(ctx)
+        val hit = items.filter {
+            val tl = it.text.lowercase()
+            tl == ql || tl.contains(ql) || ql.contains(tl) || similar(sig(it.text), qs)
+        }
+        if (hit.isEmpty()) return emptyList()
+        save(ctx, items.filterNot { h -> hit.any { it.id == h.id } })
+        return hit.map { it.text }
+    }
 }
