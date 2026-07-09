@@ -111,6 +111,15 @@ private fun ApiKeysCard() {
         KeyEntry("Finnhub (market data)", "token…", "finnhub", MemoryStore.finnhubKey(ctx)) {
             MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim()
         }
+        KeyEntry("ElevenLabs (cloned voice, optional)", "xi-…", "elevenlabs", MemoryStore.elevenKey(ctx)) { MemoryStore.setElevenKey(ctx, it) }
+        run {
+            var vid by remember { mutableStateOf(MemoryStore.elevenVoiceId(ctx)) }
+            BasicTextField(vid, { vid = it; MemoryStore.setElevenVoiceId(ctx, it) }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (vid.isEmpty()) Text("ElevenLabs voice ID (optional)", fontSize = T.small, color = T.inkFaint); inner() })
+        }
+        KeyEntry("GitHub token (Cowork push)", "ghp_…", "github", MemoryStore.githubToken(ctx)) { MemoryStore.setGithubToken(ctx, it) }
         Spacer(Modifier.height(8.dp))
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
@@ -434,17 +443,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             "left blank, you stay on the free generic voice.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
-        var elevenKey by remember { mutableStateOf(MemoryStore.elevenKey(ctx)) }
-        var elevenVoice by remember { mutableStateOf(MemoryStore.elevenVoiceId(ctx)) }
-        BasicTextField(elevenKey, { elevenKey = it; MemoryStore.setElevenKey(ctx, it) }, singleLine = true,
-            textStyle = TextStyle(color = T.ink, fontSize = T.small),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
-            decorationBox = { inner -> if (elevenKey.isEmpty()) Text("ElevenLabs API key (optional)", fontSize = T.small, color = T.inkFaint); inner() })
-        Spacer(Modifier.height(8.dp))
-        BasicTextField(elevenVoice, { elevenVoice = it; MemoryStore.setElevenVoiceId(ctx, it) }, singleLine = true,
-            textStyle = TextStyle(color = T.ink, fontSize = T.small),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
-            decorationBox = { inner -> if (elevenVoice.isEmpty()) Text("ElevenLabs voice ID (optional)", fontSize = T.small, color = T.inkFaint); inner() })
+        Text("Cloned voice is optional — paste your ElevenLabs key + voice ID in the “API keys & model” card above. Left blank, you stay on the free generic voice.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
         Text("Receiving real phone calls to a number (Twilio/SIP) is a separate paid add-on on the roadmap — " +
             "SlyOS will never claim to answer your carrier calls in a cloned voice for free.",
             fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 8.dp))
@@ -933,25 +934,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(14.dp))
-        var ghToken by remember { mutableStateOf(MemoryStore.githubToken(ctx)) }
-        val ghSet = ghToken.isNotBlank()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("GitHub · one-tap push from Cowork", fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
-            if (ghSet) Text("✓ set", fontSize = T.caption, color = androidx.compose.ui.graphics.Color(0xFF1FA855),
-                modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(androidx.compose.ui.graphics.Color(0x2229C46A)).padding(horizontal = 8.dp, vertical = 2.dp))
-        }
-        Text("Paste a GitHub token once — then Cowork can create repos and push code with no login prompts. " +
-            "Make one at github.com/settings/tokens (classic, scope: repo).",
+        Text("GitHub · one-tap push from Cowork: paste a GitHub token in the “API keys & model” card above " +
+            "(make one at github.com/settings/tokens — classic, scope: repo). Then tell Cowork “put this on my GitHub.”",
             fontSize = T.small, color = T.inkFaint)
-        Spacer(Modifier.height(6.dp))
-        BasicTextField(value = ghToken, onValueChange = { ghToken = it; MemoryStore.setGithubToken(ctx, it) }, singleLine = true,
-            textStyle = TextStyle(color = if (ghSet) T.inkSoft else T.ink, fontSize = T.small),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                .background(if (ghSet) androidx.compose.ui.graphics.Color(0x1429C46A) else T.bgElevated).padding(10.dp),
-            decorationBox = { inner -> if (ghToken.isEmpty()) Text("ghp_… (stored only on this phone)", fontSize = T.small, color = T.inkFaint); inner() })
-        Text("Then just tell Cowork: “put this on my GitHub.”", fontSize = T.caption, color = T.inkFaint,
-            modifier = Modifier.padding(top = 4.dp))
 
         SectionTitle("Per-app responses")
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +

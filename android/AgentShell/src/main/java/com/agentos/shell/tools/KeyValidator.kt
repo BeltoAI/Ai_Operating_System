@@ -21,6 +21,8 @@ object KeyValidator {
             "anthropic" -> anthropic(key)
             "openai" -> openai(key)
             "finnhub" -> finnhub(key)
+            "github" -> github(key)
+            "elevenlabs" -> elevenlabs(key)
             else -> State.ERROR
         }
     }
@@ -37,6 +39,13 @@ object KeyValidator {
 
     private fun finnhub(key: String): State =
         classify(get("https://finnhub.io/api/v1/quote?symbol=AAPL&token=$key", emptyMap()))
+
+    private fun github(key: String): State =
+        classify(get("https://api.github.com/user",
+            mapOf("Authorization" to "Bearer $key", "User-Agent" to "SlyOS", "Accept" to "application/vnd.github+json")))
+
+    private fun elevenlabs(key: String): State =
+        classify(get("https://api.elevenlabs.io/v1/user", mapOf("xi-api-key" to key)))
 
     /** 200s = valid; explicit auth rejections = invalid; anything else (network, rate limit) = error. */
     private fun classify(code: Int): State = when {
