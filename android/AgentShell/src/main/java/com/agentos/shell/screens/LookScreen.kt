@@ -95,6 +95,7 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var box by remember { mutableStateOf<Rect?>(null) }          // detected object box, in VIEW px
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var cardDragX by remember { mutableStateOf(0f) }             // swipe-to-dismiss the result card
+    var lensBack by remember { mutableStateOf(true) }            // true = main camera, false = selfie camera
 
     fun openUrl(u: String) { if (u.isBlank()) return; try { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
     fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
@@ -197,6 +198,33 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
     }
 
+    // "Who's this?" straight from the live camera — match the current frame against saved people.
+    fun recognizeFace() {
+        if (busy || !granted) return
+        busy = true; answer = ""; result = null; box = null
+        capture { raw, rot ->
+            if (raw == null) { busy = false; return@capture }
+            val up = rotate(raw, rot)
+            scope.launch {
+                val shot = withContext(Dispatchers.IO) { ImageUtil.encodeBitmap(up) }
+                val ros = withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.PeopleStore.list(ctx).mapNotNull { p ->
+                        com.agentos.shell.tools.PeopleStore.photoB64(ctx, p.id)?.let { p.name to it }
+                    }
+                }
+                val who = if (shot == null) "UNKNOWN"
+                          else withContext(Dispatchers.IO) { AgentClient.identifyPerson(shot, ros) }
+                answer = when {
+                    ros.isEmpty() -> "No saved people yet — add them in the “Who's this?” screen (ask HomeAI “recognize a face”)."
+                    who == "UNKNOWN" -> "New face — not in your people yet."
+                    else -> "This looks like $who."
+                }
+                busy = false
+                if (who != "UNKNOWN" && ros.isNotEmpty()) speak(answer)
+            }
+        }
+    }
+
     val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val said = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!said.isNullOrBlank()) askAboutFrame(said)
@@ -214,7 +242,7 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (granted) {
-            AndroidView(factory = { c ->
+            key(lensBack) { AndroidView(factory = { c ->
                 val pv = PreviewView(c); pv.scaleType = PreviewView.ScaleType.FILL_CENTER
                 val future = ProcessCameraProvider.getInstance(c)
                 future.addListener({
@@ -222,11 +250,12 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         val provider = future.get()
                         val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
                         provider.unbindAll()
-                        provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                        val lens = if (lensBack) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+                        provider.bindToLifecycle(lifecycleOwner, lens, preview, imageCapture)
                     } catch (e: Exception) {}
                 }, ContextCompat.getMainExecutor(c))
                 pv
-            }, modifier = Modifier.fillMaxSize())
+            }, modifier = Modifier.fillMaxSize()) }
 
             Canvas(Modifier.fillMaxSize().onSizeChanged { canvasSize = it }
                 .pointerInput(Unit) { detectTapGestures { off -> tap = off; identify(off) } }
@@ -265,6 +294,14 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Text("← Back", color = Color.White, fontSize = T.small,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { onBack() }.padding(horizontal = 14.dp, vertical = 8.dp))
             Spacer(Modifier.weight(1f))
+            Text("🙂 Who's this?", color = Color.White, fontSize = T.small,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM)
+                    .clickable(enabled = !busy && granted) { recognizeFace() }.padding(horizontal = 12.dp, vertical = 8.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("⟲ Flip", color = Color.White, fontSize = T.small,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM)
+                    .clickable { lensBack = !lensBack }.padding(horizontal = 12.dp, vertical = 8.dp))
+            Spacer(Modifier.width(8.dp))
             Text(if (auto) "Auto ●" else "Auto ○", color = if (auto) ACC else Color.White, fontSize = T.small,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(SCRIM).clickable { auto = !auto }.padding(horizontal = 14.dp, vertical = 8.dp))
         }
