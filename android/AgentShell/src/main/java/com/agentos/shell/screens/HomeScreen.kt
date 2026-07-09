@@ -627,6 +627,10 @@ fun HomeScreen(
                         Text("thinking…", fontSize = T.body, color = T.inkFaint)
                     }
                 } else {
+                    // Rich Visual Output: if the answer leads with a score / temperature / price, show a
+                    // stylized hero card above the text. Conservative — null for ordinary answers.
+                    val hero = remember(reply) { RichParse.detect(reply) }
+                    if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(12.dp)) }
                     // Full answer: bigger, and scrollable so long replies aren't cut to a few lines.
                     Text(
                         reply.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1").replace(Regex("(?m)^#{1,6}\\s*"), ""),
