@@ -44,7 +44,7 @@ fun DocsScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun process(bmp: Bitmap) {
         busy = true; msg = "Reading the document…"
         scope.launch {
-            val b64 = withContext(Dispatchers.IO) { ImageUtil.encodeBitmap(bmp) }
+            val b64 = withContext(Dispatchers.IO) { ImageUtil.encodeBitmap(bmp, 1568) }   // higher res so small print reads
             val j = if (b64 == null) null else withContext(Dispatchers.IO) { AgentClient.extractForm(b64) }
             if (j == null) { msg = "Couldn't read that — try a clearer, flatter photo."; busy = false; return@launch }
             val folder = withContext(Dispatchers.IO) {

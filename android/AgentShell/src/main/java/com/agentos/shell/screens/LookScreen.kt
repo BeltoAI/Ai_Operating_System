@@ -242,6 +242,34 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
     }
 
+    // Scan a receipt straight from the full-res camera (much sharper than a thumbnail), read the total +
+    // line items, and log it as an expense.
+    fun scanReceipt() {
+        if (busy || !granted) return
+        busy = true; answer = ""; result = null; box = null
+        capture { raw, rot ->
+            if (raw == null) { busy = false; return@capture }
+            val up = rotate(raw, rot)
+            scope.launch {
+                val b64 = withContext(Dispatchers.IO) { ImageUtil.encodeBitmap(up, 1568) }   // higher res so small print reads
+                val r = if (b64 == null) null else withContext(Dispatchers.IO) { AgentClient.extractReceipt(b64) }
+                if (r == null) {
+                    answer = "Couldn't read a receipt there — fill the frame, hold steady, good light."
+                    busy = false; return@launch
+                }
+                val date = r.dateIso.ifBlank { java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date()) }
+                withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.ExpenseStore.record(ctx, r.merchant, date, r.total, r.currency, r.tax,
+                        r.category, r.itemsJson, "camera", "", "", r.confidence)
+                }
+                val items = try { org.json.JSONArray(r.itemsJson).length() } catch (e: Exception) { 0 }
+                answer = "Logged: ${r.merchant} · ${r.currency} ${"%.2f".format(r.total)}" +
+                    (if (items > 0) " · $items item${if (items == 1) "" else "s"}" else "") + " → ${r.category}"
+                busy = false; speak(answer)
+            }
+        }
+    }
+
     val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val said = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!said.isNullOrBlank()) askAboutFrame(said)
@@ -314,7 +342,6 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         ) {
             CamPill("Back") { onBack() }
             Spacer(Modifier.weight(1f))
-            CamPill("Who's this", enabled = !busy && granted) { recognizeFace() }
             CamPill("Flip") { lensBack = !lensBack }
             CamPill("Auto", active = auto) { auto = !auto }
         }
@@ -349,6 +376,10 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             if (result == null && answer.isNotBlank()) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(SCRIM).padding(18.dp)) { Text(answer, color = Color.White, fontSize = T.small) }
                 Spacer(Modifier.height(12.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                CamPill("Who's this", enabled = !busy && granted) { recognizeFace() }
+                CamPill("Scan receipt", enabled = !busy && granted) { scanReceipt() }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Same mic as Home: an accent dot + "tap to talk".

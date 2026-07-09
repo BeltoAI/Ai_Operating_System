@@ -892,8 +892,8 @@ object AgentClient {
         val content = JSONArray()
             .put(JSONObject().put("type", "image").put("source",
                 JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
-            .put(JSONObject().put("type", "text").put("text", "Parse this receipt."))
-        val (code, text) = callContent(receiptSys(), content, 900, VOICE)
+            .put(JSONObject().put("type", "text").put("text", "Parse this receipt. Read EVERY line item (name, qty, price), the subtotal, tax, and the final total exactly as printed."))
+        val (code, text) = callContent(receiptSys(), content, 1400, VOICE)
         if (code != 200 || looksLikeError(text)) return null
         return parseReceipt(text)
     }
