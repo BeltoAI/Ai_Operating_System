@@ -28,7 +28,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -215,6 +215,7 @@ class ShellActivity : ComponentActivity() {
                             onNetwork = { t -> networkQuery = t; screen = Screen.Network },
                             onSetMission = { g -> missionGoal = g; screen = Screen.Mission },
                             onLook = { screen = Screen.Look },
+                            onFaces = { screen = Screen.Faces },
                             onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onExpenses = { screen = Screen.Expenses },
@@ -235,6 +236,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Look -> LookScreen(m) { screen = Screen.Home }
+                        Screen.Faces -> FaceScreen(m) { screen = Screen.Home }
                         Screen.Shop -> ShopScreen(m, shopQuery) { shopQuery = ""; screen = Screen.Home }
                         Screen.Trade -> TradeScreen(m, tradePrompt) { tradePrompt = ""; screen = Screen.Home }
                         Screen.Converse -> ConverseScreen(m) { screen = Screen.Home }

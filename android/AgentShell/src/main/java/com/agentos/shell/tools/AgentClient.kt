@@ -203,7 +203,8 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, none. ")
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_email, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, none. ")
+            append("Use faces when the user wants to recognize/identify a person, asks 'who is this', or wants to add someone to recognize. ")
             append("compose_email={\"to\":\"anna@x.com\",\"topic\":\"what the email is about\"} — PREFERRED for emails: opens an editable draft PAGE where SlyOS writes it in the user's voice and they can edit or prompt-revise it, then tap Send. Use this whenever the user wants to write/draft/send an email. 'to' may be an email or empty. ")
             append("send_email={\"to\":\"anna@x.com\",\"subject\":\"…\",\"body\":\"…\",\"meet\":true,\"start\":\"2026-06-30T16:00\",\"end\":\"2026-06-30T16:30\"} — only when the user explicitly wants it sent immediately without a review page. Draft in the user's voice; 'to' MUST be an email; set meet+start+end to attach a Google Meet link. Confirm before sending. ")
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
@@ -309,6 +310,24 @@ object AgentClient {
         val sys = persona(memory) + "Answer the question about the photo concisely, in your own natural voice."
         val (code, text) = callContent(sys, content, 600)
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
+    }
+
+    /** Match a freshly-captured face against a roster of known people (each a name + reference photo).
+     *  Returns the matching name, or "UNKNOWN". Uses the model's vision — best-effort, on-device only. */
+    fun identifyPerson(shotB64: String, roster: List<Pair<String, String>>): String {
+        if (roster.isEmpty() || shotB64.isBlank()) return "UNKNOWN"
+        val imgs = roster.map { it.second } + shotB64
+        val names = roster.mapIndexed { i, p -> "${i + 1}=${p.first}" }.joinToString(", ")
+        val prompt = "Face matching task. The first ${roster.size} image(s) are KNOWN people, in this order: $names. " +
+            "The LAST image is a person to identify. If the last image is clearly the SAME person as one of the known " +
+            "images, reply with ONLY that person's exact name. If it matches none of them, reply ONLY with the word " +
+            "UNKNOWN. Output nothing else."
+        val out = askVision(prompt, imgs, "")
+        val first = out.trim().lines().firstOrNull()?.trim().orEmpty()
+        if (first.isBlank() || first.startsWith("Couldn't")) return "UNKNOWN"
+        // Only accept a name that's actually on the roster (guards against the model free-texting).
+        val hit = roster.firstOrNull { first.contains(it.first, ignoreCase = true) }
+        return hit?.first ?: "UNKNOWN"
     }
 
     /**

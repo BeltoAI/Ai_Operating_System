@@ -110,6 +110,7 @@ fun HomeScreen(
     onNetwork: (String) -> Unit = {},
     onSetMission: (String) -> Unit = {},
     onLook: () -> Unit = {},
+    onFaces: () -> Unit = {},
     onShop: (String) -> Unit = {},
     onInvest: (String) -> Unit = {},
     onExpenses: () -> Unit = {},
@@ -311,6 +312,12 @@ fun HomeScreen(
             if (expenseAct != null) {
                 thinking = false
                 onExpenses()
+                return@launch
+            }
+            // faces → the "Who's this?" camera recognizer (match a face against your saved people).
+            if (result.actions.any { it.type == "faces" }) {
+                thinking = false
+                onFaces()
                 return@launch
             }
             // operate → the action layer drives an app by tapping the screen (with STOP + stop-before-send).
