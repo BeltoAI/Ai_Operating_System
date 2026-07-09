@@ -112,10 +112,14 @@ object JobDoc {
         }
     }
 
-    /** Open the user's email app with the outreach text and the given PDFs attached. */
+    /**
+     * Quick-send via Gmail with the résumé + cover-letter PDFs attached: opens Gmail's compose already
+     * filled with To / Subject / body / attachments so it's a single tap to send. Falls back to the app
+     * chooser if Gmail isn't installed.
+     */
     fun emailWithAttachments(ctx: Context, to: String, subject: String, body: String, files: List<File>) {
         val uris = ArrayList<Uri>(files.filter { it.exists() }.map { FileProvider.getUriForFile(ctx, AUTHORITY, it) })
-        val intent = Intent(if (uris.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND).apply {
+        fun build(): Intent = Intent(if (uris.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND).apply {
             type = "application/pdf"
             if (to.isNotBlank()) putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
             putExtra(Intent.EXTRA_SUBJECT, subject)
@@ -124,10 +128,12 @@ object JobDoc {
                 uris.size > 1 -> putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 uris.size == 1 -> putExtra(Intent.EXTRA_STREAM, uris[0])
             }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        // Prefer Gmail directly (quick send). ActivityNotFound → fall back to the chooser.
+        try { ctx.startActivity(build().setPackage("com.google.android.gm")); return } catch (e: Exception) {}
         try {
-            ctx.startActivity(Intent.createChooser(intent, "Email with attachments").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ctx.startActivity(Intent.createChooser(build(), "Email with attachments").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) {}
     }
 }

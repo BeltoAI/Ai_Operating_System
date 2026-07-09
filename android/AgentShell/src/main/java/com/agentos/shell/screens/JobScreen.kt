@@ -43,6 +43,7 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
     val clip = LocalClipboardManager.current
 
     var link by remember { mutableStateOf(JobStore.posting(ctx)) }
+    var leadHint by remember { mutableStateOf("") }   // role + company of the tapped opening, for precise tailoring
     var resume by remember { mutableStateOf(JobStore.resume(ctx)) }
     var resumeHtml by remember { mutableStateOf("") }
     var coverHtml by remember { mutableStateOf("") }
@@ -105,9 +106,12 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         if (busy.isNotEmpty()) return
         busy = "gen"
         scope.launch {
-            val posting = resolve(link.ifBlank { initialTarget })
+            val fetched = resolve(link.ifBlank { initialTarget })
+            // Put the tapped opening's role + company up top so the résumé/cover/email are tailored to
+            // THIS position even when the page fetch is thin (login-walled LinkedIn/Indeed pages).
+            val posting = if (leadHint.isNotBlank()) "TARGET ROLE: $leadHint\n\n$fetched" else fetched
             // Identify the role + company so the application is recorded specifically.
-            appLabel = withContext(Dispatchers.IO) { AgentClient.jobLabel(posting) }.ifBlank { appLabel }
+            appLabel = withContext(Dispatchers.IO) { AgentClient.jobLabel(posting) }.ifBlank { leadHint.ifBlank { appLabel } }
             // Grab a contact email off the posting so "Email with attachments" goes to the right place.
             Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").find(posting)?.value
                 ?.takeUnless { it.contains("example") || it.endsWith(".png") || it.endsWith(".jpg") }?.let { jobEmailTo = it }
@@ -217,7 +221,13 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         leads.forEach { lead ->
             Spacer(Modifier.height(8.dp))
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated)
-                .clickable { link = lead.url; JobStore.setPosting(ctx, lead.url); generate() }.padding(14.dp)) {
+                .clickable {
+                    link = lead.url
+                    leadHint = lead.title +
+                        (if (lead.company.isNotBlank()) " at " + lead.company else "") +
+                        (if (lead.location.isNotBlank()) " (" + lead.location + ")" else "")
+                    JobStore.setPosting(ctx, lead.url); generate()
+                }.padding(14.dp)) {
                 Text(lead.title + (if (lead.company.isNotBlank()) " · " + lead.company else ""), fontSize = T.small, color = T.ink)
                 Text((if (lead.location.isNotBlank()) lead.location + "  ·  " else "") + "tap to generate", fontSize = T.caption, color = T.accent)
             }
@@ -243,8 +253,9 @@ fun JobScreen(modifier: Modifier = Modifier, initialTarget: String = "", onBack:
         if (resumeFile != null || coverFile != null) {
             Spacer(Modifier.height(16.dp))
             if (jobEmailTo.isNotBlank()) { Text("To: $jobEmailTo", fontSize = T.caption, color = T.inkFaint); Spacer(Modifier.height(6.dp)) }
-            bigBtn(if (jobEmailTo.isNotBlank()) "Email $jobEmailTo (PDFs attached)" else "Email with attachments", accent = true) {
-                JobDoc.emailWithAttachments(ctx, jobEmailTo, "Application",
+            bigBtn(if (jobEmailTo.isNotBlank()) "Send via Gmail to $jobEmailTo (PDFs attached)" else "Send via Gmail (PDFs attached)", accent = true) {
+                val subject = if (appLabel.isNotBlank()) "Application — $appLabel" else "Application"
+                JobDoc.emailWithAttachments(ctx, jobEmailTo, subject,
                     email.ifBlank { "Hi,\n\nPlease find my résumé and cover letter attached.\n\nBest," },
                     listOfNotNull(resumeFile, coverFile))
                 logApplication("sent", 1500)
