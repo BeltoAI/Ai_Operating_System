@@ -29,6 +29,8 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .build()
         nm.notify((System.currentTimeMillis() % 100000).toInt(), note)
+        // Log the firing into the brain so "what was I reminded about?" recalls it.
+        try { com.agentos.shell.tools.MessageStore.insertOne(ctx, "Reminders", "Reminder", "system", "system", "Reminder fired: $text") } catch (e: Exception) {}
     }
 }
 

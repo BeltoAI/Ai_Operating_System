@@ -87,7 +87,11 @@ fun ConfirmActionCard(
             val o = objs[idx]
             val map = edits[idx]
             if (idx > 0) { Spacer(Modifier.height(12.dp)); Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline)); Spacer(Modifier.height(12.dp)) }
-            Text(ActionConfirm.titleFor(a.type, o), fontSize = T.body, color = T.ink)
+            val icon = when (a.type) {
+                "remind" -> "⏰  "; "add_event" -> "📅  "; "send_email" -> "✉️  "
+                "message", "send_sms" -> "💬  "; else -> "✦  "
+            }
+            Text(icon + ActionConfirm.titleFor(a.type, o), fontSize = T.body, color = T.accent)
             Spacer(Modifier.height(8.dp))
             // Show each known field that has a value, or the primary (first) field so there's always something to edit.
             val fields = ActionConfirm.fieldsFor(a.type).ifEmpty { listOf(ActionConfirm.Field("body", "")) }

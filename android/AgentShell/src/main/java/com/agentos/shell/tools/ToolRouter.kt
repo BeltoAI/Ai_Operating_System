@@ -230,6 +230,7 @@ object ToolRouter {
         start(ctx, Intent(AlarmClock.ACTION_SET_TIMER)
             .putExtra(AlarmClock.EXTRA_LENGTH, secs)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+        try { MessageStore.insertOne(ctx, "Timers", "Timer", "me", "me", "Timer set for ${secs / 60} min") } catch (e: Exception) {}
         return "Timer set for ${secs / 60} min."
     }
 
@@ -241,6 +242,7 @@ object ToolRouter {
             .putExtra(AlarmClock.EXTRA_HOUR, h)
             .putExtra(AlarmClock.EXTRA_MINUTES, m)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+        try { MessageStore.insertOne(ctx, "Alarms", "Alarm", "me", "me", "Alarm set for %02d:%02d".format(h, m)) } catch (e: Exception) {}
         return "Alarm set for %02d:%02d".format(h, m)
     }
 

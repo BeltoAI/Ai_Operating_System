@@ -631,7 +631,7 @@ fun HomeScreen(
 
         calCard?.let { (label, evs) ->
             Spacer(Modifier.height(14.dp))
-            CalendarCard(label, evs)
+            CalendarCard(label, evs) { calCard = null }
         }
 
         if (thinking || reply.isNotEmpty()) {

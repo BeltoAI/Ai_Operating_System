@@ -126,6 +126,44 @@ private fun BrainBackupCard() {
     }
 }
 
+/** Efficiency as its own top-level card — score, weekly trend, and the 14-day time-saved chart. */
+@Composable
+private fun EfficiencyCard() {
+    val ctx = LocalContext.current
+    val M = com.agentos.shell.tools.MetricsStore
+    val score = M.efficiencyScore(ctx)
+    val trend = M.trendPct(ctx)
+    val hist = M.history(ctx, 14)
+    val weekMin = hist.takeLast(7).sumOf { it.savedMin }
+    Collapsible("Efficiency", "How much time SlyOS is saving you") {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("$score", fontSize = 40.sp, color = T.accent, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(4.dp))
+            Text("/100", fontSize = T.body, color = T.inkFaint, modifier = Modifier.padding(bottom = 6.dp))
+            Spacer(Modifier.weight(1f))
+            val up = trend >= 0
+            Text((if (up) "▲ +" else "▼ ") + "$trend%", fontSize = T.body,
+                color = if (up) Color(0xFF4E9A5B) else T.danger, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Text("vs last week · ~${if (weekMin >= 60) "${weekMin / 60}h ${weekMin % 60}m" else "$weekMin min"} saved this week",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
+        val maxV = (hist.maxOfOrNull { it.savedMin } ?: 0).coerceAtLeast(1)
+        Canvas(Modifier.fillMaxWidth().height(90.dp)) {
+            val n = hist.size; val gap = 6f
+            val bw = (size.width - gap * (n - 1)) / n
+            hist.forEachIndexed { i, d ->
+                val h = (d.savedMin.toFloat() / maxV) * (size.height - 6f)
+                drawRect(color = if (i == n - 1) T.accent else T.accent.copy(alpha = 0.35f),
+                    topLeft = Offset(i * (bw + gap), size.height - h), size = Size(bw, h))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("Score = your 7-day average time saved (≈1 hr/day is 100). Keep letting the agent handle things to push it up.",
+            fontSize = T.caption, color = T.inkFaint)
+    }
+}
+
 /** Floating nav panel toggle — turns the over-every-app SlyOS bar on/off and walks through the
  *  "Display over other apps" permission. */
 @Composable
@@ -395,7 +433,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v15 · rendered calendar view", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v16 · Efficiency card + calendar swipe", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -483,6 +521,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // API keys as its own top-level card (promoted out of "Models & spending").
         ApiKeysCard()
+
+        // Efficiency as its own top-level card (promoted out of "Your writing voice").
+        EfficiencyCard()
 
         // ---- Appearance ----
         Collapsible("Appearance") {
@@ -657,41 +698,6 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text("by model: " + byProv.entries.joinToString(" · ") { "${it.key} ${CS.fmtTokens(it.value)}" }, fontSize = T.caption, color = T.inkFaint)
                 }
             }
-        }
-        // ---- Efficiency (moved here from the Home panel) ----
-        run {
-            val M = com.agentos.shell.tools.MetricsStore
-            val score = M.efficiencyScore(ctx)
-            val trend = M.trendPct(ctx)
-            val hist = M.history(ctx, 14)
-            val weekMin = hist.takeLast(7).sumOf { it.savedMin }
-            Spacer(Modifier.height(16.dp))
-            SectionTitle("Efficiency")
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text("$score", fontSize = 40.sp, color = T.accent, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(4.dp))
-                Text("/100", fontSize = T.body, color = T.inkFaint, modifier = Modifier.padding(bottom = 6.dp))
-                Spacer(Modifier.weight(1f))
-                val up = trend >= 0
-                Text((if (up) "▲ +" else "▼ ") + "$trend%", fontSize = T.body,
-                    color = if (up) Color(0xFF4E9A5B) else T.danger, modifier = Modifier.padding(bottom = 6.dp))
-            }
-            Text("vs last week · ~${if (weekMin >= 60) "${weekMin / 60}h ${weekMin % 60}m" else "$weekMin min"} saved this week",
-                fontSize = T.caption, color = T.inkFaint)
-            Spacer(Modifier.height(10.dp))
-            val maxV = (hist.maxOfOrNull { it.savedMin } ?: 0).coerceAtLeast(1)
-            Canvas(Modifier.fillMaxWidth().height(90.dp)) {
-                val n = hist.size; val gap = 6f
-                val bw = (size.width - gap * (n - 1)) / n
-                hist.forEachIndexed { i, d ->
-                    val h = (d.savedMin.toFloat() / maxV) * (size.height - 6f)
-                    drawRect(color = if (i == n - 1) T.accent else T.accent.copy(alpha = 0.35f),
-                        topLeft = Offset(i * (bw + gap), size.height - h), size = Size(bw, h))
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("Score = your 7-day average time saved (≈1 hr/day is 100). Keep letting the agent handle things to push it up.",
-                fontSize = T.caption, color = T.inkFaint)
         }
         if (styleProfile.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
