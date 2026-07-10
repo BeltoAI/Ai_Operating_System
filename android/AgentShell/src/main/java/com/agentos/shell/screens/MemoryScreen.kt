@@ -177,6 +177,9 @@ private fun OnDeviceModelCard() {
     var downloadingId by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0) }
     var tick by remember { mutableStateOf(0) }
+    var verified by remember { mutableStateOf(LL.verified(ctx)) }
+    var testing by remember { mutableStateOf(false) }
+    var testMsg by remember { mutableStateOf("") }
     val ramGb = remember { LL.deviceRamGb(ctx) }
     Collapsible("On-device model", "Free, private, offline — no key needed") {
         Text("Run a small AI right on your phone: free, private, works with no internet. It's not as sharp as " +
@@ -235,9 +238,39 @@ private fun OnDeviceModelCard() {
                                 .clickable(enabled = !active) { selectedId = m.id; LL.setSelectedId(ctx, m.id) }.padding(horizontal = 14.dp, vertical = 8.dp))
                         Spacer(Modifier.width(12.dp))
                         Text("Delete", fontSize = T.small, color = T.danger,
-                            modifier = Modifier.clickable { LL.delete(ctx, m); if (selectedId == m.id) selectedId = ""; tick++ }.padding(8.dp))
+                            modifier = Modifier.clickable { LL.delete(ctx, m); if (selectedId == m.id) { selectedId = ""; verified = false }; tick++ }.padding(8.dp))
                     }
                 }
+            }
+        }
+        // TEST GATE — a local model file can be incompatible with the engine and crash the app NATIVELY
+        // (uncatchable), which was overheating phones. So SlyOS never uses a local model for your real
+        // prompts until you've run this one-tap test and it worked. Only then does it join the router.
+        if (selectedId.isNotBlank() && LL.isDownloaded(ctx, LL.selectedModel(ctx) ?: LL.MODELS[0])) {
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (verified) "✓ Tested & active for your prompts" else "Not tested yet — won't run your prompts",
+                    fontSize = T.small, color = if (verified) T.accent else T.inkSoft, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("Tap Test to safely load the model once. If it works it starts helping with quick tasks; if it can't run on your phone you'll see it here — no crash.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(10.dp))
+            Text(if (testing) "Testing…" else "Test model", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (testing) T.hairline else T.accent)
+                    .clickable(enabled = !testing) {
+                        testing = true; testMsg = ""
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { LL.testRun(ctx) }
+                            testing = false; verified = LL.verified(ctx)
+                            testMsg = if (r.first == 200) "Works — got: \"${r.second.take(60)}\"" else "Couldn't run: ${r.second}"
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 9.dp))
+            if (testMsg.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(testMsg, fontSize = T.caption, color = if (verified) T.inkSoft else T.danger)
             }
         }
     }
@@ -414,16 +447,22 @@ private fun ApiKeysCard() {
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(6.dp))
-        Row {
-            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
+        val localReady = com.agentos.shell.tools.LocalLlm.ready(ctx)
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            (listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI") +
+                listOf("local" to "On-device")).forEach { (id, lbl) ->
                 val sel = pref == id
-                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                val dim = id == "local" && !localReady   // local not tested/ready yet → shown but muted
+                Text(lbl + if (id == "local" && !localReady) " (test first)" else "",
+                    fontSize = T.caption, color = if (sel) T.bgElevated else if (dim) T.inkFaint else T.inkSoft,
                     modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
                         .background(if (sel) T.accent else T.hairline)
                         .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
                         .padding(horizontal = 14.dp, vertical = 7.dp))
             }
         }
+        Text("On-device is free & private but only used once you've tested it in the On-device model card. It can't browse the web or read images — SlyOS keeps using your cloud key for those.",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -512,7 +551,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v20 · on-device model", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v21 · on-device test gate", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 

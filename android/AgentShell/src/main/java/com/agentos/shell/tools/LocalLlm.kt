@@ -25,6 +25,7 @@ object LocalLlm {
     private const val K_ENABLED = "local_enabled"
     private const val K_MODEL = "local_model"
     private const val K_PREPROCESS = "local_preprocess"
+    private const val K_VERIFIED = "local_verified"
 
     /** A downloadable on-device model. [ramGbMin] is the phone RAM we recommend to run it comfortably. */
     data class LmModel(
@@ -77,7 +78,11 @@ object LocalLlm {
     fun preprocess(ctx: Context): Boolean = prefs(ctx).getBoolean(K_PREPROCESS, false)
     fun setPreprocess(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(K_PREPROCESS, on).apply()
     fun selectedId(ctx: Context): String = prefs(ctx).getString(K_MODEL, "").orEmpty()
-    fun setSelectedId(ctx: Context, id: String) { prefs(ctx).edit().putString(K_MODEL, id).apply(); unload() }
+    fun setSelectedId(ctx: Context, id: String) { prefs(ctx).edit().putString(K_MODEL, id).putBoolean(K_VERIFIED, false).apply(); unload() }
+    // A model is only trusted for real prompts AFTER a successful user-run test — small model files can be
+    // incompatible with the engine and crash natively (uncatchable), so we never auto-load one unproven.
+    fun verified(ctx: Context): Boolean = prefs(ctx).getBoolean(K_VERIFIED, false)
+    fun setVerified(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(K_VERIFIED, on).apply()
     fun selectedModel(ctx: Context): LmModel? = modelById(selectedId(ctx))
 
     // ---- Model files + download -------------------------------------------------------------------
@@ -111,18 +116,28 @@ object LocalLlm {
         } catch (e: Exception) { Log.e(TAG, "download failed", e); try { tmp.delete() } catch (x: Exception) {}; false }
     }
 
-    fun delete(ctx: Context, m: LmModel) { try { modelFile(ctx, m).delete() } catch (e: Exception) {}; if (selectedId(ctx) == m.id) unload() }
+    fun delete(ctx: Context, m: LmModel) { try { modelFile(ctx, m).delete() } catch (e: Exception) {}; if (selectedId(ctx) == m.id) { setVerified(ctx, false); unload() } }
 
     // ---- Inference (MediaPipe via reflection) -----------------------------------------------------
     @Volatile private var engine: Any? = null
     @Volatile private var loadedPath: String = ""
 
-    /** True when a model is selected, downloaded, and the on-device engine library is present. */
+    /** True only when the local model is enabled, downloaded, the engine is present, AND it passed the
+     *  user's test — so a prompt is NEVER auto-routed to an unproven model that could crash the phone. */
     fun ready(ctx: Context): Boolean {
-        if (!enabled(ctx)) return false
+        if (!enabled(ctx) || !verified(ctx)) return false
         val m = selectedModel(ctx) ?: return false
         if (!isDownloaded(ctx, m)) return false
         return engineClass() != null
+    }
+
+    /** A one-off, user-initiated test generation. Sets the verified flag on success so real prompts may
+     *  then use the model. This is the ONLY place an unproven model is loaded. */
+    fun testRun(ctx: Context): Pair<Int, String> {
+        val msgs = JSONArray().put(org.json.JSONObject().put("role", "user").put("content", "Reply with just: hello"))
+        val r = generate(ctx, "You are a helpful assistant.", msgs, 32)
+        if (r.first == 200) setVerified(ctx, true)
+        return r
     }
 
     private fun engineClass(): Class<*>? = try {
