@@ -27,23 +27,28 @@ object LocalLlm {
     private const val K_PREPROCESS = "local_preprocess"
     private const val K_VERIFIED = "local_verified"
 
-    /** A downloadable on-device model. [ramGbMin] is the phone RAM we recommend to run it comfortably. */
+    /** A downloadable on-device model. [ramGbMin] is the phone RAM we recommend to run it comfortably.
+     *  [ctxTokens] is the model's FIXED context window (the ekvNNNN baked into the .task file). We must
+     *  never feed more than this many input+output tokens or MediaPipe crashes the app natively. */
     data class LmModel(
         val id: String, val name: String, val family: String, val params: String, val quant: String,
-        val fileMb: Int, val ramGbMin: Double, val url: String, val fileName: String, val note: String
+        val fileMb: Int, val ramGbMin: Double, val ctxTokens: Int, val url: String, val fileName: String, val note: String
     )
 
-    // A small, curated set that actually runs on a phone. URLs point at MediaPipe .task bundles.
+    // A small, curated set that actually runs on a phone. URLs point at MediaPipe .task bundles hosted by
+    // Google's litert-community on HuggingFace. Each has a fixed ekv context window encoded in its filename.
+    // IMPORTANT: only OPEN (non-gated, apache-2.0/MIT) repos — gated ones (Gemma, Meta Llama) need a
+    // HuggingFace login and silently fail to download, so we never list them here.
     val MODELS: List<LmModel> = listOf(
-        LmModel("gemma3-1b-int4", "Gemma 3 · 1B", "Google Gemma", "1B", "int4", 560, 3.0,
-            "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv2048.task",
-            "gemma3-1b-int4.task", "Fastest. Great for quick replies, notes, drafting. Best on most phones."),
-        LmModel("qwen2.5-1.5b-int8", "Qwen 2.5 · 1.5B", "Alibaba Qwen", "1.5B", "int8", 1600, 4.0,
-            "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-            "qwen2.5-1.5b-int8.task", "Sharper reasoning + multilingual. Needs a newer phone with more RAM."),
-        LmModel("llama3.2-3b-int4", "Llama 3.2 · 3B", "Meta Llama", "3B", "int4", 1900, 6.0,
-            "https://huggingface.co/litert-community/Llama-3.2-3B-Instruct/resolve/main/Llama-3.2-3B-Instruct_multi-prefill-seq_q4_ekv1280.task",
-            "llama3.2-3b-int4.task", "Best quality on-device, but heavy — only for high-end phones (6GB+ RAM).")
+        LmModel("qwen2.5-0.5b-int8", "Qwen 2.5 · 0.5B", "Alibaba Qwen", "0.5B", "int8", 546, 3.0, 1280,
+            "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task?download=true",
+            "qwen2.5-0.5b-int8.task", "Fastest & smallest. Great for quick replies, notes, drafting. Runs on most phones."),
+        LmModel("qwen2.5-1.5b-int8", "Qwen 2.5 · 1.5B", "Alibaba Qwen", "1.5B", "int8", 1650, 4.0, 1280,
+            "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task?download=true",
+            "qwen2.5-1.5b-int8.task", "Balanced — sharper reasoning + multilingual. Good on newer phones (4GB+ RAM)."),
+        LmModel("phi4-mini-int8", "Phi-4 mini", "Microsoft Phi", "3.8B", "int8", 3944, 6.0, 1280,
+            "https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv1280.task?download=true",
+            "phi4-mini-int8.task", "Best quality on-device, but a big download & heavy — only high-end phones (6GB+ RAM).")
     )
 
     fun modelById(id: String): LmModel? = MODELS.firstOrNull { it.id == id }
@@ -121,6 +126,12 @@ object LocalLlm {
     // ---- Inference (MediaPipe via reflection) -----------------------------------------------------
     @Volatile private var engine: Any? = null
     @Volatile private var loadedPath: String = ""
+    // MediaPipe's engine is NOT thread-safe and a second call while one is running crashes the app
+    // natively. Everything that touches the engine runs under this single lock, so calls are serialized.
+    private val engineLock = Any()
+    // Very rough chars→tokens factor. English is ~4 chars/token; we deliberately UNDER-estimate at 3.3 so
+    // our token budget is conservative and we never accidentally overflow the model's fixed window.
+    private const val CHARS_PER_TOKEN = 3.3
 
     /** True only when the local model is enabled, downloaded, the engine is present, AND it passed the
      *  user's test — so a prompt is NEVER auto-routed to an unproven model that could crash the phone. */
@@ -131,11 +142,17 @@ object LocalLlm {
         return engineClass() != null
     }
 
-    /** A one-off, user-initiated test generation. Sets the verified flag on success so real prompts may
-     *  then use the model. This is the ONLY place an unproven model is loaded. */
+    /** A one-off, user-initiated test generation. Uses a FULL-SIZED system prompt (like a real request) so
+     *  it exercises the whole context window — the most memory/heat-intensive path. If it survives this, it
+     *  survives real prompts (which generate() caps to the same budget). Sets verified on success. This is
+     *  the ONLY place an unproven model is loaded. */
     fun testRun(ctx: Context): Pair<Int, String> {
-        val msgs = JSONArray().put(org.json.JSONObject().put("role", "user").put("content", "Reply with just: hello"))
-        val r = generate(ctx, "You are a helpful assistant.", msgs, 32)
+        val m = selectedModel(ctx) ?: return -1 to "No on-device model selected."
+        // Build a realistic-length system prompt to fill most of the window, mirroring a real agent call.
+        val filler = ("You are SlyOS, the user's on-phone assistant. You are helpful, concise and natural. ")
+            .repeat((m.ctxTokens / 6).coerceAtLeast(1))
+        val msgs = JSONArray().put(org.json.JSONObject().put("role", "user").put("content", "Say hello in one short sentence."))
+        val r = generate(ctx, filler, msgs, 48)
         if (r.first == 200) setVerified(ctx, true)
         return r
     }
@@ -156,7 +173,10 @@ object LocalLlm {
             val builder = optClass.getMethod("builder").invoke(null)
             val bClass = builder.javaClass
             bClass.getMethod("setModelPath", String::class.java).invoke(builder, path)
-            try { bClass.getMethod("setMaxTokens", Int::class.javaPrimitiveType).invoke(builder, 1024) } catch (e: Throwable) {}
+            // Set the engine's max sequence length to the model's ACTUAL context window (the ekvNNNN baked
+            // into the file). The old hardcoded 1024 was smaller than a real system prompt, so any real
+            // prompt overflowed it and crashed natively — this was THE crash. Now we match the file.
+            try { bClass.getMethod("setMaxTokens", Int::class.javaPrimitiveType).invoke(builder, m.ctxTokens) } catch (e: Throwable) {}
             val options = bClass.getMethod("build").invoke(builder)
             engine = infClass.getMethod("createFromOptions", Context::class.java, optClass)
                 .invoke(null, ctx.applicationContext, options)
@@ -173,12 +193,30 @@ object LocalLlm {
         val m = selectedModel(ctx) ?: return -1 to "No on-device model selected."
         if (!isDownloaded(ctx, m)) return -1 to "On-device model not downloaded yet."
         if (engineClass() == null) return -1 to "On-device engine not installed in this build."
-        if (!ensureLoaded(ctx, m)) return -1 to "Couldn't load the on-device model."
-        return try {
-            val prompt = flatten(system, messages)
-            val resp = engine!!.javaClass.getMethod("generateResponse", String::class.java).invoke(engine, prompt) as? String
-            if (resp.isNullOrBlank()) -1 to "The on-device model returned nothing." else 200 to resp.trim()
-        } catch (e: Throwable) { Log.e(TAG, "generate failed", e); -1 to "On-device generation failed." }
+        // Serialize: MediaPipe crashes natively on concurrent calls, so only one generate runs at a time.
+        synchronized(engineLock) {
+            if (!ensureLoaded(ctx, m)) return -1 to "Couldn't load the on-device model."
+            return try {
+                // Budget the prompt so input + output can NEVER exceed the model's fixed window (overflow =
+                // native crash). Reserve room for the reply, then hard-cap the input to what's left.
+                val outTok = maxTokens.coerceIn(16, m.ctxTokens / 2)
+                val inputTokBudget = (m.ctxTokens - outTok - 48).coerceAtLeast(64)
+                val inputCharBudget = (inputTokBudget * CHARS_PER_TOKEN).toInt()
+                val prompt = capFront(flatten(system, messages), inputCharBudget)
+                val resp = engine!!.javaClass.getMethod("generateResponse", String::class.java).invoke(engine, prompt) as? String
+                if (resp.isNullOrBlank()) -1 to "The on-device model returned nothing." else 200 to resp.trim()
+            } catch (e: Throwable) { Log.e(TAG, "generate failed", e); -1 to "On-device generation failed." }
+        }
+    }
+
+    /** Keep the prompt within [maxChars] by dropping from the FRONT (oldest context), preserving the most
+     *  recent turns and the trailing "Assistant:" cue. A guaranteed hard stop against window overflow. */
+    private fun capFront(prompt: String, maxChars: Int): String {
+        if (prompt.length <= maxChars) return prompt
+        val tail = prompt.substring(prompt.length - maxChars)
+        // Trim a partial first line so we start on a clean turn boundary.
+        val nl = tail.indexOf('\n')
+        return if (nl in 0 until 200) tail.substring(nl + 1) else tail
     }
 
     /** Flatten the system prompt + chat turns into one prompt string for a text-in/text-out local model. */
