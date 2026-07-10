@@ -19,7 +19,7 @@ object ReflexLearn {
     private const val PREF = "slyos"
     private const val KEY = "reflex_skills"
 
-    data class Step(val action: String, val id: String, val text: String, val desc: String, val cls: String, val typed: String)
+    data class Step(val action: String, val id: String, val text: String, val desc: String, val cls: String, val typed: String, val x: Int = 0, val y: Int = 0)
     data class Skill(val name: String, val steps: List<Step>)
 
     @Volatile var recording = false; private set
@@ -38,10 +38,11 @@ object ReflexLearn {
         return steps.size
     }
 
-    /** A tap the user made (captured from TYPE_VIEW_CLICKED). */
-    fun onClick(id: String, text: String, desc: String, cls: String) {
+    /** A tap the user made (captured from TYPE_VIEW_CLICKED), with the element's centre as a fallback. */
+    fun onClick(id: String, text: String, desc: String, cls: String, x: Int, y: Int) {
         if (!recording) return
-        recSteps.add(Step("click", id.substringAfterLast('/'), text.take(60), desc.take(60), cls.substringAfterLast('.'), ""))
+        recSteps.add(Step("click", id.substringAfterLast('/'), text.take(60), desc.take(60), cls.substringAfterLast('.'), "", x, y))
+        android.util.Log.i("SlyOS", "REFLEX-LEARN recorded click id='${id.substringAfterLast('/')}' text='${text.take(30)}' @($x,$y) — total ${recSteps.size}")
     }
 
     /** Text the user typed (captured from TYPE_VIEW_TEXT_CHANGED). Collapses keystrokes into the final value. */
@@ -63,7 +64,7 @@ object ReflexLearn {
             val st = o.optJSONArray("steps") ?: JSONArray()
             Skill(o.optString("name"), (0 until st.length()).mapNotNull { j ->
                 val s = st.optJSONObject(j) ?: return@mapNotNull null
-                Step(s.optString("action"), s.optString("id"), s.optString("text"), s.optString("desc"), s.optString("cls"), s.optString("typed"))
+                Step(s.optString("action"), s.optString("id"), s.optString("text"), s.optString("desc"), s.optString("cls"), s.optString("typed"), s.optInt("x"), s.optInt("y"))
             })
         }
     } catch (e: Exception) { emptyList() }
@@ -73,7 +74,7 @@ object ReflexLearn {
         val arr = JSONArray()
         all.forEach { sk ->
             val steps = JSONArray()
-            sk.steps.forEach { s -> steps.put(JSONObject().put("action", s.action).put("id", s.id).put("text", s.text).put("desc", s.desc).put("cls", s.cls).put("typed", s.typed)) }
+            sk.steps.forEach { s -> steps.put(JSONObject().put("action", s.action).put("id", s.id).put("text", s.text).put("desc", s.desc).put("cls", s.cls).put("typed", s.typed).put("x", s.x).put("y", s.y)) }
             arr.put(JSONObject().put("name", sk.name).put("steps", steps))
         }
         prefs(ctx).edit().putString(KEY, arr.toString()).apply()
@@ -83,7 +84,7 @@ object ReflexLearn {
         val arr = JSONArray()
         skills(ctx).filter { !it.name.equals(name, true) }.forEach { sk ->
             val steps = JSONArray()
-            sk.steps.forEach { s -> steps.put(JSONObject().put("action", s.action).put("id", s.id).put("text", s.text).put("desc", s.desc).put("cls", s.cls).put("typed", s.typed)) }
+            sk.steps.forEach { s -> steps.put(JSONObject().put("action", s.action).put("id", s.id).put("text", s.text).put("desc", s.desc).put("cls", s.cls).put("typed", s.typed).put("x", s.x).put("y", s.y)) }
             arr.put(JSONObject().put("name", sk.name).put("steps", steps))
         }
         prefs(ctx).edit().putString(KEY, arr.toString()).apply()
@@ -118,13 +119,17 @@ object ReflexLearn {
 
     /** Replay a learned skill on the live screen. Returns true if every step landed. */
     suspend fun replay(svc: InteractionLogService, skill: Skill): Boolean {
-        for (step in skill.steps) {
-            var nodes = svc.readScreen()
-            var idx = findStep(nodes, step)
-            if (idx == null) { svc.scroll(true); delay(700); nodes = svc.readScreen(); idx = findStep(nodes, step) }
-            if (idx == null) return false
-            if (step.action == "type") svc.setText(idx, step.typed) else svc.tapNode(idx)
-            delay(900)
+        android.util.Log.i("SlyOS", "REFLEX-LEARN replay '${skill.name}' with ${skill.steps.size} steps")
+        if (skill.steps.isEmpty()) return false
+        for ((i, step) in skill.steps.withIndex()) {
+            val nodes = svc.readScreen()
+            val idx = findStep(nodes, step)
+            when {
+                idx != null -> { if (step.action == "type") svc.setText(idx, step.typed) else svc.tapNode(idx); android.util.Log.i("SlyOS", "REFLEX-LEARN step $i matched node #$idx") }
+                step.action == "click" && (step.x > 0 || step.y > 0) -> { svc.tapAt(step.x.toFloat(), step.y.toFloat()); android.util.Log.i("SlyOS", "REFLEX-LEARN step $i coord-tap (${step.x},${step.y})") }
+                else -> { android.util.Log.w("SlyOS", "REFLEX-LEARN step $i could not be located — aborting"); return false }
+            }
+            delay(950)
         }
         return true
     }

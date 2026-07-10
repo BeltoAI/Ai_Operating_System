@@ -221,11 +221,14 @@ class InteractionLogService : AccessibilityService() {
             try {
                 val src = event.source
                 when (event.eventType) {
-                    AccessibilityEvent.TYPE_VIEW_CLICKED -> if (src != null && !src.isPassword) com.agentos.shell.tools.ReflexLearn.onClick(
-                        src.viewIdResourceName ?: "",
-                        (src.text ?: src.contentDescription)?.toString() ?: "",
-                        src.contentDescription?.toString() ?: "",
-                        src.className?.toString() ?: "")
+                    AccessibilityEvent.TYPE_VIEW_CLICKED -> if (src != null && !src.isPassword) {
+                        val b = Rect(); src.getBoundsInScreen(b)
+                        com.agentos.shell.tools.ReflexLearn.onClick(
+                            src.viewIdResourceName ?: "",
+                            (src.text ?: src.contentDescription)?.toString() ?: "",
+                            src.contentDescription?.toString() ?: "",
+                            src.className?.toString() ?: "", b.centerX(), b.centerY())
+                    }
                     AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> if (src != null && !src.isPassword) com.agentos.shell.tools.ReflexLearn.onType(
                         src.viewIdResourceName ?: "",
                         src.contentDescription?.toString() ?: "",
