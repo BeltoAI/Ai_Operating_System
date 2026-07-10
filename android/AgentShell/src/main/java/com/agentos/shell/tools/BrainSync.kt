@@ -42,6 +42,20 @@ object BrainSync {
         val pushed = SupabaseClient.upsert(TABLE, token, JSONArray().put(row))
         if (pushed) prefs(ctx).edit().putLong(K_PROFILE_TS, now).apply()
 
+        // Push chat threads up too (one-way backup into the synced brain). Each thread = one brain_item.
+        try {
+            val chatRows = JSONArray()
+            ChatStore.threads(ctx).forEach { t ->
+                val text = ChatStore.messages(ctx, t.id)
+                    .joinToString("\n") { (if (it.role == "you") "You: " else "SlyOS: ") + it.text }
+                chatRows.put(JSONObject()
+                    .put("user_id", uid).put("kind", "chat").put("client_id", "chat:${t.id}")
+                    .put("title", t.title).put("body", text.take(20000))
+                    .put("updated_at", t.updated).put("deleted", false))
+            }
+            if (chatRows.length() > 0) SupabaseClient.upsert(TABLE, token, chatRows)
+        } catch (e: Exception) { Log.w(TAG, "chat push", e) }
+
         // 2) Pull the server's profile; apply if it's newer than what we last had locally.
         var applied = false
         val remote = SupabaseClient.pull(TABLE, token, uid, 0L)
