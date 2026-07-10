@@ -96,18 +96,18 @@ object ScreenAgent {
             while (step++ < budget) {
                 if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
                 var nodes = svc.readScreen()
+                if (nodes.isEmpty()) { delay(1100); nodes = svc.readScreen() }
                 val pkg = svc.currentPackage()
-                // HYBRID PERCEPTION: capture a screenshot every step so the planner can SEE elements the
-                // accessibility tree misses (comment/like icons in Compose/canvas UIs, game boards, etc.) and
-                // act on them by coordinate when they aren't in the node list.
-                val shot = if (Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
-                if (nodes.isEmpty() && shot == null) { delay(1200); nodes = svc.readScreen(); if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return } }
                 val dump = nodes.joinToString("\n") { n ->
                     val st = when { n.role == "switch" -> if (n.checked) " {on}" else " {off}"; n.role == "list" -> " {scrollable}"; else -> "" }
                     "${n.index}. [${n.role}] ${n.text}$st"
                 }.take(4800)
-                // Stall handling only applies to node-driven screens; vision screens (empty node list) change
-                // without the dump changing, so we don't false-trigger there.
+                // TEXT-FIRST: the accessibility list is fast and the model follows the strict format on it.
+                // Only attach a SCREENSHOT (vision) when the text path can't cope: a game, an almost-empty
+                // screen (canvas app), or when we're stalling — so normal likes/taps stay reliable.
+                val struggling = GAME.containsMatchIn(goal) || nodes.size < 5 || stall >= 1
+                val shot = if (struggling && Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
+                if (nodes.isEmpty() && shot == null) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
                 if (nodes.size >= 3 && dump == lastDump) {
                     if (++stall >= 3) {
                         if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", brainCtx) } catch (e: Exception) { plan }; replans++; stall = 0 }
@@ -116,7 +116,7 @@ object ScreenAgent {
                 } else stall = 0
                 lastDump = dump
 
-                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan, shot ?: "").trim()
+                val action = normalizeAction(AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan, shot ?: ""))
                 Log.i(TAG, "screenAgent step $step: $action")
 
                 val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
@@ -157,6 +157,30 @@ object ScreenAgent {
         val names = try { MessageStore.staleContacts(ctx, count.coerceIn(1, 30)) } catch (e: Exception) { emptyList() }
         if (names.isEmpty()) return goal
         return "$goal\nTARGET PEOPLE (you've gone quiet with, oldest first) — reach these by name: ${names.joinToString(", ")}"
+    }
+
+    private val CMDS = listOf("TAPXY", "DRAGXY", "TOGGLE", "LONGPRESS", "SETTINGS", "VERIFYEMAIL", "SWIPE",
+        "SCROLL", "CLEAR", "TYPE", "CODE", "ENTER", "BACK", "HOME", "WAIT", "OPEN", "TAP", "DONE", "STUCK")
+
+    /** Pull the actual command out of a model reply, even if the model added prose around it (vision models
+     *  are chatty). Returns the recognized command line, or the trimmed text if none found. */
+    private fun normalizeAction(raw: String): String {
+        val t = raw.trim()
+        // 1) a line that STARTS with a command.
+        for (line in t.lines()) {
+            val l = line.trim().trim('`', '*', '-', '#', '>', ' ', '.')
+            val head = l.substringBefore(" ").uppercase().trim()
+            if (CMDS.contains(head)) return l
+        }
+        // 2) earliest command keyword anywhere in the text.
+        val up = t.uppercase()
+        var bestIdx = -1; var bestCmd = ""
+        for (c in CMDS) {
+            val idx = up.indexOf(c)
+            if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) { bestIdx = idx; bestCmd = c }
+        }
+        if (bestIdx >= 0) return t.substring(bestIdx).lineSequence().firstOrNull()?.trim() ?: bestCmd
+        return t
     }
 
     /** Execute one primitive. Returns true/false for effect, or null if the run already finished (safety stop). */
