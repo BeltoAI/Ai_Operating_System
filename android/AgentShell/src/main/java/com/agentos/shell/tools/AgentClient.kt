@@ -1051,11 +1051,15 @@ object AgentClient {
             "screen (e.g. the switch shows {on}, or the account/next screen appeared). If a switch is already in " +
             "the desired state, move on. Prefer SETTINGS <key> for system toggles; SCROLL to reveal off-screen " +
             "elements before giving up.\n" +
+            "COMPLETING ACTIONS: sending a message, sending a connection/friend request, following, posting, " +
+            "confirming a non-payment dialog — these are NORMAL; DO tap their Send/Connect/Follow/Post button to " +
+            "finish them. Only real MONEY buttons are off-limits.\n" +
             "REPETITIVE/BATCH TASKS (e.g. 'connect with 20 people', 'like all posts', 'message 5 friends'): treat it " +
-            "as a loop. Do ONE item at a time (e.g. tap Connect on one result, or Like one post), then continue to " +
-            "the next; SCROLL to load more. COUNT how many you've completed from STEPS DONE and keep going until you " +
-            "hit the target number, then DONE. If a batch has no number ('all'), keep going until nothing new " +
-            "appears after scrolling, then DONE.\n" +
+            "as a LOOP and finish the WHOLE batch — do not stop after one. Do ONE item fully (e.g. tap Connect, add " +
+            "the note if asked, tap Send), then GO BACK to the list and do the NEXT one; SCROLL to load more. COUNT " +
+            "completed items from STEPS DONE and keep going until you hit the target number — only then DONE. Never " +
+            "declare DONE with fewer than the requested count. If a batch has no number ('all'), keep going until " +
+            "nothing new appears after scrolling, then DONE.\n" +
             "THE ONE HARD LIMIT — MONEY: never tap a button that spends money or moves funds (Pay, Buy, Purchase, " +
             "Place order, Checkout, Subscribe, Upgrade, Start trial, Donate, Transfer, Send money, Add card, " +
             "Confirm payment). When only such a step remains, reply DONE and tell the user to make that final tap.\n" +
@@ -1073,8 +1077,10 @@ object AgentClient {
     fun verifyScreenGoal(goal: String, pkg: String, screenDump: String, history: String): String {
         val sys = "You verify whether an Android automation GOAL was actually achieved. GOAL: $goal\n" +
             "Given the CURRENT screen and the steps taken, answer strictly: start with YES or NO, then a few words. " +
-            "Answer YES only if the end state on screen confirms the goal is complete (or nothing remains but a " +
-            "final human Send/Pay/Submit). If more steps are clearly still needed, answer NO and name what's left."
+            "If the GOAL specifies a COUNT (e.g. 'connect with 10', 'like 15 posts', 'message 5'), answer YES ONLY " +
+            "if the steps clearly show that many items completed — otherwise NO and say how many are left (e.g. " +
+            "'NO — 1 of 10 done, 9 to go'). Otherwise answer YES only if the end state confirms completion (or " +
+            "nothing remains but a final human PAYMENT). If more steps are needed, answer NO and name what's left."
         val user = "STEPS TAKEN:\n${history.ifBlank { "(none)" }}\n\nCURRENT SCREEN (app $pkg):\n$screenDump\n\nWas the goal achieved?"
         val (code, text) = callContent(sys, user, 80, VOICE)
         return if (code == 200) text.trim() else "NO (couldn't verify)"

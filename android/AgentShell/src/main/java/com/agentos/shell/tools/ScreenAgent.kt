@@ -98,12 +98,14 @@ object ScreenAgent {
 
                 val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
                 if (done != null) {
-                    // VERIFY before truly finishing — this is what stops the "quit midway" problem.
+                    // VERIFY before truly finishing — this is what stops the "quit midway" problem. For a
+                    // COUNTED batch, allow many more re-checks so it can't declare victory after item #1.
+                    val maxVerify = if (target != null) target + 2 else 2
                     val verdict = try { AgentClient.verifyScreenGoal(goal, pkg, dump, history.toString()) } catch (e: Exception) { "YES" }
-                    if (verdict.startsWith("YES", true) || verifyTries >= 2) {
+                    if (verdict.startsWith("YES", true) || verifyTries >= maxVerify) {
                         finish(ctx, goal, done.groupValues[1].trim().ifBlank { verdict.removePrefix("YES").trim().ifBlank { "Done." } }, history.toString()); return
                     }
-                    verifyTries++; history.append("• self-check: not done yet — ${verdict.take(80)}\n"); lastDump = ""; delay(500); continue
+                    verifyTries++; history.append("• self-check: NOT done yet — ${verdict.take(90)}. Keep going.\n"); lastDump = ""; delay(500); continue
                 }
                 if (action.startsWith("STUCK", true)) { finish(ctx, goal, action.removePrefix("STUCK").trim().ifBlank { "Got stuck." }, history.toString()); return }
 
@@ -147,7 +149,8 @@ object ScreenAgent {
                 when {
                     node == null -> false
                     IRREVERSIBLE.containsMatchIn(node.text) -> {
-                        finish(ctx, goal, "I've set everything up — tap \"${node.text}\" yourself to finish.", history.toString()); null
+                        postConfirm(ctx, node.text)   // CLEAR prompt so the user knows a money tap is theirs
+                        finish(ctx, goal, "I set everything up but stopped before spending money — tap \"${node.text}\" yourself to finish.", history.toString()); null
                     }
                     cmd == "LONGPRESS" -> { history.append("• long-pressed \"${node.text}\"\n"); svc.longPress(i) }
                     cmd == "TOGGLE" -> { history.append("• toggled \"${node.text}\" (was ${if (node.checked) "on" else "off"})\n"); svc.tapNode(i) }
@@ -208,12 +211,31 @@ object ScreenAgent {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0))
         val n = Notification.Builder(ctx, CH)
             .setSmallIcon(android.R.drawable.ic_media_pause)
-            .setContentTitle("SlyOS is controlling your screen")
-            .setContentText("Tap STOP to take back control")
+            .setContentTitle("SlyOS is operating your phone")
+            .setContentText("Tap STOP — or swipe this away — to take back control")
             .setOngoing(true)
+            .setDeleteIntent(stopPi)          // swiping the notification away STOPS the agent
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP", stopPi)
             .build()
         nm.notify(NOTIF_ID, n)
+    }
+
+    /** A CLEAR, high-visibility pause asking the user to make one specific tap (only ever for money). */
+    private fun postConfirm(ctx: Context, buttonText: String) {
+        try {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CH, "SlyOS is acting", NotificationManager.IMPORTANCE_HIGH))
+            val open = PendingIntent.getActivity(ctx, 3, ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: Intent(),
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0))
+            val n = Notification.Builder(ctx, CH)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("Your turn — SlyOS won't spend on its own")
+                .setContentText("Everything's ready. Tap \"$buttonText\" on screen to finish.")
+                .setStyle(Notification.BigTextStyle().bigText("I set it all up but stopped before spending money. Tap \"$buttonText\" on screen yourself to complete it."))
+                .setAutoCancel(true).setContentIntent(open)
+                .build()
+            nm.notify(NOTIF_ID + 1, n)
+        } catch (e: Exception) {}
     }
     private fun cancelBanner(ctx: Context) {
         try { (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID) } catch (e: Exception) {}
