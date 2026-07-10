@@ -58,9 +58,16 @@ class InteractionLogService : AccessibilityService() {
                 out.add(node to ScreenNode(out.size, "password", "[password field]", true, true, r))
             }
         } else {
-            val txt = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+            var txt = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
             val clickable = node.isClickable; val editable = node.isEditable
             val checkable = node.isCheckable; val scrollable = node.isScrollable
+            // ICON-ONLY BUTTONS (comment, share, like, menu…) often have no text/label. Fall back to the
+            // view's resource-id name (e.g. .../comment_button → "comment button") so the agent can still
+            // identify and tap them — works across all apps.
+            if (txt.isEmpty() && (clickable || checkable)) {
+                val idn = try { node.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ')?.trim().orEmpty() } catch (e: Exception) { "" }
+                if (idn.length in 2..40) txt = idn
+            }
             if ((clickable || editable || checkable || scrollable || txt.isNotEmpty()) && (txt.isNotEmpty() || clickable || checkable || scrollable)) {
                 val r = Rect(); node.getBoundsInScreen(r)
                 val cls = node.className?.toString()?.substringAfterLast('.').orEmpty()

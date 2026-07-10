@@ -1055,9 +1055,16 @@ object AgentClient {
             "step that already succeeded. A Like/Follow/Save/Connect button that now reads Unlike / Liked / " +
             "Following / Saved / Pending (or shows {on}) is ALREADY done — do NOT tap it again; move to the next " +
             "thing.\n" +
-            "COMMENTING / REPLYING: first READ the actual post or message text on the current screen, then tap the " +
-            "comment/reply field and TYPE a SPECIFIC comment that clearly references what the post is about — never " +
-            "a generic 'Nice post!'. Then send it.\n" +
+            "READ THE FULL CONTENT FIRST: if the post/message is truncated ('…see more', 'read more', 'more'), TAP " +
+            "that to expand it before you act on it.\n" +
+            "FINDING ICONS: action buttons (comment, like, share, send, menu, back) are often ICONS. Some element " +
+            "labels come from the app's internal id (e.g. 'comment', 'comment button', 'reply', 'social bar comment', " +
+            "'like button', 'overflow menu') — match by MEANING, not exact wording. The Comment action sits in the " +
+            "post's action bar just below the post; tapping it opens a comment box. If you don't see it, SCROLL the " +
+            "post into view first. As a last resort, tap the post to open its detail view where comments live.\n" +
+            "COMMENTING / REPLYING: first READ the actual (expanded) post text, then tap the comment/reply box and " +
+            "TYPE a SPECIFIC comment that clearly references what the post is about — never a generic 'Nice post!'. " +
+            "Then tap Post/Send/Reply to submit it.\n" +
             "COMPLETING ACTIONS: sending a message, sending a connection/friend request, following, posting, " +
             "confirming a non-payment dialog — these are NORMAL; DO tap their Send/Connect/Follow/Post button to " +
             "finish them. Only real MONEY buttons are off-limits.\n" +
