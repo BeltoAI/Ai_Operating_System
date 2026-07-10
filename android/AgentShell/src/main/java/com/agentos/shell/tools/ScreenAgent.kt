@@ -45,7 +45,11 @@ object ScreenAgent {
         val p = prev.lowercase().trim(); val c = now.lowercase().trim()
         if (p.isBlank()) return false
         fun on(base: String, undo: List<String>) = p.contains(base) && !undo.any { p.contains(it) } && undo.any { c.contains(it) }
-        return on("like", listOf("unlike", "remove reaction")) || (p == "liked" && c.contains("unlike")) ||
+        // "see more" then "see less" (or vice-versa) is a classic expand/collapse loop — block the reverse.
+        val expandCollapse = (Regex("(?i)(see|read|show) ?more|…more|\\.\\.\\.more").containsMatchIn(p) &&
+                              Regex("(?i)(see|read|show) ?less|less").containsMatchIn(c))
+        return expandCollapse ||
+               on("like", listOf("unlike", "remove reaction")) || (p == "liked" && c.contains("unlike")) ||
                on("follow", listOf("unfollow", "following")) ||
                on("save", listOf("unsave", "saved")) ||
                on("connect", listOf("pending", "withdraw")) ||
@@ -83,7 +87,7 @@ object ScreenAgent {
         val brainCtx = try { (profile + "\n" + BrainContext.build(ctx, goal)).trim() } catch (e: Exception) { profile }
         // ONE-TIME high-level plan so execution has direction instead of wandering step-to-step.
         var plan = try { AgentClient.planScreenGoal(goal, brainCtx) } catch (e: Exception) { "" }
-        Log.i(TAG, "screenAgent plan:\n$plan")
+        Log.i(TAG, "OP START goal=\"$goal\" openPkg=$openPkg\nPLAN:\n$plan")
         val history = StringBuilder()
         var lastDump = ""; var stall = 0; var replans = 0; var verifyTries = 0
         try {
@@ -116,8 +120,9 @@ object ScreenAgent {
                 } else stall = 0
                 lastDump = dump
 
-                val action = normalizeAction(AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan, shot ?: ""))
-                Log.i(TAG, "screenAgent step $step: $action")
+                val raw = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan, shot ?: "")
+                val action = normalizeAction(raw)
+                Log.i(TAG, "OP step=$step pkg=$pkg nodes=${nodes.size} vision=${shot != null} raw=\"${raw.replace("\n", " ").take(160)}\" action=\"$action\"")
 
                 val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
                 if (done != null) {
@@ -133,6 +138,7 @@ object ScreenAgent {
                 if (action.startsWith("STUCK", true)) { finish(ctx, goal, action.removePrefix("STUCK").trim().ifBlank { "Got stuck." }, history.toString()); return }
 
                 val ok: Boolean = execAction(ctx, goal, svc, action, nodes, history) ?: return  // null = we already finished (irreversible guard)
+                Log.i(TAG, "OP step=$step exec=\"$action\" ok=$ok")
                 if (!ok) history.append("• (step had no effect)\n")
                 delay(850)   // human pace + let the UI settle before re-reading
             }
@@ -298,6 +304,7 @@ object ScreenAgent {
     private fun finish(ctx: Context, goal: String, summary: String, history: String) {
         running = false
         releaseWake()
+        Log.i(TAG, "OP FINISH \"$summary\" | history: ${history.replace("\n", " · ").take(400)}")
         cancelBanner(ctx)
         // Everything the agent did goes into the visible outbox AND the brain (so recall grows).
         OutboxStore.record(ctx, "Action", goal.take(40), "act", summary, "screen control: ${history.replace("\n", " ").take(300)}")
