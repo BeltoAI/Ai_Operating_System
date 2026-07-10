@@ -172,7 +172,6 @@ private fun OnDeviceModelCard() {
     val scope = rememberCoroutineScope()
     val LL = com.agentos.shell.tools.LocalLlm
     var enabled by remember { mutableStateOf(LL.enabled(ctx)) }
-    var preprocess by remember { mutableStateOf(LL.preprocess(ctx)) }
     var selectedId by remember { mutableStateOf(LL.selectedId(ctx)) }
     var downloadingId by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf(0) }
@@ -181,24 +180,21 @@ private fun OnDeviceModelCard() {
     var testing by remember { mutableStateOf(false) }
     var testMsg by remember { mutableStateOf("") }
     val ramGb = remember { LL.deviceRamGb(ctx) }
-    Collapsible("On-device model", "Free, private, offline — no key needed") {
-        Text("Run a small AI right on your phone: free, private, works with no internet. It's not as sharp as " +
-            "the cloud models and can't browse the web or read images — so SlyOS keeps using your cloud key for " +
-            "those, and can use this one for quick tasks to save on API cost. Everything still flows through your " +
-            "brain and the same beautiful outputs. Your phone has ${"%.0f".format(ramGb)} GB RAM.",
+    Collapsible("On-device model", "Free, private — an offline backup brain") {
+        Text("A small AI that lives on your phone as an OFFLINE BACKUP. When you have internet, SlyOS always uses " +
+            "your fast cloud model (which knows your brain and can search the web). This one only steps in when " +
+            "you're offline or no cloud key works — so your phone stays cool in everyday use. On-device models are " +
+            "slower, can't browse or read images, and give simpler answers, so it's a safety net, not the main " +
+            "brain. Your phone has ${"%.0f".format(ramGb)} GB RAM.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
-        // Enable + prefer-for-cheap toggles.
-        listOf(
-            Triple("Use on-device model", enabled) { v: Boolean -> enabled = v; LL.setEnabled(ctx, v) },
-            Triple("Prefer it for quick tasks (saves API cost)", preprocess) { v: Boolean -> preprocess = v; LL.setPreprocess(ctx, v) }
-        ).forEach { (label, on, set) ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
-                .clickable { set(!on) }.padding(vertical = 5.dp)) {
-                Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
-                Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (on) T.accent else T.hairline)) {
-                    Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
-                }
+        // Single enable toggle — no "prefer" option, so it can never pre-empt the cloud and cook the phone.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+            .clickable { enabled = !enabled; LL.setEnabled(ctx, enabled) }.padding(vertical = 5.dp)) {
+            Text("Keep an offline backup brain", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+            val on = enabled
+            Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (on) T.accent else T.hairline)) {
+                Box(Modifier.align(if (on) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -251,11 +247,11 @@ private fun OnDeviceModelCard() {
             Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (verified) "✓ Tested & active for your prompts" else "Not tested yet — won't run your prompts",
+                Text(if (verified) "✓ Tested — ready as your offline backup" else "Not tested yet — won't run until you test it",
                     fontSize = T.small, color = if (verified) T.accent else T.inkSoft, modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.height(4.dp))
-            Text("Tap Test to safely load the model once. If it works it starts helping with quick tasks; if it can't run on your phone you'll see it here — no crash.",
+            Text("Tap Test to safely load the model once. If it works, it's kept ready for when you're offline; if it can't run on your phone you'll see it here — no crash. It never runs while your cloud model is reachable.",
                 fontSize = T.caption, color = T.inkFaint)
             Spacer(Modifier.height(10.dp))
             Text(if (testing) "Testing…" else "Test model", fontSize = T.small, color = T.bgElevated,
@@ -447,22 +443,16 @@ private fun ApiKeysCard() {
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(6.dp))
-        val localReady = com.agentos.shell.tools.LocalLlm.ready(ctx)
         Row(Modifier.horizontalScroll(rememberScrollState())) {
-            (listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI") +
-                listOf("local" to "On-device")).forEach { (id, lbl) ->
+            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
                 val sel = pref == id
-                val dim = id == "local" && !localReady   // local not tested/ready yet → shown but muted
-                Text(lbl + if (id == "local" && !localReady) " (test first)" else "",
-                    fontSize = T.caption, color = if (sel) T.bgElevated else if (dim) T.inkFaint else T.inkSoft,
+                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
                     modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
                         .background(if (sel) T.accent else T.hairline)
                         .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
                         .padding(horizontal = 14.dp, vertical = 7.dp))
             }
         }
-        Text("On-device is free & private but only used once you've tested it in the On-device model card. It can't browse the web or read images — SlyOS keeps using your cloud key for those.",
-            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -551,7 +541,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
         // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v21 · on-device test gate", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v22 · on-device = offline backup", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -1075,6 +1065,26 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
         Text("Auto = use your preferred, fall back to any key. A model only runs if its key is set.",
             fontSize = T.caption, color = T.inkFaint)
+
+        // Offline backup row — shows the on-device model's role in routing without letting it pre-empt cloud.
+        run {
+            val LLr = com.agentos.shell.tools.LocalLlm
+            val sel = LLr.selectedModel(ctx)
+            val ready = LLr.ready(ctx)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                Text("Offline backup", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
+                val lbl = when {
+                    sel == null -> "None"
+                    ready -> sel.name + " ✓"
+                    else -> sel.name + " · test it"
+                }
+                Text(lbl, fontSize = T.caption, color = if (ready) T.accent else T.inkFaint,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).padding(horizontal = 9.dp, vertical = 5.dp))
+            }
+            Text("On-device model, used only when you're offline / no cloud key works. Never runs while cloud is reachable, so it won't heat your phone. Set it up in the On-device model card above.",
+                fontSize = T.caption, color = T.inkFaint)
+        }
 
         Spacer(Modifier.height(12.dp))
         run {

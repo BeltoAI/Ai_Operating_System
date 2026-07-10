@@ -197,42 +197,60 @@ object LocalLlm {
         synchronized(engineLock) {
             if (!ensureLoaded(ctx, m)) return -1 to "Couldn't load the on-device model."
             return try {
-                // Budget the prompt so input + output can NEVER exceed the model's fixed window (overflow =
-                // native crash). Reserve room for the reply, then hard-cap the input to what's left.
-                val outTok = maxTokens.coerceIn(16, m.ctxTokens / 2)
+                // Keep replies SHORT — a small on-device model runs cooler/faster and rambles less. Then
+                // budget the input so input + output can NEVER exceed the model's fixed window (overflow =
+                // native crash on the phone).
+                val outTok = maxTokens.coerceIn(16, minOf(m.ctxTokens / 3, 220))
                 val inputTokBudget = (m.ctxTokens - outTok - 48).coerceAtLeast(64)
                 val inputCharBudget = (inputTokBudget * CHARS_PER_TOKEN).toInt()
-                val prompt = capFront(flatten(system, messages), inputCharBudget)
+                val prompt = buildLocalPrompt(system, messages, inputCharBudget)
                 val resp = engine!!.javaClass.getMethod("generateResponse", String::class.java).invoke(engine, prompt) as? String
-                if (resp.isNullOrBlank()) -1 to "The on-device model returned nothing." else 200 to resp.trim()
+                if (resp.isNullOrBlank()) -1 to "The on-device model returned nothing." else 200 to cleanOutput(resp)
             } catch (e: Throwable) { Log.e(TAG, "generate failed", e); -1 to "On-device generation failed." }
         }
     }
 
-    /** Keep the prompt within [maxChars] by dropping from the FRONT (oldest context), preserving the most
-     *  recent turns and the trailing "Assistant:" cue. A guaranteed hard stop against window overflow. */
-    private fun capFront(prompt: String, maxChars: Int): String {
-        if (prompt.length <= maxChars) return prompt
-        val tail = prompt.substring(prompt.length - maxChars)
-        // Trim a partial first line so we start on a clean turn boundary.
-        val nl = tail.indexOf('\n')
-        return if (nl in 0 until 200) tail.substring(nl + 1) else tail
+    /**
+     * Build a compact, small-model-friendly prompt. Two things matter for quality:
+     *  1) The useful facts about the user sit at the END of the caller's system prompt (the "About the
+     *     user" block), so when we must trim we keep the TAIL of the system text — that's what lets the
+     *     model answer "what's my name". (The long tool protocol at the head is useless to a local model.)
+     *  2) We only include the LAST user turn, not the whole history, to stay light and cool.
+     */
+    private fun buildLocalPrompt(system: String, messages: JSONArray, maxChars: Int): String {
+        // Extract the most recent user message text.
+        var lastUser = ""
+        for (i in messages.length() - 1 downTo 0) {
+            val o = messages.optJSONObject(i) ?: continue
+            if (o.optString("role") == "user") {
+                val c = o.opt("content")
+                lastUser = when (c) {
+                    is String -> c
+                    is JSONArray -> (0 until c.length()).joinToString(" ") { c.optJSONObject(it)?.optString("text").orEmpty() }
+                    else -> c?.toString().orEmpty()
+                }
+                break
+            }
+        }
+        val header = "You are SlyOS, the user's helpful, concise on-phone assistant. Answer in one or two short " +
+            "sentences using the facts below. If you don't know, say so briefly.\n\nContext about the user:\n"
+        val footer = "\n\nUser: " + lastUser.trim() + "\nAssistant:"
+        val room = (maxChars - header.length - footer.length).coerceAtLeast(0)
+        val ctxText = if (system.length <= room) system else system.takeLast(room)  // keep the TAIL (facts)
+        return header + ctxText + footer
     }
 
-    /** Flatten the system prompt + chat turns into one prompt string for a text-in/text-out local model. */
-    private fun flatten(system: String, messages: JSONArray): String = buildString {
-        if (system.isNotBlank()) append(system).append("\n\n")
-        for (i in 0 until messages.length()) {
-            val o = messages.optJSONObject(i) ?: continue
-            val role = o.optString("role")
-            val content = o.opt("content")
-            val text = when (content) {
-                is String -> content
-                is JSONArray -> (0 until content.length()).joinToString(" ") { content.optJSONObject(it)?.optString("text").orEmpty() }
-                else -> content?.toString().orEmpty()
-            }
-            if (text.isNotBlank()) append(if (role == "assistant") "Assistant: " else "User: ").append(text).append("\n")
+    /** Small instruct models often echo the chat template ("User:", "Assistant:") or start a fake next turn.
+     *  Strip any of that so the user sees a clean reply. */
+    private fun cleanOutput(raw: String): String {
+        var s = raw.trim()
+        // Cut anything from the point the model tries to start a new turn.
+        for (marker in listOf("\nUser:", "\nAssistant:", "\nuser:", "\nassistant:", "\n<", "User:")) {
+            val idx = s.indexOf(marker)
+            if (idx > 0) s = s.substring(0, idx)
         }
-        append("Assistant: ")
+        // Drop a leading role label if present.
+        s = s.removePrefix("Assistant:").removePrefix("assistant:").trim()
+        return s.ifBlank { "…" }
     }
 }

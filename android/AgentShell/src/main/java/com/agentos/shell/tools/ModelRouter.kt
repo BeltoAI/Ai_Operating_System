@@ -121,13 +121,13 @@ object ModelRouter {
             val m = modelFor(p) ?: continue
             out.add(Choice(p, m, k))
         }
-        // On-device model: a free, private endpoint. It can't browse the web or read images, so it only
-        // joins for plain text tasks — first when the user prefers it or for cheap pre-processing (to save
-        // API cost), otherwise as a last-resort fallback so SlyOS still works fully offline.
+        // On-device model = OFFLINE SAFETY-NET ONLY. It's slow, hot, can't browse or see images, and small
+        // models give weak answers — so it must NEVER pre-empt the cloud. We append it DEAD LAST and only
+        // for plain-text tasks. Because callers try choices best-first and stop on the first success, local
+        // runs ONLY when every cloud choice above has failed (you're offline, or no key works). When you're
+        // online with any key, cloud answers first and local never wakes up — so no phone heat in daily use.
         if (LocalLlm.ready(ctx) && !needVision && !needWeb) {
-            val lc = Choice("local", LocalLlm.selectedId(ctx), "local")
-            val first = MemoryStore.preferredProvider(ctx) == "local" || (LocalLlm.preprocess(ctx) && tier == Tier.CHEAP)
-            if (first) out.add(0, lc) else out.add(lc)
+            out.add(Choice("local", LocalLlm.selectedId(ctx), "local"))
         }
         return out
     }

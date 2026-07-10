@@ -180,12 +180,13 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 }
             }
             1 -> {
-                Text("Add a free on-device brain?", fontSize = T.body, color = T.ink)
+                Text("Add a free offline backup brain?", fontSize = T.body, color = T.ink)
                 Spacer(Modifier.height(4.dp))
-                Text("Optional. SlyOS can also run a small AI right on your phone — completely free, private, and " +
-                    "works with no internet. It's not as smart as the cloud models and can't search the web or read " +
-                    "images, so SlyOS keeps using your cloud key for those and uses this one for quick everyday tasks " +
-                    "to save you money. Everything still flows through your brain. Your phone has ${"%.0f".format(ramGb)} GB of memory.",
+                Text("Optional. SlyOS can keep a small AI on your phone as an OFFLINE BACKUP. When you have internet " +
+                    "it always uses your fast cloud model; this one only steps in when you're offline or no cloud key " +
+                    "works — so your phone stays cool day to day. On-device models are slower, can't search the web or " +
+                    "read images, and give simpler answers, so it's a safety net, not the main brain. Your phone has " +
+                    "${"%.0f".format(ramGb)} GB of memory.",
                     fontSize = T.small, color = T.inkSoft)
                 Spacer(Modifier.height(14.dp))
                 LL.MODELS.forEach { m ->
@@ -209,7 +210,7 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text(if (localPick.isBlank()) "None selected — you can add one later in Brain → Settings."
                     else "After setup, open Brain → Settings → On-device model to download it and run a one-tap test. " +
-                        "SlyOS won't use it for your prompts until that test passes — so it can never crash your phone.",
+                        "It stays as an offline backup and won't run (or heat your phone) while your cloud model is reachable.",
                     fontSize = T.caption, color = T.accent)
             }
             2 -> {
