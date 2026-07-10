@@ -16,8 +16,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.ChatStore
@@ -48,6 +52,10 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val clipboard = LocalClipboardManager.current
+    var renameId by remember { mutableStateOf(0L) }
+    var renameText by remember { mutableStateOf("") }
+    var msgMenu by remember { mutableStateOf<ChatStore.Msg?>(null) }
 
     fun open(id: Long) { currentId = id; msgs = ChatStore.messages(ctx, id) }
 
@@ -108,7 +116,8 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             LazyColumn(Modifier.weight(1f)) {
                 items(threads, key = { it.id }) { t ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
-                        .combinedClickable(onClick = { open(t.id) }, onLongClick = {})
+                        .combinedClickable(onClick = { open(t.id) },
+                            onLongClick = { renameId = t.id; renameText = t.title })
                         .padding(vertical = 12.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(t.title, fontSize = T.body, color = T.ink)
@@ -131,11 +140,14 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.End) {
                             Text(m.text, fontSize = T.small, color = T.bgElevated,
                                 modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(16.dp))
-                                    .background(T.accent).padding(horizontal = 13.dp, vertical = 9.dp))
+                                    .background(T.accent)
+                                    .combinedClickable(onClick = {}, onLongClick = { msgMenu = m })
+                                    .padding(horizontal = 13.dp, vertical = 9.dp))
                         }
                     } else {
                         val (hero, body) = remember(m.text) { RichParse.render(m.text) }
-                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                            .combinedClickable(onClick = {}, onLongClick = { msgMenu = m })) {
                             if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(10.dp)) }
                             if (body.isNotBlank()) MarkdownText(body)
                         }
@@ -158,6 +170,47 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         .background(if (busy || input.isBlank()) T.hairline else T.accent)
                         .clickable(enabled = !busy && input.isNotBlank()) { send() }
                         .padding(horizontal = 16.dp, vertical = 10.dp))
+            }
+        }
+    }
+
+    // Long-press a thread → rename it.
+    if (renameId != 0L) {
+        Dialog(onDismissRequest = { renameId = 0L }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Rename chat", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(12.dp))
+                BasicTextField(renameText, { renameText = it }, singleLine = true,
+                    textStyle = TextStyle(color = T.ink, fontSize = T.body),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(12.dp))
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { ChatStore.rename(ctx, renameId, renameText); threads = ChatStore.threads(ctx); renameId = 0L }
+                            .padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { renameId = 0L }.padding(vertical = 10.dp))
+                }
+            }
+        }
+    }
+
+    // Long-press a message → copy or delete it.
+    msgMenu?.let { m ->
+        Dialog(onDismissRequest = { msgMenu = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(8.dp)) {
+                Text("Copy", fontSize = T.body, color = T.ink, modifier = Modifier.fillMaxWidth()
+                    .clickable { clipboard.setText(AnnotatedString(RichParse.fromTag(m.text).second)); msgMenu = null }
+                    .padding(horizontal = 16.dp, vertical = 14.dp))
+                Hairline()
+                Text("Delete", fontSize = T.body, color = T.danger, modifier = Modifier.fillMaxWidth()
+                    .clickable { msgs = ChatStore.deleteMessage(ctx, currentId, m.ts); threads = ChatStore.threads(ctx); msgMenu = null }
+                    .padding(horizontal = 16.dp, vertical = 14.dp))
+                Hairline()
+                Text("Cancel", fontSize = T.body, color = T.inkSoft, modifier = Modifier.fillMaxWidth()
+                    .clickable { msgMenu = null }.padding(horizontal = 16.dp, vertical = 14.dp))
             }
         }
     }

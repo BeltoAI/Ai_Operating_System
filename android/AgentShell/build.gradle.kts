@@ -40,6 +40,10 @@ android {
         buildConfigField("String", "TELEGRAM_BOT_TOKEN", "\"${apiKeyProps.getProperty("TELEGRAM_BOT_TOKEN", "")}\"")
         buildConfigField("String", "GOOGLE_OAUTH_CLIENT_ID", "\"$googleClientId\"")
         buildConfigField("String", "GOOGLE_REDIRECT_SCHEME", "\"$googleRedirectScheme\"")
+        // SlyOS account/sync backend (Supabase). The anon key is safe to ship in the client; the URL is public.
+        // Both come from apikey.properties (gitignored). See ACCOUNT_AND_SYNC.md for the DB contract.
+        buildConfigField("String", "SUPABASE_URL", "\"${apiKeyProps.getProperty("SUPABASE_URL", "")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${apiKeyProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
         manifestPlaceholders["googleRedirectScheme"] = googleRedirectScheme
     }
     // Consistent signing across every machine AND CI, so a newer APK always installs OVER the old one as

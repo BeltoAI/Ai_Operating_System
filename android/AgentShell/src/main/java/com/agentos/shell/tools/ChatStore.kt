@@ -86,4 +86,17 @@ object ChatStore {
         for (i in 0 until arr.length()) if (i != idx) out.put(arr.get(i))
         writeAll(ctx, out)
     }
+
+    /** Delete a single message from a thread by its timestamp. Returns the updated message list. */
+    fun deleteMessage(ctx: Context, id: Long, ts: Long): List<Msg> {
+        val arr = readAll(ctx); val idx = indexOf(arr, id)
+        if (idx < 0) return emptyList()
+        val o = arr.optJSONObject(idx) ?: return emptyList()
+        val ms = o.optJSONArray("msgs") ?: return emptyList()
+        val keep = JSONArray()
+        for (i in 0 until ms.length()) { val m = ms.optJSONObject(i) ?: continue; if (m.optLong("ts") != ts) keep.put(m) }
+        o.put("msgs", keep)
+        writeAll(ctx, arr)
+        return messages(ctx, id)
+    }
 }

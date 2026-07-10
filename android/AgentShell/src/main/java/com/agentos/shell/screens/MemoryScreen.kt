@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
@@ -54,6 +55,72 @@ private fun SectionTitle(t: String) {
         Text(t, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
     }
     Spacer(Modifier.height(14.dp))
+}
+
+/** SlyOS account — email+password sign in via Supabase. The account anchors cross-device brain sync
+ *  (see ACCOUNT_AND_SYNC.md). Regular account UI: signed-in identity + sign out, or sign in / create. */
+@Composable
+private fun AccountCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val AS = com.agentos.shell.tools.AccountStore
+    var signedIn by remember { mutableStateOf(AS.signedIn(ctx)) }
+    var emailAddr by remember { mutableStateOf(AS.email(ctx)) }
+    var email by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+    val configured = com.agentos.shell.tools.SupabaseClient.configured()
+
+    Collapsible("Account", if (signedIn) emailAddr else "Sign in to sync across devices") {
+        if (!configured) {
+            Text("Account backend isn't set up yet. Add SUPABASE_URL and SUPABASE_ANON_KEY to apikey.properties (see ACCOUNT_AND_SYNC.md).",
+                fontSize = T.caption, color = T.inkFaint)
+            return@Collapsible
+        }
+        if (signedIn) {
+            Text("Signed in as $emailAddr", fontSize = T.small, color = T.ink)
+            Spacer(Modifier.height(4.dp))
+            Text("Your brain syncs to your account so a new device signs in and picks up where you left off.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(12.dp))
+            Text("Sign out", fontSize = T.small, color = T.danger,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable { AS.signOut(ctx); signedIn = false; emailAddr = ""; msg = "" }
+                    .padding(horizontal = 16.dp, vertical = 9.dp))
+        } else {
+            BasicTextField(email, { email = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (email.isEmpty()) Text("Email", fontSize = T.small, color = T.inkFaint); inner() })
+            BasicTextField(pass, { pass = it }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(), textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (pass.isEmpty()) Text("Password", fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (busy) "…" else "Sign in", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (busy) T.hairline else T.accent)
+                        .clickable(enabled = !busy && email.isNotBlank() && pass.length >= 6) {
+                            busy = true; msg = ""
+                            scope.launch {
+                                val (ok, m) = withContext(Dispatchers.IO) { AS.signIn(ctx, email, pass) }
+                                busy = false; msg = m; if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = "" }
+                            }
+                        }.padding(horizontal = 18.dp, vertical = 9.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Create account", fontSize = T.small, color = T.inkSoft,
+                    modifier = Modifier.clickable(enabled = !busy && email.isNotBlank() && pass.length >= 6) {
+                        busy = true; msg = ""
+                        scope.launch {
+                            val (ok, m) = withContext(Dispatchers.IO) { AS.signUp(ctx, email, pass) }
+                            busy = false; msg = m; if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = "" }
+                        }
+                    }.padding(vertical = 9.dp))
+            }
+            Text("Password must be at least 6 characters.", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
+        }
+        if (msg.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(msg, fontSize = T.caption, color = T.accent) }
+    }
 }
 
 /** Brain backup as a collapsible card — lives at the very bottom of Settings. Whole brain → Google
@@ -623,6 +690,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         DisposableEffect(Unit) { onDispose { Thread { MemoryStore.syncProfileToBrain(ctx) }.start() } }
         Spacer(Modifier.height(16.dp))
         }
+
+        // SlyOS account — sign in to sync your brain across devices.
+        AccountCard()
 
         // API keys as its own top-level card (promoted out of "Models & spending").
         ApiKeysCard()

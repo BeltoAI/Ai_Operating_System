@@ -50,8 +50,23 @@ private fun inlineMd(s: String): AnnotatedString = buildAnnotatedString {
 fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val bullet = Regex("^\\s*[-*•]\\s+")
     val numbered = Regex("^\\s*(\\d{1,2})[.)]\\s+")
+    val lines = text.trim().lines()
     Column(modifier.fillMaxWidth()) {
-        text.trim().lines().forEach { raw ->
+        var i = 0
+        while (i < lines.size) {
+            val raw = lines[i]
+            // Fenced code block: ``` … ``` → monospace panel (language label optional after the fence).
+            if (raw.trim().startsWith("```")) {
+                val code = StringBuilder(); i++
+                while (i < lines.size && !lines[i].trim().startsWith("```")) { code.append(lines[i]).append("\n"); i++ }
+                i++ // skip closing fence
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp)) {
+                    Text(code.toString().trimEnd(), fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = T.ink)
+                }
+                Spacer(Modifier.height(6.dp))
+                continue
+            }
             val line = raw.trim()
             when {
                 line.isEmpty() -> Spacer(Modifier.height(7.dp))
@@ -81,6 +96,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                 }
                 else -> Text(inlineMd(line), fontSize = T.body, color = T.ink, modifier = Modifier.padding(vertical = 1.dp))
             }
+            i++
         }
     }
 }
