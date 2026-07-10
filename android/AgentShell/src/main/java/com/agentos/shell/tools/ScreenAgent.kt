@@ -77,6 +77,17 @@ object ScreenAgent {
         }
         running = true; stopFlag = false; lastTapText = ""
         acquireWake(ctx)   // keep the screen on so long / overnight mission runs can execute
+        // REFLEX LEARN: if the user has taught a skill matching this goal, REPLAY it deterministically — no
+        // LLM, no guessing. This is the reliable fast path for repeatable tasks.
+        try {
+            val learned = ReflexLearn.match(ctx, rawGoal)
+            if (learned != null) {
+                postBanner(ctx); Log.i(TAG, "OP replay learned skill '${learned.name}' (${learned.steps.size} steps)")
+                val ok = ReflexLearn.replay(svc, learned)
+                if (ok) { finish(ctx, rawGoal, "Done — replayed your taught skill \"${learned.name}\".", "learned skill"); return }
+                Log.i(TAG, "OP learned skill didn't fully match the screen — falling back to the planner")
+            }
+        } catch (e: Exception) {}
         postBanner(ctx)
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
         // Resolve WHO from the brain for vague people-tasks ("friends I haven't talked to in a while") so the
@@ -114,7 +125,16 @@ object ScreenAgent {
                 val social = Regex("(?i)\\b(like|comment|react|share|repost|retweet|follow|unfollow|story|stories|reel|reels|post|dm|swipe|match|tinder|bumble|snap)\\b").containsMatchIn(goal)
                 val struggling = GAME.containsMatchIn(goal) || social || blankButtons >= 4 || nodes.size < 5 || stall >= 1
                 val shot = if (struggling && Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
-                if (struggling && shot == null) Log.w(TAG, "OP struggling but no screenshot (sdk=${Build.VERSION.SDK_INT}, capture failed?) — falling back to text")
+                if (struggling && shot == null) {
+                    Log.w(TAG, "OP struggling but no screenshot (sdk=${Build.VERSION.SDK_INT}, capture failed?) — falling back to text")
+                    // If the OS says the service can't screenshot, the user must re-toggle Accessibility so the
+                    // new canTakeScreenshot config activates. Tell them clearly ONCE, then stop wasting a run.
+                    if (InteractionLogService.screenshotBlocked) {
+                        postConfirm(ctx, "Re-enable SlyOS in Settings → Accessibility (off then on)")
+                        finish(ctx, goal, "I can't see the screen yet — turn the SlyOS accessibility service OFF then ON in Settings → Accessibility, then try again.", history.toString())
+                        return
+                    }
+                }
                 if (nodes.isEmpty() && shot == null) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
                 if (nodes.size >= 3 && dump == lastDump) {
                     if (++stall >= 3) {
@@ -143,6 +163,9 @@ object ScreenAgent {
 
                 val ok: Boolean = execAction(ctx, goal, svc, action, nodes, history) ?: return  // null = we already finished (irreversible guard)
                 Log.i(TAG, "OP step=$step exec=\"$action\" ok=$ok")
+                // Surface the latest action on the banner so the user can watch progress live.
+                val lastDoing = history.toString().trimEnd().substringAfterLast("• ").substringBefore("\n").take(80)
+                updateBanner(ctx, step, if (shot != null) "$lastDoing (seeing screen)" else lastDoing)
                 if (!ok) history.append("• (step had no effect)\n")
                 delay(850)   // human pace + let the UI settle before re-reading
             }
@@ -170,7 +193,7 @@ object ScreenAgent {
     }
 
     private val CMDS = listOf("TAPXY", "DRAGXY", "TOGGLE", "LONGPRESS", "SETTINGS", "VERIFYEMAIL", "SWIPE",
-        "SCROLL", "CLEAR", "TYPE", "CODE", "ENTER", "BACK", "HOME", "WAIT", "OPEN", "TAP", "DONE", "STUCK")
+        "SCROLL", "CLEAR", "TYPE", "CODE", "ENTER", "BACK", "HOME", "WAIT", "OPEN", "DONE", "STUCK", "TAP", "DO")
 
     /** Pull the actual command out of a model reply, even if the model added prose around it (vision models
      *  are chatty). Returns the recognized command line, or the trimmed text if none found. */
@@ -182,12 +205,13 @@ object ScreenAgent {
             val head = l.substringBefore(" ").uppercase().trim()
             if (CMDS.contains(head)) return l
         }
-        // 2) earliest command keyword anywhere in the text.
+        // 2) earliest command keyword anywhere in the text (word-boundary, so "DO" ≠ inside "DONE").
         val up = t.uppercase()
         var bestIdx = -1; var bestCmd = ""
         for (c in CMDS) {
-            val idx = up.indexOf(c)
-            if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) { bestIdx = idx; bestCmd = c }
+            val m = Regex("\\b${Regex.escape(c)}\\b").find(up) ?: continue
+            val idx = m.range.first
+            if (bestIdx < 0 || idx < bestIdx) { bestIdx = idx; bestCmd = c }
         }
         if (bestIdx >= 0) return t.substring(bestIdx).lineSequence().firstOrNull()?.trim() ?: bestCmd
         return t
@@ -203,6 +227,57 @@ object ScreenAgent {
         if (Regex("\\bfollow\\b").containsMatchIn(g) && !g.contains("unfollow") && (t == "following" || t == "unfollow")) return true
         if (Regex("\\bsave\\b").containsMatchIn(g) && !g.contains("unsave") && (t == "saved" || t == "unsave")) return true
         return false
+    }
+
+    /**
+     * REFLEX skill executor — the model names an intent, we deterministically find + act + (for multi-step
+     * skills like comment) drive the whole flow. `arg` after a | is text to type.
+     */
+    private suspend fun reflexDo(
+        ctx: Context, goal: String, svc: InteractionLogService,
+        nodes: List<InteractionLogService.ScreenNode>, rest: String, history: StringBuilder
+    ): Boolean {
+        val intent = rest.substringBefore("|").trim().lowercase()
+        val arg = rest.substringAfter("|", "").trim()
+        when (intent) {
+            "comment", "reply" -> {
+                // Open the comment field, type a specific comment, then send — the whole flow in one skill.
+                val open = Reflex.findIndex(nodes, "comment") ?: return false
+                svc.tapNode(open); delay(1300)
+                val after = svc.readScreen()
+                val field = Reflex.fieldIndex(after, "comment") ?: return false
+                if (arg.isBlank()) { history.append("• opened comments (no text given yet)\n"); return true }
+                svc.setText(field, arg); delay(700)
+                val send = Reflex.findIndex(svc.readScreen(), "send")
+                if (send != null) { svc.tapNode(send); history.append("• commented: \"${arg.take(40)}\"\n") }
+                else history.append("• typed comment (send button not found)\n")
+                return true
+            }
+            "message", "dm" -> {
+                val field = Reflex.fieldIndex(nodes, "message") ?: Reflex.findIndex(nodes, "message")?.let { svc.tapNode(it); delay(1200); Reflex.fieldIndex(svc.readScreen(), "message") }
+                if (field != null && arg.isNotBlank()) {
+                    svc.setText(field, arg); delay(600)
+                    Reflex.findIndex(svc.readScreen(), "send")?.let { svc.tapNode(it) }
+                    history.append("• messaged: \"${arg.take(40)}\"\n"); return true
+                }
+                return false
+            }
+            "search" -> {
+                val box = Reflex.fieldIndex(nodes, "search") ?: Reflex.findIndex(nodes, "search")?.let { svc.tapNode(it); delay(900); Reflex.fieldIndex(svc.readScreen(), "search") }
+                if (box != null && arg.isNotBlank()) { svc.setText(box, arg); delay(500); svc.imeEnter(); history.append("• searched \"$arg\"\n"); return true }
+                return box != null
+            }
+            else -> {
+                val idx = Reflex.findIndex(nodes, intent) ?: return false
+                val node = nodes.getOrNull(idx)
+                if (node != null && (Reflex.alreadyDone(intent, node.text) || wouldUndoGoal(goal, node.text))) {
+                    history.append("• '$intent' already done — leaving \"${node.text}\"\n"); return true
+                }
+                lastTapText = node?.text ?: ""
+                history.append("• did '$intent' → \"${node?.text}\"\n")
+                return svc.tapNode(idx)
+            }
+        }
     }
 
     /** Execute one primitive. Returns true/false for effect, or null if the run already finished (safety stop). */
@@ -276,6 +351,7 @@ object ScreenAgent {
                 if (n != null && code != null) { history.append("• entered the 2FA code from your messages\n"); svc.setText(n, code) }
                 else { history.append("• waiting for the 2FA code to arrive…\n"); delay(4000); false }
             }
+            "DO" -> reflexDo(ctx, goal, svc, nodes, action.removePrefix("DO").trim(), history)
             "VERIFYEMAIL" -> {
                 // End-to-end sign-up: pull the verification link from the just-received email and open it.
                 val hint = action.removePrefix("VERIFYEMAIL").trim()
@@ -368,6 +444,22 @@ object ScreenAgent {
                 .setAutoCancel(true).setContentIntent(open)
                 .build()
             nm.notify(NOTIF_ID + 1, n)
+        } catch (e: Exception) {}
+    }
+    /** Live progress on the ongoing banner — so the user can SEE what the agent is doing step by step. */
+    private fun updateBanner(ctx: Context, step: Int, doing: String) {
+        try {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val stopPi = PendingIntent.getBroadcast(ctx, 0, Intent(ctx, com.agentos.shell.StopActionReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0))
+            val n = Notification.Builder(ctx, CH)
+                .setSmallIcon(android.R.drawable.ic_media_pause)
+                .setContentTitle("SlyOS · step $step")
+                .setContentText(doing.take(80))
+                .setOngoing(true).setOnlyAlertOnce(true).setDeleteIntent(stopPi)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP", stopPi)
+                .build()
+            nm.notify(NOTIF_ID, n)
         } catch (e: Exception) {}
     }
     private fun cancelBanner(ctx: Context) {

@@ -199,7 +199,11 @@ class InteractionLogService : AccessibilityService() {
                     }
                     override fun onFailure(errorCode: Int) { android.util.Log.w("SlyOS", "OP screenshot onFailure code=$errorCode"); cb(null) }
                 })
-        } catch (e: Throwable) { android.util.Log.w("SlyOS", "OP screenshot throw: ${e.message}"); cb(null) }
+        } catch (e: Throwable) {
+            val m = e.message ?: ""
+            if (m.contains("capability", true)) screenshotBlocked = true
+            android.util.Log.w("SlyOS", "OP screenshot throw: $m"); cb(null)
+        }
     }
 
     fun scroll(down: Boolean): Boolean {
@@ -211,6 +215,25 @@ class InteractionLogService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
+        // REFLEX LEARN recording — capture the user's own taps/typing to teach a repeatable skill.
+        // Ignore taps inside SlyOS itself (the Start button, navigating back to Stop) — only the real task.
+        if (com.agentos.shell.tools.ReflexLearn.recording && event.packageName?.toString() != packageName) {
+            try {
+                val src = event.source
+                when (event.eventType) {
+                    AccessibilityEvent.TYPE_VIEW_CLICKED -> if (src != null && !src.isPassword) com.agentos.shell.tools.ReflexLearn.onClick(
+                        src.viewIdResourceName ?: "",
+                        (src.text ?: src.contentDescription)?.toString() ?: "",
+                        src.contentDescription?.toString() ?: "",
+                        src.className?.toString() ?: "")
+                    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> if (src != null && !src.isPassword) com.agentos.shell.tools.ReflexLearn.onType(
+                        src.viewIdResourceName ?: "",
+                        src.contentDescription?.toString() ?: "",
+                        src.className?.toString() ?: "",
+                        event.text?.joinToString(" ")?.trim() ?: "")
+                }
+            } catch (e: Exception) {}
+        }
         if (!MemoryStore.recallEnabled(applicationContext)) return
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return                      // ignore SlyOS itself
@@ -249,5 +272,8 @@ class InteractionLogService : AccessibilityService() {
         // Set while the service is connected, so ScreenAgent can drive taps/typing. Null if the user
         // hasn't granted Accessibility — the action layer degrades gracefully to "not available".
         @Volatile var instance: InteractionLogService? = null
+        // Set true if takeScreenshot() reports the service lacks the capability — means the user must
+        // re-toggle the accessibility service so the new canTakeScreenshot config takes effect.
+        @Volatile var screenshotBlocked: Boolean = false
     }
 }

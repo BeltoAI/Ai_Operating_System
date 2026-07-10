@@ -495,6 +495,57 @@ private fun OnDeviceModelCard() {
     }
 }
 
+/** Reflex Learn — teach SlyOS a repeatable task by doing it once. Records your taps/typing and replays
+ *  them perfectly (deterministic, no AI guessing). */
+@Composable
+private fun ReflexLearnCard() {
+    val ctx = LocalContext.current
+    val RL = com.agentos.shell.tools.ReflexLearn
+    var name by remember { mutableStateOf("") }
+    var recording by remember { mutableStateOf(RL.recording) }
+    var msg by remember { mutableStateOf("") }
+    var skills by remember { mutableStateOf(RL.skills(ctx)) }
+    Collapsible("Teach a skill (Reflex)", "Show SlyOS once, it repeats it perfectly") {
+        Text("Teach SlyOS a repeatable action by doing it ONCE. Give it a name, tap Start, go do the task in any " +
+            "app (e.g. like a post), then come back and tap Stop. SlyOS replays your exact steps forever — no AI " +
+            "guessing, so it's reliable. Then just say “operate: <the skill name>”.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(12.dp))
+        if (!recording) {
+            BasicTextField(name, { name = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (name.isEmpty()) Text("Skill name (e.g. like a post)", fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(8.dp))
+            Text("Start recording", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (name.isNotBlank()) T.accent else T.hairline)
+                    .clickable(enabled = name.isNotBlank()) { RL.startRecording(name); recording = true; msg = "Recording — go do the task, then come back and tap Stop." }
+                    .padding(horizontal = 16.dp, vertical = 9.dp))
+        } else {
+            Text("● Recording “${name.ifBlank { "skill" }}” — do the task now, then return here.", fontSize = T.small, color = T.danger)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Stop & save", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { val n = RL.stopRecording(ctx); recording = false; skills = RL.skills(ctx); msg = "Saved $n steps ✓"; name = "" }
+                        .padding(horizontal = 16.dp, vertical = 9.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Cancel", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { RL.cancel(); recording = false; msg = "" }.padding(vertical = 9.dp))
+            }
+        }
+        if (skills.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("Taught skills", fontSize = T.caption, color = T.inkSoft)
+            skills.forEach { sk ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Text("${sk.name} · ${sk.steps.size} steps", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                    Text("✕", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable { RL.delete(ctx, sk.name); skills = RL.skills(ctx) }.padding(8.dp))
+                }
+            }
+        }
+        if (msg.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(msg, fontSize = T.caption, color = T.accent) }
+    }
+}
+
 /** Floating nav panel toggle — turns the over-every-app SlyOS bar on/off and walks through the
  *  "Display over other apps" permission. */
 @Composable
@@ -766,7 +817,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v26 · vault recall + fingerprint", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v27 · Reflex + teach-a-skill", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -863,6 +914,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // On-device model — free/offline endpoint that plugs into the same router as the cloud keys.
         OnDeviceModelCard()
+
+        // Reflex Learn — teach a repeatable operate skill by demonstration.
+        ReflexLearnCard()
 
         // ---- Appearance ----
         Collapsible("Appearance") {

@@ -1027,7 +1027,12 @@ object AgentClient {
             "The element list: each line is `n. [role] text {state}`. role is " +
             "button/field/switch/list/text; a switch shows {on} or {off}; a list is scrollable. Reply with EXACTLY " +
             "ONE line, one of:\n" +
-            "TAP <n>                 tap element n\n" +
+            "DO <intent> [| text]    PREFERRED for social/common actions — you name the INTENT and the system " +
+            "finds the right element and does it (incl. multi-step). Intents: like, comment (| the comment text), " +
+            "reply (| text), share, follow, send, message (| text), save, search (| query), back, menu, next, " +
+            "compose. Use `DO like`, `DO comment | Great breakdown of …`, `DO follow`, `DO search | product design`. " +
+            "Prefer DO over hunting for an element index.\n" +
+            "TAP <n>                 tap element n (when DO doesn't fit)\n" +
             (if (hasImg) "TAPXY <x> <y>           tap a point you can SEE (0-1000 grid: x left→right, y top→bottom) — " +
                 "use this for icons/targets not in the list\n" +
                 "DRAGXY <x1> <y1> <x2> <y2>  drag between two points (move a game piece, slider, reorder)\n" else "") +
