@@ -50,7 +50,14 @@ class InteractionLogService : AccessibilityService() {
 
     private fun walkActionable(node: AccessibilityNodeInfo?, out: ArrayList<Pair<AccessibilityNodeInfo, ScreenNode>>, depth: Int = 0) {
         if (node == null || depth > 90 || out.size > 200) return
-        if (!node.isPassword) {
+        if (node.isPassword) {
+            // Include password fields so the agent can FILL them (logins/sign-ups), but NEVER expose or log
+            // their contents — the label is masked and the actual text is never read.
+            if (node.isEditable) {
+                val r = Rect(); node.getBoundsInScreen(r)
+                out.add(node to ScreenNode(out.size, "password", "[password field]", true, true, r))
+            }
+        } else {
             val txt = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
             val clickable = node.isClickable; val editable = node.isEditable
             val checkable = node.isCheckable; val scrollable = node.isScrollable

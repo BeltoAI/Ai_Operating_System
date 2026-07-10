@@ -34,7 +34,10 @@ object ScreenAgent {
     @Volatile private var stopFlag = false
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private val IRREVERSIBLE = Regex("(?i)\\b(send|pay|post|delete|submit|buy|order|place order|checkout|purchase|confirm|transfer|remove|unsubscribe now)\\b")
+    // MONEY GATE ONLY. The agent has full control of everything else (fill forms, sign up, log in, submit,
+    // post, toggle settings…) but must NEVER complete a spend/transfer — it stops and hands the final tap to
+    // the user at that exact screen. Deliberately scoped to financial actions per the user's choice.
+    private val IRREVERSIBLE = Regex("(?i)\\b(pay|pay now|buy|buy now|purchase|place order|order now|checkout|check ?out|complete (order|purchase|payment)|confirm (payment|purchase|order|and pay)|subscribe|upgrade to|start (free )?trial|donate|transfer( money)?|send money|withdraw|deposit|add (a )?(card|payment)|place bid)\\b")
 
     fun stop() { stopFlag = true }
 
@@ -60,8 +63,12 @@ object ScreenAgent {
         var lastDump = ""; var stall = 0; var replans = 0; var verifyTries = 0
         try {
             if (!openPkg.isNullOrBlank()) { try { ctx.packageManager.getLaunchIntentForPackage(openPkg)?.let { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (e: Exception) {}; delay(1600) }
+            // Repetitive tasks ("connect with 20…", "message 5…") need a bigger budget — scale it to the
+            // count in the goal so the agent can actually finish the whole batch.
+            val target = Regex("(?i)\\b(\\d{1,3})\\b").find(goal)?.groupValues?.get(1)?.toIntOrNull()
+            val budget = if (target != null && target in 2..100) (target * 6 + 12).coerceAtMost(200) else MAX_STEPS
             var step = 0
-            while (step++ < MAX_STEPS) {
+            while (step++ < budget) {
                 if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
                 var nodes = svc.readScreen()
                 if (nodes.isEmpty()) { delay(1200); nodes = svc.readScreen(); if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return } }
@@ -150,6 +157,16 @@ object ScreenAgent {
                 val name = action.removePrefix("OPEN").trim()
                 val app = ToolRouter.installedApps(ctx).firstOrNull { it.label.contains(name, true) }
                 if (app != null) { history.append("• opened ${app.label}\n"); ToolRouter.launchApp(ctx, app.pkg); delay(1500); true } else false
+            }
+            "VERIFYEMAIL" -> {
+                // End-to-end sign-up: pull the verification link from the just-received email and open it.
+                val hint = action.removePrefix("VERIFYEMAIL").trim()
+                val link = try { GmailClient.verificationLink(ctx, hint) } catch (e: Exception) { null }
+                if (link != null) {
+                    history.append("• opened the verification link from your email\n")
+                    try { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                    delay(2600); true
+                } else { history.append("• verification email not here yet — waiting\n"); delay(4000); false }
             }
             else -> false
         }

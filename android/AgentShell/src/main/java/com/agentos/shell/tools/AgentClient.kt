@@ -996,11 +996,14 @@ object AgentClient {
     /** P1 action layer: pick ONE next on-screen action toward [goal], given the live screen dump. Cheap tier. */
     /** ONE-TIME high-level plan: decompose the goal into a short ordered checklist the executor follows. */
     fun planScreenGoal(goal: String, profile: String): String {
-        val sys = "You are an expert Android phone operator. Break the user's GOAL into a SHORT ordered plan " +
-            "(3-8 concise steps) of what to do on the phone. Think about the FASTEST reliable route — for system " +
-            "toggles (Bluetooth, Wi-Fi, location, airplane, NFC, hotspot, sound, display, battery, data, apps) note " +
-            "that a direct Settings page can be opened in one hop. Number each step. No prose, just the plan." +
-            (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(500)}" else "")
+        val sys = "You are an expert Android phone operator with FULL control of any app and web pages in a browser. " +
+            "Break the user's GOAL into a SHORT ordered plan (3-8 concise steps). Think about the FASTEST reliable " +
+            "route — for system toggles (Bluetooth, Wi-Fi, location, airplane, NFC, hotspot, sound, display, battery, " +
+            "data, apps) a direct Settings page opens in one hop. Cross-app is fine (e.g. sign up in an app, then " +
+            "open the verification email, then come back). For REPETITIVE goals ('connect with 20', 'like all posts', " +
+            "'message 5 friends') plan it as a loop: repeat one item at a time, scrolling for more, until the count is " +
+            "met. Never plan a step that spends money — leave the final pay tap to the user. Number each step. No " +
+            "prose, just the plan." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(500)}" else "")
         val (code, text) = callContent(sys, "GOAL: $goal", 320, VOICE)
         return if (code == 200) text.trim() else ""
     }
@@ -1032,14 +1035,29 @@ object AgentClient {
             "nfc, hotspot, data, display, sound, battery, storage, date, language, security, accessibility, " +
             "notifications, apps, vpn — USE THIS for system toggles instead of hunting menus\n" +
             "WAIT                    the screen is loading — wait and re-read\n" +
+            "VERIFYEMAIL <hint>      during a sign-up, fetch the verification link from the user's just-received " +
+            "email and open it automatically (hint = the service name). Use this when a screen says 'check your " +
+            "email / confirm your address', then continue.\n" +
             "DONE <summary>          the GOAL is fully achieved (or only a final Send/Pay/Submit remains for the user)\n" +
             "STUCK <why>             genuinely cannot proceed\n" +
-            "RULES: one step at a time; the screen is re-read after each. Do NOT declare DONE until the goal is " +
-            "actually complete — verify the end state on screen first (e.g. the switch now shows {on}). If a switch " +
-            "is already in the desired state, move on; don't toggle it back. Prefer SETTINGS <key> for system " +
-            "toggles. SCROLL to reveal off-screen elements before giving up. NEVER tap a final Send / Pay / Post / " +
-            "Delete / Submit / Buy / Order / Place / Checkout / Confirm / Transfer button — reply DONE and let the " +
-            "user do that last tap." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
+            "RULES: one step at a time; the screen is re-read after each. You have FULL control and may complete " +
+            "normal workflows end-to-end — fill and SUBMIT forms, sign up, log in, post, accept prompts, dismiss " +
+            "dialogs, grant reasonable permissions. This works in ANY app AND in web pages inside a browser " +
+            "(links, fields and buttons are all elements). A field labelled `[password field]` is a password box: " +
+            "TYPE the password into it (its contents are never shown to you). Take credentials/details to enter " +
+            "from the GOAL text. Do NOT declare DONE until the goal is actually complete — verify the end state on " +
+            "screen (e.g. the switch shows {on}, or the account/next screen appeared). If a switch is already in " +
+            "the desired state, move on. Prefer SETTINGS <key> for system toggles; SCROLL to reveal off-screen " +
+            "elements before giving up.\n" +
+            "REPETITIVE/BATCH TASKS (e.g. 'connect with 20 people', 'like all posts', 'message 5 friends'): treat it " +
+            "as a loop. Do ONE item at a time (e.g. tap Connect on one result, or Like one post), then continue to " +
+            "the next; SCROLL to load more. COUNT how many you've completed from STEPS DONE and keep going until you " +
+            "hit the target number, then DONE. If a batch has no number ('all'), keep going until nothing new " +
+            "appears after scrolling, then DONE.\n" +
+            "THE ONE HARD LIMIT — MONEY: never tap a button that spends money or moves funds (Pay, Buy, Purchase, " +
+            "Place order, Checkout, Subscribe, Upgrade, Start trial, Donate, Transfer, Send money, Add card, " +
+            "Confirm payment). When only such a step remains, reply DONE and tell the user to make that final tap." +
+            (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
         val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
         val (code, text) = callContent(sys, user, 160, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"

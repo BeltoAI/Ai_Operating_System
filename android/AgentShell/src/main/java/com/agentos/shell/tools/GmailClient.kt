@@ -228,6 +228,49 @@ object GmailClient {
     }
 
     /**
+     * END-TO-END SIGN-UP SUPPORT: find the newest verification/confirmation email (optionally matching a
+     * [hint] like the service name) and return its verification URL, so the screen agent can open it and
+     * finish an account sign-up automatically. Read-only, on the user's token. Returns null if none yet.
+     */
+    fun verificationLink(ctx: Context, hint: String = ""): String? {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return null
+        val kw = "(subject:(verify OR confirm OR verification OR activate OR \"confirm your email\") OR verify OR confirm OR activate)"
+        val q = (if (hint.isNotBlank()) "($hint) " else "") + "newer_than:1d " + kw
+        val (lc, lb) = get("$BASE/messages?maxResults=6&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
+        if (lc !in 200..299) return null
+        val ids = try {
+            val arr = JSONObject(lb).optJSONArray("messages") ?: return null
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        } catch (e: Exception) { return null }
+        for (id in ids) {
+            if (id.isBlank()) continue
+            val (mc, mb) = get("$BASE/messages/$id?format=full", token)
+            if (mc !in 200..299) continue
+            val payload = try { JSONObject(mb).optJSONObject("payload") } catch (e: Exception) { null } ?: continue
+            val raw = StringBuilder(); collectRawBodies(payload, raw)
+            pickVerifyLink(raw.toString())?.let { return it }
+        }
+        return null
+    }
+
+    private fun collectRawBodies(part: JSONObject, sb: StringBuilder) {
+        if (sb.length > 200_000) return
+        try {
+            val data = part.optJSONObject("body")?.optString("data").orEmpty()
+            if (data.isNotEmpty()) sb.append(String(Base64.decode(data, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)).append("\n")
+            val parts = part.optJSONArray("parts")
+            if (parts != null) for (i in 0 until parts.length()) collectRawBodies(parts.getJSONObject(i), sb)
+        } catch (e: Exception) {}
+    }
+
+    private fun pickVerifyLink(text: String): String? {
+        val urls = Regex("https?://[^\\s\"'<>)\\]]+").findAll(text).map { it.value.trimEnd('.', ',', ';', '"', '\'') }.distinct().toList()
+        return urls.firstOrNull { Regex("(?i)verif|confirm|activ|validate|/token|/auth|/e/|magic|onelink|action").containsMatchIn(it) }
+            ?: urls.firstOrNull { it.length in 25..400 }
+    }
+
+    /**
      * P3: scan recent receipt/order/invoice emails and turn the real ones into expense rows (deduped by
      * ExpenseStore hash). Runs each candidate through the vision-schema text extractor; non-receipts (a
      * newsletter that merely says "order") return receipt:false and are skipped. Bounded per run for the
