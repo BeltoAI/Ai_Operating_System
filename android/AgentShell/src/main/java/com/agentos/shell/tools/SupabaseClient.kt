@@ -88,10 +88,14 @@ object SupabaseClient {
     }
 
     // ---- Data (PostgREST) --------------------------------------------------------------------------
-    /** Upsert rows (last-write-wins on the table's unique key). [rows] is a JSON array of objects. */
-    fun upsert(table: String, accessToken: String, rows: JSONArray): Boolean {
+    /**
+     * Upsert rows (last-write-wins). [onConflict] names the UNIQUE columns to merge on — required, because
+     * PostgREST otherwise targets the primary key (`id`) and a repeat push hits the unique constraint (23505).
+     */
+    fun upsert(table: String, accessToken: String, rows: JSONArray, onConflict: String? = null): Boolean {
         if (!configured() || rows.length() == 0) return false
-        val c = open("/rest/v1/$table", "POST", accessToken)
+        val path = "/rest/v1/$table" + (if (onConflict != null) "?on_conflict=$onConflict" else "")
+        val c = open(path, "POST", accessToken)
         c.setRequestProperty("Prefer", "resolution=merge-duplicates,return=minimal")
         val (code, txt) = send(c, rows.toString())
         if (code !in 200..299) lastError = "HTTP $code ${txt.take(160)}"

@@ -42,7 +42,7 @@ object BrainSync {
             .put("user_id", uid).put("kind", "profile").put("client_id", "about")
             .put("title", "Profile").put("body", body).put("data", data)
             .put("updated_at", now).put("deleted", false)
-        val pushed = SupabaseClient.upsert(TABLE, token, JSONArray().put(row))
+        val pushed = SupabaseClient.upsert(TABLE, token, JSONArray().put(row), "user_id,kind,client_id")
         if (pushed) prefs(ctx).edit().putLong(K_PROFILE_TS, now).apply()
 
         // Push chat threads up. Body = readable transcript; data.msgs = structured messages for exact
@@ -60,7 +60,7 @@ object BrainSync {
                     .put("data", JSONObject().put("id", t.id).put("msgs", msgsJson))
                     .put("updated_at", t.updated).put("deleted", false))
             }
-            if (chatRows.length() > 0) SupabaseClient.upsert(TABLE, token, chatRows)
+            if (chatRows.length() > 0) SupabaseClient.upsert(TABLE, token, chatRows, "user_id,kind,client_id")
         } catch (e: Exception) { Log.w(TAG, "chat push", e) }
 
         // 2) Pull the server's rows; apply profile if newer, and reconstruct any chat threads locally.

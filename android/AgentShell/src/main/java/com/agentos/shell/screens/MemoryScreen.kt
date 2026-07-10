@@ -91,6 +91,95 @@ private fun AccountHeader(tick: Int) {
     }
 }
 
+/** Bank vault — PIN-locked, end-to-end encrypted store for sensitive info (bank details). Values only
+ *  appear after the correct PIN is entered; nothing is stored in the clear. */
+@Composable
+private fun BankVaultCard() {
+    val ctx = LocalContext.current
+    val V = com.agentos.shell.tools.BankVault
+    var configured by remember { mutableStateOf(V.isConfigured(ctx)) }
+    var pin by remember { mutableStateOf("") }
+    var pin2 by remember { mutableStateOf("") }
+    var items by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }  // null = locked
+    var addLabel by remember { mutableStateOf("") }
+    var addValue by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf("") }
+
+    @Composable
+    fun pinField(v: String, onV: (String) -> Unit, hint: String) =
+        BasicTextField(v, onV, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            textStyle = TextStyle(color = T.ink, fontSize = T.small),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+            decorationBox = { inner -> if (v.isEmpty()) Text(hint, fontSize = T.small, color = T.inkFaint); inner() })
+
+    Collapsible("Bank vault", if (items != null) "Unlocked" else "PIN-locked · encrypted") {
+        when {
+            !configured -> {
+                Text("Store bank details behind a PIN. Encrypted on your phone — only your PIN can unlock it. If you forget the PIN it can't be recovered.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(10.dp))
+                pinField(pin, { pin = it }, "Choose a PIN (4+ digits)")
+                pinField(pin2, { pin2 = it }, "Confirm PIN")
+                Spacer(Modifier.height(8.dp))
+                Text("Create vault", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (pin.length >= 4 && pin == pin2) T.accent else T.hairline)
+                        .clickable(enabled = pin.length >= 4 && pin == pin2) {
+                            V.setup(ctx, pin); configured = true; items = emptyList(); pin2 = ""; msg = "Vault created ✓"
+                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+            items == null -> {
+                Text("Enter your PIN to view your bank info.", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(8.dp))
+                pinField(pin, { pin = it }, "PIN")
+                Spacer(Modifier.height(8.dp))
+                Text("Unlock", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (pin.isNotBlank()) T.accent else T.hairline)
+                        .clickable(enabled = pin.isNotBlank()) {
+                            val u = V.unlock(ctx, pin)
+                            if (u != null) { items = u; msg = "" } else msg = "Wrong PIN."
+                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+            else -> {
+                val list = items!!
+                if (list.isEmpty()) Text("No entries yet. Add one below.", fontSize = T.small, color = T.inkFaint)
+                list.forEachIndexed { i, it ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(it.label, fontSize = T.caption, color = T.inkSoft)
+                            Text(it.value, fontSize = T.small, color = T.ink)
+                        }
+                        Text("✕", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable {
+                            val next = list.toMutableList().also { l -> l.removeAt(i) }
+                            if (V.save(ctx, pin, next)) items = next
+                        }.padding(8.dp))
+                    }
+                    Hairline()
+                }
+                Spacer(Modifier.height(10.dp))
+                BasicTextField(addLabel, { addLabel = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                    decorationBox = { inner -> if (addLabel.isEmpty()) Text("Label (e.g. Chase checking)", fontSize = T.small, color = T.inkFaint); inner() })
+                BasicTextField(addValue, { addValue = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                    decorationBox = { inner -> if (addValue.isEmpty()) Text("Value (account #, routing, card…)", fontSize = T.small, color = T.inkFaint); inner() })
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Add", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (addLabel.isNotBlank() && addValue.isNotBlank()) T.accent else T.hairline)
+                            .clickable(enabled = addLabel.isNotBlank() && addValue.isNotBlank()) {
+                                val next = list + com.agentos.shell.tools.BankVault.Item(addLabel.trim(), addValue.trim())
+                                if (V.save(ctx, pin, next)) { items = next; addLabel = ""; addValue = ""; msg = "Saved ✓" }
+                            }.padding(horizontal = 16.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Lock", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { items = null; pin = ""; msg = "" }.padding(vertical = 9.dp))
+                }
+            }
+        }
+        if (msg.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(msg, fontSize = T.caption, color = T.accent) }
+    }
+}
+
 /** SlyOS account — email+password sign in via Supabase. The account anchors cross-device brain sync
  *  (see ACCOUNT_AND_SYNC.md). Regular account UI: signed-in identity + sign out, or sign in / create. */
 @Composable
@@ -654,7 +743,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v23 · account header", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v24 · bank vault", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -742,6 +831,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // SlyOS account — sign in to sync your brain across devices.
         AccountCard(onChange = { acctTick++ })
+
+        // Bank vault — PIN-locked, encrypted sensitive info.
+        BankVaultCard()
 
         // API keys as its own top-level card (promoted out of "Models & spending").
         ApiKeysCard()
