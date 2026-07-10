@@ -301,9 +301,16 @@ object ScreenAgent {
     }
     private fun releaseWake() { try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}; wakeLock = null }
 
-    /** Suspend wrapper around the accessibility screenshot callback. */
-    private suspend fun screenshot(svc: InteractionLogService): String? = suspendCancellableCoroutine { cont ->
-        try { svc.captureScreenshot { b64 -> if (cont.isActive) cont.resume(b64) } } catch (e: Exception) { if (cont.isActive) cont.resume(null) }
+    @Volatile private var lastShotMs = 0L
+    /** Suspend wrapper around the accessibility screenshot callback. Enforces the ~1s system rate limit so
+     *  back-to-back steps don't fail with INTERVAL_TIME_SHORT. */
+    private suspend fun screenshot(svc: InteractionLogService): String? {
+        val since = System.currentTimeMillis() - lastShotMs
+        if (since in 0 until 1150) delay(1150 - since)
+        lastShotMs = System.currentTimeMillis()
+        return suspendCancellableCoroutine { cont ->
+            try { svc.captureScreenshot { b64 -> if (cont.isActive) cont.resume(b64) } } catch (e: Exception) { if (cont.isActive) cont.resume(null) }
+        }
     }
 
     /** Execute a coordinate action from the vision planner (0-1000 grid → pixels). */

@@ -178,22 +178,28 @@ class InteractionLogService : AccessibilityService() {
                     override fun onSuccess(result: ScreenshotResult) {
                         try {
                             val hb = result.hardwareBuffer
-                            val bmp = Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
+                            val hw = Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
                             hb.close()
-                            if (bmp == null) { cb(null); return }
+                            if (hw == null) { android.util.Log.w("SlyOS", "OP screenshot: wrapHardwareBuffer null"); cb(null); return }
+                            // A HARDWARE bitmap can't be scaled or compressed directly — copy to a software
+                            // (ARGB_8888) bitmap first. This was the bug: compress on a hardware bitmap fails.
+                            val soft = hw.copy(Bitmap.Config.ARGB_8888, false)
+                            hw.recycle()
+                            if (soft == null) { android.util.Log.w("SlyOS", "OP screenshot: software copy null"); cb(null); return }
                             val maxW = 950
-                            val scaled = if (bmp.width > maxW) {
-                                val h = (bmp.height.toFloat() * maxW / bmp.width).toInt()
-                                Bitmap.createScaledBitmap(bmp, maxW, h, true)
-                            } else bmp
+                            val scaled = if (soft.width > maxW) {
+                                val h = (soft.height.toFloat() * maxW / soft.width).toInt().coerceAtLeast(1)
+                                Bitmap.createScaledBitmap(soft, maxW, h, true)
+                            } else soft
                             val bos = ByteArrayOutputStream()
                             scaled.compress(Bitmap.CompressFormat.JPEG, 78, bos)
+                            android.util.Log.i("SlyOS", "OP screenshot ok ${scaled.width}x${scaled.height} ${bos.size()}b")
                             cb(Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP))
-                        } catch (e: Exception) { cb(null) }
+                        } catch (e: Throwable) { android.util.Log.w("SlyOS", "OP screenshot process fail: ${e.message}"); cb(null) }
                     }
-                    override fun onFailure(errorCode: Int) { cb(null) }
+                    override fun onFailure(errorCode: Int) { android.util.Log.w("SlyOS", "OP screenshot onFailure code=$errorCode"); cb(null) }
                 })
-        } catch (e: Exception) { cb(null) }
+        } catch (e: Throwable) { android.util.Log.w("SlyOS", "OP screenshot throw: ${e.message}"); cb(null) }
     }
 
     fun scroll(down: Boolean): Boolean {
