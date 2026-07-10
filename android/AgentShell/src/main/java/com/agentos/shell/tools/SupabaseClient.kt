@@ -20,6 +20,9 @@ object SupabaseClient {
 
     fun configured(): Boolean = URL_BASE.isNotBlank() && ANON.isNotBlank()
 
+    /** Last REST error (HTTP code + body), for surfacing a real reason in the UI. */
+    @Volatile var lastError: String = ""
+
     data class Session(val accessToken: String, val refreshToken: String, val userId: String, val email: String)
     data class AuthResult(val ok: Boolean, val session: Session? = null, val error: String = "")
 
@@ -90,7 +93,8 @@ object SupabaseClient {
         if (!configured() || rows.length() == 0) return false
         val c = open("/rest/v1/$table", "POST", accessToken)
         c.setRequestProperty("Prefer", "resolution=merge-duplicates,return=minimal")
-        val (code, _) = send(c, rows.toString())
+        val (code, txt) = send(c, rows.toString())
+        if (code !in 200..299) lastError = "HTTP $code ${txt.take(160)}"
         return code in 200..299
     }
 

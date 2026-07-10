@@ -17,7 +17,10 @@ object BrainSync {
     private const val TAG = "SlyOS-Sync"
     private const val PREF = "slyos"
     private const val K_PROFILE_TS = "sync_profile_ts"   // updated_at we last pushed/applied for the profile
+    private const val K_LAST_OK = "sync_last_ok"          // wall-clock of the last SUCCESSFUL sync
     private const val TABLE = "brain_items"
+
+    fun lastOkMs(ctx: Context): Long = prefs(ctx).getLong(K_LAST_OK, 0L)
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
@@ -88,9 +91,10 @@ object BrainSync {
                 } catch (e: Exception) { Log.w(TAG, "chat pull row", e) }
             }
         }
+        if (pushed || applied) prefs(ctx).edit().putLong(K_LAST_OK, System.currentTimeMillis()).apply()
         return when {
-            !pushed && !applied -> Result(false, "Couldn't reach the server.")
-            applied -> Result(true, "Synced — pulled newer profile from another device.")
+            !pushed && !applied -> Result(false, "Sync failed: " + SupabaseClient.lastError.ifBlank { "couldn't reach the server." })
+            applied -> Result(true, "Synced — pulled newer data from another device.")
             else -> Result(true, "Synced ✓")
         }
     }
