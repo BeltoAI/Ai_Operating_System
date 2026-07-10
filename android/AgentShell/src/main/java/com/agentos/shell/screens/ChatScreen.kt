@@ -9,7 +9,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,7 +63,37 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var renameId by remember { mutableStateOf(0L) }
     var renameText by remember { mutableStateOf("") }
-    var msgMenu by remember { mutableStateOf<ChatStore.Msg?>(null) }
+    var attachB64 by remember { mutableStateOf<String?>(null) }   // pending image to send
+
+    // Speak to the AI — the system voice recognizer fills the input box.
+    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val spoken = res.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!spoken.isNullOrBlank()) input = (input.trim() + " " + spoken).trim()
+    }
+    fun startVoice() {
+        try {
+            voice.launch(android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak")
+            })
+        } catch (e: Exception) {}
+    }
+    // Attach an image — recompressed to JPEG base64 for the vision model.
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            val b64 = withContext(Dispatchers.IO) {
+                try {
+                    ctx.contentResolver.openInputStream(uri).use { inp ->
+                        val bmp = android.graphics.BitmapFactory.decodeStream(inp) ?: return@use null
+                        val bos = java.io.ByteArrayOutputStream()
+                        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, bos)
+                        android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+                    }
+                } catch (e: Exception) { null }
+            }
+            attachB64 = b64
+        }
+    }
 
     fun open(id: Long) { currentId = id; msgs = ChatStore.messages(ctx, id) }
 
@@ -66,11 +104,13 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
     fun send() {
         val q = input.trim()
-        if (q.isBlank() || busy) return
-        input = ""; busy = true
+        val img = attachB64
+        if ((q.isBlank() && img == null) || busy) return
+        input = ""; attachB64 = null; busy = true
         if (currentId == 0L) currentId = ChatStore.create(ctx)
         val id = currentId
-        msgs = ChatStore.append(ctx, id, "you", q)
+        val shownUser = if (img != null) (if (q.isBlank()) "[image]" else "$q  [image]") else q
+        msgs = ChatStore.append(ctx, id, "you", shownUser)
         scope.launch {
             val context = withContext(Dispatchers.IO) {
                 val about = MemoryStore.about(ctx)
@@ -83,7 +123,12 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 if (m.role == "you") pendingUser = m.text
                 else if (m.role == "ai" && pendingUser != null) { history.add(pendingUser!! to m.text); pendingUser = null }
             }
-            val (code, reply) = withContext(Dispatchers.IO) { AgentClient.chat(q, context, history) }
+            val (code, reply) = withContext(Dispatchers.IO) {
+                if (img != null) {
+                    val r = AgentClient.askVision(q.ifBlank { "What's in this image?" }, listOf(img), context, maxTokens = 900)
+                    if (AgentClient.looksLikeError(r)) -1 to r else 200 to r
+                } else AgentClient.chat(q, context, history)
+            }
             val shown = if (code == 200 && reply.isNotBlank()) reply
                 else "Couldn't reach the model — check your connection or key, then try again."
             msgs = ChatStore.append(ctx, id, "ai", shown)
@@ -92,10 +137,10 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             if (code == 200) withContext(Dispatchers.IO) {
                 val clean = RichParse.fromTag(shown).second
                 try {
-                    MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                    MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", shownUser)
                     MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", clean)
                 } catch (e: Exception) {}
-                val pk = MemoryLog.add(ctx, "prompt", q, q, "Chat")
+                val pk = MemoryLog.add(ctx, "prompt", shownUser, shownUser, "Chat")
                 MemoryLog.add(ctx, "response", clean, clean, "Chat reply", pk)
             }
         }
@@ -136,20 +181,34 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text("Ask me anything.", fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 10.dp))
                 }
                 items(msgs) { m ->
+                    val copyDelete: @Composable (horiz: Arrangement.Horizontal) -> Unit = { horiz ->
+                        Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = horiz) {
+                            Icon(Icons.Outlined.ContentCopy, "Copy", tint = T.inkFaint,
+                                modifier = Modifier.size(17.dp).clickable {
+                                    clipboard.setText(AnnotatedString(RichParse.fromTag(m.text).second))
+                                })
+                            Spacer(Modifier.width(16.dp))
+                            Icon(Icons.Outlined.DeleteOutline, "Delete", tint = T.inkFaint,
+                                modifier = Modifier.size(18.dp).clickable {
+                                    msgs = ChatStore.deleteMessage(ctx, currentId, m.ts); threads = ChatStore.threads(ctx)
+                                })
+                        }
+                    }
                     if (m.role == "you") {
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.End) {
-                            Text(m.text, fontSize = T.small, color = T.bgElevated,
-                                modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(16.dp))
-                                    .background(T.accent)
-                                    .combinedClickable(onClick = {}, onLongClick = { msgMenu = m })
-                                    .padding(horizontal = 13.dp, vertical = 9.dp))
+                        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                Text(m.text, fontSize = T.small, color = T.bgElevated,
+                                    modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(16.dp))
+                                        .background(T.accent).padding(horizontal = 13.dp, vertical = 9.dp))
+                            }
+                            copyDelete(Arrangement.End)
                         }
                     } else {
                         val (hero, body) = remember(m.text) { RichParse.render(m.text) }
-                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)
-                            .combinedClickable(onClick = {}, onLongClick = { msgMenu = m })) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                             if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(10.dp)) }
                             if (body.isNotBlank()) MarkdownText(body)
+                            copyDelete(Arrangement.Start)
                         }
                     }
                 }
@@ -157,18 +216,32 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text("thinking…", fontSize = T.small, color = T.accent, modifier = Modifier.padding(vertical = 10.dp))
                 }
             }
+            if (attachB64 != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text("Image attached", fontSize = T.caption, color = T.accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text("remove", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.clickable { attachB64 = null })
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AttachFile, "Attach", tint = T.inkSoft,
+                    modifier = Modifier.size(22.dp).clickable { pick.launch("image/*") })
+                Spacer(Modifier.width(10.dp))
+                Icon(Icons.Outlined.Mic, "Speak", tint = T.inkSoft,
+                    modifier = Modifier.size(22.dp).clickable { startVoice() })
+                Spacer(Modifier.width(10.dp))
                 BasicTextField(value = input, onValueChange = { input = it },
                     textStyle = TextStyle(color = T.ink, fontSize = T.small),
                     modifier = Modifier.weight(1f).heightIn(min = 20.dp).clip(RoundedCornerShape(12.dp))
                         .background(T.bgElevated).padding(12.dp),
                     decorationBox = { inner -> if (input.isEmpty()) Text("Message…", fontSize = T.small, color = T.inkFaint); inner() })
                 Spacer(Modifier.width(8.dp))
+                val canSend = !busy && (input.isNotBlank() || attachB64 != null)
                 Text(if (busy) "…" else "→", fontSize = T.body, color = T.bgElevated,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                        .background(if (busy || input.isBlank()) T.hairline else T.accent)
-                        .clickable(enabled = !busy && input.isNotBlank()) { send() }
+                        .background(if (canSend) T.accent else T.hairline)
+                        .clickable(enabled = canSend) { send() }
                         .padding(horizontal = 16.dp, vertical = 10.dp))
             }
         }
@@ -197,21 +270,4 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
     }
 
-    // Long-press a message → copy or delete it.
-    msgMenu?.let { m ->
-        Dialog(onDismissRequest = { msgMenu = null }) {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(8.dp)) {
-                Text("Copy", fontSize = T.body, color = T.ink, modifier = Modifier.fillMaxWidth()
-                    .clickable { clipboard.setText(AnnotatedString(RichParse.fromTag(m.text).second)); msgMenu = null }
-                    .padding(horizontal = 16.dp, vertical = 14.dp))
-                Hairline()
-                Text("Delete", fontSize = T.body, color = T.danger, modifier = Modifier.fillMaxWidth()
-                    .clickable { msgs = ChatStore.deleteMessage(ctx, currentId, m.ts); threads = ChatStore.threads(ctx); msgMenu = null }
-                    .padding(horizontal = 16.dp, vertical = 14.dp))
-                Hairline()
-                Text("Cancel", fontSize = T.body, color = T.inkSoft, modifier = Modifier.fillMaxWidth()
-                    .clickable { msgMenu = null }.padding(horizontal = 16.dp, vertical = 14.dp))
-            }
-        }
-    }
 }
