@@ -207,7 +207,9 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         val (hero, body) = remember(m.text) { RichParse.render(m.text) }
                         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                             if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(10.dp)) }
-                            if (body.isNotBlank()) MarkdownText(body)
+                            if (body.isNotBlank()) {
+                                if (hasMath(body)) MathText(body) else MarkdownText(body)
+                            }
                             copyDelete(Arrangement.Start)
                         }
                     }
