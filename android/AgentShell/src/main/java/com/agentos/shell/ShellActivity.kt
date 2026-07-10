@@ -28,7 +28,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -235,8 +235,9 @@ class ShellActivity : ComponentActivity() {
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
-                        Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }) { researchTopic = ""; screen = Screen.Home }
+                        Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }, onChat = { screen = Screen.Chat }) { researchTopic = ""; screen = Screen.Home }
                         Screen.Cowork -> CoworkScreen(m) { screen = Screen.Research }
+                        Screen.Chat -> ChatScreen(m) { screen = Screen.Research }
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Look -> LookScreen(m) { screen = Screen.Home }

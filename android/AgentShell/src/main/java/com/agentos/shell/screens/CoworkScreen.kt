@@ -243,7 +243,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             BasicTextField(value = chatSearch, onValueChange = { chatSearch = it }, singleLine = true,
                 textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp),
-                decorationBox = { inner -> if (chatSearch.isEmpty()) Text("🔍  Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
+                decorationBox = { inner -> if (chatSearch.isEmpty()) Text("Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
             Spacer(Modifier.height(10.dp))
             val filtered = convos.filter { chatSearch.isBlank() || it.title.contains(chatSearch, true) }
             if (filtered.isEmpty()) Text(if (convos.isEmpty()) "No chats yet. Tap New chat to start." else "No matches.", fontSize = T.small, color = T.inkFaint)
@@ -380,7 +380,7 @@ fun CoworkScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 BasicTextField(value = chatSearch, onValueChange = { chatSearch = it }, singleLine = true,
                     textStyle = TextStyle(color = T.ink, fontSize = T.small),
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(horizontal = 12.dp, vertical = 9.dp),
-                    decorationBox = { inner -> if (chatSearch.isEmpty()) Text("🔍  Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
+                    decorationBox = { inner -> if (chatSearch.isEmpty()) Text("Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
                 Spacer(Modifier.height(8.dp))
                 val filtered = convos.filter { chatSearch.isBlank() || it.title.contains(chatSearch, true) }
                 if (filtered.isEmpty()) Text(if (convos.isEmpty()) "No chats yet." else "No matches.", fontSize = T.small, color = T.inkFaint)

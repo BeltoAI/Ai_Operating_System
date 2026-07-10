@@ -118,7 +118,7 @@ private fun ensureStyle(html: String): String {
 @OptIn(ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onWorkspace: () -> Unit = {}, onBack: () -> Unit) {
+fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onWorkspace: () -> Unit = {}, onChat: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(if (initialTopic.isNotBlank()) "compose" else "library") }
@@ -528,10 +528,14 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
 
         when (mode) {
             "library" -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     Text("＋ New paper", fontSize = T.small, color = T.bgElevated,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                             .clickable { prompt = ""; mode = "compose" }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("💬 Chat", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { onChat() }.padding(horizontal = 16.dp, vertical = 10.dp))
                     Spacer(Modifier.width(10.dp))
                     Text("⌘ Cowork", fontSize = T.small, color = T.ink,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
@@ -541,7 +545,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                 BasicTextField(value = paperSearch, onValueChange = { paperSearch = it }, singleLine = true,
                     textStyle = TextStyle(color = T.ink, fontSize = T.small),
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp),
-                    decorationBox = { inner -> if (paperSearch.isEmpty()) Text("🔍  Search papers…", fontSize = T.small, color = T.inkFaint); inner() })
+                    decorationBox = { inner -> if (paperSearch.isEmpty()) Text("Search papers…", fontSize = T.small, color = T.inkFaint); inner() })
                 Spacer(Modifier.height(12.dp))
                 if (papers.isEmpty())
                     Text("No papers yet. Tap New paper to write one.", fontSize = T.small, color = T.inkFaint)

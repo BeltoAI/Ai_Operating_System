@@ -880,6 +880,39 @@ object AgentClient {
         return if (code == 200 && text.isNotBlank()) text.trim() else "Couldn't reach the web just now."
     }
 
+    /**
+     * A general-purpose CHAT turn — behaves like Claude / ChatGPT / Gemini: natural, multi-turn, can search
+     * the web, and draws on the user's brain when relevant. Output is rich Markdown (+ an optional headline
+     * card tag) so the chat renders beautifully. Routed through the user's selected model by ModelRouter.
+     * Returns (200, reply) or (code, errorText) so the caller can show a friendly failure.
+     */
+    fun chat(prompt: String, memory: String = "", history: List<Pair<String, String>> = emptyList()): Pair<Int, String> {
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val sys = buildString {
+            append("You are SlyOS — a warm, sharp, general-purpose AI assistant in a phone chat, on par with the best ")
+            append("(Claude, ChatGPT, Gemini). Be genuinely helpful, accurate and natural. You have LIVE web search — ")
+            append("use it for anything current (news, prices, scores, facts, 'look up…') and don't guess. ")
+            append("FORMAT for a beautiful chat: use clean Markdown — short paragraphs, **bold** for key points, ")
+            append("`code` and fenced code blocks for code, bullet or numbered lists when they help, and headings only ")
+            append("for longer answers. Keep everyday replies concise; go deep when the question deserves it. ")
+            append("HEADLINE CARD (optional): if your answer has ONE striking headline value, BEGIN the reply with exactly ")
+            append("one tag, then your text: [[card:stat;LABEL;BIG;UNIT;subtitle]] for a number/price/weather · ")
+            append("[[card:score;TeamA;a;TeamB;b]] for a game · [[card:stock;TICKER;\$PRICE;+X%;subtitle]] for a stock · ")
+            append("[[card:quote;the quote;Author]] · [[card:yesno;yes;short why]]. Only when there's a clear headline; otherwise omit it. ")
+            append("Current time: ").append(now).append(". ")
+            if (memory.isNotBlank())
+                append("\n\nAbout the user (draw on this ONLY when relevant, never force it in): ").append(memory.take(1800))
+        }
+        val msgs = JSONArray()
+        history.takeLast(12).forEach { (u, a) ->
+            msgs.put(JSONObject().put("role", "user").put("content", u))
+            msgs.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        msgs.put(JSONObject().put("role", "user").put("content", prompt))
+        val (code, text) = callMessages(sys, msgs, 1500, VOICE, 120000, webTool())
+        return if (code == 200 && text.isNotBlank()) 200 to text.trim() else code to text
+    }
+
     /** P5.4: distill DURABLE facts from a batch of recent messages, for nightly memory consolidation.
      *  Cheap tier. Returns short 'X = Y' style facts worth remembering long-term (skips chit-chat). */
     fun distillFacts(recentDigest: String): List<String> {
