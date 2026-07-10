@@ -106,10 +106,13 @@ object ScreenAgent {
                     val st = when { n.role == "switch" -> if (n.checked) " {on}" else " {off}"; n.role == "list" -> " {scrollable}"; else -> "" }
                     "${n.index}. [${n.role}] ${n.text}$st"
                 }.take(4800)
-                // TEXT-FIRST: the accessibility list is fast and the model follows the strict format on it.
-                // Only attach a SCREENSHOT (vision) when the text path can't cope: a game, an almost-empty
-                // screen (canvas app), or when we're stalling — so normal likes/taps stay reliable.
-                val struggling = GAME.containsMatchIn(goal) || nodes.size < 5 || stall >= 1
+                // Decide if we need EYES. Text is fine for labelled UIs (Settings, forms), but social/media
+                // apps render like/comment/share as UNLABELLED icons the accessibility tree can't identify —
+                // so use vision whenever the screen is icon-heavy, the task is a social interaction, it's a
+                // game, the screen is near-empty, or we've stalled.
+                val blankButtons = nodes.count { it.clickable && it.text.isBlank() }
+                val social = Regex("(?i)\\b(like|comment|react|share|repost|retweet|follow|unfollow|story|stories|reel|reels|post|dm|swipe|match|tinder|bumble|snap)\\b").containsMatchIn(goal)
+                val struggling = GAME.containsMatchIn(goal) || social || blankButtons >= 4 || nodes.size < 5 || stall >= 1
                 val shot = if (struggling && Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
                 if (nodes.isEmpty() && shot == null) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
                 if (nodes.size >= 3 && dump == lastDump) {
@@ -195,9 +198,11 @@ object ScreenAgent {
         nodes: List<InteractionLogService.ScreenNode>, history: StringBuilder
     ): Boolean? {
         val cmd = action.substringBefore(" ").uppercase()
+        // Robust index: pull the FIRST integer out of the argument (tolerates "TAP <54", "TAP: 54", "TAP #54").
+        fun argIdx(): Int? = Regex("-?\\d+").find(action.substringAfter(" ", ""))?.value?.toIntOrNull()
         return when (cmd) {
             "TAP", "TOGGLE", "LONGPRESS" -> {
-                val i = action.substringAfter(" ", "").trim().toIntOrNull()
+                val i = argIdx()
                 val node = i?.let { nodes.getOrNull(it) }
                 when {
                     node == null -> false
@@ -216,11 +221,11 @@ object ScreenAgent {
             }
             "TYPE" -> {
                 val rest = action.removePrefix("TYPE").trim()
-                val i = rest.substringBefore("|").trim().toIntOrNull()
+                val i = Regex("-?\\d+").find(rest.substringBefore("|"))?.value?.toIntOrNull()
                 val text = rest.substringAfter("|", "").trim()
                 if (i != null) { history.append("• typed \"${text.take(30)}\"\n"); svc.setText(i, text) } else false
             }
-            "CLEAR" -> { val i = action.substringAfter(" ", "").trim().toIntOrNull(); if (i != null) { history.append("• cleared #$i\n"); svc.setText(i, "") } else false }
+            "CLEAR" -> { val i = argIdx(); if (i != null) { history.append("• cleared #$i\n"); svc.setText(i, "") } else false }
             "TAPXY" -> {
                 // Vision tap: the planner saw the element in the screenshot and gives a 0-1000 coordinate.
                 val p = action.split(Regex("\\s+"))

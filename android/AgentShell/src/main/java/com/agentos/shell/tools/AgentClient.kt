@@ -1092,12 +1092,15 @@ object AgentClient {
             "form, a bio, a document), draw real details from WHAT I KNOW below — their name, work, projects, " +
             "contacts, dates, preferences — and TYPE those in, instead of leaving placeholders or asking." +
             (if (profile.isNotBlank()) "\nWHAT I KNOW ABOUT THE USER:\n${profile.take(1500)}" else "")
-        val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
+        val fmt = "\n\nCRITICAL OUTPUT RULE: your FIRST line must be the action command and NOTHING else " +
+            "(e.g. `TAPXY 500 820` or `TAP 27`). Do not write any explanation before it. No 'Looking at the screen…'."
+        val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\n" +
+            "Reply with ONLY the action line:"
         if (hasImg) {
-            val out = askVision(sys + "\n\n" + user, listOf(screenshotB64), "", VOICE, 260)
+            val out = askVision(sys + fmt + "\n\n" + user, listOf(screenshotB64), "", VOICE, 160)
             return if (looksLikeError(out)) "WAIT" else out.trim()
         }
-        val (code, text) = callContent(sys, user, 240, VOICE)
+        val (code, text) = callContent(sys + fmt, user, 160, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"
     }
 
