@@ -180,12 +180,9 @@ private fun OnDeviceModelCard() {
     var testing by remember { mutableStateOf(false) }
     var testMsg by remember { mutableStateOf("") }
     val ramGb = remember { LL.deviceRamGb(ctx) }
-    Collapsible("On-device model", "Free, private — an offline backup brain") {
-        Text("A small AI that lives on your phone as an OFFLINE BACKUP. When you have internet, SlyOS always uses " +
-            "your fast cloud model (which knows your brain and can search the web). This one only steps in when " +
-            "you're offline or no cloud key works — so your phone stays cool in everyday use. On-device models are " +
-            "slower, can't browse or read images, and give simpler answers, so it's a safety net, not the main " +
-            "brain. Your phone has ${"%.0f".format(ramGb)} GB RAM.",
+    Collapsible("On-device model", "Free, private offline backup") {
+        Text("A small AI on your phone, used only when you're offline. Cloud handles everything otherwise, so your " +
+            "phone stays cool. Slower, no web or images. Your phone: ${"%.0f".format(ramGb)} GB RAM.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
         // Single enable toggle — no "prefer" option, so it can never pre-empt the cloud and cook the phone.
@@ -1082,7 +1079,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text(lbl, fontSize = T.caption, color = if (ready) T.accent else T.inkFaint,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).padding(horizontal = 9.dp, vertical = 5.dp))
             }
-            Text("On-device model, used only when you're offline / no cloud key works. Never runs while cloud is reachable, so it won't heat your phone. Set it up in the On-device model card above.",
+            Text("Used only when you're offline. Set it up in the On-device model card above.",
                 fontSize = T.caption, color = T.inkFaint)
         }
 

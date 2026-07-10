@@ -528,18 +528,16 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
 
         when (mode) {
             "library" -> {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    Text("＋ New paper", fontSize = T.small, color = T.bgElevated,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                            .clickable { prompt = ""; mode = "compose" }.padding(horizontal = 18.dp, vertical = 10.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("💬 Chat", fontSize = T.small, color = T.ink,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                            .clickable { onChat() }.padding(horizontal = 16.dp, vertical = 10.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("⌘ Cowork", fontSize = T.small, color = T.ink,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                            .clickable { onWorkspace() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("New paper", fontSize = T.small, color = T.bgElevated, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable { prompt = ""; mode = "compose" }.padding(vertical = 10.dp))
+                    Text("Chat", fontSize = T.small, color = T.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { onChat() }.padding(vertical = 10.dp))
+                    Text("Cowork", fontSize = T.small, color = T.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { onWorkspace() }.padding(vertical = 10.dp))
                 }
                 Spacer(Modifier.height(14.dp))
                 BasicTextField(value = paperSearch, onValueChange = { paperSearch = it }, singleLine = true,
