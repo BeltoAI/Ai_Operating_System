@@ -114,6 +114,7 @@ object ScreenAgent {
                 val social = Regex("(?i)\\b(like|comment|react|share|repost|retweet|follow|unfollow|story|stories|reel|reels|post|dm|swipe|match|tinder|bumble|snap)\\b").containsMatchIn(goal)
                 val struggling = GAME.containsMatchIn(goal) || social || blankButtons >= 4 || nodes.size < 5 || stall >= 1
                 val shot = if (struggling && Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
+                if (struggling && shot == null) Log.w(TAG, "OP struggling but no screenshot (sdk=${Build.VERSION.SDK_INT}, capture failed?) — falling back to text")
                 if (nodes.isEmpty() && shot == null) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
                 if (nodes.size >= 3 && dump == lastDump) {
                     if (++stall >= 3) {
@@ -192,6 +193,18 @@ object ScreenAgent {
         return t
     }
 
+    /** True if tapping [nodeText] would UNDO what the GOAL wants (e.g. goal is to like, but this element
+     *  already shows "Liked"/"Unlike" — tapping it would remove the like). Prevents the like→unlike thrash
+     *  even on a post that was already liked before we started. */
+    private fun wouldUndoGoal(goal: String, nodeText: String): Boolean {
+        val g = goal.lowercase(); val t = nodeText.lowercase().trim()
+        if (Regex("\\blike\\b").containsMatchIn(g) && !g.contains("unlike") &&
+            (t == "liked" || t == "unlike" || t.contains("remove reaction") || t.contains("reaction button state: like"))) return true
+        if (Regex("\\bfollow\\b").containsMatchIn(g) && !g.contains("unfollow") && (t == "following" || t == "unfollow")) return true
+        if (Regex("\\bsave\\b").containsMatchIn(g) && !g.contains("unsave") && (t == "saved" || t == "unsave")) return true
+        return false
+    }
+
     /** Execute one primitive. Returns true/false for effect, or null if the run already finished (safety stop). */
     private suspend fun execAction(
         ctx: Context, goal: String, svc: InteractionLogService, action: String,
@@ -210,9 +223,9 @@ object ScreenAgent {
                         postConfirm(ctx, node.text)   // CLEAR prompt so the user knows a money tap is theirs
                         finish(ctx, goal, "I set everything up but stopped before spending money — tap \"${node.text}\" yourself to finish.", history.toString()); null
                     }
-                    // Never instantly un-do our own action (the classic like→unlike thrash).
-                    (cmd == "TAP" || cmd == "TOGGLE") && undoesLastToggle(lastTapText, node.text) -> {
-                        history.append("• \"${node.text}\" already done — not undoing it\n"); true
+                    // Never instantly un-do our own action, and never tap something already in the goal state.
+                    (cmd == "TAP" || cmd == "TOGGLE") && (undoesLastToggle(lastTapText, node.text) || wouldUndoGoal(goal, node.text)) -> {
+                        history.append("• \"${node.text}\" is already in the desired state — leaving it\n"); true
                     }
                     cmd == "LONGPRESS" -> { lastTapText = node.text; history.append("• long-pressed \"${node.text}\"\n"); svc.longPress(i) }
                     cmd == "TOGGLE" -> { history.append("• toggled \"${node.text}\" (was ${if (node.checked) "on" else "off"})\n"); lastTapText = node.text; svc.tapNode(i) }
