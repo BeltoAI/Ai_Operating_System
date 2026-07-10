@@ -140,13 +140,15 @@ object BankVault {
     } catch (e: Exception) { false }
 
     /** Decrypt the cached PIN — call ONLY after a successful biometric prompt. */
-    fun biometricPin(ctx: Context): String? = try {
+    fun biometricPin(ctx: Context): String? {
         val blob = prefs(ctx).getString(K_BIO, null) ?: return null
-        val all = Base64.decode(blob, Base64.NO_WRAP)
-        val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, all.copyOfRange(0, 12)))
-        String(c.doFinal(all.copyOfRange(12, all.size)), Charsets.UTF_8)
-    } catch (e: Exception) { null }
+        return try {
+            val all = Base64.decode(blob, Base64.NO_WRAP)
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, all.copyOfRange(0, 12)))
+            String(c.doFinal(all.copyOfRange(12, all.size)), Charsets.UTF_8)
+        } catch (e: Exception) { null }
+    }
 
     fun clearBiometric(ctx: Context) { prefs(ctx).edit().remove(K_BIO).apply() }
 }

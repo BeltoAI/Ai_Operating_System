@@ -13,12 +13,14 @@ import android.os.CancellationSignal
  */
 object BiometricAuth {
     /** True if the device has usable biometrics enrolled. */
-    fun available(ctx: Context): Boolean = try {
+    fun available(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT < 29) return false
-        val bm = ctx.getSystemService(BiometricManager::class.java)
-        @Suppress("DEPRECATION")
-        bm?.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS
-    } catch (e: Exception) { false }
+        return try {
+            val bm = ctx.getSystemService(BiometricManager::class.java)
+            @Suppress("DEPRECATION")
+            bm?.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS
+        } catch (e: Exception) { false }
+    }
 
     /** Show the system fingerprint/face prompt. Calls [onSuccess] or [onFail] on the main thread. */
     fun prompt(ctx: Context, title: String, onSuccess: () -> Unit, onFail: (String) -> Unit) {
