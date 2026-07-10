@@ -132,12 +132,24 @@ private fun BankVaultCard() {
                 Spacer(Modifier.height(8.dp))
                 pinField(pin, { pin = it }, "PIN")
                 Spacer(Modifier.height(8.dp))
-                Text("Unlock", fontSize = T.small, color = T.bgElevated,
-                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (pin.isNotBlank()) T.accent else T.hairline)
-                        .clickable(enabled = pin.isNotBlank()) {
-                            val u = V.unlock(ctx, pin)
-                            if (u != null) { items = u; msg = "" } else msg = "Wrong PIN."
-                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Unlock", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (pin.isNotBlank()) T.accent else T.hairline)
+                            .clickable(enabled = pin.isNotBlank()) {
+                                val u = V.unlock(ctx, pin)
+                                if (u != null) { items = u; msg = "" } else msg = "Wrong PIN."
+                            }.padding(horizontal = 16.dp, vertical = 9.dp))
+                    if (V.hasBiometricCache(ctx) && com.agentos.shell.tools.BiometricAuth.available(ctx)) {
+                        Spacer(Modifier.width(12.dp))
+                        Text("Use fingerprint", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.clickable {
+                                com.agentos.shell.tools.BiometricAuth.prompt(ctx, "Bank vault", onSuccess = {
+                                    val p = V.biometricPin(ctx); val u = if (p != null) V.unlock(ctx, p) else null
+                                    if (u != null) { pin = p!!; items = u; msg = "" } else msg = "Couldn't unlock — use your PIN."
+                                }, onFail = { })
+                            }.padding(vertical = 9.dp))
+                    }
+                }
             }
             else -> {
                 val list = items!!
@@ -173,6 +185,17 @@ private fun BankVaultCard() {
                     Spacer(Modifier.width(12.dp))
                     Text("Lock", fontSize = T.small, color = T.inkSoft,
                         modifier = Modifier.clickable { items = null; pin = ""; msg = "" }.padding(vertical = 9.dp))
+                }
+                if (com.agentos.shell.tools.BiometricAuth.available(ctx)) {
+                    Spacer(Modifier.height(8.dp))
+                    if (V.hasBiometricCache(ctx))
+                        Text("Fingerprint unlock on · turn off", fontSize = T.caption, color = T.inkSoft,
+                            modifier = Modifier.clickable { V.clearBiometric(ctx); msg = "Fingerprint unlock off." })
+                    else
+                        Text("Enable fingerprint unlock", fontSize = T.caption, color = T.accent,
+                            modifier = Modifier.clickable {
+                                if (pin.isNotBlank() && V.enableBiometric(ctx, pin)) msg = "Fingerprint unlock on ✓" else msg = "Couldn't enable."
+                            })
                 }
             }
         }
@@ -743,18 +766,15 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v25 · vault sync + chat search", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v26 · vault recall + fingerprint", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
-        Collapsible("Character", "How the agent should sound like you", initiallyOpen = true) {
+        Collapsible("Character", "How the agent sounds like you", initiallyOpen = true) {
         Text("What should the agent know about you?", fontSize = T.body, color = T.ink)
         Spacer(Modifier.height(6.dp))
-        Text(
-            "Name, how you like to be addressed, tone for replies, work, people who matter — " +
-                "anything that makes its answers feel like you.",
-            fontSize = T.small, color = T.inkFaint
-        )
+        Text("Name, tone, work, people who matter — anything that makes its answers feel like you.",
+            fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
 
         BasicTextField(

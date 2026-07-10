@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
+import com.agentos.shell.tools.BankVault
 import com.agentos.shell.tools.ChatStore
 import com.agentos.shell.tools.MemoryLog
 import com.agentos.shell.tools.MemoryStore
@@ -47,6 +48,11 @@ import java.util.Locale
  * Classical chatbot — regular Claude/ChatGPT/Gemini-style conversation on the user's selected model. Web
  * search, draws on the brain, rich Markdown + headline cards, saved threads. Every turn feeds the brain.
  */
+/** A question about the user's OWN sensitive bank/vault info — answered locally behind the PIN, never
+ *  sent to the cloud model. */
+private fun isVaultQuery(q: String): Boolean =
+    Regex("(?i)(my bank|bank details|bank info|bank account|account number|routing( number)?|iban|sort code|swift|card number|my card|bank vault|open (the )?vault|my (banking|account) (info|details|number))").containsMatchIn(q)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
@@ -65,6 +71,10 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var renameText by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var attachB64 by remember { mutableStateOf<String?>(null) }   // pending image to send
+    var vaultPinPrompt by remember { mutableStateOf(false) }      // asked about bank info → ask PIN
+    var vaultPin by remember { mutableStateOf("") }
+    var vaultReveal by remember { mutableStateOf<List<BankVault.Item>?>(null) }
+    var vaultErr by remember { mutableStateOf("") }
 
     // Speak to the AI — the system voice recognizer fills the input box.
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -107,6 +117,10 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         val q = input.trim()
         val img = attachB64
         if ((q.isBlank() && img == null) || busy) return
+        // Bank/vault questions are answered LOCALLY behind the PIN — never sent to the cloud model.
+        if (img == null && q.isNotBlank() && BankVault.isConfigured(ctx) && isVaultQuery(q)) {
+            input = ""; vaultErr = ""; vaultPin = ""; vaultPinPrompt = true; return
+        }
         input = ""; attachB64 = null; busy = true
         if (currentId == 0L) currentId = ChatStore.create(ctx)
         val id = currentId
@@ -283,6 +297,54 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text("Cancel", fontSize = T.small, color = T.inkSoft,
                         modifier = Modifier.clickable { renameId = 0L }.padding(vertical = 10.dp))
                 }
+            }
+        }
+    }
+
+    // Bank query → PIN prompt (kept entirely on-device; the model never sees any of this).
+    if (vaultPinPrompt) {
+        Dialog(onDismissRequest = { vaultPinPrompt = false }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Unlock bank vault", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Text("Enter your vault PIN to view your bank info here. It stays on your phone.", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(12.dp))
+                BasicTextField(vaultPin, { vaultPin = it }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    textStyle = TextStyle(color = T.ink, fontSize = T.body),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(12.dp))
+                if (vaultErr.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(vaultErr, fontSize = T.caption, color = T.danger) }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Unlock", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (vaultPin.isNotBlank()) T.accent else T.hairline)
+                            .clickable(enabled = vaultPin.isNotBlank()) {
+                                val u = BankVault.unlock(ctx, vaultPin)
+                                if (u != null) { vaultReveal = u; vaultPinPrompt = false; vaultPin = "" } else vaultErr = "Wrong PIN."
+                            }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { vaultPinPrompt = false; vaultPin = "" }.padding(vertical = 10.dp))
+                }
+            }
+        }
+    }
+
+    // Reveal the decrypted bank info in a dialog only (never written to plaintext storage or the model).
+    vaultReveal?.let { list ->
+        Dialog(onDismissRequest = { vaultReveal = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Your bank vault", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(10.dp))
+                if (list.isEmpty()) Text("The vault is empty. Add entries in Settings → Bank vault.", fontSize = T.small, color = T.inkFaint)
+                list.forEach { it2 ->
+                    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(it2.label, fontSize = T.caption, color = T.inkSoft)
+                        Text(it2.value, fontSize = T.body, color = T.ink)
+                    }
+                    Hairline()
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { vaultReveal = null }.padding(vertical = 6.dp))
             }
         }
     }

@@ -109,4 +109,44 @@ object BankVault {
         if (ts <= updatedAt(ctx)) return   // local is newer or equal
         prefs(ctx).edit().putString(K_SALT, saltB64).putString(K_BLOB, blob).putLong(K_TS, ts).apply()
     }
+
+    // ---- Optional biometric convenience: cache the PIN, hardware-encrypted in the Android Keystore, so a
+    // ---- fingerprint (gated by BiometricAuth at the UI) can auto-unlock. PIN is always the fallback. ------
+    private const val K_BIO = "bio_pin"
+    private const val KS_ALIAS = "slyos_vault_bio"
+
+    private fun keystoreKey(): javax.crypto.SecretKey {
+        val ks = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey(KS_ALIAS, null) as? javax.crypto.SecretKey)?.let { return it }
+        val kg = javax.crypto.KeyGenerator.getInstance("AES", "AndroidKeyStore")
+        kg.init(android.security.keystore.KeyGenParameterSpec.Builder(KS_ALIAS,
+            android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256).build())
+        return kg.generateKey()
+    }
+
+    fun hasBiometricCache(ctx: Context): Boolean = prefs(ctx).getString(K_BIO, null) != null
+
+    /** Store the PIN encrypted by the Keystore key (only call after a successful PIN unlock). */
+    fun enableBiometric(ctx: Context, pin: String): Boolean = try {
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.ENCRYPT_MODE, keystoreKey(), GCMParameterSpec(128, iv))
+        val ct = c.doFinal(pin.toByteArray(Charsets.UTF_8))
+        prefs(ctx).edit().putString(K_BIO, Base64.encodeToString(iv + ct, Base64.NO_WRAP)).apply()
+        true
+    } catch (e: Exception) { false }
+
+    /** Decrypt the cached PIN — call ONLY after a successful biometric prompt. */
+    fun biometricPin(ctx: Context): String? = try {
+        val blob = prefs(ctx).getString(K_BIO, null) ?: return null
+        val all = Base64.decode(blob, Base64.NO_WRAP)
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.DECRYPT_MODE, keystoreKey(), GCMParameterSpec(128, all.copyOfRange(0, 12)))
+        String(c.doFinal(all.copyOfRange(12, all.size)), Charsets.UTF_8)
+    } catch (e: Exception) { null }
+
+    fun clearBiometric(ctx: Context) { prefs(ctx).edit().remove(K_BIO).apply() }
 }
