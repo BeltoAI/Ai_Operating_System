@@ -2,9 +2,12 @@ package com.agentos.shell
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.agentos.shell.tools.InteractionStore
@@ -154,6 +157,43 @@ class InteractionLogService : AccessibilityService() {
         val p = Path().apply { moveTo(x, y) }
         val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build()
         return dispatchGesture(g, null, null)
+    }
+
+    /** Drag from one point to another (chess moves, sliders, reordering). Coords are absolute pixels. */
+    fun drag(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 400): Boolean {
+        val p = Path().apply { moveTo(x1, y1); lineTo(x2, y2) }
+        return dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durationMs)).build(), null, null)
+    }
+
+    val screenW: Int get() = resources.displayMetrics.widthPixels
+    val screenH: Int get() = resources.displayMetrics.heightPixels
+
+    /** Capture the screen as JPEG base64 (downscaled) so a vision model can SEE canvas apps & game boards
+     *  that expose no accessibility nodes. API 30+. Result delivered to [cb] (null on failure). */
+    fun captureScreenshot(cb: (String?) -> Unit) {
+        if (Build.VERSION.SDK_INT < 30) { cb(null); return }
+        try {
+            takeScreenshot(android.view.Display.DEFAULT_DISPLAY, applicationContext.mainExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(result: ScreenshotResult) {
+                        try {
+                            val hb = result.hardwareBuffer
+                            val bmp = Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
+                            hb.close()
+                            if (bmp == null) { cb(null); return }
+                            val maxW = 950
+                            val scaled = if (bmp.width > maxW) {
+                                val h = (bmp.height.toFloat() * maxW / bmp.width).toInt()
+                                Bitmap.createScaledBitmap(bmp, maxW, h, true)
+                            } else bmp
+                            val bos = ByteArrayOutputStream()
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 78, bos)
+                            cb(Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP))
+                        } catch (e: Exception) { cb(null) }
+                    }
+                    override fun onFailure(errorCode: Int) { cb(null) }
+                })
+        } catch (e: Exception) { cb(null) }
     }
 
     fun scroll(down: Boolean): Boolean {

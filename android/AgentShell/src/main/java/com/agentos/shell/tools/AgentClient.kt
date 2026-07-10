@@ -1015,14 +1015,22 @@ object AgentClient {
      * reasoning, sees element STATE (switch on/off, scrollable lists), and can use a much richer action set
      * including direct system-settings jumps.
      */
-    fun planScreenStep(goal: String, pkg: String, screenDump: String, history: String, profile: String, plan: String = ""): String {
-        val sys = "You operate an Android phone for the user through the accessibility layer to achieve a GOAL.\n" +
+    fun planScreenStep(goal: String, pkg: String, screenDump: String, history: String, profile: String, plan: String = "", screenshotB64: String = ""): String {
+        val hasImg = screenshotB64.isNotBlank()
+        val sys = "You operate an Android phone for the user to achieve a GOAL.\n" +
             "GOAL: $goal\n" +
             (if (plan.isNotBlank()) "YOUR PLAN:\n$plan\n" else "") +
-            "You see the current screen as a NUMBERED list: each line is `n. [role] text {state}`. role is " +
+            (if (hasImg) "You are given a SCREENSHOT of the current screen AND a numbered list of the elements the " +
+                "system detected. TRUST YOUR EYES: many apps (Instagram, LinkedIn, games) don't expose every " +
+                "button to the list — if you can SEE the right target (a comment/like/share icon, a game piece, a " +
+                "field) but it's NOT in the list, tap it by coordinate with TAPXY.\n" else "") +
+            "The element list: each line is `n. [role] text {state}`. role is " +
             "button/field/switch/list/text; a switch shows {on} or {off}; a list is scrollable. Reply with EXACTLY " +
             "ONE line, one of:\n" +
             "TAP <n>                 tap element n\n" +
+            (if (hasImg) "TAPXY <x> <y>           tap a point you can SEE (0-1000 grid: x left→right, y top→bottom) — " +
+                "use this for icons/targets not in the list\n" +
+                "DRAGXY <x1> <y1> <x2> <y2>  drag between two points (move a game piece, slider, reorder)\n" else "") +
             "TYPE <n> | <text>       type text into field n (replaces existing text)\n" +
             "CLEAR <n>               empty field n\n" +
             "TOGGLE <n>              flip switch n (only if its {state} is not already what you want)\n" +
@@ -1085,8 +1093,34 @@ object AgentClient {
             "contacts, dates, preferences — and TYPE those in, instead of leaving placeholders or asking." +
             (if (profile.isNotBlank()) "\nWHAT I KNOW ABOUT THE USER:\n${profile.take(1500)}" else "")
         val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
+        if (hasImg) {
+            val out = askVision(sys + "\n\n" + user, listOf(screenshotB64), "", VOICE, 260)
+            return if (looksLikeError(out)) "WAIT" else out.trim()
+        }
         val (code, text) = callContent(sys, user, 240, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"
+    }
+
+    /**
+     * VISION planning — for game boards & canvas apps that expose no accessibility nodes. The model SEES a
+     * screenshot and returns a coordinate action on a 0-1000 grid. This is what lets it play chess/other games.
+     */
+    fun planScreenVision(goal: String, screenshotB64: String, history: String): String {
+        val prompt = "You control an Android phone by LOOKING at this screenshot. GOAL: $goal\n" +
+            "Coordinates use a 0-1000 grid (x=0 left→1000 right, y=0 top→1000 bottom). Reply EXACTLY ONE line:\n" +
+            "TAPXY x y            — tap that point\n" +
+            "DRAGXY x1 y1 x2 y2   — drag (e.g. move a game piece from one square to another)\n" +
+            "SWIPE up|down|left|right\n" +
+            "WAIT                 — the screen is animating/loading\n" +
+            "DONE <summary>       — the goal is achieved\n" +
+            "STUCK <why>\n" +
+            "If this is a GAME (chess, checkers, 2048, solitaire, sudoku, tic-tac-toe, cards, a puzzle): read the " +
+            "board carefully, decide the STRONGEST legal move using real strategy, and TAP the piece then its " +
+            "destination (or DRAG it). Exactly ONE move per turn. Otherwise, tap the element that advances the goal. " +
+            "Be precise with coordinates — aim for the CENTER of the target.\n" +
+            "STEPS SO FAR: ${history.takeLast(600).ifBlank { "(none)" }}"
+        val out = askVision(prompt, listOf(screenshotB64), "", VOICE, 260)
+        return if (looksLikeError(out)) "WAIT" else out.trim()
     }
 
     /** After the agent thinks it's finished, independently JUDGE whether the goal is truly met. Returns

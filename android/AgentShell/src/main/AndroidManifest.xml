@@ -10,6 +10,8 @@
     <!-- SlyOS-styled lock-screen wallpaper. -->
     <uses-permission android:name="android.permission.SET_WALLPAPER"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Keep the screen on while the operate agent runs (long / overnight mission execution). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Telegram bot runs as a foreground service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>

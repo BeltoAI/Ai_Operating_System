@@ -7,12 +7,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import com.agentos.shell.InteractionLogService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * P1 — the action layer: perceive → plan → act → verify. Reuses the AgentLoop shape but over the LIVE
@@ -33,6 +36,8 @@ object ScreenAgent {
     @Volatile var running = false; private set
     @Volatile private var stopFlag = false
     @Volatile private var lastTapText = ""    // guards against instantly un-doing our own toggle (like→unlike)
+    @Volatile private var wakeLock: PowerManager.WakeLock? = null
+    private val GAME = Regex("(?i)\\b(chess|checkers|draughts|2048|solitaire|sudoku|wordle|tic.?tac.?toe|connect ?four|minesweeper|card game|board game|puzzle|play (a |me a )?(game|match|move)|make a move|beat (the|this))\\b")
     private val scope = CoroutineScope(Dispatchers.IO)
 
     /** True if tapping [now] would UNDO the toggle we just did in [prev] (e.g. we liked, now it says Unlike). */
@@ -67,6 +72,7 @@ object ScreenAgent {
             return
         }
         running = true; stopFlag = false; lastTapText = ""
+        acquireWake(ctx)   // keep the screen on so long / overnight mission runs can execute
         postBanner(ctx)
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
         // Resolve WHO from the brain for vague people-tasks ("friends I haven't talked to in a while") so the
@@ -90,15 +96,19 @@ object ScreenAgent {
             while (step++ < budget) {
                 if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
                 var nodes = svc.readScreen()
-                if (nodes.isEmpty()) { delay(1200); nodes = svc.readScreen(); if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return } }
                 val pkg = svc.currentPackage()
+                // HYBRID PERCEPTION: capture a screenshot every step so the planner can SEE elements the
+                // accessibility tree misses (comment/like icons in Compose/canvas UIs, game boards, etc.) and
+                // act on them by coordinate when they aren't in the node list.
+                val shot = if (Build.VERSION.SDK_INT >= 30) screenshot(svc) else null
+                if (nodes.isEmpty() && shot == null) { delay(1200); nodes = svc.readScreen(); if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return } }
                 val dump = nodes.joinToString("\n") { n ->
                     val st = when { n.role == "switch" -> if (n.checked) " {on}" else " {off}"; n.role == "list" -> " {scrollable}"; else -> "" }
                     "${n.index}. [${n.role}] ${n.text}$st"
                 }.take(4800)
-                // Stall handling: if the screen hasn't changed, first RE-PLAN (maybe the strategy is wrong),
-                // and only give up if that still doesn't help.
-                if (dump == lastDump) {
+                // Stall handling only applies to node-driven screens; vision screens (empty node list) change
+                // without the dump changing, so we don't false-trigger there.
+                if (nodes.size >= 3 && dump == lastDump) {
                     if (++stall >= 3) {
                         if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", brainCtx) } catch (e: Exception) { plan }; replans++; stall = 0 }
                         else { finish(ctx, goal, "No progress — stopping so I don't loop.", history.toString()); return }
@@ -106,7 +116,7 @@ object ScreenAgent {
                 } else stall = 0
                 lastDump = dump
 
-                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan).trim()
+                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan, shot ?: "").trim()
                 Log.i(TAG, "screenAgent step $step: $action")
 
                 val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
@@ -181,6 +191,17 @@ object ScreenAgent {
                 if (i != null) { history.append("• typed \"${text.take(30)}\"\n"); svc.setText(i, text) } else false
             }
             "CLEAR" -> { val i = action.substringAfter(" ", "").trim().toIntOrNull(); if (i != null) { history.append("• cleared #$i\n"); svc.setText(i, "") } else false }
+            "TAPXY" -> {
+                // Vision tap: the planner saw the element in the screenshot and gives a 0-1000 coordinate.
+                val p = action.split(Regex("\\s+"))
+                fun norm(i: Int, span: Int) = ((p.getOrNull(i)?.toFloatOrNull() ?: 0f) / 1000f * span)
+                history.append("• tapped a point I could see\n"); svc.tapAt(norm(1, svc.screenW), norm(2, svc.screenH))
+            }
+            "DRAGXY" -> {
+                val p = action.split(Regex("\\s+"))
+                fun norm(i: Int, span: Int) = ((p.getOrNull(i)?.toFloatOrNull() ?: 0f) / 1000f * span)
+                history.append("• dragged / made a move\n"); svc.drag(norm(1, svc.screenW), norm(2, svc.screenH), norm(3, svc.screenW), norm(4, svc.screenH))
+            }
             "SCROLL" -> { val d = !action.contains("up", true); history.append("• scrolled ${if (d) "down" else "up"}\n"); svc.scroll(d) }
             "SWIPE" -> { val dir = action.substringAfter(" ", "down").trim(); history.append("• swiped $dir\n"); svc.swipe(dir) }
             "ENTER" -> { history.append("• pressed enter\n"); svc.imeEnter() }
@@ -221,8 +242,38 @@ object ScreenAgent {
         }
     }
 
+    @Suppress("DEPRECATION", "WakelockTimeout")
+    private fun acquireWake(ctx: Context) {
+        try {
+            val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE, "slyos:operate")
+            wl.acquire(60 * 60 * 1000L)   // safety cap: 60 min
+            wakeLock = wl
+        } catch (e: Exception) {}
+    }
+    private fun releaseWake() { try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}; wakeLock = null }
+
+    /** Suspend wrapper around the accessibility screenshot callback. */
+    private suspend fun screenshot(svc: InteractionLogService): String? = suspendCancellableCoroutine { cont ->
+        try { svc.captureScreenshot { b64 -> if (cont.isActive) cont.resume(b64) } } catch (e: Exception) { if (cont.isActive) cont.resume(null) }
+    }
+
+    /** Execute a coordinate action from the vision planner (0-1000 grid → pixels). */
+    private suspend fun execVision(svc: InteractionLogService, action: String, history: StringBuilder): Boolean {
+        val parts = action.split(Regex("\\s+"))
+        fun norm(i: Int, span: Int) = ((parts.getOrNull(i)?.toFloatOrNull() ?: 0f) / 1000f * span)
+        return when (parts.getOrNull(0)?.uppercase()) {
+            "TAPXY" -> { history.append("• tapped the board\n"); svc.tapAt(norm(1, svc.screenW), norm(2, svc.screenH)) }
+            "DRAGXY" -> { history.append("• made a move\n"); svc.drag(norm(1, svc.screenW), norm(2, svc.screenH), norm(3, svc.screenW), norm(4, svc.screenH)) }
+            "SWIPE" -> { val d = parts.getOrNull(1) ?: "down"; history.append("• swiped $d\n"); svc.swipe(d) }
+            "WAIT" -> { delay(1400); true }
+            else -> false
+        }
+    }
+
     private fun finish(ctx: Context, goal: String, summary: String, history: String) {
         running = false
+        releaseWake()
         cancelBanner(ctx)
         // Everything the agent did goes into the visible outbox AND the brain (so recall grows).
         OutboxStore.record(ctx, "Action", goal.take(40), "act", summary, "screen control: ${history.replace("\n", " ").take(300)}")
