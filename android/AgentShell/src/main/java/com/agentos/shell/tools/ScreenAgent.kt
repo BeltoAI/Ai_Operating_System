@@ -28,7 +28,7 @@ object ScreenAgent {
     private const val TAG = "SlyOS"
     private const val CH = "sly_act"
     private const val NOTIF_ID = 991
-    private const val MAX_STEPS = 18
+    private const val MAX_STEPS = 32
 
     @Volatile var running = false; private set
     @Volatile private var stopFlag = false
@@ -53,59 +53,105 @@ object ScreenAgent {
         running = true; stopFlag = false
         postBanner(ctx)
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
+        // ONE-TIME high-level plan so execution has direction instead of wandering step-to-step.
+        var plan = try { AgentClient.planScreenGoal(goal, profile) } catch (e: Exception) { "" }
+        Log.i(TAG, "screenAgent plan:\n$plan")
         val history = StringBuilder()
-        var lastDump = ""; var stall = 0
+        var lastDump = ""; var stall = 0; var replans = 0; var verifyTries = 0
         try {
             if (!openPkg.isNullOrBlank()) { try { ctx.packageManager.getLaunchIntentForPackage(openPkg)?.let { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (e: Exception) {}; delay(1600) }
             var step = 0
             while (step++ < MAX_STEPS) {
                 if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
-                val nodes = svc.readScreen()
-                if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
-                val dump = nodes.joinToString("\n") { "${it.index}. [${it.role}] ${it.text}" }.take(3500)
-                if (dump == lastDump) { if (++stall >= 3) { finish(ctx, goal, "No progress — stopping.", history.toString()); return } } else stall = 0
+                var nodes = svc.readScreen()
+                if (nodes.isEmpty()) { delay(1200); nodes = svc.readScreen(); if (nodes.isEmpty()) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return } }
+                val pkg = svc.currentPackage()
+                val dump = nodes.joinToString("\n") { n ->
+                    val st = when { n.role == "switch" -> if (n.checked) " {on}" else " {off}"; n.role == "list" -> " {scrollable}"; else -> "" }
+                    "${n.index}. [${n.role}] ${n.text}$st"
+                }.take(4800)
+                // Stall handling: if the screen hasn't changed, first RE-PLAN (maybe the strategy is wrong),
+                // and only give up if that still doesn't help.
+                if (dump == lastDump) {
+                    if (++stall >= 3) {
+                        if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", profile) } catch (e: Exception) { plan }; replans++; stall = 0 }
+                        else { finish(ctx, goal, "No progress — stopping so I don't loop.", history.toString()); return }
+                    }
+                } else stall = 0
                 lastDump = dump
-                val plan = AgentClient.planScreenStep(goal, svc.currentPackage(), dump, history.toString(), profile).trim()
-                Log.i(TAG, "screenAgent step $step: $plan")
 
-                val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(plan)
-                if (done != null) { finish(ctx, goal, done.groupValues[1].trim().ifBlank { "Done." }, history.toString()); return }
-                if (plan.startsWith("STUCK", true)) { finish(ctx, goal, plan.removePrefix("STUCK").trim().ifBlank { "Got stuck." }, history.toString()); return }
+                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), profile, plan).trim()
+                Log.i(TAG, "screenAgent step $step: $action")
 
-                val ok: Boolean = when {
-                    plan.startsWith("TAP", true) -> {
-                        val i = plan.removePrefix("TAP").trim().toIntOrNull()
-                        val node = i?.let { nodes.getOrNull(it) }
-                        when {
-                            node == null -> false
-                            IRREVERSIBLE.containsMatchIn(node.text) -> {   // safety: never auto-tap a send/pay/submit
-                                finish(ctx, goal, "I've set everything up — tap \"${node.text}\" yourself to finish.", history.toString())
-                                return
-                            }
-                            else -> { history.append("• tapped \"${node.text}\"\n"); svc.tapNode(i) }
-                        }
+                val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
+                if (done != null) {
+                    // VERIFY before truly finishing — this is what stops the "quit midway" problem.
+                    val verdict = try { AgentClient.verifyScreenGoal(goal, pkg, dump, history.toString()) } catch (e: Exception) { "YES" }
+                    if (verdict.startsWith("YES", true) || verifyTries >= 2) {
+                        finish(ctx, goal, done.groupValues[1].trim().ifBlank { verdict.removePrefix("YES").trim().ifBlank { "Done." } }, history.toString()); return
                     }
-                    plan.startsWith("TYPE", true) -> {
-                        val rest = plan.removePrefix("TYPE").trim()
-                        val i = rest.substringBefore("|").trim().toIntOrNull()
-                        val text = rest.substringAfter("|", "").trim()
-                        if (i != null) { history.append("• typed into #$i\n"); svc.setText(i, text) } else false
-                    }
-                    plan.startsWith("SCROLL", true) -> { val d = !plan.contains("up", true); history.append("• scrolled\n"); svc.scroll(d) }
-                    plan.startsWith("BACK", true) -> { history.append("• back\n"); svc.back() }
-                    plan.startsWith("OPEN", true) -> {
-                        val name = plan.removePrefix("OPEN").trim()
-                        val app = ToolRouter.installedApps(ctx).firstOrNull { it.label.contains(name, true) }
-                        if (app != null) { history.append("• opened ${app.label}\n"); ToolRouter.launchApp(ctx, app.pkg); delay(1500); true } else false
-                    }
-                    else -> false
+                    verifyTries++; history.append("• self-check: not done yet — ${verdict.take(80)}\n"); lastDump = ""; delay(500); continue
                 }
+                if (action.startsWith("STUCK", true)) { finish(ctx, goal, action.removePrefix("STUCK").trim().ifBlank { "Got stuck." }, history.toString()); return }
+
+                val ok: Boolean = execAction(ctx, goal, svc, action, nodes, history) ?: return  // null = we already finished (irreversible guard)
                 if (!ok) history.append("• (step had no effect)\n")
-                delay(900)   // human pace + let the UI settle before re-reading
+                delay(850)   // human pace + let the UI settle before re-reading
             }
-            finish(ctx, goal, "Reached the step limit.", history.toString())
+            // Out of steps — do a final honest check instead of claiming success.
+            val finalDump = try { svc.readScreen().joinToString("\n") { "${it.index}. [${it.role}] ${it.text}" }.take(3000) } catch (e: Exception) { "" }
+            val verdict = try { AgentClient.verifyScreenGoal(goal, svc.currentPackage(), finalDump, history.toString()) } catch (e: Exception) { "NO" }
+            finish(ctx, goal, if (verdict.startsWith("YES", true)) "Done." else "I reached my step limit before finishing — ${verdict.take(90)}", history.toString())
         } catch (e: Exception) {
             finish(ctx, goal, "Hit an error: ${e.message}", history.toString())
+        }
+    }
+
+    /** Execute one primitive. Returns true/false for effect, or null if the run already finished (safety stop). */
+    private suspend fun execAction(
+        ctx: Context, goal: String, svc: InteractionLogService, action: String,
+        nodes: List<InteractionLogService.ScreenNode>, history: StringBuilder
+    ): Boolean? {
+        val cmd = action.substringBefore(" ").uppercase()
+        return when (cmd) {
+            "TAP", "TOGGLE", "LONGPRESS" -> {
+                val i = action.substringAfter(" ", "").trim().toIntOrNull()
+                val node = i?.let { nodes.getOrNull(it) }
+                when {
+                    node == null -> false
+                    IRREVERSIBLE.containsMatchIn(node.text) -> {
+                        finish(ctx, goal, "I've set everything up — tap \"${node.text}\" yourself to finish.", history.toString()); null
+                    }
+                    cmd == "LONGPRESS" -> { history.append("• long-pressed \"${node.text}\"\n"); svc.longPress(i) }
+                    cmd == "TOGGLE" -> { history.append("• toggled \"${node.text}\" (was ${if (node.checked) "on" else "off"})\n"); svc.tapNode(i) }
+                    else -> { history.append("• tapped \"${node.text}\"\n"); svc.tapNode(i) }
+                }
+            }
+            "TYPE" -> {
+                val rest = action.removePrefix("TYPE").trim()
+                val i = rest.substringBefore("|").trim().toIntOrNull()
+                val text = rest.substringAfter("|", "").trim()
+                if (i != null) { history.append("• typed \"${text.take(30)}\"\n"); svc.setText(i, text) } else false
+            }
+            "CLEAR" -> { val i = action.substringAfter(" ", "").trim().toIntOrNull(); if (i != null) { history.append("• cleared #$i\n"); svc.setText(i, "") } else false }
+            "SCROLL" -> { val d = !action.contains("up", true); history.append("• scrolled ${if (d) "down" else "up"}\n"); svc.scroll(d) }
+            "SWIPE" -> { val dir = action.substringAfter(" ", "down").trim(); history.append("• swiped $dir\n"); svc.swipe(dir) }
+            "ENTER" -> { history.append("• pressed enter\n"); svc.imeEnter() }
+            "BACK" -> { history.append("• back\n"); svc.back() }
+            "HOME" -> { history.append("• home\n"); svc.home() }
+            "WAIT" -> { history.append("• waited for load\n"); delay(1500); true }
+            "SETTINGS" -> {
+                val key = action.removePrefix("SETTINGS").trim()
+                val ok = SystemPanels.open(ctx, key)
+                if (ok) { history.append("• opened $key settings\n"); delay(1600) }
+                ok
+            }
+            "OPEN" -> {
+                val name = action.removePrefix("OPEN").trim()
+                val app = ToolRouter.installedApps(ctx).firstOrNull { it.label.contains(name, true) }
+                if (app != null) { history.append("• opened ${app.label}\n"); ToolRouter.launchApp(ctx, app.pkg); delay(1500); true } else false
+            }
+            else -> false
         }
     }
 

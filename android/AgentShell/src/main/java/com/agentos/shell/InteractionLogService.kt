@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.agentos.shell.tools.InteractionStore
@@ -24,7 +25,11 @@ class InteractionLogService : AccessibilityService() {
     private val minIntervalMs = 700L     // throttle: at most ~1 capture/app-change/second
 
     // ── P1 action layer ──
-    data class ScreenNode(val index: Int, val role: String, val text: String, val clickable: Boolean, val editable: Boolean, val bounds: Rect)
+    data class ScreenNode(
+        val index: Int, val role: String, val text: String,
+        val clickable: Boolean, val editable: Boolean, val bounds: Rect,
+        val checkable: Boolean = false, val checked: Boolean = false, val scrollable: Boolean = false
+    )
     // The last snapshot the planner saw — actions reference nodes by index into this list.
     @Volatile private var snapshot: List<Pair<AccessibilityNodeInfo, ScreenNode>> = emptyList()
 
@@ -44,14 +49,22 @@ class InteractionLogService : AccessibilityService() {
     fun currentPackage(): String = try { rootInActiveWindow?.packageName?.toString() ?: "" } catch (e: Exception) { "" }
 
     private fun walkActionable(node: AccessibilityNodeInfo?, out: ArrayList<Pair<AccessibilityNodeInfo, ScreenNode>>, depth: Int = 0) {
-        if (node == null || depth > 80 || out.size > 120) return
+        if (node == null || depth > 90 || out.size > 200) return
         if (!node.isPassword) {
             val txt = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
             val clickable = node.isClickable; val editable = node.isEditable
-            if ((clickable || editable || txt.isNotEmpty()) && (txt.isNotEmpty() || clickable)) {
+            val checkable = node.isCheckable; val scrollable = node.isScrollable
+            if ((clickable || editable || checkable || scrollable || txt.isNotEmpty()) && (txt.isNotEmpty() || clickable || checkable || scrollable)) {
                 val r = Rect(); node.getBoundsInScreen(r)
-                val role = when { editable -> "field"; clickable -> "button"; else -> "text" }
-                out.add(node to ScreenNode(out.size, role, txt.take(80), clickable, editable, r))
+                val cls = node.className?.toString()?.substringAfterLast('.').orEmpty()
+                val role = when {
+                    checkable || cls.contains("Switch") || cls.contains("Toggle") || cls.contains("CheckBox") -> "switch"
+                    editable -> "field"
+                    scrollable -> "list"
+                    clickable -> "button"
+                    else -> "text"
+                }
+                out.add(node to ScreenNode(out.size, role, txt.take(90), clickable, editable, r, checkable, node.isChecked, scrollable))
             }
         }
         for (i in 0 until node.childCount) walkActionable(node.getChild(i), out, depth + 1)
@@ -79,6 +92,49 @@ class InteractionLogService : AccessibilityService() {
     }
 
     fun back(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+    fun home(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
+    fun openRecents(): Boolean = performGlobalAction(GLOBAL_ACTION_RECENTS)
+    fun openNotifications(): Boolean = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+    fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+
+    /** Long-press a node (menus, drag handles, multi-select). Falls back to a held gesture on its center. */
+    fun longPress(index: Int): Boolean {
+        val n = snapshot.getOrNull(index)?.first
+        if (n != null) {
+            var cur: AccessibilityNodeInfo? = n; var hops = 0
+            while (cur != null && hops < 6) { if (cur.isClickable || cur.isLongClickable) { if (cur.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) return true }; cur = cur.parent; hops++ }
+        }
+        val b = snapshot.getOrNull(index)?.second?.bounds ?: return false
+        val p = Path().apply { moveTo(b.centerX().toFloat(), b.centerY().toFloat()) }
+        return dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 650)).build(), null, null)
+    }
+
+    /** Directional swipe across the whole screen — for sliders, carousels, dismissing, pull-to-refresh. */
+    fun swipe(dir: String): Boolean {
+        val dm = resources.displayMetrics; val w = dm.widthPixels.toFloat(); val h = dm.heightPixels.toFloat()
+        val p = Path()
+        when (dir.lowercase()) {
+            "up" -> { p.moveTo(w / 2, h * 0.7f); p.lineTo(w / 2, h * 0.25f) }
+            "down" -> { p.moveTo(w / 2, h * 0.3f); p.lineTo(w / 2, h * 0.75f) }
+            "left" -> { p.moveTo(w * 0.8f, h / 2); p.lineTo(w * 0.2f, h / 2) }
+            "right" -> { p.moveTo(w * 0.2f, h / 2); p.lineTo(w * 0.8f, h / 2) }
+            else -> return false
+        }
+        return dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 260)).build(), null, null)
+    }
+
+    /** Fire the keyboard's action (search/next/done/go) on the focused field. */
+    fun imeEnter(): Boolean {
+        return try {
+            val focused = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused != null && Build.VERSION.SDK_INT >= 30)
+                focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            else false
+        } catch (e: Exception) { false }
+    }
+
+    /** Current checked state of a node index (for verifying a toggle actually flipped). */
+    fun checkedOf(index: Int): Boolean? = try { snapshot.getOrNull(index)?.first?.isChecked } catch (e: Exception) { null }
 
     fun tapAt(x: Float, y: Float): Boolean {
         val p = Path().apply { moveTo(x, y) }

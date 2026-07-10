@@ -994,23 +994,67 @@ object AgentClient {
     }
 
     /** P1 action layer: pick ONE next on-screen action toward [goal], given the live screen dump. Cheap tier. */
-    fun planScreenStep(goal: String, pkg: String, screenDump: String, history: String, profile: String): String {
-        val sys = "You operate an Android phone for the user through the accessibility layer. GOAL: $goal\n" +
-            "You see the current screen as a NUMBERED list of actionable elements. Reply with EXACTLY ONE line:\n" +
-            "TAP <n>              (tap element n)\n" +
-            "TYPE <n> | <text>    (type text into field n)\n" +
-            "SCROLL down          (or SCROLL up)\n" +
-            "BACK                 (press system back)\n" +
-            "OPEN <app name>      (open an app by name, e.g. Settings)\n" +
-            "DONE <short summary> (goal reached, or you've prepared everything and only a final send/submit remains)\n" +
-            "STUCK <why>          (cannot proceed)\n" +
-            "RULES: one step at a time; the screen is re-read after each. Prefer visible elements; SCROLL to find " +
-            "off-screen ones. NEVER tap a final Send / Pay / Post / Delete / Submit / Buy / Order / Place / Checkout / " +
-            "Confirm button — instead reply DONE and say the user should do that last tap. Use the profile below to " +
-            "fill forms." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
-        val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS SO FAR:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
-        val (code, text) = callContent(sys, user, 120, MODEL)
+    /** ONE-TIME high-level plan: decompose the goal into a short ordered checklist the executor follows. */
+    fun planScreenGoal(goal: String, profile: String): String {
+        val sys = "You are an expert Android phone operator. Break the user's GOAL into a SHORT ordered plan " +
+            "(3-8 concise steps) of what to do on the phone. Think about the FASTEST reliable route — for system " +
+            "toggles (Bluetooth, Wi-Fi, location, airplane, NFC, hotspot, sound, display, battery, data, apps) note " +
+            "that a direct Settings page can be opened in one hop. Number each step. No prose, just the plan." +
+            (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(500)}" else "")
+        val (code, text) = callContent(sys, "GOAL: $goal", 320, VOICE)
+        return if (code == 200) text.trim() else ""
+    }
+
+    /**
+     * Pick the next single action on the LIVE screen. Uses the STANDARD (Sonnet-class) tier for real UI
+     * reasoning, sees element STATE (switch on/off, scrollable lists), and can use a much richer action set
+     * including direct system-settings jumps.
+     */
+    fun planScreenStep(goal: String, pkg: String, screenDump: String, history: String, profile: String, plan: String = ""): String {
+        val sys = "You operate an Android phone for the user through the accessibility layer to achieve a GOAL.\n" +
+            "GOAL: $goal\n" +
+            (if (plan.isNotBlank()) "YOUR PLAN:\n$plan\n" else "") +
+            "You see the current screen as a NUMBERED list: each line is `n. [role] text {state}`. role is " +
+            "button/field/switch/list/text; a switch shows {on} or {off}; a list is scrollable. Reply with EXACTLY " +
+            "ONE line, one of:\n" +
+            "TAP <n>                 tap element n\n" +
+            "TYPE <n> | <text>       type text into field n (replaces existing text)\n" +
+            "CLEAR <n>               empty field n\n" +
+            "TOGGLE <n>              flip switch n (only if its {state} is not already what you want)\n" +
+            "LONGPRESS <n>           long-press element n (context menus, multi-select)\n" +
+            "SCROLL <up|down>        scroll the screen\n" +
+            "SWIPE <up|down|left|right>  swipe gesture (sliders, carousels, dismiss)\n" +
+            "ENTER                   press the keyboard action (search/next/go) on the focused field\n" +
+            "BACK                    system back\n" +
+            "HOME                    go to the home screen\n" +
+            "OPEN <app name>         open an app by name (e.g. Settings, Chrome)\n" +
+            "SETTINGS <key>          jump straight to a system Settings page: bluetooth, wifi, airplane, location, " +
+            "nfc, hotspot, data, display, sound, battery, storage, date, language, security, accessibility, " +
+            "notifications, apps, vpn — USE THIS for system toggles instead of hunting menus\n" +
+            "WAIT                    the screen is loading — wait and re-read\n" +
+            "DONE <summary>          the GOAL is fully achieved (or only a final Send/Pay/Submit remains for the user)\n" +
+            "STUCK <why>             genuinely cannot proceed\n" +
+            "RULES: one step at a time; the screen is re-read after each. Do NOT declare DONE until the goal is " +
+            "actually complete — verify the end state on screen first (e.g. the switch now shows {on}). If a switch " +
+            "is already in the desired state, move on; don't toggle it back. Prefer SETTINGS <key> for system " +
+            "toggles. SCROLL to reveal off-screen elements before giving up. NEVER tap a final Send / Pay / Post / " +
+            "Delete / Submit / Buy / Order / Place / Checkout / Confirm / Transfer button — reply DONE and let the " +
+            "user do that last tap." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
+        val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
+        val (code, text) = callContent(sys, user, 160, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"
+    }
+
+    /** After the agent thinks it's finished, independently JUDGE whether the goal is truly met. Returns
+     *  "YES ..." or "NO ...". Catches the "stopped midway" problem so the run can continue if needed. */
+    fun verifyScreenGoal(goal: String, pkg: String, screenDump: String, history: String): String {
+        val sys = "You verify whether an Android automation GOAL was actually achieved. GOAL: $goal\n" +
+            "Given the CURRENT screen and the steps taken, answer strictly: start with YES or NO, then a few words. " +
+            "Answer YES only if the end state on screen confirms the goal is complete (or nothing remains but a " +
+            "final human Send/Pay/Submit). If more steps are clearly still needed, answer NO and name what's left."
+        val user = "STEPS TAKEN:\n${history.ifBlank { "(none)" }}\n\nCURRENT SCREEN (app $pkg):\n$screenDump\n\nWas the goal achieved?"
+        val (code, text) = callContent(sys, user, 80, VOICE)
+        return if (code == 200) text.trim() else "NO (couldn't verify)"
     }
 
     /** One raw model turn for the agent loop (no JSON contract) — returns the model's plain text. */
