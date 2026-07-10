@@ -81,13 +81,23 @@ private fun AccountCard() {
         if (signedIn) {
             Text("Signed in as $emailAddr", fontSize = T.small, color = T.ink)
             Spacer(Modifier.height(4.dp))
-            Text("Your brain syncs to your account so a new device signs in and picks up where you left off.",
-                fontSize = T.caption, color = T.inkFaint)
+            Text("Syncs your brain across devices.", fontSize = T.caption, color = T.inkFaint)
             Spacer(Modifier.height(12.dp))
-            Text("Sign out", fontSize = T.small, color = T.danger,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                    .clickable { AS.signOut(ctx); signedIn = false; emailAddr = ""; msg = "" }
-                    .padding(horizontal = 16.dp, vertical = 9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (busy) "Syncing…" else "Sync now", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (busy) T.hairline else T.accent)
+                        .clickable(enabled = !busy) {
+                            busy = true; msg = ""
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainSync.syncNow(ctx) }
+                                busy = false; msg = r.message
+                            }
+                        }.padding(horizontal = 16.dp, vertical = 9.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Sign out", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clickable { AS.signOut(ctx); signedIn = false; emailAddr = ""; msg = "" }
+                        .padding(horizontal = 12.dp, vertical = 9.dp))
+            }
         } else {
             BasicTextField(email, { email = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
@@ -104,7 +114,8 @@ private fun AccountCard() {
                             busy = true; msg = ""
                             scope.launch {
                                 val (ok, m) = withContext(Dispatchers.IO) { AS.signIn(ctx, email, pass) }
-                                busy = false; msg = m; if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = "" }
+                                busy = false; msg = m
+                                if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = ""; com.agentos.shell.tools.BrainSync.syncInBackground(ctx) }
                             }
                         }.padding(horizontal = 18.dp, vertical = 9.dp))
                 Spacer(Modifier.width(10.dp))
@@ -342,10 +353,9 @@ private fun OnDeviceModelCard() {
 private fun OverlayNavCard() {
     val ctx = LocalContext.current
     var on by remember { mutableStateOf(com.agentos.shell.OverlayNavService.running) }
-    Collapsible("Floating nav panel", "A SlyOS bar over every app + read-this-screen") {
-        Text("Floats the same SlyOS bar (Home · Now · Brain · Research · Apps) over every app. Tap the centre " +
-            "Brain over another app and SlyOS reads that screen, explains it, and saves it to your brain. Needs " +
-            "“Display over other apps” plus Accessibility (to read the screen).",
+    Collapsible("Floating nav panel", "SlyOS bar over every app") {
+        Text("Floats the SlyOS bar over every app. Tap the centre Brain to read & explain the screen. Needs " +
+            "“Display over other apps” + Accessibility.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
         val canDraw = android.provider.Settings.canDrawOverlays(ctx)
@@ -1023,9 +1033,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         }
         Collapsible("Models & spending") {
-        Text("Your keys live in the “API keys & model” card above. Below: semantic memory indexing and your " +
-            "running compute/spend across providers.",
-            fontSize = T.small, color = T.inkFaint)
+        Text("Semantic memory indexing and your compute spend.", fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(14.dp))
         var embN by remember { mutableStateOf(0) }
         var pendN by remember { mutableStateOf(0) }

@@ -139,7 +139,7 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
             .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)
     ) {
         Box {
-            Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(24.dp))
+            Icon(icon, label, tint = if (active) T.accent else T.inkFaint, modifier = Modifier.size(26.dp))
             if (badge > 0) {
                 Box(
                     Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-7).dp)
@@ -151,9 +151,6 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
                 }
             }
         }
-        Spacer(Modifier.height(3.dp))
-        Text(label, fontSize = 10.sp, color = if (active) T.accent else T.inkFaint,
-            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal)
     }
 
 /**
@@ -183,15 +180,13 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
             }
         ) {
             Box(
-                Modifier.size(48.dp).clip(CircleShape)
+                Modifier.size(50.dp).clip(CircleShape)
                     .background(if (memActive) T.accent else T.accent.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Filled.Memory, "Memory",
-                    tint = if (memActive) Color.White else T.accent, modifier = Modifier.size(27.dp))
+                    tint = if (memActive) Color.White else T.accent, modifier = Modifier.size(28.dp))
             }
-            Spacer(Modifier.height(3.dp))
-            Text("Brain", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Medium)
         }
 
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
