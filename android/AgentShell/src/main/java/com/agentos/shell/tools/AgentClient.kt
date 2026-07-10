@@ -1037,6 +1037,9 @@ object AgentClient {
             "nfc, hotspot, data, display, sound, battery, storage, date, language, security, accessibility, " +
             "notifications, apps, vpn — USE THIS for system toggles instead of hunting menus\n" +
             "WAIT                    the screen is loading — wait and re-read\n" +
+            "CODE <n> [hint]         2FA/one-time code: auto-fill field n with the code from the user's just-arrived " +
+            "SMS notification or email. Use this on any 'enter the code we sent you' / 'verification code' / OTP " +
+            "screen. It may take a few seconds for the code to arrive — WAIT then retry CODE if the field is empty.\n" +
             "VERIFYEMAIL <hint>      during a sign-up, fetch the verification link from the user's just-received " +
             "email and open it automatically (hint = the service name). Use this when a screen says 'check your " +
             "email / confirm your address', then continue.\n" +

@@ -198,6 +198,15 @@ object ScreenAgent {
                 val app = ToolRouter.installedApps(ctx).firstOrNull { it.label.contains(name, true) }
                 if (app != null) { history.append("• opened ${app.label}\n"); ToolRouter.launchApp(ctx, app.pkg); delay(1500); true } else false
             }
+            "CODE" -> {
+                // 2FA: fetch the one-time code from the just-arrived SMS notification or email and type it.
+                val rest = action.removePrefix("CODE").trim()
+                val n = rest.substringBefore("|").trim().split(" ").firstOrNull()?.toIntOrNull()
+                val hint = rest.substringAfter(" ", "").trim()
+                val code = try { OtpReader.latest(ctx, hint) } catch (e: Exception) { null }
+                if (n != null && code != null) { history.append("• entered the 2FA code from your messages\n"); svc.setText(n, code) }
+                else { history.append("• waiting for the 2FA code to arrive…\n"); delay(4000); false }
+            }
             "VERIFYEMAIL" -> {
                 // End-to-end sign-up: pull the verification link from the just-received email and open it.
                 val hint = action.removePrefix("VERIFYEMAIL").trim()

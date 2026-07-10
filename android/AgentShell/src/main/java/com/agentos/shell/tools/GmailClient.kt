@@ -264,6 +264,39 @@ object GmailClient {
         } catch (e: Exception) {}
     }
 
+    /** Newest one-time / 2FA CODE from recent mail (for auto-filling verification screens). */
+    fun latestCode(ctx: Context, hint: String = ""): String? {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return null
+        val q = (if (hint.isNotBlank()) "($hint) " else "") +
+            "newer_than:1d (subject:(code OR verification OR OTP OR \"security code\" OR \"one-time\" OR confirm OR sign-in) OR code OR verification OR OTP)"
+        val (lc, lb) = get("$BASE/messages?maxResults=6&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
+        if (lc !in 200..299) return null
+        val ids = try {
+            val arr = JSONObject(lb).optJSONArray("messages") ?: return null
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        } catch (e: Exception) { return null }
+        for (id in ids) {
+            if (id.isBlank()) continue
+            val (mc, mb) = get("$BASE/messages/$id?format=full", token)
+            if (mc !in 200..299) continue
+            val payload = try { JSONObject(mb).optJSONObject("payload") } catch (e: Exception) { null } ?: continue
+            val raw = StringBuilder(header(payload, "Subject")).append(" ")
+            collectRawBodies(payload, raw)
+            pickCode(raw.toString())?.let { return it }
+        }
+        return null
+    }
+
+    /** Pull a 4-8 digit one-time code out of text, preferring one near a code/OTP keyword. */
+    fun pickCode(text: String): String? {
+        val plain = text.replace(Regex("<[^>]+>"), " ")
+        Regex("(?i)(?:code|otp|verification|passcode|pin|password)[^0-9]{0,24}(\\d{4,8})").find(plain)?.let { return it.groupValues[1] }
+        Regex("(?<![0-9])(\\d{6})(?![0-9])").find(plain)?.let { return it.value }
+        Regex("(?<![0-9])(\\d{4,8})(?![0-9])").find(plain)?.let { return it.value }
+        return null
+    }
+
     private fun pickVerifyLink(text: String): String? {
         val urls = Regex("https?://[^\\s\"'<>)\\]]+").findAll(text).map { it.value.trimEnd('.', ',', ';', '"', '\'') }.distinct().toList()
         return urls.firstOrNull { Regex("(?i)verif|confirm|activ|validate|/token|/auth|/e/|magic|onelink|action").containsMatchIn(it) }
