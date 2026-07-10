@@ -1051,6 +1051,13 @@ object AgentClient {
             "screen (e.g. the switch shows {on}, or the account/next screen appeared). If a switch is already in " +
             "the desired state, move on. Prefer SETTINGS <key> for system toggles; SCROLL to reveal off-screen " +
             "elements before giving up.\n" +
+            "ACT LIKE A CAREFUL HUMAN: verify each action took effect before moving on, and NEVER repeat or undo a " +
+            "step that already succeeded. A Like/Follow/Save/Connect button that now reads Unlike / Liked / " +
+            "Following / Saved / Pending (or shows {on}) is ALREADY done — do NOT tap it again; move to the next " +
+            "thing.\n" +
+            "COMMENTING / REPLYING: first READ the actual post or message text on the current screen, then tap the " +
+            "comment/reply field and TYPE a SPECIFIC comment that clearly references what the post is about — never " +
+            "a generic 'Nice post!'. Then send it.\n" +
             "COMPLETING ACTIONS: sending a message, sending a connection/friend request, following, posting, " +
             "confirming a non-payment dialog — these are NORMAL; DO tap their Send/Connect/Follow/Post button to " +
             "finish them. Only real MONEY buttons are off-limits.\n" +
@@ -1068,7 +1075,7 @@ object AgentClient {
             "contacts, dates, preferences — and TYPE those in, instead of leaving placeholders or asking." +
             (if (profile.isNotBlank()) "\nWHAT I KNOW ABOUT THE USER:\n${profile.take(1500)}" else "")
         val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
-        val (code, text) = callContent(sys, user, 160, VOICE)
+        val (code, text) = callContent(sys, user, 240, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"
     }
 

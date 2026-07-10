@@ -32,7 +32,20 @@ object ScreenAgent {
 
     @Volatile var running = false; private set
     @Volatile private var stopFlag = false
+    @Volatile private var lastTapText = ""    // guards against instantly un-doing our own toggle (like→unlike)
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    /** True if tapping [now] would UNDO the toggle we just did in [prev] (e.g. we liked, now it says Unlike). */
+    private fun undoesLastToggle(prev: String, now: String): Boolean {
+        val p = prev.lowercase().trim(); val c = now.lowercase().trim()
+        if (p.isBlank()) return false
+        fun on(base: String, undo: List<String>) = p.contains(base) && !undo.any { p.contains(it) } && undo.any { c.contains(it) }
+        return on("like", listOf("unlike", "remove reaction")) || (p == "liked" && c.contains("unlike")) ||
+               on("follow", listOf("unfollow", "following")) ||
+               on("save", listOf("unsave", "saved")) ||
+               on("connect", listOf("pending", "withdraw")) ||
+               on("subscribe", listOf("subscribed", "unsubscribe"))
+    }
 
     // MONEY GATE ONLY. The agent has full control of everything else (fill forms, sign up, log in, submit,
     // post, toggle settings…) but must NEVER complete a spend/transfer — it stops and hands the final tap to
@@ -53,7 +66,7 @@ object ScreenAgent {
             OutboxStore.record(ctx, "Action", "Screen control", "act", rawGoal, "couldn't run — Accessibility control isn't enabled", status = "held")
             return
         }
-        running = true; stopFlag = false
+        running = true; stopFlag = false; lastTapText = ""
         postBanner(ctx)
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
         // Resolve WHO from the brain for vague people-tasks ("friends I haven't talked to in a while") so the
@@ -152,9 +165,13 @@ object ScreenAgent {
                         postConfirm(ctx, node.text)   // CLEAR prompt so the user knows a money tap is theirs
                         finish(ctx, goal, "I set everything up but stopped before spending money — tap \"${node.text}\" yourself to finish.", history.toString()); null
                     }
-                    cmd == "LONGPRESS" -> { history.append("• long-pressed \"${node.text}\"\n"); svc.longPress(i) }
-                    cmd == "TOGGLE" -> { history.append("• toggled \"${node.text}\" (was ${if (node.checked) "on" else "off"})\n"); svc.tapNode(i) }
-                    else -> { history.append("• tapped \"${node.text}\"\n"); svc.tapNode(i) }
+                    // Never instantly un-do our own action (the classic like→unlike thrash).
+                    (cmd == "TAP" || cmd == "TOGGLE") && undoesLastToggle(lastTapText, node.text) -> {
+                        history.append("• \"${node.text}\" already done — not undoing it\n"); true
+                    }
+                    cmd == "LONGPRESS" -> { lastTapText = node.text; history.append("• long-pressed \"${node.text}\"\n"); svc.longPress(i) }
+                    cmd == "TOGGLE" -> { history.append("• toggled \"${node.text}\" (was ${if (node.checked) "on" else "off"})\n"); lastTapText = node.text; svc.tapNode(i) }
+                    else -> { history.append("• tapped \"${node.text}\"\n"); lastTapText = node.text; svc.tapNode(i) }
                 }
             }
             "TYPE" -> {
