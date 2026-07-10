@@ -125,6 +125,10 @@ fun HomeScreen(
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    var vaultPinPrompt by remember { mutableStateOf(false) }
+    var vaultPin by remember { mutableStateOf("") }
+    var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
+    var vaultErr by remember { mutableStateOf("") }
     var replyDragX by remember { mutableStateOf(0f) }     // swipe the answer card: left=dismiss, right=open/Google
     var lastQuery by remember { mutableStateOf("") }
     var rememberSuggestion by remember { mutableStateOf("") }
@@ -188,6 +192,10 @@ fun HomeScreen(
     val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
+        // Bank/vault questions are answered LOCALLY behind the PIN — never sent to any model.
+        if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
+            vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
+        }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null
         scope.launch {
             // If photos are attached, this is an image task (vision Q&A or PDF).
@@ -827,6 +835,52 @@ fun HomeScreen(
                 }
                 Text("Close", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { showAdd = false; showAddBtn = false }.padding(top = 8.dp))
+            }
+        }
+    }
+
+    // Bank/vault reveal — entirely on-device, behind the PIN.
+    if (vaultPinPrompt) {
+        Dialog(onDismissRequest = { vaultPinPrompt = false }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Unlock bank vault", fontSize = T.body, color = T.ink)
+                Text("Enter your vault PIN to view your bank info. It stays on your phone.", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.foundation.text.BasicTextField(vaultPin, { vaultPin = it }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = T.ink, fontSize = T.body),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(12.dp))
+                if (vaultErr.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(vaultErr, fontSize = T.caption, color = T.danger) }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Unlock", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (vaultPin.isNotBlank()) T.accent else T.hairline)
+                            .clickable(enabled = vaultPin.isNotBlank()) {
+                                val u = com.agentos.shell.tools.BankVault.unlock(ctx, vaultPin)
+                                if (u != null) { vaultReveal = u; vaultPinPrompt = false; vaultPin = "" } else vaultErr = "Wrong PIN."
+                            }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { vaultPinPrompt = false; vaultPin = "" }.padding(vertical = 10.dp))
+                }
+            }
+        }
+    }
+    vaultReveal?.let { list ->
+        Dialog(onDismissRequest = { vaultReveal = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Your bank vault", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(10.dp))
+                if (list.isEmpty()) Text("The vault is empty. Add entries in Settings → Bank vault.", fontSize = T.small, color = T.inkFaint)
+                list.forEach { it2 ->
+                    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(it2.label, fontSize = T.caption, color = T.inkSoft)
+                        Text(it2.value, fontSize = T.body, color = T.ink)
+                    }
+                    Hairline()
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { vaultReveal = null }.padding(vertical = 6.dp))
             }
         }
     }

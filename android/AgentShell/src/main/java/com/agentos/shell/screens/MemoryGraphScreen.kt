@@ -188,6 +188,10 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     var typeFilter by remember { mutableStateOf<String?>(null) }   // tap a legend color to isolate that type
     var answer by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
+    var vaultPinPrompt by remember { mutableStateOf(false) }
+    var vaultPin by remember { mutableStateOf("") }
+    var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
+    var vaultErr by remember { mutableStateOf("") }
     var pathNodes by remember { mutableStateOf<List<Int>>(emptyList()) }
     val flow by rememberInfiniteTransition(label = "f").animateFloat(
         0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "ff"
@@ -205,6 +209,10 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     fun recenter(id: Int) { offset = Offset(-nodes[id].x * scale, -nodes[id].y * scale) }
     fun ask() {
         if (query.isBlank()) return
+        // Bank/vault questions are answered LOCALLY behind the PIN — never sent to any model.
+        if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(query)) {
+            vaultErr = ""; vaultPin = ""; vaultPinPrompt = true; return
+        }
         com.agentos.shell.tools.MemoryStore.addSearch(ctx, query)
         searchHist = com.agentos.shell.tools.MemoryStore.searchHistory(ctx)
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
@@ -564,5 +572,51 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             Text("›", fontSize = T.body, color = T.inkFaint)
         }
         Spacer(Modifier.height(12.dp))
+    }
+
+    val V = com.agentos.shell.tools.BankVault
+    if (vaultPinPrompt) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { vaultPinPrompt = false }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Unlock bank vault", fontSize = T.body, color = T.ink)
+                Text("Enter your vault PIN to view your bank info. It stays on your phone.", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(12.dp))
+                BasicTextField(vaultPin, { vaultPin = it }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = T.ink, fontSize = T.body),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).padding(12.dp))
+                if (vaultErr.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(vaultErr, fontSize = T.caption, color = T.danger) }
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Unlock", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (vaultPin.isNotBlank()) T.accent else T.hairline)
+                            .clickable(enabled = vaultPin.isNotBlank()) {
+                                val u = V.unlock(ctx, vaultPin)
+                                if (u != null) { vaultReveal = u; vaultPinPrompt = false; vaultPin = "" } else vaultErr = "Wrong PIN."
+                            }.padding(horizontal = 18.dp, vertical = 10.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { vaultPinPrompt = false; vaultPin = "" }.padding(vertical = 10.dp))
+                }
+            }
+        }
+    }
+    vaultReveal?.let { list ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { vaultReveal = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Your bank vault", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(10.dp))
+                if (list.isEmpty()) Text("The vault is empty. Add entries in Settings → Bank vault.", fontSize = T.small, color = T.inkFaint)
+                list.forEach { it2 ->
+                    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(it2.label, fontSize = T.caption, color = T.inkSoft)
+                        Text(it2.value, fontSize = T.body, color = T.ink)
+                    }
+                    Hairline()
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { vaultReveal = null }.padding(vertical = 6.dp))
+            }
+        }
     }
 }

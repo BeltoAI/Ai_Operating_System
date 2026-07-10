@@ -35,6 +35,11 @@ object BankVault {
 
     fun isConfigured(ctx: Context): Boolean = prefs(ctx).getString(K_SALT, null) != null
 
+    /** True when a question is about the user's OWN sensitive bank/vault info — answered locally behind the
+     *  PIN, never sent to a cloud model. Shared by Chat and the Memory brain. */
+    fun isQuery(q: String): Boolean =
+        Regex("(?i)(my bank|bank details|bank info|bank account|account number|account #|routing( number)?|iban|sort code|swift|card number|my card|bank vault|open (the )?vault|my (banking|account) (info|details|number))").containsMatchIn(q)
+
     private fun deriveKey(pin: String, salt: ByteArray): SecretKeySpec {
         val spec = PBEKeySpec(pin.toCharArray(), salt, ITERS, KEYLEN)
         val f = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
