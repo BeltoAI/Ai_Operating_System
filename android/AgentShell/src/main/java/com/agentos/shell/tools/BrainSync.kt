@@ -63,6 +63,18 @@ object BrainSync {
             if (chatRows.length() > 0) SupabaseClient.upsert(TABLE, token, chatRows, "user_id,kind,client_id")
         } catch (e: Exception) { Log.w(TAG, "chat push", e) }
 
+        // Push the bank vault as CIPHERTEXT only (end-to-end encrypted; the PIN never leaves the device).
+        try {
+            if (BankVault.isConfigured(ctx)) {
+                val vrow = JSONObject()
+                    .put("user_id", uid).put("kind", "vault").put("client_id", "bank")
+                    .put("title", "Bank vault").put("body", BankVault.cipherBlob(ctx))
+                    .put("data", JSONObject().put("salt", BankVault.saltB64(ctx)))
+                    .put("updated_at", BankVault.updatedAt(ctx)).put("deleted", false)
+                SupabaseClient.upsert(TABLE, token, JSONArray().put(vrow), "user_id,kind,client_id")
+            }
+        } catch (e: Exception) { Log.w(TAG, "vault push", e) }
+
         // 2) Pull the server's rows; apply profile if newer, and reconstruct any chat threads locally.
         var applied = false
         val remote = SupabaseClient.pull(TABLE, token, uid, 0L)
@@ -89,6 +101,11 @@ object BrainSync {
                     }
                     ChatStore.importThread(ctx, tid, o.optString("title"), o.optLong("updated_at"), msgs)
                 } catch (e: Exception) { Log.w(TAG, "chat pull row", e) }
+            } else if (kind == "vault" && o.optString("client_id") == "bank") {
+                try {
+                    val salt = o.optJSONObject("data")?.optString("salt").orEmpty()
+                    BankVault.importFromSync(ctx, salt, o.optString("body"), o.optLong("updated_at"))
+                } catch (e: Exception) { Log.w(TAG, "vault pull", e) }
             }
         }
         if (pushed || applied) prefs(ctx).edit().putLong(K_LAST_OK, System.currentTimeMillis()).apply()

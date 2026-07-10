@@ -11,10 +11,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -51,6 +54,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val bullet = Regex("^\\s*[-*•]\\s+")
     val numbered = Regex("^\\s*(\\d{1,2})[.)]\\s+")
     val lines = text.trim().lines()
+    val clip = LocalClipboardManager.current
     Column(modifier.fillMaxWidth()) {
         var i = 0
         while (i < lines.size) {
@@ -60,9 +64,15 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                 val code = StringBuilder(); i++
                 while (i < lines.size && !lines[i].trim().startsWith("```")) { code.append(lines[i]).append("\n"); i++ }
                 i++ // skip closing fence
+                val codeStr = code.toString().trimEnd()
                 Spacer(Modifier.height(6.dp))
-                Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp)) {
-                    Text(code.toString().trimEnd(), fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = T.ink)
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Text("Copy", fontSize = 12.sp, color = T.accent,
+                            modifier = Modifier.clickable { clip.setText(AnnotatedString(codeStr)) })
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(codeStr, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = T.ink)
                 }
                 Spacer(Modifier.height(6.dp))
                 continue

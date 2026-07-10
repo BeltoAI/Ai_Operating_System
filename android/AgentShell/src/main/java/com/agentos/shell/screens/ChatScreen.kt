@@ -63,6 +63,7 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var renameId by remember { mutableStateOf(0L) }
     var renameText by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
     var attachB64 by remember { mutableStateOf<String?>(null) }   // pending image to send
 
     // Speak to the AI — the system voice recognizer fills the input box.
@@ -155,11 +156,25 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Text("New chat", fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                     .clickable { open(ChatStore.create(ctx)) }.padding(horizontal = 16.dp, vertical = 10.dp))
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
+            BasicTextField(value = search, onValueChange = { search = it }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp),
+                decorationBox = { inner -> if (search.isEmpty()) Text("Search chats…", fontSize = T.small, color = T.inkFaint); inner() })
+            Spacer(Modifier.height(12.dp))
+            val q = search.trim()
+            val shown = remember(threads, q) {
+                if (q.isBlank()) threads
+                else threads.filter { t ->
+                    t.title.contains(q, true) || ChatStore.messages(ctx, t.id).any { it.text.contains(q, true) }
+                }
+            }
             if (threads.isEmpty())
                 Text("No chats yet.", fontSize = T.small, color = T.inkFaint)
+            else if (shown.isEmpty())
+                Text("No chats match “$q”.", fontSize = T.small, color = T.inkFaint)
             LazyColumn(Modifier.weight(1f)) {
-                items(threads, key = { it.id }) { t ->
+                items(shown, key = { it.id }) { t ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
                         .combinedClickable(onClick = { open(t.id) },
                             onLongClick = { renameId = t.id; renameText = t.title })

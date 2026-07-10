@@ -25,6 +25,7 @@ object BankVault {
     private const val PREF = "slyos_vault"
     private const val K_SALT = "salt"
     private const val K_BLOB = "blob"     // base64(iv | ciphertext)
+    private const val K_TS = "ts"         // updated_at for last-write-wins sync
     private const val ITERS = 210_000
     private const val KEYLEN = 256
 
@@ -74,6 +75,7 @@ object BankVault {
         prefs(ctx).edit()
             .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
             .putString(K_BLOB, encrypt(key, serialize(emptyList())))
+            .putLong(K_TS, System.currentTimeMillis())
             .apply()
         try { MemoryLog.add(ctx, "note", "Bank vault", "Bank info vault created (locked, encrypted).", "Vault") } catch (e: Exception) {}
     }
@@ -91,11 +93,20 @@ object BankVault {
         // Verify the PIN first by trying to unlock.
         if (unlock(ctx, pin) == null) return false
         val key = deriveKey(pin, Base64.decode(saltB64, Base64.NO_WRAP))
-        prefs(ctx).edit().putString(K_BLOB, encrypt(key, serialize(items))).apply()
+        prefs(ctx).edit().putString(K_BLOB, encrypt(key, serialize(items))).putLong(K_TS, System.currentTimeMillis()).apply()
         try { MemoryLog.add(ctx, "note", "Bank vault", "Bank info updated (${items.size} item(s), locked).", "Vault") } catch (e: Exception) {}
         return true
     }
 
-    /** Encrypted blob for syncing as ciphertext (server never sees plaintext). */
+    // ---- Sync helpers: only the non-secret salt + the CIPHERTEXT ever leave the device ----------------
     fun cipherBlob(ctx: Context): String = prefs(ctx).getString(K_BLOB, "").orEmpty()
+    fun saltB64(ctx: Context): String = prefs(ctx).getString(K_SALT, "").orEmpty()
+    fun updatedAt(ctx: Context): Long = prefs(ctx).getLong(K_TS, 0L)
+
+    /** Apply a vault pulled from the server (ciphertext + salt). The PIN is still required to read it. */
+    fun importFromSync(ctx: Context, saltB64: String, blob: String, ts: Long) {
+        if (saltB64.isBlank() || blob.isBlank()) return
+        if (ts <= updatedAt(ctx)) return   // local is newer or equal
+        prefs(ctx).edit().putString(K_SALT, saltB64).putString(K_BLOB, blob).putLong(K_TS, ts).apply()
+    }
 }
