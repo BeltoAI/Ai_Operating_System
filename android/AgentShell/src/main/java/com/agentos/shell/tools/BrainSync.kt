@@ -42,32 +42,50 @@ object BrainSync {
         val pushed = SupabaseClient.upsert(TABLE, token, JSONArray().put(row))
         if (pushed) prefs(ctx).edit().putLong(K_PROFILE_TS, now).apply()
 
-        // Push chat threads up too (one-way backup into the synced brain). Each thread = one brain_item.
+        // Push chat threads up. Body = readable transcript; data.msgs = structured messages for exact
+        // reconstruction when another device pulls the thread back down.
         try {
             val chatRows = JSONArray()
             ChatStore.threads(ctx).forEach { t ->
-                val text = ChatStore.messages(ctx, t.id)
-                    .joinToString("\n") { (if (it.role == "you") "You: " else "SlyOS: ") + it.text }
+                val msgs = ChatStore.messages(ctx, t.id)
+                val text = msgs.joinToString("\n") { (if (it.role == "you") "You: " else "SlyOS: ") + it.text }
+                val msgsJson = JSONArray()
+                msgs.forEach { m -> msgsJson.put(JSONObject().put("role", m.role).put("text", m.text).put("ts", m.ts)) }
                 chatRows.put(JSONObject()
                     .put("user_id", uid).put("kind", "chat").put("client_id", "chat:${t.id}")
                     .put("title", t.title).put("body", text.take(20000))
+                    .put("data", JSONObject().put("id", t.id).put("msgs", msgsJson))
                     .put("updated_at", t.updated).put("deleted", false))
             }
             if (chatRows.length() > 0) SupabaseClient.upsert(TABLE, token, chatRows)
         } catch (e: Exception) { Log.w(TAG, "chat push", e) }
 
-        // 2) Pull the server's profile; apply if it's newer than what we last had locally.
+        // 2) Pull the server's rows; apply profile if newer, and reconstruct any chat threads locally.
         var applied = false
         val remote = SupabaseClient.pull(TABLE, token, uid, 0L)
         for (i in 0 until remote.length()) {
             val o = remote.optJSONObject(i) ?: continue
-            if (o.optString("kind") != "profile" || o.optString("client_id") != "about") continue
-            val ts = o.optLong("updated_at")
-            val localTs = prefs(ctx).getLong(K_PROFILE_TS, 0L)
-            if (ts > localTs && !o.optBoolean("deleted")) {
-                val serverBody = o.optString("body")
-                if (serverBody.isNotBlank() && serverBody != body) { MemoryStore.setAbout(ctx, serverBody); applied = true }
-                prefs(ctx).edit().putLong(K_PROFILE_TS, ts).apply()
+            if (o.optBoolean("deleted")) continue
+            val kind = o.optString("kind")
+            if (kind == "profile" && o.optString("client_id") == "about") {
+                val ts = o.optLong("updated_at")
+                val localTs = prefs(ctx).getLong(K_PROFILE_TS, 0L)
+                if (ts > localTs) {
+                    val serverBody = o.optString("body")
+                    if (serverBody.isNotBlank() && serverBody != body) { MemoryStore.setAbout(ctx, serverBody); applied = true }
+                    prefs(ctx).edit().putLong(K_PROFILE_TS, ts).apply()
+                }
+            } else if (kind == "chat") {
+                try {
+                    val data = o.optJSONObject("data") ?: continue
+                    val tid = data.optLong("id").takeIf { it != 0L } ?: continue
+                    val msgsJson = data.optJSONArray("msgs") ?: JSONArray()
+                    val msgs = (0 until msgsJson.length()).mapNotNull { j ->
+                        val mo = msgsJson.optJSONObject(j) ?: return@mapNotNull null
+                        ChatStore.Msg(mo.optString("role"), mo.optString("text"), mo.optLong("ts"))
+                    }
+                    ChatStore.importThread(ctx, tid, o.optString("title"), o.optLong("updated_at"), msgs)
+                } catch (e: Exception) { Log.w(TAG, "chat pull row", e) }
             }
         }
         return when {

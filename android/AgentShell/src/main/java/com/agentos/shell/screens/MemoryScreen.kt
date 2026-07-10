@@ -57,6 +57,38 @@ private fun SectionTitle(t: String) {
     Spacer(Modifier.height(14.dp))
 }
 
+/** A prominent account banner at the very top of Settings — "Welcome, <name>" with avatar when signed in,
+ *  or a clear prompt to sign in when not. [onPrompt] scrolls attention to the Account card below. */
+@Composable
+private fun AccountHeader() {
+    val ctx = LocalContext.current
+    val AS = com.agentos.shell.tools.AccountStore
+    val signedIn = AS.signedIn(ctx)
+    val name = MemoryStore.ownerName(ctx).ifBlank { AS.email(ctx).substringBefore("@") }.ifBlank { "there" }
+    val headshot = remember { MemoryStore.headshotPath(ctx) }
+    val bmp = remember(headshot) {
+        if (headshot.isNotBlank()) try { android.graphics.BitmapFactory.decodeFile(headshot) } catch (e: Exception) { null } else null
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(18.dp)).background(if (signedIn) T.accentSoft else T.bgElevated).padding(14.dp)) {
+        // Avatar: photo if we have one, else a circle with the initial.
+        Box(Modifier.size(46.dp).clip(CircleShape).background(T.accent), contentAlignment = Alignment.Center) {
+            if (bmp != null) Image(bmp.asImageBitmap(), "You", modifier = Modifier.size(46.dp).clip(CircleShape))
+            else Text(name.take(1).uppercase(), fontSize = T.body, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            if (signedIn) {
+                Text("Welcome, $name", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Text(AS.email(ctx) + " · synced", fontSize = T.caption, color = T.inkSoft)
+            } else {
+                Text("You're not signed in", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Text("Sign in below to sync your brain across devices.", fontSize = T.caption, color = T.inkSoft)
+            }
+        }
+    }
+}
+
 /** SlyOS account — email+password sign in via Supabase. The account anchors cross-device brain sync
  *  (see ACCOUNT_AND_SYNC.md). Regular account UI: signed-in identity + sign out, or sign in / create. */
 @Composable
@@ -124,7 +156,9 @@ private fun AccountCard() {
                         busy = true; msg = ""
                         scope.launch {
                             val (ok, m) = withContext(Dispatchers.IO) { AS.signUp(ctx, email, pass) }
-                            busy = false; msg = m; if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = "" }
+                            busy = false; msg = m
+                            if (ok) { signedIn = AS.signedIn(ctx); emailAddr = AS.email(ctx); pass = ""
+                                if (signedIn) com.agentos.shell.tools.BrainSync.syncInBackground(ctx) }
                         }
                     }.padding(vertical = 9.dp))
             }
@@ -613,9 +647,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     Column(modifier.verticalScroll(rememberScrollState())) {
         ScreenHeader("Memory", onBack)
         Spacer(Modifier.height(10.dp))
-        // Build badge — if you can see this, you're running the newest settings (keys unified + validated).
-        // Bumped every settings change so "did it update?" is never a mystery again.
-        Text("✦ Settings build v22 · on-device = offline backup", fontSize = T.caption, color = T.accent,
+        // Account banner up top — welcome + avatar when signed in, sign-in prompt when not.
+        AccountHeader()
+        Spacer(Modifier.height(12.dp))
+        // Build badge — if you can see this, you're running the newest settings.
+        Text("✦ Settings build v23 · account header", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
