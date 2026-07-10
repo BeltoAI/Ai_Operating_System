@@ -1002,8 +1002,10 @@ object AgentClient {
             "data, apps) a direct Settings page opens in one hop. Cross-app is fine (e.g. sign up in an app, then " +
             "open the verification email, then come back). For REPETITIVE goals ('connect with 20', 'like all posts', " +
             "'message 5 friends') plan it as a loop: repeat one item at a time, scrolling for more, until the count is " +
-            "met. Never plan a step that spends money — leave the final pay tap to the user. Number each step. No " +
-            "prose, just the plan." + (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(500)}" else "")
+            "met. When the goal is to SET SOMETHING UP, plan to fill it with the user's REAL details from WHAT I " +
+            "KNOW below (name, work, projects, contacts, dates). Never plan a step that spends money — leave the " +
+            "final pay tap to the user. Number each step. No prose, just the plan." +
+            (if (profile.isNotBlank()) "\nWHAT I KNOW ABOUT THE USER:\n${profile.take(1200)}" else "")
         val (code, text) = callContent(sys, "GOAL: $goal", 320, VOICE)
         return if (code == 200) text.trim() else ""
     }
@@ -1056,8 +1058,11 @@ object AgentClient {
             "appears after scrolling, then DONE.\n" +
             "THE ONE HARD LIMIT — MONEY: never tap a button that spends money or moves funds (Pay, Buy, Purchase, " +
             "Place order, Checkout, Subscribe, Upgrade, Start trial, Donate, Transfer, Send money, Add card, " +
-            "Confirm payment). When only such a step remains, reply DONE and tell the user to make that final tap." +
-            (if (profile.isNotBlank()) " USER PROFILE: ${profile.take(700)}" else "")
+            "Confirm payment). When only such a step remains, reply DONE and tell the user to make that final tap.\n" +
+            "USE THE USER'S BRAIN: when a task means setting something up (a Notion page, a profile, an event, a " +
+            "form, a bio, a document), draw real details from WHAT I KNOW below — their name, work, projects, " +
+            "contacts, dates, preferences — and TYPE those in, instead of leaving placeholders or asking." +
+            (if (profile.isNotBlank()) "\nWHAT I KNOW ABOUT THE USER:\n${profile.take(1500)}" else "")
         val user = "CURRENT SCREEN (app $pkg):\n$screenDump\n\nSTEPS DONE:\n${history.ifBlank { "(none)" }}\n\nYour ONE next action:"
         val (code, text) = callContent(sys, user, 160, VOICE)
         return if (code == 200) text.trim() else "STUCK model error $code"

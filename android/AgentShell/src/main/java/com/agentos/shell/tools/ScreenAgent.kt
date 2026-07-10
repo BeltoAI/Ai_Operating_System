@@ -47,17 +47,23 @@ object ScreenAgent {
         scope.launch { run(ctx.applicationContext, goal, openPkg) }
     }
 
-    private suspend fun run(ctx: Context, goal: String, openPkg: String?) {
+    private suspend fun run(ctx: Context, rawGoal: String, openPkg: String?) {
         val svc = InteractionLogService.instance
         if (svc == null) {
-            OutboxStore.record(ctx, "Action", "Screen control", "act", goal, "couldn't run — Accessibility control isn't enabled", status = "held")
+            OutboxStore.record(ctx, "Action", "Screen control", "act", rawGoal, "couldn't run — Accessibility control isn't enabled", status = "held")
             return
         }
         running = true; stopFlag = false
         postBanner(ctx)
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
+        // Resolve WHO from the brain for vague people-tasks ("friends I haven't talked to in a while") so the
+        // agent has concrete names to search + message, instead of guessing.
+        val goal = resolveTargets(ctx, rawGoal)
+        // Pull RELEVANT brain knowledge for this goal (profile + memories, projects, contacts, dates) so the
+        // agent can autonomously fill in setup details — e.g. build a Notion page from what it knows about you.
+        val brainCtx = try { (profile + "\n" + BrainContext.build(ctx, goal)).trim() } catch (e: Exception) { profile }
         // ONE-TIME high-level plan so execution has direction instead of wandering step-to-step.
-        var plan = try { AgentClient.planScreenGoal(goal, profile) } catch (e: Exception) { "" }
+        var plan = try { AgentClient.planScreenGoal(goal, brainCtx) } catch (e: Exception) { "" }
         Log.i(TAG, "screenAgent plan:\n$plan")
         val history = StringBuilder()
         var lastDump = ""; var stall = 0; var replans = 0; var verifyTries = 0
@@ -81,13 +87,13 @@ object ScreenAgent {
                 // and only give up if that still doesn't help.
                 if (dump == lastDump) {
                     if (++stall >= 3) {
-                        if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", profile) } catch (e: Exception) { plan }; replans++; stall = 0 }
+                        if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", brainCtx) } catch (e: Exception) { plan }; replans++; stall = 0 }
                         else { finish(ctx, goal, "No progress — stopping so I don't loop.", history.toString()); return }
                     }
                 } else stall = 0
                 lastDump = dump
 
-                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), profile, plan).trim()
+                val action = AgentClient.planScreenStep(goal, pkg, dump, history.toString(), brainCtx, plan).trim()
                 Log.i(TAG, "screenAgent step $step: $action")
 
                 val done = Regex("(?is)^DONE\\b\\s*(.*)$").find(action)
@@ -112,6 +118,20 @@ object ScreenAgent {
         } catch (e: Exception) {
             finish(ctx, goal, "Hit an error: ${e.message}", history.toString())
         }
+    }
+
+    /**
+     * For vague people-targeting goals, resolve concrete NAMES from the brain and fold them into the goal so
+     * the agent knows exactly who to search + act on. Handles "haven't talked to in a while / lost touch /
+     * reconnect / gone quiet". Leaves the goal unchanged if it isn't that kind of task or the brain is empty.
+     */
+    private fun resolveTargets(ctx: Context, goal: String): String {
+        val vague = Regex("(?i)(haven'?t (talked|spoken|messaged|chatted)|lost touch|reconnect|gone quiet|fallen out of touch|old friends|used to talk)").containsMatchIn(goal)
+        if (!vague) return goal
+        val count = Regex("(?i)\\b(\\d{1,3})\\b").find(goal)?.groupValues?.get(1)?.toIntOrNull() ?: 5
+        val names = try { MessageStore.staleContacts(ctx, count.coerceIn(1, 30)) } catch (e: Exception) { emptyList() }
+        if (names.isEmpty()) return goal
+        return "$goal\nTARGET PEOPLE (you've gone quiet with, oldest first) — reach these by name: ${names.joinToString(", ")}"
     }
 
     /** Execute one primitive. Returns true/false for effect, or null if the run already finished (safety stop). */
