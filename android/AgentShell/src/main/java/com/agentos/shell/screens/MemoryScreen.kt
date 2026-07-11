@@ -499,33 +499,32 @@ private fun OnDeviceModelCard() {
 @Composable
 private fun ChessCoachCard() {
     val ctx = LocalContext.current
-    var elo by remember { mutableStateOf(1500f) }
-    var side by remember { mutableStateOf("w") }
+    val p = remember { ctx.getSharedPreferences("slyos", android.content.Context.MODE_PRIVATE) }
+    var elo by remember { mutableStateOf(p.getInt("chess_elo", 1500).toFloat()) }
+    var autoStart by remember { mutableStateOf(p.getBoolean("chess_autostart", false)) }
     Collapsible("Chess Coach", "Live best-move hints at any strength") {
-        Text("Open your chess game, pick a strength, and tap Start. SlyOS reads the board every turn and draws " +
-            "an arrow for the best move (Stockfish) — you play it yourself. For training, analysis, bots & puzzles. " +
-            "Needs “Display over other apps” + Accessibility.",
+        Text("Open your chess game and tap Start (or turn on auto-start below). SlyOS reads the board each turn " +
+            "and draws an arrow for the best move (Stockfish) — you play it yourself. Your colour is detected " +
+            "automatically. The hint pill is draggable — drag its ⠿ handle anywhere. For training, analysis, bots " +
+            "& puzzles. Needs “Display over other apps” + Accessibility.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
         Text("Strength: ${elo.toInt()} Elo", fontSize = T.small, color = T.ink)
-        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it }, valueRange = 500f..3600f,
+        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it; p.edit().putInt("chess_elo", it.toInt()).apply() }, valueRange = 500f..3600f,
             colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = T.accent, activeTrackColor = T.accent))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("You play:", fontSize = T.small, color = T.inkSoft)
-            Spacer(Modifier.width(10.dp))
-            listOf("w" to "White", "b" to "Black").forEach { (id, lbl) ->
-                val sel = side == id
-                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(if (sel) T.accent else T.hairline)
-                        .clickable { side = id }.padding(horizontal = 12.dp, vertical = 6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
+            .clickable { autoStart = !autoStart; p.edit().putBoolean("chess_autostart", autoStart).apply() }.padding(vertical = 6.dp)) {
+            Text("Auto-start when a chess app opens", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+            Box(Modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(999.dp)).background(if (autoStart) T.accent else T.hairline)) {
+                Box(Modifier.align(if (autoStart) Alignment.CenterEnd else Alignment.CenterStart).padding(3.dp).size(20.dp).clip(CircleShape).background(T.bg))
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         val canDraw = android.provider.Settings.canDrawOverlays(ctx)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Start coach", fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (canDraw) T.accent else T.hairline)
-                    .clickable(enabled = canDraw) { com.agentos.shell.ChessCoachService.start(ctx, elo.toInt(), side) }
+                    .clickable(enabled = canDraw) { com.agentos.shell.ChessCoachService.start(ctx, elo.toInt(), "a") }
                     .padding(horizontal = 16.dp, vertical = 9.dp))
             Spacer(Modifier.width(10.dp))
             Text("Stop", fontSize = T.small, color = T.inkSoft,
@@ -861,7 +860,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v28 · Chess Coach", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v29 · Chess Coach — draggable + auto", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 

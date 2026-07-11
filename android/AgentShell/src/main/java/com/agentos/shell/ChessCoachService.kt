@@ -41,16 +41,17 @@ class ChessCoachService : Service() {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     @Volatile private var elo = 1500
-    @Volatile private var side = 'w'
+    @Volatile private var side = 'a'      // 'a' = auto-detect from board orientation
     @Volatile private var lastFen = ""
     @Volatile private var alive = true
+    private var barParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         elo = intent?.getIntExtra("elo", 1500) ?: 1500
-        side = (intent?.getStringExtra("side") ?: "w").firstOrNull() ?: 'w'
-        if (arrow == null) { wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager; addOverlays(); loop() }
+        side = (intent?.getStringExtra("side") ?: "a").firstOrNull() ?: 'a'
+        if (arrow == null) { running = true; wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager; addOverlays(); loop() }
         return START_STICKY
     }
 
@@ -66,38 +67,57 @@ class ChessCoachService : Service() {
             PixelFormat.TRANSLUCENT)
         try { wm.addView(arrow, ap) } catch (e: Exception) {}
 
-        // 2) Bottom control bar — touchable: move text, Elo slider, side toggle, stop.
-        val root = LinearLayout(this).apply {
+        // 2) A COMPACT, DRAGGABLE pill (never spans the screen, so it can't cover the game's buttons).
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        val pill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#E60E1116"))
-            setPadding(28, 18, 28, 28)
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat(); setColor(Color.parseColor("#F00C1014")); setStroke(dp(1), Color.parseColor("#3300FF88"))
+            }
         }
-        moveLabel = TextView(this).apply { text = "Chess Coach — reading board…"; setTextColor(Color.WHITE); textSize = 16f }
-        root.addView(moveLabel)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 16, 0, 0) }
-        eloLabel = TextView(this).apply { text = "Elo $elo"; setTextColor(Color.parseColor("#00FF88")); textSize = 13f }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val grip = TextView(this).apply { text = "⠿  Chess Coach"; setTextColor(Color.parseColor("#7A8A99")); textSize = 12f }
+        top.addView(grip, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val close = TextView(this).apply { text = "✕"; setTextColor(Color.parseColor("#9AA")); textSize = 15f; setPadding(dp(10), 0, dp(4), 0); setOnClickListener { stopSelf() } }
+        top.addView(close)
+        pill.addView(top)
+        moveLabel = TextView(this).apply { text = "Reading board…"; setTextColor(Color.WHITE); textSize = 17f; setPadding(0, dp(4), 0, dp(6)) }
+        pill.addView(moveLabel)
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        eloLabel = TextView(this).apply { text = "$elo"; setTextColor(Color.parseColor("#00FF88")); textSize = 12f; minWidth = dp(38) }
         row.addView(eloLabel)
         val seek = SeekBar(this).apply {
             max = 3100; progress = (elo - 500).coerceIn(0, 3100)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setPadding(24, 0, 24, 0)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, u: Boolean) { elo = 500 + p; eloLabel?.text = "Elo $elo"; lastFen = "" }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
+                override fun onProgressChanged(sb: SeekBar?, p: Int, u: Boolean) { elo = 500 + p; eloLabel?.text = "$elo"; lastFen = "" }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {}
             })
         }
-        row.addView(seek)
-        val sideBtn = Button(this).apply { text = if (side == 'w') "W" else "B"; setOnClickListener { side = if (side == 'w') 'b' else 'w'; text = if (side == 'w') "W" else "B"; lastFen = "" } }
+        row.addView(seek, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        val sideBtn = TextView(this).apply {
+            text = "Auto"; setTextColor(Color.parseColor("#00FF88")); textSize = 12f; setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener { side = when (side) { 'a' -> 'w'; 'w' -> 'b'; else -> 'a' }; text = when (side) { 'w' -> "White"; 'b' -> "Black"; else -> "Auto" }; lastFen = "" }
+        }
         row.addView(sideBtn)
-        val stop = Button(this).apply { text = "Stop"; setOnClickListener { stopSelf() } }
-        row.addView(stop)
-        root.addView(row)
-        bar = root
-        val bp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
+        pill.addView(row)
+        bar = pill
+
+        val bp = WindowManager.LayoutParams(dp(300), WindowManager.LayoutParams.WRAP_CONTENT, overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT)
-        bp.gravity = Gravity.BOTTOM
+        bp.gravity = Gravity.TOP or Gravity.START
+        bp.x = dp(12); bp.y = dp(40)
+        barParams = bp
+        // Drag by the grip handle → move the pill anywhere so it never blocks a button.
+        var dx = 0; var dy = 0; var rx = 0f; var ry = 0f
+        grip.setOnTouchListener { _, ev ->
+            when (ev.action) {
+                android.view.MotionEvent.ACTION_DOWN -> { dx = bp.x; dy = bp.y; rx = ev.rawX; ry = ev.rawY; true }
+                android.view.MotionEvent.ACTION_MOVE -> { bp.x = dx + (ev.rawX - rx).toInt(); bp.y = dy + (ev.rawY - ry).toInt(); try { wm.updateViewLayout(pill, bp) } catch (e: Exception) {}; true }
+                else -> false
+            }
+        }
         try { wm.addView(bar, bp) } catch (e: Exception) {}
     }
 
@@ -124,7 +144,7 @@ class ChessCoachService : Service() {
     }
 
     override fun onDestroy() {
-        alive = false; scope.coroutineContext[Job]?.cancel()
+        alive = false; running = false; scope.coroutineContext[Job]?.cancel()
         try { arrow?.let { wm.removeView(it) } } catch (e: Exception) {}
         try { bar?.let { wm.removeView(it) } } catch (e: Exception) {}
         arrow = null; bar = null
@@ -155,6 +175,7 @@ class ChessCoachService : Service() {
     }
 
     companion object {
+        @Volatile var running = false
         fun start(ctx: Context, elo: Int, side: String) {
             try { ctx.startService(Intent(ctx, ChessCoachService::class.java).putExtra("elo", elo).putExtra("side", side)) } catch (e: Exception) {}
         }
