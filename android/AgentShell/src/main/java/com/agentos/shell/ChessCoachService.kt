@@ -191,8 +191,12 @@ class ChessCoachService : Service() {
         override fun onDraw(canvas: Canvas) {
             val f = from; val t = to
             if (f == null || t == null) return
+            // Square coords are ABSOLUTE screen pixels; the overlay window may start below the status bar,
+            // so translate into this view's local space (fixes the "one square too low" offset).
+            val loc = IntArray(2); getLocationOnScreen(loc)
+            val ox = loc[0].toFloat(); val oy = loc[1].toFloat()
             val r = cell * 0.44f
-            val x1 = f.first.toFloat(); val y1 = f.second.toFloat(); val x2 = t.first.toFloat(); val y2 = t.second.toFloat()
+            val x1 = f.first - ox; val y1 = f.second - oy; val x2 = t.first - ox; val y2 = t.second - oy
             // target square (where to move) — filled + ring
             canvas.drawCircle(x2, y2, r, toFill)
             canvas.drawCircle(x2, y2, r, toRing)
