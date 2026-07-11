@@ -107,6 +107,16 @@
             android:exported="false"
             android:foregroundServiceType="location"/>
 
+        <!-- On-device AI call screening (user grants the call-screening role). -->
+        <service
+            android:name=".SlyCallScreeningService"
+            android:permission="android.permission.BIND_SCREENING_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService"/>
+            </intent-filter>
+        </service>
+
         <!-- Chess Coach overlay (board hints). Plain started service; kept alive by its overlay windows. -->
         <service
             android:name=".ChessCoachService"

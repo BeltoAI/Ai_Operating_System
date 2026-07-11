@@ -1,0 +1,59 @@
+# SlyOS — AI Call Handling (on-device)
+
+The goal: **incoming calls handled by your AI, from your brain, in your voice.** This documents what ships
+today on a stock, unrooted Android phone, the one hard platform wall, and the roadmap to true live voice.
+
+## What ships today (on-device, no server, no key)
+
+**AI Call Screening** — a `CallScreeningService` (`SlyCallScreeningService`). When enabled
+(Settings → AI call screening; you grant the system "call-screening app" role once):
+
+- **People in your contacts ring through untouched.**
+- **Unknown callers are handled by your AI.** With "Text back" on, SlyOS declines the call and sends the
+  caller a short reply written from your brain, in your voice ("Hi, this is Emil's assistant — he can't take
+  calls right now; text me what you need and I'll make sure he sees it."). The call is still logged so you
+  see who called, and the exchange is written into the brain.
+- **A heads-up notification** lets you **answer with the AI on speaker** in one tap — this opens SlyOS's
+  voice loop (the same working `SpeechRecognizer → brain → ElevenLabs cloned voice / device TTS` pipeline
+  used in Converse). Put the call on speaker and your AI converses with the caller in your cloned voice.
+
+This is genuinely "my AI takes my calls," and it needs nothing but the phone.
+
+## The one hard wall (why full auto-answer isn't possible on stock Android)
+
+You cannot capture or inject the **live two-way audio of a call** from a third-party app:
+
+- **Cellular:** since Android 10 the `VOICE_CALL` audio stream is restricted to system/carrier apps.
+  `CallScreeningService` can screen, allow, silence or decline — it is *not* handed the live audio.
+- **WhatsApp / VoIP:** end-to-end encrypted; no API; Accessibility and `MediaRecorder` cannot tap the
+  other party's audio.
+
+So a fully seamless "AI picks up and talks, hands-free, in the background" is **not achievable on an
+unrooted stock phone** — regardless of the TTS/STT stack. The **speaker loop** above is the honest
+on-device workaround (the phone's mic hears the caller off the speaker, and the AI's speech plays out the
+speaker to the caller). Quality is limited by that acoustic path.
+
+## Voice stack
+
+- **Speaking:** on-device `TextToSpeech` (free, offline) by default; if the user has added an **ElevenLabs**
+  key + a cloned voice, replies play in their **cloned voice** (already wired in Converse and reused here).
+- **Listening:** on-device `SpeechRecognizer`.
+- **Brain:** the same `BrainContext` + `AgentLoop` every SlyOS surface uses — so the AI answers as *you*.
+
+## Roadmap to true, seamless voice (beyond stock limits)
+
+1. **Chatterbox (Resemble AI, MIT) + Vosk on-device** — swap the TTS/STT for sub-200ms zero-shot cloning
+   and offline STT. This upgrades *quality/latency* of the speaker-loop and the SlyOS Phone; it does **not**
+   remove the call-audio wall on stock Android. Integration is native (`.so` + model files) — a build-time
+   addition, staged as its own phase.
+2. **SlyOS Phone (our OS)** — as the system dialer/OS we control the telephony audio route, so the AI can
+   answer fully hands-free with no speaker loop. This is where Chatterbox voice cloning becomes seamless.
+3. **Server-forwarding number (real live answering, any phone)** — a Twilio/Telnyx number + conditional
+   call-forwarding runs the `STT → brain → TTS(cloned)` loop in the cloud and answers callers in your voice
+   with low latency. This is how "Natural AI Phone"-style products actually do live answering.
+
+## Files
+- `SlyCallScreeningService.kt` — the screening service + brain text-back + answer-on-speaker notification.
+- `tools/CallHandling.kt` — request/hold the call-screening role.
+- `MemoryStore.aiCallHandling / callTextBack` — the toggles (Settings).
+- Manifest: `SlyCallScreeningService` with `BIND_SCREENING_SERVICE` + `android.telecom.CallScreeningService`.

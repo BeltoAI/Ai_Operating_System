@@ -286,6 +286,13 @@ object MemoryStore {
     fun autonomous(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_AUTO, false)
     fun setAutonomous(ctx: Context, value: Boolean) = prefs(ctx).edit().putBoolean(KEY_AUTO, value).apply()
 
+    /** On-device AI call handling: when on, unknown callers are screened by SlyOS instead of ringing. */
+    fun aiCallHandling(ctx: Context): Boolean = prefs(ctx).getBoolean("ai_calls", false)
+    fun setAiCallHandling(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("ai_calls", v).apply()
+    /** When screening an unknown caller, also text them a brain-written reply in your voice. */
+    fun callTextBack(ctx: Context): Boolean = prefs(ctx).getBoolean("call_textback", true)
+    fun setCallTextBack(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("call_textback", v).apply()
+
     /**
      * Night schedule: when on, auto-reply is FORCED on between [autoStartHour] and [autoEndHour]
      * (defaults 20:00–06:00). Outside that window the manual [autonomous] toggle is the default.

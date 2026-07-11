@@ -787,6 +787,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var nightAuto by remember { mutableStateOf(MemoryStore.nightAuto(ctx)) }
     var startH by remember { mutableStateOf(MemoryStore.autoStartHour(ctx)) }
     var endH by remember { mutableStateOf(MemoryStore.autoEndHour(ctx)) }
+    var aiCalls by remember { mutableStateOf(MemoryStore.aiCallHandling(ctx)) }
+    var callText by remember { mutableStateOf(MemoryStore.callTextBack(ctx)) }
     var spicyDaily by remember { mutableStateOf(MemoryStore.spicyDaily(ctx)) }
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
     var kbStatus by remember { mutableStateOf("") }
@@ -1183,6 +1185,35 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 checked = autonomous,
                 onCheckedChange = { autonomous = it; MemoryStore.setAutonomous(ctx, it) }
             )
+        }
+
+        // ── On-device AI call handling ──────────────────────────────────────────────
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("AI call screening", fontSize = T.body, color = T.ink)
+                Text("Unknown callers are handled by your AI instead of ringing; people in your contacts still ring through. Runs fully on-device.",
+                    fontSize = T.small, color = T.inkFaint)
+            }
+            Switch(checked = aiCalls, onCheckedChange = { on ->
+                aiCalls = on; MemoryStore.setAiCallHandling(ctx, on)
+                if (on && !com.agentos.shell.tools.CallHandling.hasRole(ctx)) {
+                    com.agentos.shell.tools.CallHandling.requestRoleIntent(ctx)?.let {
+                        try { ctx.startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                    }
+                }
+            })
+        }
+        if (aiCalls) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Text unknown callers back", fontSize = T.body, color = T.ink)
+                    Text("Decline the call and send a short reply written from your brain, in your voice. Tap the notification to answer with the AI on speaker instead.",
+                        fontSize = T.small, color = T.inkFaint)
+                }
+                Switch(checked = callText, onCheckedChange = { callText = it; MemoryStore.setCallTextBack(ctx, it) })
+            }
         }
 
         Spacer(Modifier.height(16.dp))
