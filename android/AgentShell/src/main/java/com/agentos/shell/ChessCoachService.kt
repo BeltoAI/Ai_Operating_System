@@ -141,13 +141,31 @@ class ChessCoachService : Service() {
                     moveLabel?.text = "Thinking… (Elo $elo)"
                     val mv = withContext(Dispatchers.IO) { ChessEngine.bestMove(board.fen, elo) }
                     if (mv != null) {
-                        moveLabel?.text = "Best: ${mv.san}   ${mv.evalText}   ·   ${mv.from}→${mv.to}"
-                        arrow?.setArrow(board.coords[mv.from], board.coords[mv.to])
+                        moveLabel?.text = "${pieceName(mv.san)}  ${mv.from} → ${mv.to}    ${mv.evalText}"
+                        arrow?.setArrow(board.coords[mv.from], board.coords[mv.to], cellSize(board.coords))
                     } else moveLabel?.text = "Couldn't reach the engine — check your connection."
                 }
             } catch (e: Exception) {}
             delay(1600)
         }
+    }
+
+    /** Human name of the piece being moved, from SAN ("Nf3" → Knight, "O-O" → Castle, else Pawn). */
+    private fun pieceName(san: String): String {
+        if (san.startsWith("O-O")) return "Castle"
+        return when (san.firstOrNull()) { 'N' -> "Knight"; 'B' -> "Bishop"; 'R' -> "Rook"; 'Q' -> "Queen"; 'K' -> "King"; else -> "Pawn" }
+    }
+
+    /** Approximate one square's size in pixels = the smallest gap between two square centres. */
+    private fun cellSize(coords: Map<String, Pair<Int, Int>>): Int {
+        val c = coords.values.toList()
+        var best = Int.MAX_VALUE
+        for (i in c.indices) for (j in i + 1 until c.size) {
+            val dx = c[i].first - c[j].first; val dy = c[i].second - c[j].second
+            val d2 = dx * dx + dy * dy
+            if (d2 in 1 until best) best = d2
+        }
+        return if (best == Int.MAX_VALUE) 90 else Math.sqrt(best.toDouble()).toInt()
     }
 
     override fun onDestroy() {
@@ -158,24 +176,38 @@ class ChessCoachService : Service() {
         super.onDestroy()
     }
 
-    /** Transparent full-screen view that draws a hint arrow between two screen points. */
+    /** Transparent full-screen view: rings the PIECE to move, marks the TARGET square, and draws a bold
+     *  arrow between them — so it's unmistakable which piece goes where. */
     private class ArrowView(ctx: Context) : View(ctx) {
         private var from: Pair<Int, Int>? = null
         private var to: Pair<Int, Int>? = null
-        private val line = Paint().apply { color = Color.parseColor("#CC00FF88"); strokeWidth = 16f; style = Paint.Style.STROKE; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-        private val head = Paint().apply { color = Color.parseColor("#CC00FF88"); style = Paint.Style.FILL; isAntiAlias = true }
-        fun setArrow(f: Pair<Int, Int>?, t: Pair<Int, Int>?) { from = f; to = t; postInvalidate() }
+        private var cell = 90f
+        private val fromRing = Paint().apply { color = Color.parseColor("#FF00FF88"); style = Paint.Style.STROKE; strokeWidth = 12f; isAntiAlias = true }
+        private val toRing = Paint().apply { color = Color.parseColor("#FFFFC400"); style = Paint.Style.STROKE; strokeWidth = 12f; isAntiAlias = true }
+        private val toFill = Paint().apply { color = Color.parseColor("#55FFC400"); style = Paint.Style.FILL; isAntiAlias = true }
+        private val line = Paint().apply { color = Color.parseColor("#EE00E676"); strokeWidth = 22f; style = Paint.Style.STROKE; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+        private val head = Paint().apply { color = Color.parseColor("#EE00E676"); style = Paint.Style.FILL; isAntiAlias = true }
+        fun setArrow(f: Pair<Int, Int>?, t: Pair<Int, Int>?, c: Int) { from = f; to = t; if (c > 20) cell = c.toFloat(); postInvalidate() }
         override fun onDraw(canvas: Canvas) {
             val f = from; val t = to
             if (f == null || t == null) return
+            val r = cell * 0.44f
             val x1 = f.first.toFloat(); val y1 = f.second.toFloat(); val x2 = t.first.toFloat(); val y2 = t.second.toFloat()
-            canvas.drawLine(x1, y1, x2, y2, line)
+            // target square (where to move) — filled + ring
+            canvas.drawCircle(x2, y2, r, toFill)
+            canvas.drawCircle(x2, y2, r, toRing)
+            // piece to move — bright ring
+            canvas.drawCircle(x1, y1, r, fromRing)
+            // bold arrow from edge of the source ring to edge of the target ring
             val ang = Math.atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())
-            val len = 46.0
+            val sx = x1 + r * Math.cos(ang); val sy = y1 + r * Math.sin(ang)
+            val ex = x2 - r * Math.cos(ang); val ey = y2 - r * Math.sin(ang)
+            canvas.drawLine(sx.toFloat(), sy.toFloat(), ex.toFloat(), ey.toFloat(), line)
+            val len = cell * 0.42
             val p = Path()
-            p.moveTo(x2, y2)
-            p.lineTo((x2 - len * Math.cos(ang - Math.PI / 7)).toFloat(), (y2 - len * Math.sin(ang - Math.PI / 7)).toFloat())
-            p.lineTo((x2 - len * Math.cos(ang + Math.PI / 7)).toFloat(), (y2 - len * Math.sin(ang + Math.PI / 7)).toFloat())
+            p.moveTo(ex.toFloat(), ey.toFloat())
+            p.lineTo((ex - len * Math.cos(ang - Math.PI / 6)).toFloat(), (ey - len * Math.sin(ang - Math.PI / 6)).toFloat())
+            p.lineTo((ex - len * Math.cos(ang + Math.PI / 6)).toFloat(), (ey - len * Math.sin(ang + Math.PI / 6)).toFloat())
             p.close()
             canvas.drawPath(p, head)
         }
