@@ -145,7 +145,8 @@ class ChessCoachService : Service() {
                         arrow?.setArrow(board.coords[mv.from], board.coords[mv.to], cellSize(board.coords))
                     } else {
                         arrow?.setArrow(null, null, 0)   // clear the stale arrow so it isn't misleading
-                        moveLabel?.text = "Engine busy — retrying…"
+                        moveLabel?.text = "Engine: ${ChessEngine.lastError.ifBlank { "no response" }}"
+                        delay(4000)   // back off so we don't hammer the endpoint on repeated failures
                     }
                 }
             } catch (e: Exception) {}

@@ -19,6 +19,8 @@ object ChessEngine {
 
     data class Move(val uci: String, val from: String, val to: String, val san: String, val evalText: String)
 
+    @Volatile var lastError: String = ""   // last failure reason, surfaced in the coach pill for diagnosis
+
     // Depth ↔ strength per chess-api docs: depth 12≈2350, 18≈2750 (free-tier max). Below that, depth scales
     // down toward club level. Max 18, so the true ceiling is ~2750 — anything higher on the slider clamps here.
     private fun depthFor(elo: Int): Int = when {
@@ -53,7 +55,7 @@ object ChessEngine {
             val code = c.responseCode
             val txt = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             c.disconnect()
-            if (code !in 200..299) { Log.w(TAG, "chess engine $code: ${txt.take(120)}"); return null }
+            if (code !in 200..299) { lastError = "HTTP $code ${txt.take(80)}"; Log.w(TAG, "chess engine $code: ${txt.take(120)}"); return null }
             // Bulletproof: scan out EVERY top-level {…} object (handles a single object OR a streamed set),
             // parse each, and use the last valid move (the final/best one).
             var best: Move? = null
@@ -65,7 +67,8 @@ object ChessEngine {
                     '}' -> { depthB--; if (depthB == 0 && start >= 0) { try { parseMove(JSONObject(s.substring(start, idx + 1)))?.let { best = it } } catch (e: Exception) {}; start = -1 } }
                 }
             }
+            if (best == null) lastError = "no move in reply: ${txt.take(80)}" else lastError = ""
             best
-        } catch (e: Exception) { Log.w(TAG, "chess engine fail: ${e.message}"); null }
+        } catch (e: Exception) { lastError = e.message ?: "network error"; Log.w(TAG, "chess engine fail: ${e.message}"); null }
     }
 }

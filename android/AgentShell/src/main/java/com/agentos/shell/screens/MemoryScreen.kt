@@ -505,13 +505,11 @@ private fun ChessCoachCard() {
     Collapsible("Chess Coach", "Live best-move hints at any strength") {
         Text("Open your chess game and tap Start (or turn on auto-start below). SlyOS reads the board each turn " +
             "and draws an arrow for the best move (Stockfish) — you play it yourself. Your colour is detected " +
-            "automatically. The hint pill is draggable — drag its ⠿ handle anywhere. For training, analysis, bots " +
-            "& puzzles. Needs “Display over other apps” + Accessibility.",
+            "automatically. Set the strength with the slider IN THE PILL, live, any time (500–2850). The pill is " +
+            "draggable — drag its ⠿ handle. For training, analysis, bots & puzzles. Needs “Display over other " +
+            "apps” + Accessibility.",
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
-        Text("Strength: ${elo.toInt()} Elo", fontSize = T.small, color = T.ink)
-        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it.coerceAtMost(2850f); p.edit().putInt("chess_elo", elo.toInt()).apply() }, valueRange = 500f..2850f,
-            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = T.accent, activeTrackColor = T.accent))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
             .clickable { autoStart = !autoStart; p.edit().putBoolean("chess_autostart", autoStart).apply() }.padding(vertical = 6.dp)) {
             Text("Auto-start when a chess app opens", fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
