@@ -19,6 +19,20 @@ today on a stock, unrooted Android phone, the one hard platform wall, and the ro
 
 This is genuinely "my AI takes my calls," and it needs nothing but the phone.
 
+## WhatsApp auto-answer (experimental, no root) — the closest to the vision on stock Android
+
+Settings → *Answer WhatsApp calls with AI* (off by default; needs Accessibility on). Flow:
+`InteractionLogService` detects the WhatsApp incoming-call window → taps **Answer** (or slides up) → forces
+**speaker** → starts `CallAgentService`, which runs the headless half-duplex loop (greet → listen → brain →
+speak in your voice). Your TTS plays out the speaker so the caller hears it; the mic hears the caller off the
+speaker. When the call UI disappears, the agent stops.
+
+**Honest caveats (why it's "experimental"):** (1) WhatsApp's answer/speaker buttons vary by version/locale —
+the node matching is heuristic and may need tuning; (2) while WhatsApp holds the mic for the call, a second
+app capturing it is device-dependent, so SlyOS *hearing* the caller may or may not work on a given phone
+(TTS→caller is reliable); (3) speaker acoustics add echo, mitigated by half-duplex. This is the maximum a
+non-root app can do; pristine, guaranteed capture still needs root or the SIP-endpoint.
+
 ## The one hard wall (why full auto-answer isn't possible on stock Android)
 
 You cannot capture or inject the **live two-way audio of a call** from a third-party app:

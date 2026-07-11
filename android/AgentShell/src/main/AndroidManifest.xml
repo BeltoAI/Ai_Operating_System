@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- The AI call agent runs as a microphone foreground service while talking to a caller. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <!-- Floating nav panel that draws over other apps (user-granted "Display over other apps"). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
@@ -116,6 +118,12 @@
                 <action android:name="android.telecom.CallScreeningService"/>
             </intent-filter>
         </service>
+
+        <!-- The AI call agent: talks to a caller after an auto-answered WhatsApp/VoIP call. -->
+        <service
+            android:name=".CallAgentService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"/>
 
         <!-- Chess Coach overlay (board hints). Plain started service; kept alive by its overlay windows. -->
         <service

@@ -237,6 +237,14 @@ class InteractionLogService : AccessibilityService() {
                 }
             } catch (e: Exception) {}
         }
+        // AUTO-ANSWER incoming WhatsApp/VoIP calls and hand them to the AI (experimental, off by default).
+        try {
+            if (MemoryStore.answerCalls(applicationContext) && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val fg = event.packageName?.toString() ?: ""
+                if (fg == "com.whatsapp" || fg == "com.whatsapp.w4b") handleWhatsAppCall()
+                else if (CallAgentService.running && fg != packageName) CallAgentService.stop(applicationContext) // call UI gone → hang up the agent
+            }
+        } catch (e: Throwable) {}
         // Auto-start Chess Coach when a chess app comes to the foreground (if the user armed it).
         // PERSONAL-ONLY: never runs in public builds.
         try {
@@ -267,6 +275,66 @@ class InteractionLogService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
+
+    // ── WhatsApp call auto-answer ─────────────────────────────────────────────────────────────────
+    // Detect the incoming-call UI, tap Answer (or slide up), switch to speaker so the mic can hear the
+    // caller and the AI's voice reaches them, then start the headless CallAgent loop. WhatsApp's UI text
+    // varies by version/locale, so this uses broad heuristics and is tuned on-device.
+    private fun handleWhatsAppCall() {
+        if (CallAgentService.running) return
+        val root = rootInActiveWindow ?: return
+        val answer = findClickableMatching(root, Regex("(?i)\\b(answer|accept)\\b"))
+        if (answer != null) {
+            clickNode(answer)
+        } else {
+            // Fallback for "slide up to answer" style: swipe up if that hint is present.
+            val slide = findNodeMatching(root, Regex("(?i)(swipe|slide).{0,12}(up|answer)"))
+            if (slide != null) swipe("up") else return
+        }
+        // Give the call a beat to connect, then force speaker + hand off to the AI.
+        android.os.Handler(mainLooper).postDelayed({
+            try {
+                val r2 = rootInActiveWindow
+                val spk = if (r2 != null) findClickableMatching(r2, Regex("(?i)speaker")) else null
+                if (spk != null && !isOn(spk)) clickNode(spk)
+            } catch (e: Exception) {}
+            try {
+                val am = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                am?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                @Suppress("DEPRECATION") am?.isSpeakerphoneOn = true
+            } catch (e: Exception) {}
+            CallAgentService.start(applicationContext)
+        }, 1800)
+    }
+
+    private fun isOn(n: AccessibilityNodeInfo): Boolean = try { n.isChecked || n.isSelected } catch (e: Exception) { false }
+
+    /** DFS for a node whose text/desc matches [rx] AND is clickable (or has a clickable ancestor). */
+    private fun findClickableMatching(node: AccessibilityNodeInfo?, rx: Regex, depth: Int = 0): AccessibilityNodeInfo? {
+        if (node == null || depth > 80) return null
+        val label = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+        if (label.isNotEmpty() && rx.containsMatchIn(label)) {
+            var cur: AccessibilityNodeInfo? = node; var hops = 0
+            while (cur != null && hops < 6) { if (cur.isClickable) return cur; cur = cur.parent; hops++ }
+        }
+        for (i in 0 until node.childCount) findClickableMatching(node.getChild(i), rx, depth + 1)?.let { return it }
+        return null
+    }
+
+    /** DFS for any node whose text/desc matches [rx] (for hints like "swipe up to answer"). */
+    private fun findNodeMatching(node: AccessibilityNodeInfo?, rx: Regex, depth: Int = 0): AccessibilityNodeInfo? {
+        if (node == null || depth > 80) return null
+        val label = (node.text ?: node.contentDescription)?.toString()?.trim().orEmpty()
+        if (label.isNotEmpty() && rx.containsMatchIn(label)) return node
+        for (i in 0 until node.childCount) findNodeMatching(node.getChild(i), rx, depth + 1)?.let { return it }
+        return null
+    }
+
+    private fun clickNode(n: AccessibilityNodeInfo): Boolean {
+        if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        val b = Rect(); n.getBoundsInScreen(b)
+        return tapAt(b.centerX().toFloat(), b.centerY().toFloat())
+    }
 
     private fun collect(node: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int = 0) {
         if (node == null || depth > 60 || sb.length > 4000) return

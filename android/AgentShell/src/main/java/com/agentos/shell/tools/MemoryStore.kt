@@ -292,6 +292,9 @@ object MemoryStore {
     /** When screening an unknown caller, also text them a brain-written reply in your voice. */
     fun callTextBack(ctx: Context): Boolean = prefs(ctx).getBoolean("call_textback", true)
     fun setCallTextBack(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("call_textback", v).apply()
+    /** EXPERIMENTAL: auto-answer incoming WhatsApp calls and let the AI talk to the caller (speaker loop). */
+    fun answerCalls(ctx: Context): Boolean = prefs(ctx).getBoolean("answer_calls", false)
+    fun setAnswerCalls(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("answer_calls", v).apply()
 
     /**
      * Night schedule: when on, auto-reply is FORCED on between [autoStartHour] and [autoEndHour]

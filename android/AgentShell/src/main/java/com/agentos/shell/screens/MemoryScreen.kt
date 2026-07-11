@@ -789,6 +789,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var endH by remember { mutableStateOf(MemoryStore.autoEndHour(ctx)) }
     var aiCalls by remember { mutableStateOf(MemoryStore.aiCallHandling(ctx)) }
     var callText by remember { mutableStateOf(MemoryStore.callTextBack(ctx)) }
+    var answerCalls by remember { mutableStateOf(MemoryStore.answerCalls(ctx)) }
     var showVoiceSetup by remember { mutableStateOf(false) }
     var spicyDaily by remember { mutableStateOf(MemoryStore.spicyDaily(ctx)) }
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
@@ -1225,6 +1226,15 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text(if (com.agentos.shell.tools.VoiceSampleStore.hasSample(ctx)) "Redo" else "Record",
                     fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable { showVoiceSetup = true }.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Answer WhatsApp calls with AI", fontSize = T.body, color = T.ink)
+                    Text("Experimental. Auto-answers incoming WhatsApp calls on speaker and lets your AI talk to the caller in your voice. Needs Accessibility on. Quality depends on your device — test before relying on it.",
+                        fontSize = T.small, color = T.inkFaint)
+                }
+                Switch(checked = answerCalls, onCheckedChange = { answerCalls = it; MemoryStore.setAnswerCalls(ctx, it) })
             }
         }
         if (showVoiceSetup) VoiceSetupDialog { showVoiceSetup = false }
