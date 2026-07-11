@@ -97,6 +97,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 
+        <!-- Chess Coach overlay (board hints). Plain started service; kept alive by its overlay windows. -->
+        <service
+            android:name=".ChessCoachService"
+            android:exported="false"/>
+
         <!-- Lets the camera write full-res photos we can read back for posts. -->
         <provider
             android:name="androidx.core.content.FileProvider"

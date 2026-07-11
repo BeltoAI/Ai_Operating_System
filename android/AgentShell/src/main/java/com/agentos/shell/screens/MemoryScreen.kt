@@ -495,6 +495,50 @@ private fun OnDeviceModelCard() {
     }
 }
 
+/** Chess Coach — an overlay that reads your live game and draws the best move at a chosen strength. */
+@Composable
+private fun ChessCoachCard() {
+    val ctx = LocalContext.current
+    var elo by remember { mutableStateOf(1500f) }
+    var side by remember { mutableStateOf("w") }
+    Collapsible("Chess Coach", "Live best-move hints at any strength") {
+        Text("Open your chess game, pick a strength, and tap Start. SlyOS reads the board every turn and draws " +
+            "an arrow for the best move (Stockfish) — you play it yourself. For training, analysis, bots & puzzles. " +
+            "Needs “Display over other apps” + Accessibility.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(12.dp))
+        Text("Strength: ${elo.toInt()} Elo", fontSize = T.small, color = T.ink)
+        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it }, valueRange = 500f..3600f,
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = T.accent, activeTrackColor = T.accent))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("You play:", fontSize = T.small, color = T.inkSoft)
+            Spacer(Modifier.width(10.dp))
+            listOf("w" to "White", "b" to "Black").forEach { (id, lbl) ->
+                val sel = side == id
+                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(if (sel) T.accent else T.hairline)
+                        .clickable { side = id }.padding(horizontal = 12.dp, vertical = 6.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        val canDraw = android.provider.Settings.canDrawOverlays(ctx)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Start coach", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (canDraw) T.accent else T.hairline)
+                    .clickable(enabled = canDraw) { com.agentos.shell.ChessCoachService.start(ctx, elo.toInt(), side) }
+                    .padding(horizontal = 16.dp, vertical = 9.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Stop", fontSize = T.small, color = T.inkSoft,
+                modifier = Modifier.clickable { com.agentos.shell.ChessCoachService.stop(ctx) }.padding(vertical = 9.dp))
+        }
+        if (!canDraw) {
+            Spacer(Modifier.height(6.dp))
+            Text("Grant “Display over other apps” first →", fontSize = T.caption, color = T.accent,
+                modifier = Modifier.clickable { try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} })
+        }
+    }
+}
+
 /** Reflex Learn — teach SlyOS a repeatable task by doing it once. Records your taps/typing and replays
  *  them perfectly (deterministic, no AI guessing). */
 @Composable
@@ -817,7 +861,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v27 · Reflex + teach-a-skill", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v28 · Chess Coach", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -917,6 +961,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Reflex Learn — teach a repeatable operate skill by demonstration.
         ReflexLearnCard()
+
+        // Chess Coach — live best-move overlay.
+        ChessCoachCard()
 
         // ---- Appearance ----
         Collapsible("Appearance") {
