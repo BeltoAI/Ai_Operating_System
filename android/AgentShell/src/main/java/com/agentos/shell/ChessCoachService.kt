@@ -137,13 +137,16 @@ class ChessCoachService : Service() {
                 val board = ChessBoard.parse(nodes, side)
                 if (board == null) { moveLabel?.text = "No board detected — open your chess game."; delay(1800); continue }
                 if (board.fen != lastFen) {
-                    lastFen = board.fen
                     moveLabel?.text = "Thinking… (Elo $elo)"
                     val mv = withContext(Dispatchers.IO) { ChessEngine.bestMove(board.fen, elo) }
                     if (mv != null) {
+                        lastFen = board.fen   // only mark this position solved on SUCCESS — else we retry next loop
                         moveLabel?.text = "${pieceName(mv.san)}  ${mv.from} → ${mv.to}    ${mv.evalText}"
                         arrow?.setArrow(board.coords[mv.from], board.coords[mv.to], cellSize(board.coords))
-                    } else moveLabel?.text = "Couldn't reach the engine — check your connection."
+                    } else {
+                        arrow?.setArrow(null, null, 0)   // clear the stale arrow so it isn't misleading
+                        moveLabel?.text = "Engine busy — retrying…"
+                    }
                 }
             } catch (e: Exception) {}
             delay(1600)

@@ -53,9 +53,15 @@ object ChessBoard {
             if (empty > 0) sb.append(empty)
             if (rank < 7) sb.append('/')
         }
+        // Real castling rights (a king/rook still on its home square) — hardcoding "KQkq" produces an
+        // ILLEGAL FEN once the king has moved, which the engine rejects. Only claim what's actually possible.
+        val cr = StringBuilder()
+        if (grid[7][4] == 'K') { if (grid[7][7] == 'R') cr.append('K'); if (grid[7][0] == 'R') cr.append('Q') }
+        if (grid[0][4] == 'k') { if (grid[0][7] == 'r') cr.append('k'); if (grid[0][0] == 'r') cr.append('q') }
+        val castle = if (cr.isEmpty()) "-" else cr.toString()
         // side == 'a' means AUTO → assume it's the user's move (that's when a hint is useful).
         val turn = if (side == 'w' || side == 'b') side else userColor
-        val fen = "$sb $turn KQkq - 0 1"
+        val fen = "$sb $turn $castle - 0 1"
         return Board(fen, coords, userColor)
     }
 }
