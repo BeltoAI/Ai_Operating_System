@@ -789,6 +789,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var endH by remember { mutableStateOf(MemoryStore.autoEndHour(ctx)) }
     var aiCalls by remember { mutableStateOf(MemoryStore.aiCallHandling(ctx)) }
     var callText by remember { mutableStateOf(MemoryStore.callTextBack(ctx)) }
+    var showVoiceSetup by remember { mutableStateOf(false) }
     var spicyDaily by remember { mutableStateOf(MemoryStore.spicyDaily(ctx)) }
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
     var kbStatus by remember { mutableStateOf("") }
@@ -1214,7 +1215,19 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
                 Switch(checked = callText, onCheckedChange = { callText = it; MemoryStore.setCallTextBack(ctx, it) })
             }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Set up my voice", fontSize = T.body, color = T.ink)
+                    Text(if (com.agentos.shell.tools.VoiceSampleStore.hasSample(ctx)) "Voice sample saved — the AI can answer in your voice." else "Record a 20-second sample so the AI answers in your cloned voice (on-device, never uploaded).",
+                        fontSize = T.small, color = T.inkFaint)
+                }
+                Text(if (com.agentos.shell.tools.VoiceSampleStore.hasSample(ctx)) "Redo" else "Record",
+                    fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable { showVoiceSetup = true }.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
         }
+        if (showVoiceSetup) VoiceSetupDialog { showVoiceSetup = false }
 
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

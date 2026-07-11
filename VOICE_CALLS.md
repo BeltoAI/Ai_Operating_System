@@ -52,8 +52,38 @@ speaker to the caller). Quality is limited by that acoustic path.
    call-forwarding runs the `STT → brain → TTS(cloned)` loop in the cloud and answers callers in your voice
    with low latency. This is how "Natural AI Phone"-style products actually do live answering.
 
+## The free on-device stack (Vosk + Chatterbox) — exact integration
+
+The voice loop is built around swappable STT/TTS so the free open-source models drop in without touching the
+call/brain plumbing. What's in-tree today: the **voice-clone training flow** (`VoiceSampleStore` +
+`VoiceSetupDialog` — record a 20 s sample, stored app-private, never uploaded) and the working
+`SpeechRecognizer → brain → TextToSpeech/ElevenLabs` loop. The two native pieces below need on-device
+build+test iterations (they can't be compiled/validated off-device), so they're documented as ready-to-add:
+
+### STT — Vosk (free, offline, ~50 MB model)
+1. `build.gradle.kts` (app): `implementation("com.alphacephei:vosk-android:0.3.47")`
+2. Ship/download a model (e.g. `vosk-model-small-en-us-0.15`) into app storage on first run.
+3. Wrapper: open a `Model(dir)`, create a `Recognizer(model, 16000f)`, feed it PCM from an `AudioRecord`
+   on `AudioSource.MIC` (in speaker mode the mic hears the caller), and emit `recognizer.result` /
+   `partialResult`. This replaces `SpeechRecognizer` in the loop — same callback shape, zero cloud.
+
+### TTS / cloning — Chatterbox (free, on-device, in your voice)
+Chatterbox is a PyTorch model; there is no Android library, so on-device use is a **model-conversion**
+project, not a drop-in:
+1. Convert the Chatterbox checkpoint to a mobile runtime — **ExecuTorch** (PyTorch's on-device target) or
+   **ONNX Runtime Mobile**. NeuTTS Air (0.5B) or Qwen3-TTS are lighter alternatives worth benchmarking on
+   the S25 first.
+2. Bundle the converted model + the user's `VoiceSampleStore.sampleFile` as the zero-shot reference.
+3. Implement a `TtsEngine.speak(text): audio` backed by the runtime; feed the audio to `AudioTrack`
+   (playing out the speaker so the caller hears it). Slot it in where the loop currently calls
+   `TextToSpeech`/ElevenLabs — the loop code doesn't change.
+Until that native runtime is wired, the loop uses free device `TextToSpeech` (not cloned) with ElevenLabs as
+the optional cloud-cloned fallback. The `VoiceSampleStore` sample is already captured and waiting for it.
+
 ## Files
 - `SlyCallScreeningService.kt` — the screening service + brain text-back + answer-on-speaker notification.
 - `tools/CallHandling.kt` — request/hold the call-screening role.
 - `MemoryStore.aiCallHandling / callTextBack` — the toggles (Settings).
 - Manifest: `SlyCallScreeningService` with `BIND_SCREENING_SERVICE` + `android.telecom.CallScreeningService`.
+- `tools/VoiceSampleStore.kt` — stores the on-device clone sample + the read-aloud training script.
+- `screens/VoiceSetupDialog.kt` — "Set up my voice": record / play back / delete the sample (Settings).
