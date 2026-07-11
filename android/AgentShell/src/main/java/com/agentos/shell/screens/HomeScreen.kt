@@ -562,7 +562,13 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
-        Text("what should happen?", fontSize = T.prompt, color = T.ink)
+        // Personalized greeting: "what should happen, Emil?" when we know a first name.
+        val firstName = remember {
+            (com.agentos.shell.tools.MemoryStore.profileName(ctx).ifBlank { com.agentos.shell.tools.MemoryStore.ownerName(ctx) })
+                .trim().substringBefore(' ').take(20)
+        }
+        Text(if (firstName.isBlank()) "what should happen?" else "what should happen, $firstName?",
+            fontSize = T.prompt, color = T.ink)
         Spacer(Modifier.height(14.dp))
 
         // App-name autocomplete: as you type, surface matching installed apps to open instantly.

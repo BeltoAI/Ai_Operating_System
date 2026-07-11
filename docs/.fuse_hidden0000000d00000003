@@ -37,7 +37,6 @@
     <div class="navlinks" onclick="this.classList.remove('open')">
       <a href="/">Home</a>
       <a href="/features.html">Features</a>
-      <a href="/store.html">Store</a>
       <a href="/setup.html">Setup</a>
       <a href="/vision.html">Vision</a>
       <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>

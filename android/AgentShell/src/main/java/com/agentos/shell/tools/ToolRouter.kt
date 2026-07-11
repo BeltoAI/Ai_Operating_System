@@ -105,6 +105,7 @@ object ToolRouter {
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
                 "navigate" -> navigate(ctx, arg)
+                "share_location" -> shareLocation(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
                 "create_doc" -> createDoc(ctx, arg)
                 "create_sheet" -> createSheet(ctx, arg)
@@ -151,7 +152,7 @@ object ToolRouter {
      */
     private val GATED = setOf(
         "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
-        "settings", "send_sms", "message", "send_email", "add_event",
+        "settings", "send_sms", "message", "send_email", "add_event", "share_location",
         "create_doc", "create_sheet", "create_slides", "create_pdf", "trade"
     )
 
@@ -496,6 +497,52 @@ object ToolRouter {
             start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
             "Opening Maps to $dest" + (if (stop.isNotBlank()) " via $stop" else "") + "."
         } catch (e: Exception) { "I couldn't open navigation." }
+    }
+
+    /**
+     * "Share my live location with <person> until I'm home & navigate me there."
+     * arg = {"name":"Mom","channel":"sms|telegram","home":"<address, optional>"}. Home falls back to the
+     * profile address. Starts [LiveLocationService], which texts a fresh Maps link on an interval and stops
+     * on arrival, and opens turn-by-turn navigation home.
+     */
+    private fun shareLocation(ctx: Context, arg: String): String {
+        return try {
+            val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("name", arg) }
+            val name = listOf(o.optString("name"), o.optString("to"), o.optString("contact")).firstOrNull { it.isNotBlank() } ?: ""
+            var channel = o.optString("channel").lowercase().ifBlank { "sms" }
+            var number = ""
+            var toName = name.ifBlank { "them" }
+            if (channel != "telegram") {
+                if (name.isBlank()) return "Who should I share your location with?"
+                if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $toName."
+                val contact = when (val r = ContactsTool.resolve(ctx, name)) {
+                    is ContactsTool.Resolution.Found -> r.contact
+                    is ContactsTool.Resolution.Ambiguous ->
+                        return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one?"
+                    ContactsTool.Resolution.None ->
+                        return "I couldn't find a contact called “$name”. What's their full name or number?"
+                }
+                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED)
+                    return "Turn on SMS permission so I can text $toName your location."
+                number = contact.number; toName = contact.name; channel = "sms"
+            }
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                return "Turn on Location access so I can share where you are."
+            val homeLabel = listOf(o.optString("home"), o.optString("destination"), MemoryStore.profileAddress(ctx))
+                .firstOrNull { it.isNotBlank() } ?: ""
+            var hlat = 0.0; var hlng = 0.0
+            if (homeLabel.isNotBlank()) {
+                try {
+                    val geo = android.location.Geocoder(ctx).getFromLocationName(homeLabel, 1)
+                    if (!geo.isNullOrEmpty()) { hlat = geo[0].latitude; hlng = geo[0].longitude }
+                } catch (e: Exception) { Log.w("SlyOS", "geocode failed", e) }
+            }
+            com.agentos.shell.LiveLocationService.start(ctx, toName, number, channel, hlat, hlng, homeLabel)
+            "Sharing your live location with $toName" +
+                (if (homeLabel.isNotBlank()) " until you're home" else "") +
+                (if (homeLabel.isNotBlank()) ", and starting navigation home." else ".")
+        } catch (e: Exception) { Log.e("SlyOS", "shareLocation", e); "I couldn't start location sharing." }
     }
 
     /** Open Spotify to play/find a song or artist (app if installed, else web). */

@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Focus Streak</title>
+<style>
+  :root{--a:#E8642C;--ink:#1A1714;--soft:#5C544B;--faint:#9A9085;--card:#FBF8F2;--line:#E2DACB;}
+  body{margin:0;padding:18px;background:#F4EFE6;color:var(--ink);font-family:-apple-system,system-ui,sans-serif;}
+  h1{font-size:22px;margin:0 0 2px;}
+  .sub{color:var(--faint);font-size:13px;margin-bottom:18px;}
+  .ring{width:190px;height:190px;margin:8px auto 4px;position:relative;}
+  .ring svg{transform:rotate(-90deg);}
+  .time{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .row{display:flex;gap:10px;margin:16px 0;}
+  button{flex:1;border:0;border-radius:12px;padding:14px;font-size:15px;font-weight:600;background:var(--a);color:#fff;}
+  button.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);}
+  .stats{display:flex;gap:10px;margin-top:8px;}
+  .stat{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center;}
+  .stat b{display:block;font-size:24px;}
+  .stat span{font-size:11px;color:var(--faint);}
+  .coach{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;font-size:14px;color:var(--soft);min-height:20px;}
+  .coach b{color:var(--a);}
+</style>
+</head>
+<body>
+  <h1>Focus Streak</h1>
+  <div class="sub">25-minute focus sprints. Build a daily streak. Get an AI pep talk when you finish.</div>
+
+  <div class="ring">
+    <svg width="190" height="190">
+      <circle cx="95" cy="95" r="86" stroke="#E2DACB" stroke-width="12" fill="none"/>
+      <circle id="arc" cx="95" cy="95" r="86" stroke="#E8642C" stroke-width="12" fill="none"
+              stroke-linecap="round" stroke-dasharray="540" stroke-dashoffset="0"/>
+    </svg>
+    <div class="time" id="time">25:00</div>
+  </div>
+
+  <div class="row">
+    <button id="go" onclick="toggle()">Start</button>
+    <button class="ghost" onclick="reset()">Reset</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="streak">0</b><span>DAY STREAK</span></div>
+    <div class="stat"><b id="total">0</b><span>SESSIONS</span></div>
+    <div class="stat"><b id="mins">0</b><span>FOCUS MIN</span></div>
+  </div>
+
+  <div class="coach" id="coach">Tap start when you're ready to focus.</div>
+
+<script>
+  var LEN = 25*60, left = LEN, timer = null, R = 86, C = 2*Math.PI*R;
+  document.getElementById('arc').setAttribute('stroke-dasharray', C);
+
+  var s = SlyOS.load('state') || {streak:0, total:0, mins:0, lastDay:null};
+  render();
+
+  function fmt(x){var m=Math.floor(x/60),ss=x%60;return m+':'+(ss<10?'0':'')+ss;}
+  function draw(){
+    document.getElementById('time').textContent = fmt(left);
+    document.getElementById('arc').setAttribute('stroke-dashoffset', C*(1-left/LEN));
+  }
+  function render(){
+    document.getElementById('streak').textContent = s.streak;
+    document.getElementById('total').textContent = s.total;
+    document.getElementById('mins').textContent = s.mins;
+    draw();
+  }
+  function toggle(){
+    if(timer){ clearInterval(timer); timer=null; document.getElementById('go').textContent='Resume'; return; }
+    document.getElementById('go').textContent='Pause';
+    timer=setInterval(function(){
+      left--; draw();
+      if(left<=0){ clearInterval(timer); timer=null; done(); }
+    },1000);
+  }
+  function reset(){ if(timer)clearInterval(timer); timer=null; left=LEN; draw(); document.getElementById('go').textContent='Start'; }
+
+  function done(){
+    var today = new Date().toDateString();
+    s.total++; s.mins += 25;
+    if(s.lastDay !== today){
+      var yest = new Date(Date.now()-864e5).toDateString();
+      s.streak = (s.lastDay === yest) ? s.streak+1 : 1;
+      s.lastDay = today;
+    }
+    SlyOS.save('state', s);
+    render(); reset();
+    document.getElementById('coach').innerHTML = '<b>Nice.</b> Thinking of something to say…';
+    SlyOS.ask('Give me a short, warm one-sentence congratulations for finishing a 25-minute focus session. My streak is now '+s.streak+' days.')
+      .then(function(t){ document.getElementById('coach').innerHTML = '<b>Coach:</b> '+(t||'Well done — that\'s '+s.streak+' days running.'); });
+  }
+</script>
+</body>
+</html>

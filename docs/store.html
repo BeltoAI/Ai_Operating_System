@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlyOS Store — an app store for agents</title>
+<meta name="description" content="A marketplace of AI agents for SlyOS. Browse, rate and install sandboxed mini-agents in one tap — or publish your own to phones worldwide in minutes. Ratings, reviews and versioned releases, all on the free tier.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SlyOS Store — an app store for agents">
+<meta property="og:description" content="Browse, rate and install sandboxed AI agents in one tap. Publish yours to the world in minutes.">
+<meta property="og:url" content="https://slyos.world/store.html">
+<meta property="og:image" content="https://slyos.world/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#15120E">
+<script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* ── Store page: a compact App-Store mockup rendered inside the phone ── */
+  .st-head{ display:flex; align-items:center; gap:10px; margin:10px 0 12px; }
+  .st-head .t{ font-family:var(--script); font-style:italic; font-size:24px; line-height:1; flex:1; }
+  .st-pub{ background:var(--accent); color:#fff; font-size:11px; font-weight:700; padding:5px 11px; border-radius:999px; }
+  .st-search{ display:flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--line);
+    border-radius:11px; padding:9px 11px; font-size:12px; color:var(--faint); }
+  .st-search .mg{ width:12px; height:12px; border:1.6px solid var(--faint); border-radius:50%; position:relative; }
+  .st-search .mg::after{ content:''; position:absolute; width:5px; height:1.6px; background:var(--faint); bottom:-2px; right:-3px; transform:rotate(45deg); }
+  .st-chips{ display:flex; gap:6px; margin:11px 0; overflow:hidden; }
+  .st-chip{ font-size:11px; padding:5px 11px; border-radius:999px; background:var(--card); border:1px solid var(--line); color:var(--soft); white-space:nowrap; }
+  .st-chip.on{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .st-sec{ font-family:var(--script); font-style:italic; font-size:19px; margin:6px 0 8px; }
+  .st-feat{ display:flex; gap:10px; }
+  .st-fcard{ flex:1; background:var(--card); border:1px solid var(--line); border-radius:15px; padding:11px; }
+  .st-cat{ font-size:8px; letter-spacing:.5px; font-weight:800; color:var(--accent); }
+  .tile{ border-radius:14px; display:flex; align-items:center; justify-content:center; }
+  .tile.lg{ width:46px; height:46px; font-size:22px; margin:7px 0; box-shadow:0 4px 12px rgba(232,100,44,.22); }
+  .tile.sm{ width:38px; height:38px; font-size:18px; }
+  .g1{ background:linear-gradient(135deg,#F2C7AE,rgba(232,100,44,.35)); }
+  .g2{ background:linear-gradient(135deg,#CDE3D6,rgba(63,134,196,.30)); }
+  .g3{ background:linear-gradient(135deg,#E7D2F0,rgba(123,63,242,.30)); }
+  .g4{ background:linear-gradient(135deg,#F5D9C0,rgba(240,112,58,.30)); }
+  .st-fcard .nm{ font-size:12px; font-weight:700; }
+  .st-fcard .rt{ font-size:9px; color:var(--accent); font-weight:700; margin-top:2px; }
+  .st-fcard .get, .st-row .get{ background:rgba(232,100,44,.16); color:var(--accent); font-size:9px; font-weight:800; padding:4px 12px; border-radius:999px; }
+  .st-fcard .foot{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+  .st-row{ display:flex; align-items:center; gap:10px; padding:8px 0; }
+  .st-row .rk{ width:14px; font-size:13px; font-weight:800; color:var(--faint); }
+  .st-row .meta{ flex:1; min-width:0; }
+  .st-row .meta .nm{ font-size:13px; font-weight:700; }
+  .st-row .meta .sub{ font-size:10px; color:var(--faint); }
+  .st-row .meta .sub b{ color:var(--accent); font-weight:700; }
+  .st-row + .st-row{ border-top:1px solid var(--line); }
+  /* code sample */
+  .code{ background:#0f0d0b; border:1px solid var(--line); border-radius:14px; padding:18px 20px; overflow:auto;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; line-height:1.7; color:#d7cdbd; }
+  .code .k{ color:#F0703A; } .code .s{ color:#9ec7a0; } .code .c{ color:#6b6156; }
+  .stepgrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px; margin-top:14px; }
+  .stepcard{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
+  .stepcard .n{ font-size:12px; letter-spacing:2px; color:var(--accent); font-weight:700; }
+  .stepcard h4{ font-family:var(--script); font-style:italic; font-weight:400; font-size:26px; margin:8px 0 8px; }
+  .stepcard p{ font-size:15px; color:var(--soft); margin:0; line-height:1.5; }
+  .safe{ display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; }
+  .safe .pillbig{ background:var(--card); border:1px solid var(--line); border-radius:999px; padding:9px 16px; font-size:14px; color:var(--soft); }
+  .safe .pillbig b{ color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><a href="/" style="color:inherit;text-decoration:none">Sly<b>OS</b></a></div>
+    <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
+    <div class="navlinks" onclick="this.classList.remove('open')">
+      <a href="/">Home</a>
+      <a href="/features.html">Features</a>
+      <a href="/store.html">Store</a>
+      <a href="/setup.html">Setup</a>
+      <a href="/docs.html">Docs</a>
+      <a href="/vision.html">Vision</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="/#get" class="navdl">Download</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hcopy">
+      <p class="eyebrow">The SlyOS Store</p>
+      <h1>An app store<br>for agents.</h1>
+      <p class="lede">Every agent is a tiny, self-contained app that runs <em>inside</em> your phone's mind — sandboxed,
+        rated, reviewed and versioned. Browse Top Charts, install in one tap, and build your own in minutes.
+        No accounts to wire up, no servers to run. It's on the free tier, and it's global from day one.</p>
+    </div>
+
+    <div class="phonewrap">
+      <div class="phone"><div class="screen"><div class="notch"></div>
+        <div class="st-head">
+          <div class="t">Store</div>
+          <div class="st-pub">＋ Publish</div>
+        </div>
+        <div class="st-search"><span class="mg"></span> Agents, tools, games…</div>
+        <div class="st-chips">
+          <span class="st-chip on">All</span><span class="st-chip">Productivity</span>
+          <span class="st-chip">Games</span><span class="st-chip">Finance</span>
+        </div>
+
+        <div class="st-sec">Featured</div>
+        <div class="st-feat">
+          <div class="st-fcard">
+            <div class="st-cat">PRODUCTIVITY</div>
+            <div class="tile lg g1">⏳</div>
+            <div class="nm">Focus Streak</div>
+            <div class="rt">★ 4.8</div>
+            <div class="foot"><span style="font-size:8px;color:var(--faint)">2.4k</span><span class="get">GET</span></div>
+          </div>
+          <div class="st-fcard">
+            <div class="st-cat">GAMES</div>
+            <div class="tile lg g3">♟</div>
+            <div class="nm">Pocket Chess</div>
+            <div class="rt">★ 4.6</div>
+            <div class="foot"><span style="font-size:8px;color:var(--faint)">5.1k</span><span class="get">GET</span></div>
+          </div>
+        </div>
+
+        <div class="st-sec" style="margin-top:12px">Top Charts</div>
+        <div class="st-row"><span class="rk">1</span><div class="tile sm g2">💸</div>
+          <div class="meta"><div class="nm">Split It</div><div class="sub"><b>★ 4.9</b> · Finance · 8.7k</div></div><span class="get">GET</span></div>
+        <div class="st-row"><span class="rk">2</span><div class="tile sm g4">🧠</div>
+          <div class="meta"><div class="nm">Flash Tutor</div><div class="sub"><b>★ 4.7</b> · Health · 6.2k</div></div><span class="get">GET</span></div>
+        <div class="st-row"><span class="rk">3</span><div class="tile sm g1">🎯</div>
+          <div class="meta"><div class="nm">Habit Rings</div><div class="sub"><b>★ 4.6</b> · Productivity · 5.9k</div></div><span class="get">GET</span></div>
+
+        <div class="navbar" data-active="apps"></div>
+      </div></div>
+    </div>
+
+    <div class="hcta">
+      <a class="btn" href="/#get">↓ Get SlyOS &amp; open the Store</a>
+      <p class="sub">Browse &amp; install free · publish with a free account · agents run <span class="pill">fully sandboxed</span></p>
+      <div class="stats">
+        <div><b id="agentsStat">—</b><span>agents &amp; counting</span></div>
+        <div><b>1&nbsp;tap</b><span>to install</span></div>
+        <div><b>&lt;5&nbsp;min</b><span>to publish yours</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHAT IT IS -->
+  <section>
+    <p class="eyebrow">How it works</p>
+
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div class="st-head"><div class="t" style="flex:1">Focus Streak</div><div class="st-pub">OPEN</div></div>
+        <div class="st-feat" style="margin-top:4px">
+          <div class="st-fcard" style="flex:1"><div class="st-cat">★ 4.8 · 312 RATINGS</div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <div class="tile sm g1">⏳</div>
+              <div><div class="nm">v3 · What's New</div><div style="font-size:10px;color:var(--soft);margin-top:2px">Added weekly streak insights &amp; an AI coach.</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="st-sec" style="margin-top:14px">Ratings &amp; Reviews</div>
+        <div class="st-row" style="padding:6px 0"><div class="meta"><div class="rt" style="color:var(--accent);font-size:11px">★★★★★</div>
+          <div style="font-size:11px;color:var(--soft);margin-top:3px">"Kept me off my phone for a week straight." — <b style="color:var(--ink)">Mara</b></div></div></div>
+        <div class="st-row" style="padding:6px 0"><div class="meta"><div class="rt" style="color:var(--accent);font-size:11px">★★★★☆</div>
+          <div style="font-size:11px;color:var(--soft);margin-top:3px">"The pep talk at the end is genuinely nice." — <b style="color:var(--ink)">Devin</b></div></div></div>
+        <div class="navbar" data-active="apps"></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">01</div>
+        <h3>Ratings, reviews &amp; releases — like a real store.</h3>
+        <p>Every agent carries a live star rating (a database trigger keeps the average honest), written reviews
+          from real installs, and a full version history with "What's New" notes. Popularity drives Top Charts.
+          Developers ship updates as versioned releases, and users see exactly what changed.</p>
+      </div>
+    </div>
+
+    <div class="frow">
+      <div class="fvisual">
+        <div class="code" aria-label="A minimal SlyOS agent">
+<span class="c">&lt;!-- a whole agent, in one file --&gt;</span>
+&lt;<span class="k">button</span> onclick=<span class="s">"tick()"</span>&gt;Focus&lt;/<span class="k">button</span>&gt;
+&lt;<span class="k">script</span>&gt;
+<span class="k">function</span> tick(){
+  <span class="k">let</span> n = (<span class="k">SlyOS</span>.load(<span class="s">'n'</span>)||0)+1;
+  <span class="k">SlyOS</span>.save(<span class="s">'n'</span>, n);         <span class="c">// persists</span>
+  <span class="k">SlyOS</span>.ask(<span class="s">'cheer me on'</span>)      <span class="c">// on-device AI</span>
+    .then(t =&gt; msg.textContent = t);
+}
+&lt;/<span class="k">script</span>&gt;
+        </div>
+      </div>
+      <div class="ftext"><div class="fnum">02</div>
+        <h3>Build one in minutes. It's just HTML.</h3>
+        <p>An agent is a single self-contained HTML file. A small <code>SlyOS</code> bridge lets it persist data,
+          read the user's memory (only with permission), and call the phone's AI — all with a few lines. Craft it
+          in the built-in Architect, tap Publish, and it's live to the world once approved. No build tools, no
+          signing, no servers.</p>
+      </div>
+    </div>
+
+    <div class="frow">
+      <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
+        <div class="pw">Sly<b>OS</b></div>
+        <div style="margin-top:16px" class="st-sec">Publish an agent</div>
+        <div class="st-search" style="margin-bottom:8px">Which app? &nbsp;<b style="color:var(--accent)">Focus Streak</b></div>
+        <div class="st-search" style="margin-bottom:8px;color:var(--ink)">A 25-min focus timer with streaks.</div>
+        <div class="st-chips"><span class="st-chip on">Productivity</span><span class="st-chip">Health</span><span class="st-chip">Fun</span></div>
+        <div class="st-pub" style="display:inline-block;margin-top:10px;padding:10px 18px;font-size:13px">Publish agent</div>
+        <div style="font-size:11px;color:var(--faint);margin-top:12px">Goes live once reviewed — moderation keeps the catalogue clean.</div>
+        <div class="navbar" data-active="apps"></div>
+      </div></div></div>
+      <div class="ftext"><div class="fnum">03</div>
+        <h3>Global from day one — on the free tier.</h3>
+        <p>The whole marketplace runs on a single Supabase Postgres with row-level security: anyone can read
+          approved agents, signed-in developers publish their own, and an install counter and rating aggregates
+          update atomically. Thousands of agents fit before you'd ever pay a cent. The full schema and REST
+          contract are open, so any client can build on the same store.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PUBLISH STEPS -->
+  <section>
+    <p class="eyebrow">For developers</p>
+    <h2 style="font-size:clamp(30px,5vw,52px);margin:.1em 0 .3em">Ship an agent to the world</h2>
+    <p class="muted">Four steps, and someone in another country installs your agent tomorrow.</p>
+    <div class="stepgrid">
+      <div class="stepcard"><div class="n">01</div><h4>Build</h4><p>Describe it to the Architect, or write the HTML yourself. Use <code>SlyOS.save / load / ask / memory</code>.</p></div>
+      <div class="stepcard"><div class="n">02</div><h4>Publish</h4><p>Open the Store, tap Publish, pick your mini-app, add a name, icon and category. Done.</p></div>
+      <div class="stepcard"><div class="n">03</div><h4>Get reviewed</h4><p>New submissions are held for a quick review, then flipped live. Sandboxing keeps the blast radius tiny.</p></div>
+      <div class="stepcard"><div class="n">04</div><h4>Iterate</h4><p>Ship versioned releases with "What's New" notes. Watch installs, stars and reviews roll in.</p></div>
+    </div>
+  </section>
+
+  <!-- SAFETY -->
+  <section>
+    <p class="eyebrow">Safe by design</p>
+    <h2 style="font-size:clamp(28px,4.5vw,46px);margin:.1em 0 .3em">Install a stranger's agent, safely.</h2>
+    <p class="muted">Every agent runs in a locked-down WebView. A strict content-security policy means an agent — even
+      a malicious one — simply cannot phone home. Data only ever flows through the bridge you can see.</p>
+    <div class="safe">
+      <span class="pillbig"><b>No network.</b> No fetch, XHR or sockets — <code>connect-src 'none'</code>.</span>
+      <span class="pillbig"><b>No exfiltration.</b> Forms and beacons are blocked.</span>
+      <span class="pillbig"><b>Memory is opt-in.</b> Your brain is off-limits unless you grant it.</span>
+      <span class="pillbig"><b>Reviewed.</b> Nothing goes live until approved.</span>
+    </div>
+    <p style="margin-top:26px"><a class="btn" href="/#get">↓ Download SlyOS</a>
+      <a class="btn ghost" href="/docs.html" style="margin-left:10px">Read the docs</a></p>
+  </section>
+
+  <footer>
+    <div style="margin-bottom:12px">
+      <a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="mailto:support@belto.world">Contact</a>
+    </div>
+    <strong>SlyOS</strong> by Belto · An open marketplace of sandboxed AI agents · Browse &amp; install free,
+    publish with a free account. © 2026 Belto.
+  </footer>
+
+</div>
+<script src="/app.js"></script>
+<script>
+  // Gentle count-up for the "agents & counting" stat.
+  (function(){
+    var el = document.getElementById('agentsStat'); if(!el) return;
+    var target = 128, n = 0, step = Math.max(1, Math.round(target/40));
+    var t = setInterval(function(){ n += step; if(n>=target){ n=target; clearInterval(t); } el.textContent = n; }, 24);
+  })();
+</script>
+</body>
+</html>

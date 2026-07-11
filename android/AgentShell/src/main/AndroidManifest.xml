@@ -15,6 +15,10 @@
     <!-- Telegram bot runs as a foreground service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- Live-location sharing "until I'm home" runs as a location foreground service. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <!-- Floating nav panel that draws over other apps (user-granted "Display over other apps"). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
@@ -96,6 +100,12 @@
             android:name=".OverlayNavService"
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
+
+        <!-- Live-location sharing "until I'm home" (foreground service, location type). -->
+        <service
+            android:name=".LiveLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location"/>
 
         <!-- Chess Coach overlay (board hints). Plain started service; kept alive by its overlay windows. -->
         <service

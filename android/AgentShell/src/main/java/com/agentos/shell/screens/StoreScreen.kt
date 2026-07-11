@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -155,6 +156,23 @@ private fun SectionHeader(title: String) {
     Text(title, fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
 }
 
+/** Five-star row. Read-only unless [onPick] is supplied. ★/☆ are geometric glyphs, not emoji. */
+@Composable
+private fun Stars(value: Int, size: Int = 13, onPick: ((Int) -> Unit)? = null) =
+    Row {
+        for (i in 1..5) {
+            Text(if (i <= value) "★" else "☆", fontSize = size.sp, color = T.accent,
+                modifier = if (onPick != null) Modifier.clickable { onPick(i) }.padding(end = 2.dp) else Modifier.padding(end = 1.dp))
+        }
+    }
+
+/** Compact "★ 4.6 (12)" label; renders nothing until an agent has ratings. */
+@Composable
+private fun RatingLabel(rating: Double, count: Int, fontSize: Int = 11) {
+    if (count <= 0) return
+    Text("★ ${"%.1f".format(rating)} ($count)", fontSize = fontSize.sp, color = T.accent, fontWeight = FontWeight.SemiBold)
+}
+
 /** A rounded squircle icon tile with a soft accent gradient and the agent's glyph. */
 @Composable
 private fun IconTile(icon: String, size: Int) =
@@ -185,7 +203,10 @@ private fun FeaturedCard(a: AgentStore.Agent, installedNow: Boolean, onClick: ()
         Text(a.description.ifBlank { "by ${a.author}" }, fontSize = T.caption, color = T.inkFaint, maxLines = 2, modifier = Modifier.height(30.dp))
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("${a.installs} installs", fontSize = 10.sp, color = T.inkFaint, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                if (a.ratingsCount > 0) RatingLabel(a.rating, a.ratingsCount, 10)
+                Text("${a.installs} installs", fontSize = 10.sp, color = T.inkFaint)
+            }
             StorePill(installedNow, onGet)
         }
     }
@@ -202,7 +223,10 @@ private fun ChartRow(rank: Int, a: AgentStore.Agent, installedNow: Boolean, onCl
         Column(Modifier.weight(1f)) {
             Text(a.name, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Text(a.description.ifBlank { a.author }, fontSize = T.caption, color = T.inkFaint, maxLines = 1)
-            Text("${a.category} · ${a.installs} installs", fontSize = 11.sp, color = T.inkFaint, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (a.ratingsCount > 0) { RatingLabel(a.rating, a.ratingsCount); Text("  ·  ", fontSize = 11.sp, color = T.inkFaint) }
+                Text("${a.category} · ${a.installs} installs", fontSize = 11.sp, color = T.inkFaint, maxLines = 1)
+            }
         }
         Spacer(Modifier.width(8.dp))
         StorePill(installedNow, onGet)
@@ -233,36 +257,125 @@ private fun EmptyState(title: String, body: String, cta: String, onCta: () -> Un
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable { onCta() }.padding(horizontal = 20.dp, vertical = 10.dp))
     }
 
-/** Bottom detail sheet — big header, install count, description, primary action. */
+/** Full detail sheet — rating summary, install action, About, What's New (versions), and reviews. */
 @Composable
-private fun DetailSheet(a: AgentStore.Agent, installedNow: Boolean, onGet: () -> Unit, onClose: () -> Unit) =
+private fun DetailSheet(a: AgentStore.Agent, installedNow: Boolean, onGet: () -> Unit, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var reviews by remember { mutableStateOf<List<AgentStore.Review>>(emptyList()) }
+    var releases by remember { mutableStateOf<List<AgentStore.Release>>(emptyList()) }
+    var rating by remember { mutableStateOf(a.rating) }
+    var ratingsCount by remember { mutableStateOf(a.ratingsCount) }
+    var myStars by remember { mutableStateOf(0) }
+    var myText by remember { mutableStateOf("") }
+    var reviewMsg by remember { mutableStateOf("") }
+
+    fun reload() = scope.launch {
+        val rv = withContext(Dispatchers.IO) { AgentStore.reviews(a.id) }
+        val rl = withContext(Dispatchers.IO) { AgentStore.releases(a.id) }
+        val fresh = withContext(Dispatchers.IO) { AgentStore.list("", a.category).firstOrNull { it.id == a.id } }
+        reviews = rv; releases = rl
+        if (fresh != null) { rating = fresh.rating; ratingsCount = fresh.ratingsCount }
+    }
+    LaunchedEffect(a.id) { reload() }
+
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(T.bgElevated).padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconTile(a.icon, 64)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(a.name, fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold, maxLines = 2)
-                    Text("by ${a.author}", fontSize = T.small, color = T.inkFaint)
+        Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).clip(RoundedCornerShape(22.dp)).background(T.bgElevated)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+                // Header
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(a.icon, 64)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(a.name, fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold, maxLines = 2)
+                        Text("by ${a.author}", fontSize = T.small, color = T.inkFaint)
+                    }
+                    StorePill(installedNow, onGet)
                 }
-                StorePill(installedNow, onGet)
+                Spacer(Modifier.height(16.dp))
+                // Stats strip
+                Row(Modifier.fillMaxWidth()) {
+                    MetaCell(if (ratingsCount > 0) "%.1f".format(rating) else "—", if (ratingsCount > 0) "★ $ratingsCount ratings" else "no ratings yet", Modifier.weight(1f))
+                    Box(Modifier.width(1.dp).height(34.dp).background(T.hairline))
+                    MetaCell(a.installs.toString(), "installs", Modifier.weight(1f))
+                    Box(Modifier.width(1.dp).height(34.dp).background(T.hairline))
+                    MetaCell("v${a.version}", a.category, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(18.dp))
+                // About
+                Text("About", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(a.description.ifBlank { "No description provided." }, fontSize = T.small, color = T.inkSoft)
+
+                // What's New (version history)
+                if (releases.isNotEmpty()) {
+                    Spacer(Modifier.height(20.dp))
+                    Text("What's New", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    releases.take(6).forEach { r ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Text("v${r.version}", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Bold, modifier = Modifier.width(38.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(r.notes.ifBlank { "Update" }, fontSize = T.caption, color = T.inkSoft)
+                                Text(r.date, fontSize = 10.sp, color = T.inkFaint)
+                            }
+                        }
+                    }
+                }
+
+                // Reviews
+                Spacer(Modifier.height(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ratings & Reviews", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    RatingLabel(rating, ratingsCount, 12)
+                }
+                Spacer(Modifier.height(10.dp))
+                // Write a review
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bg).padding(12.dp)) {
+                    Text("Rate this agent", fontSize = T.caption, color = T.inkFaint)
+                    Spacer(Modifier.height(6.dp))
+                    Stars(myStars, 22) { myStars = it }
+                    Spacer(Modifier.height(8.dp))
+                    BasicTextField(myText, { myText = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 38.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(10.dp),
+                        decorationBox = { inner -> if (myText.isEmpty()) Text("Say something (optional)", fontSize = T.small, color = T.inkFaint); inner() })
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Submit", fontSize = T.caption, color = Color.White, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (myStars > 0) T.accent else T.hairline)
+                                .clickable(enabled = myStars > 0) {
+                                    scope.launch {
+                                        val (ok, m) = withContext(Dispatchers.IO) { AgentStore.postReview(ctx, a.id, myStars, myText) }
+                                        reviewMsg = m
+                                        if (ok) { myText = ""; myStars = 0; reload() }
+                                    }
+                                }.padding(horizontal = 16.dp, vertical = 7.dp))
+                        if (reviewMsg.isNotBlank()) { Spacer(Modifier.width(10.dp)); Text(reviewMsg, fontSize = 11.sp, color = T.inkSoft) }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (reviews.isEmpty()) {
+                    Text("No reviews yet — be the first.", fontSize = T.caption, color = T.inkFaint)
+                } else {
+                    reviews.forEach { r ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Stars(r.stars, 12)
+                                Spacer(Modifier.width(8.dp))
+                                Text(r.author, fontSize = T.caption, color = T.ink, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                Text(r.date, fontSize = 10.sp, color = T.inkFaint)
+                            }
+                            if (r.body.isNotBlank()) { Spacer(Modifier.height(3.dp)); Text(r.body, fontSize = T.small, color = T.inkSoft) }
+                        }
+                        Hairline()
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.align(Alignment.CenterHorizontally).clickable { onClose() })
             }
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth()) {
-                MetaCell(a.installs.toString(), "installs", Modifier.weight(1f))
-                Box(Modifier.width(1.dp).height(34.dp).background(T.hairline))
-                MetaCell(a.category, "category", Modifier.weight(1f))
-                Box(Modifier.width(1.dp).height(34.dp).background(T.hairline))
-                MetaCell("Sandboxed", "runs safely", Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("About", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(a.description.ifBlank { "No description provided." }, fontSize = T.small, color = T.inkSoft)
-            Spacer(Modifier.height(18.dp))
-            Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.align(Alignment.CenterHorizontally).clickable { onClose() })
         }
     }
+}
 
 @Composable
 private fun MetaCell(value: String, label: String, modifier: Modifier) =

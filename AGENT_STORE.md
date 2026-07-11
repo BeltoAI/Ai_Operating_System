@@ -42,6 +42,77 @@ $$ language sql security definer;
 grant execute on function public.bump_installs(uuid) to anon, authenticated;
 ```
 
+## 1b. Ratings, reviews & versioned releases (run this too)
+
+Turns the catalogue into a real marketplace: star ratings with a trigger-maintained average, one review
+per user per agent, and a full release history with an atomic "publish a new version" function.
+
+```sql
+-- Aggregate columns kept in sync by a trigger (never write these directly):
+alter table public.agents add column if not exists rating numeric(2,1) default 0;
+alter table public.agents add column if not exists ratings_count int default 0;
+
+-- One review per user per agent:
+create table public.reviews (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid references public.agents(id) on delete cascade,
+  user_id  uuid references auth.users(id) on delete cascade,
+  author   text,
+  stars    int not null check (stars between 1 and 5),
+  body     text,
+  created_at timestamptz default now(),
+  unique (agent_id, user_id)
+);
+create index reviews_agent_idx on public.reviews (agent_id, created_at desc);
+alter table public.reviews enable row level security;
+create policy "read reviews"    on public.reviews for select using (true);
+create policy "write own review" on public.reviews for insert with check (auth.uid() = user_id);
+create policy "update own review" on public.reviews for update using (auth.uid() = user_id);
+create policy "delete own review" on public.reviews for delete using (auth.uid() = user_id);
+
+-- Trigger: recompute agents.rating + ratings_count on any review change:
+create or replace function public.recalc_rating() returns trigger as $$
+declare aid uuid;
+begin
+  aid := coalesce(new.agent_id, old.agent_id);
+  update public.agents a set
+    ratings_count = (select count(*) from public.reviews r where r.agent_id = aid),
+    rating = coalesce((select round(avg(stars)::numeric, 1) from public.reviews r where r.agent_id = aid), 0)
+  where a.id = aid;
+  return null;
+end; $$ language plpgsql security definer;
+create trigger reviews_recalc after insert or update or delete on public.reviews
+  for each row execute function public.recalc_rating();
+
+-- Full release history:
+create table public.agent_versions (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid references public.agents(id) on delete cascade,
+  version  int not null,
+  notes    text,
+  created_at timestamptz default now()
+);
+create index versions_agent_idx on public.agent_versions (agent_id, version desc);
+alter table public.agent_versions enable row level security;
+create policy "read versions" on public.agent_versions for select using (true);
+create policy "owner insert version" on public.agent_versions for insert
+  with check (auth.uid() = (select user_id from public.agents where id = agent_id));
+
+-- Atomic release: bump code + version and log the changelog. Owner only.
+create or replace function public.publish_release(p_agent uuid, p_code text, p_notes text)
+returns int as $$
+declare v int;
+begin
+  if auth.uid() <> (select user_id from public.agents where id = p_agent) then
+    raise exception 'not the owner';
+  end if;
+  update public.agents set code = p_code, version = version + 1 where id = p_agent returning version into v;
+  insert into public.agent_versions(agent_id, version, notes) values (p_agent, v, p_notes);
+  return v;
+end; $$ language plpgsql security definer;
+grant execute on function public.publish_release(uuid, text, text) to authenticated;
+```
+
 ## 2. REST contract (any client/dev)
 
 Base: `${SUPABASE_URL}/rest/v1`. Header on every call: `apikey: ${SUPABASE_ANON_KEY}`.
