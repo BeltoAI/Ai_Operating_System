@@ -38,6 +38,7 @@ class LiveLocationService : Service(), LocationListener {
     private var homeLat = 0.0
     private var homeLng = 0.0
     private var homeLabel = ""
+    private var navHome = false            // only open turn-by-turn navigation when asked
     private var lastSent = 0L
     private var startedAt = 0L
     private var sends = 0
@@ -51,10 +52,11 @@ class LiveLocationService : Service(), LocationListener {
         homeLat = intent?.getDoubleExtra("home_lat", 0.0) ?: 0.0
         homeLng = intent?.getDoubleExtra("home_lng", 0.0) ?: 0.0
         homeLabel = intent?.getStringExtra("home_label") ?: ""
+        navHome = intent?.getBooleanExtra("nav_home", false) ?: false
         startedAt = System.currentTimeMillis()
 
         try { startForeground(21, notif("Sharing your location with $toName")) } catch (e: Exception) { Log.e(TAG, "fg", e) }
-        openNavigationHome()
+        if (navHome) openNavigationHome()
         requestUpdates()
         return START_STICKY
     }
@@ -177,10 +179,11 @@ class LiveLocationService : Service(), LocationListener {
         private const val MAX_MS = 3 * 60 * 60_000L // hard stop after 3h
 
         fun start(ctx: Context, toName: String, toNumber: String, channel: String,
-                  homeLat: Double, homeLng: Double, homeLabel: String) {
+                  homeLat: Double, homeLng: Double, homeLabel: String, navHome: Boolean) {
             val i = Intent(ctx, LiveLocationService::class.java)
                 .putExtra("to_name", toName).putExtra("to_number", toNumber).putExtra("channel", channel)
                 .putExtra("home_lat", homeLat).putExtra("home_lng", homeLng).putExtra("home_label", homeLabel)
+                .putExtra("nav_home", navHome)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
         }
 

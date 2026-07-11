@@ -538,10 +538,11 @@ object ToolRouter {
                     if (!geo.isNullOrEmpty()) { hlat = geo[0].latitude; hlng = geo[0].longitude }
                 } catch (e: Exception) { Log.w("SlyOS", "geocode failed", e) }
             }
-            com.agentos.shell.LiveLocationService.start(ctx, toName, number, channel, hlat, hlng, homeLabel)
+            val navHome = o.optBoolean("navigate", false) || o.optBoolean("navigate_home", false)
+            com.agentos.shell.LiveLocationService.start(ctx, toName, number, channel, hlat, hlng, homeLabel, navHome)
             "Sharing your live location with $toName" +
                 (if (homeLabel.isNotBlank()) " until you're home" else "") +
-                (if (homeLabel.isNotBlank()) ", and starting navigation home." else ".")
+                (if (navHome) ", and starting navigation home." else ".")
         } catch (e: Exception) { Log.e("SlyOS", "shareLocation", e); "I couldn't start location sharing." }
     }
 

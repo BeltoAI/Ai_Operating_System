@@ -247,6 +247,25 @@ fun HomeScreen(
                 return@launch
             }
 
+            // "Share my location with X (until I'm home / navigate me home)" — routed deterministically so
+            // it can never be misread as plain navigation (which just opened Maps). Parses the contact and
+            // whether the user also wants turn-by-turn home.
+            if (Regex("(?i)\\bshare\\b[^.]{0,40}\\blocation\\b").containsMatchIn(q)) {
+                val name = Regex("(?i)\\bwith\\s+([\\p{L}][\\p{L} .'\\-]{0,30})").find(q)?.groupValues?.get(1)
+                    ?.replace(Regex("(?i)\\b(until|till|til|and|so|then|while).*$"), "")?.trim().orEmpty()
+                val navHome = Regex("(?i)(until[^.]*home|get(?:ting)? home|navigate me home|way home|take me home|reach(?:ing)? home|arriv[^.]*home|i'?m home|head(?:ing)? home)").containsMatchIn(q)
+                val arg = org.json.JSONObject().put("name", name).put("navigate", navHome)
+                val msg = withContext(Dispatchers.IO) { ToolRouter.executeAction(ctx, "share_location", arg.toString()) }
+                reply = msg.ifBlank { "Started sharing your location." }
+                thinking = false
+                withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", reply)
+                }
+                if (doSpeak) speak(reply)
+                return@launch
+            }
+
             val apps = withContext(Dispatchers.IO) { ToolRouter.installedApps(ctx).map { it.label } }
             // One shared brain context (profile + calendar + memories + network + papers + tasks +
             // mission + portfolio + jobs) — the SAME builder Conversation mode uses, so nothing drifts.
@@ -480,6 +499,9 @@ fun HomeScreen(
                 Text("$battery%" + if (charging) " ⚡" else "", fontSize = T.caption,
                     color = if (battery <= 15 && !charging) T.accent else T.inkSoft)
         }
+        // One-tap setup: auto-asks for every missing runtime permission on launch, then a slim pill
+        // to grant the rest. Vanishes once everything's granted.
+        PermissionBar()
         // The + appears only after a long-press on Home; hidden otherwise for a clean panel.
         if (editMode || showAddBtn) {
             Row(verticalAlignment = Alignment.CenterVertically) {
