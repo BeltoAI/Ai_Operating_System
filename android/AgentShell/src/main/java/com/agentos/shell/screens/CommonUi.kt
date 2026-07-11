@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -190,5 +191,5 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
         }
 
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
-        NavTab(Icons.Filled.Apps, "Apps", current == Screen.Apps) { onNav(Screen.Apps) }
+        NavTab(Icons.Filled.Storefront, "Store", current == Screen.Store) { onNav(Screen.Store) }
     }

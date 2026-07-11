@@ -28,7 +28,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -173,7 +173,7 @@ class ShellActivity : ComponentActivity() {
             // Panels that show the persistent bottom nav (the calm, recurring surfaces).
             val mainScreens = setOf(
                 Screen.Home, Screen.Now, Screen.Memory, Screen.MemorySettings,
-                Screen.Research, Screen.Apps, Screen.People, Screen.Checklist, Screen.Manual
+                Screen.Research, Screen.Store, Screen.People, Screen.Checklist, Screen.Manual
             )
             // Recolor the system status/navigation bars to match the theme (the XML theme hardcodes them
             // ivory, which is why the lock screen's bars stayed light in dark mode). Re-runs on toggle.
@@ -233,6 +233,7 @@ class ShellActivity : ComponentActivity() {
                         Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
+                        Screen.Store  -> StoreScreen(m, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }, onArchitect = { screen = Screen.Architect }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
                         Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }, onChat = { screen = Screen.Chat }) { researchTopic = ""; screen = Screen.Home }
