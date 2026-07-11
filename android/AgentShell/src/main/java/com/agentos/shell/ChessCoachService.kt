@@ -86,7 +86,7 @@ class ChessCoachService : Service() {
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val grip = TextView(this).apply { text = "⠿  Chess Coach"; setTextColor(Color.parseColor("#7A8A99")); textSize = 12f }
         top.addView(grip, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        val close = TextView(this).apply { text = "✕"; setTextColor(Color.parseColor("#9AA")); textSize = 15f; setPadding(dp(10), 0, dp(4), 0); setOnClickListener { stopSelf() } }
+        val close = TextView(this).apply { text = "✕"; setTextColor(Color.parseColor("#99AAAA")); textSize = 15f; setPadding(dp(10), 0, dp(4), 0); setOnClickListener { stopSelf() } }
         top.addView(close)
         pill.addView(top)
         moveLabel = TextView(this).apply { text = "Reading board…"; setTextColor(Color.WHITE); textSize = 17f; setPadding(0, dp(4), 0, dp(6)) }

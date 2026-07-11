@@ -520,21 +520,24 @@ private fun ChessCoachCard() {
             }
         }
         Spacer(Modifier.height(8.dp))
-        val canDraw = android.provider.Settings.canDrawOverlays(ctx)
+        var status by remember { mutableStateOf("") }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Start coach", fontSize = T.small, color = T.bgElevated,
-                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (canDraw) T.accent else T.hairline)
-                    .clickable(enabled = canDraw) { com.agentos.shell.ChessCoachService.start(ctx, elo.toInt(), "a") }
-                    .padding(horizontal = 16.dp, vertical = 9.dp))
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable {
+                        if (android.provider.Settings.canDrawOverlays(ctx)) {
+                            com.agentos.shell.ChessCoachService.start(ctx, elo.toInt(), "a")
+                            status = "Coach started — open your chess app; the pill appears at the top."
+                        } else {
+                            status = "Grant “Display over other apps”, then tap Start again."
+                            try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 9.dp))
             Spacer(Modifier.width(10.dp))
             Text("Stop", fontSize = T.small, color = T.inkSoft,
-                modifier = Modifier.clickable { com.agentos.shell.ChessCoachService.stop(ctx) }.padding(vertical = 9.dp))
+                modifier = Modifier.clickable { com.agentos.shell.ChessCoachService.stop(ctx); status = "Coach stopped." }.padding(horizontal = 12.dp, vertical = 9.dp))
         }
-        if (!canDraw) {
-            Spacer(Modifier.height(6.dp))
-            Text("Grant “Display over other apps” first →", fontSize = T.caption, color = T.accent,
-                modifier = Modifier.clickable { try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} })
-        }
+        if (status.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(status, fontSize = T.caption, color = T.accent) }
     }
 }
 
