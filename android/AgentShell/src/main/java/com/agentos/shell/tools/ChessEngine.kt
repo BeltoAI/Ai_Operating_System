@@ -26,13 +26,6 @@ object ChessEngine {
         elo >= 2100 -> 10; elo >= 1900 -> 8; elo >= 1650 -> 6; elo >= 1350 -> 4; elo >= 1000 -> 3; else -> 2
     }
 
-    /** At lower Elo, deliberately pick a weaker candidate sometimes so the coach actually plays down. */
-    private fun pickIndex(elo: Int, n: Int): Int {
-        if (n <= 1) return 0
-        val weakness = ((2700 - elo).toDouble().coerceIn(0.0, 2000.0)) / 2000.0   // 0 at ≥2700, 1 at ≤700
-        return if (Math.random() < weakness * 0.75) 1 + (Math.random() * (n - 1)).toInt() else 0
-    }
-
     private fun parseMove(o: JSONObject): Move? {
         val uci = o.optString("move").ifBlank { o.optString("lan").ifBlank { o.optString("from") + o.optString("to") } }
         if (uci.length < 4) return null
@@ -53,21 +46,26 @@ object ChessEngine {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 12000; readTimeout = 20000
                 setRequestProperty("Content-Type", "application/json")
             }
-            val body = JSONObject().put("fen", fen).put("depth", depthFor(elo)).put("variants", 5).put("maxThinkingTime", 60).toString()
+            // Minimal, proven request. (Adding `variants` makes the endpoint STREAM multiple objects, which
+            // isn't valid single JSON and broke parsing — so we keep it to one clean best-move response.)
+            val body = JSONObject().put("fen", fen).put("depth", depthFor(elo)).toString()
             OutputStreamWriter(c.outputStream, Charsets.UTF_8).use { it.write(body) }
             val code = c.responseCode
             val txt = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             c.disconnect()
             if (code !in 200..299) { Log.w(TAG, "chess engine $code: ${txt.take(120)}"); return null }
-            // Response is either a single move object or an array of candidate moves (best first).
-            val candidates = ArrayList<Move>()
-            val trimmed = txt.trim()
-            if (trimmed.startsWith("[")) {
-                val arr = org.json.JSONArray(trimmed)
-                for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { parseMove(it)?.let { m -> candidates.add(m) } }
-            } else parseMove(JSONObject(trimmed))?.let { candidates.add(it) }
-            if (candidates.isEmpty()) return null
-            candidates[pickIndex(elo, candidates.size)]
+            // Bulletproof: scan out EVERY top-level {…} object (handles a single object OR a streamed set),
+            // parse each, and use the last valid move (the final/best one).
+            var best: Move? = null
+            var depthB = 0; var start = -1
+            val s = txt
+            for (idx in s.indices) {
+                when (s[idx]) {
+                    '{' -> { if (depthB == 0) start = idx; depthB++ }
+                    '}' -> { depthB--; if (depthB == 0 && start >= 0) { try { parseMove(JSONObject(s.substring(start, idx + 1)))?.let { best = it } } catch (e: Exception) {}; start = -1 } }
+                }
+            }
+            best
         } catch (e: Exception) { Log.w(TAG, "chess engine fail: ${e.message}"); null }
     }
 }
