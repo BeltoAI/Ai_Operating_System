@@ -510,7 +510,7 @@ private fun ChessCoachCard() {
             fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(12.dp))
         Text("Strength: ${elo.toInt()} Elo", fontSize = T.small, color = T.ink)
-        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it; p.edit().putInt("chess_elo", it.toInt()).apply() }, valueRange = 500f..3600f,
+        androidx.compose.material3.Slider(value = elo, onValueChange = { elo = it.coerceAtMost(2850f); p.edit().putInt("chess_elo", elo.toInt()).apply() }, valueRange = 500f..2850f,
             colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = T.accent, activeTrackColor = T.accent))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()
             .clickable { autoStart = !autoStart; p.edit().putBoolean("chess_autostart", autoStart).apply() }.padding(vertical = 6.dp)) {

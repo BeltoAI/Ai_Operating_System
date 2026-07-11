@@ -95,7 +95,7 @@ class ChessCoachService : Service() {
         eloLabel = TextView(this).apply { text = "$elo"; setTextColor(Color.parseColor("#00FF88")); textSize = 12f; minWidth = dp(38) }
         row.addView(eloLabel)
         val seek = SeekBar(this).apply {
-            max = 3100; progress = (elo - 500).coerceIn(0, 3100)
+            max = 2350; progress = (elo - 500).coerceIn(0, 2350)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, u: Boolean) { elo = 500 + p; eloLabel?.text = "$elo"; lastFen = "" }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}; override fun onStopTrackingTouch(sb: SeekBar?) {}
