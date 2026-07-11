@@ -49,16 +49,22 @@ class ChessCoachService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        elo = intent?.getIntExtra("elo", 1500) ?: 1500
-        side = (intent?.getStringExtra("side") ?: "a").firstOrNull() ?: 'a'
-        if (arrow == null) { running = true; wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager; addOverlays(); loop() }
-        return START_STICKY
+        try {
+            elo = intent?.getIntExtra("elo", 1500) ?: 1500
+            side = (intent?.getStringExtra("side") ?: "a").firstOrNull() ?: 'a'
+            if (arrow == null) { running = true; wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager; addOverlays(); loop() }
+        } catch (e: Throwable) {
+            android.util.Log.e("SlyOS", "ChessCoach start failed: ${e.message}", e)
+            running = false; try { stopSelf() } catch (x: Exception) {}
+        }
+        return START_NOT_STICKY   // never auto-restart into a crash loop
     }
 
     private fun overlayType() = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
 
     private fun addOverlays() {
+      try {
         // 1) Full-screen, NON-touchable arrow layer — the user can still play underneath.
         arrow = ArrowView(this)
         val ap = WindowManager.LayoutParams(
@@ -119,6 +125,7 @@ class ChessCoachService : Service() {
             }
         }
         try { wm.addView(bar, bp) } catch (e: Exception) {}
+      } catch (e: Throwable) { android.util.Log.e("SlyOS", "ChessCoach overlay build failed: ${e.message}", e); running = false; try { stopSelf() } catch (x: Exception) {} }
     }
 
     private fun loop() = scope.launch {

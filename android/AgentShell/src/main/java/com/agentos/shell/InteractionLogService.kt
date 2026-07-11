@@ -238,14 +238,16 @@ class InteractionLogService : AccessibilityService() {
             } catch (e: Exception) {}
         }
         // Auto-start Chess Coach when a chess app comes to the foreground (if the user armed it).
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val fg = event.packageName?.toString() ?: ""
-            if (Regex("(?i)chess|lichess").containsMatchIn(fg) && !com.agentos.shell.ChessCoachService.running) {
-                val p = applicationContext.getSharedPreferences("slyos", android.content.Context.MODE_PRIVATE)
-                if (p.getBoolean("chess_autostart", false) && android.provider.Settings.canDrawOverlays(applicationContext))
-                    com.agentos.shell.ChessCoachService.start(applicationContext, p.getInt("chess_elo", 1500), "a")
+        try {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val fg = event.packageName?.toString() ?: ""
+                if (Regex("(?i)chess|lichess").containsMatchIn(fg) && !com.agentos.shell.ChessCoachService.running) {
+                    val p = applicationContext.getSharedPreferences("slyos", android.content.Context.MODE_PRIVATE)
+                    if (p.getBoolean("chess_autostart", false) && android.provider.Settings.canDrawOverlays(applicationContext))
+                        com.agentos.shell.ChessCoachService.start(applicationContext, p.getInt("chess_elo", 1500), "a")
+                }
             }
-        }
+        } catch (e: Throwable) {}
         if (!MemoryStore.recallEnabled(applicationContext)) return
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return                      // ignore SlyOS itself
