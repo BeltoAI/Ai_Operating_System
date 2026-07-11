@@ -247,14 +247,30 @@ fun HomeScreen(
                 return@launch
             }
 
-            // "Share my location with X (until I'm home / navigate me home)" — routed deterministically so
-            // it can never be misread as plain navigation (which just opened Maps). Parses the contact and
-            // whether the user also wants turn-by-turn home.
-            if (Regex("(?i)\\bshare\\b[^.]{0,40}\\blocation\\b").containsMatchIn(q)) {
+            // "Stop sharing my location" — turn the live share off.
+            if (Regex("(?i)\\bstop\\b[^.]{0,24}\\b(shar\\w*|location)\\b").containsMatchIn(q) &&
+                Regex("(?i)\\blocation\\b").containsMatchIn(q)) {
+                com.agentos.shell.LiveLocationService.stop(ctx)
+                reply = "Stopped sharing your location."; thinking = false
+                if (doSpeak) speak(reply)
+                return@launch
+            }
+            // "Share my location with X [on whatsapp/sms/telegram] [until I'm home]" — routed deterministically
+            // so it can never be misread as plain navigation. Parses the contact, the channel, and whether the
+            // user ALSO wants turn-by-turn home (home never engages unless asked).
+            if (Regex("(?i)\\bshare\\b[^.]{0,40}\\blocation\\b").containsMatchIn(q) ||
+                Regex("(?i)\\b(send|drop)\\b[^.]{0,24}\\blocation\\b").containsMatchIn(q)) {
+                val channel = when {
+                    Regex("(?i)whats\\s?app").containsMatchIn(q) -> "whatsapp"
+                    Regex("(?i)\\btelegram\\b").containsMatchIn(q) -> "telegram"
+                    Regex("(?i)\\b(sms|text|texts|imessage)\\b").containsMatchIn(q) -> "sms"
+                    else -> ""
+                }
                 val name = Regex("(?i)\\bwith\\s+([\\p{L}][\\p{L} .'\\-]{0,30})").find(q)?.groupValues?.get(1)
-                    ?.replace(Regex("(?i)\\b(until|till|til|and|so|then|while).*$"), "")?.trim().orEmpty()
-                val navHome = Regex("(?i)(until[^.]*home|get(?:ting)? home|navigate me home|way home|take me home|reach(?:ing)? home|arriv[^.]*home|i'?m home|head(?:ing)? home)").containsMatchIn(q)
+                    ?.replace(Regex("(?i)\\b(until|till|til|and|so|then|while|on|via|through|over|using)\\b.*$"), "")?.trim().orEmpty()
+                val navHome = Regex("(?i)(until[^.]*\\bhome\\b|get(?:ting)? home|navigate me home|way home|take me home|reach(?:ing)? home|head(?:ing)? home)").containsMatchIn(q)
                 val arg = org.json.JSONObject().put("name", name).put("navigate", navHome)
+                if (channel.isNotBlank()) arg.put("channel", channel)
                 val msg = withContext(Dispatchers.IO) { ToolRouter.executeAction(ctx, "share_location", arg.toString()) }
                 reply = msg.ifBlank { "Started sharing your location." }
                 thinking = false

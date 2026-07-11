@@ -500,19 +500,50 @@ object ToolRouter {
     }
 
     /**
-     * "Share my live location with <person> until I'm home & navigate me there."
-     * arg = {"name":"Mom","channel":"sms|telegram","home":"<address, optional>"}. Home falls back to the
-     * profile address. Starts [LiveLocationService], which texts a fresh Maps link on an interval and stops
-     * on arrival, and opens turn-by-turn navigation home.
+     * "Share my location with <person> [on whatsapp/sms/telegram] [until I'm home]."
+     * arg = {"name":"Mom","channel":"whatsapp|sms|telegram","home":"<addr, opt>","navigate":bool}.
+     *
+     * Default is a GENERAL live share (no home) — SMS/Telegram send a fresh Maps link on an interval; WhatsApp
+     * opens a chat pre-filled with your current location (one tap to send, since WhatsApp can't auto-resend).
+     * The home geofence + navigation only engage when the user explicitly asks to share "until I'm home" /
+     * be navigated home. Nothing defaults to home anymore.
      */
     private fun shareLocation(ctx: Context, arg: String): String {
         return try {
             val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("name", arg) }
             val name = listOf(o.optString("name"), o.optString("to"), o.optString("contact")).firstOrNull { it.isNotBlank() } ?: ""
-            var channel = o.optString("channel").lowercase().ifBlank { "sms" }
+            var channel = o.optString("channel").lowercase().trim()
+            val navHome = o.optBoolean("navigate", false) || o.optBoolean("navigate_home", false)
+
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                return "Turn on Location access so I can share where you are."
+
+            // ── WhatsApp: open a chat pre-filled with a live Maps link (can't auto-send on a loop) ──
+            if (channel == "whatsapp") {
+                if (name.isBlank()) return "Who should I share your location with on WhatsApp?"
+                if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $name."
+                val c = when (val r = ContactsTool.resolve(ctx, name)) {
+                    is ContactsTool.Resolution.Found -> r.contact
+                    is ContactsTool.Resolution.Ambiguous ->
+                        return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one on WhatsApp?"
+                    ContactsTool.Resolution.None ->
+                        return "I couldn't find a contact called “$name”. What's their full name or number?"
+                }
+                val loc = lastKnownLocation(ctx)
+                    ?: return "I couldn't get a GPS fix yet — open Maps once so the phone has a location, then try again."
+                val link = "https://maps.google.com/?q=%.5f,%.5f".format(loc.latitude, loc.longitude)
+                val digits = c.number.filter { it.isDigit() }
+                start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=" + Uri.encode("📍 My location: $link"))))
+                if (navHome) startNavHome(ctx, o)
+                return "Opened WhatsApp to share your location with ${c.name} — just tap send. (WhatsApp can't auto-resend on a loop; for continuous updates use WhatsApp's own Live Location, or ask me to share via SMS.)"
+            }
+
+            // ── SMS / Telegram: a real interval-based live share ──
             var number = ""
             var toName = name.ifBlank { "them" }
             if (channel != "telegram") {
+                channel = "sms"
                 if (name.isBlank()) return "Who should I share your location with?"
                 if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $toName."
                 val contact = when (val r = ContactsTool.resolve(ctx, name)) {
@@ -524,26 +555,50 @@ object ToolRouter {
                 }
                 if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED)
                     return "Turn on SMS permission so I can text $toName your location."
-                number = contact.number; toName = contact.name; channel = "sms"
+                number = contact.number; toName = contact.name
             }
-            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-                return "Turn on Location access so I can share where you are."
-            val homeLabel = listOf(o.optString("home"), o.optString("destination"), MemoryStore.profileAddress(ctx))
-                .firstOrNull { it.isNotBlank() } ?: ""
-            var hlat = 0.0; var hlng = 0.0
-            if (homeLabel.isNotBlank()) {
-                try {
-                    val geo = android.location.Geocoder(ctx).getFromLocationName(homeLabel, 1)
-                    if (!geo.isNullOrEmpty()) { hlat = geo[0].latitude; hlng = geo[0].longitude }
-                } catch (e: Exception) { Log.w("SlyOS", "geocode failed", e) }
+
+            // Home geofence + navigation ONLY when explicitly requested — never by default.
+            var hlat = 0.0; var hlng = 0.0; var homeLabel = ""
+            if (navHome) {
+                homeLabel = homeLabelFor(ctx, o)
+                if (homeLabel.isNotBlank()) {
+                    try {
+                        val geo = android.location.Geocoder(ctx).getFromLocationName(homeLabel, 1)
+                        if (!geo.isNullOrEmpty()) { hlat = geo[0].latitude; hlng = geo[0].longitude }
+                    } catch (e: Exception) { Log.w("SlyOS", "geocode failed", e) }
+                }
             }
-            val navHome = o.optBoolean("navigate", false) || o.optBoolean("navigate_home", false)
             com.agentos.shell.LiveLocationService.start(ctx, toName, number, channel, hlat, hlng, homeLabel, navHome)
-            "Sharing your live location with $toName" +
-                (if (homeLabel.isNotBlank()) " until you're home" else "") +
-                (if (navHome) ", and starting navigation home." else ".")
+            val chLabel = if (channel == "telegram") "Telegram" else "SMS"
+            if (navHome) "Sharing your live location with $toName over $chLabel until you're home, and navigating you there."
+            else "Sharing your live location with $toName over $chLabel. Say “stop sharing my location” when you're done."
         } catch (e: Exception) { Log.e("SlyOS", "shareLocation", e); "I couldn't start location sharing." }
+    }
+
+    private fun homeLabelFor(ctx: Context, o: JSONObject): String =
+        listOf(o.optString("home"), o.optString("destination"), MemoryStore.profileAddress(ctx)).firstOrNull { it.isNotBlank() } ?: ""
+
+    /** Best-effort current fix without waiting; null if we've never had one. */
+    private fun lastKnownLocation(ctx: Context): android.location.Location? = try {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        lm?.let {
+            it.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: it.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        }
+    } catch (e: SecurityException) { null } catch (e: Exception) { null }
+
+    /** Launch turn-by-turn navigation to the user's home (or an address in the arg). */
+    private fun startNavHome(ctx: Context, o: JSONObject) {
+        val dest = homeLabelFor(ctx, o)
+        if (dest.isBlank()) return
+        try {
+            val i = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(dest) + "&mode=d"))
+                .setPackage("com.google.android.apps.maps")
+            if (i.resolveActivity(ctx.packageManager) != null) start(ctx, i)
+            else start(ctx, Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=" + Uri.encode(dest) + "&travelmode=driving")))
+        } catch (e: Exception) { Log.e("SlyOS", "navHome", e) }
     }
 
     /** Open Spotify to play/find a song or artist (app if installed, else web). */
