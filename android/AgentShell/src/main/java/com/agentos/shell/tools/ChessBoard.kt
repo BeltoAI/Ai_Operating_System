@@ -15,6 +15,22 @@ object ChessBoard {
     private val PIECE = Regex("(?i)(white|black)\\s+(king|queen|rook|bishop|knight|pawn)\\s+(?:on\\s+)?([a-h][1-8])")
     private val EMPTY = Regex("(?i)\\b([a-h][1-8])\\b[,\\s]+empty")
 
+    /** The piece letter on [sq] in a FEN ("e2" → 'P'), or null. Used to name the moving piece. */
+    fun pieceAt(fen: String, sq: String): Char? {
+        if (sq.length < 2) return null
+        val ranks = fen.substringBefore(' ').split('/')
+        if (ranks.size != 8) return null
+        val file = sq[0] - 'a'; val rank = sq[1] - '1'
+        if (file !in 0..7 || rank !in 0..7) return null
+        val row = ranks[7 - rank]
+        var f = 0
+        for (ch in row) {
+            if (ch.isDigit()) f += ch - '0' else { if (f == file) return ch; f++ }
+            if (f > file) break
+        }
+        return null
+    }
+
     /** Parse the current board. [side] = 'w' or 'b' (whose move it is). Returns null if no board is on screen. */
     fun parse(nodes: List<ScreenNode>, side: Char): Board? {
         val grid = Array(8) { arrayOfNulls<Char>(8) }   // grid[0] = rank 8 … grid[7] = rank 1

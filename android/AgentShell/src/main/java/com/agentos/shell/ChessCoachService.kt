@@ -141,7 +141,7 @@ class ChessCoachService : Service() {
                     val mv = withContext(Dispatchers.IO) { ChessEngine.bestMove(board.fen, elo) }
                     if (mv != null) {
                         lastFen = board.fen   // only mark this position solved on SUCCESS — else we retry next loop
-                        moveLabel?.text = "${pieceName(mv.san)}  ${mv.from} → ${mv.to}    ${mv.evalText}"
+                        moveLabel?.text = "${pieceName(ChessBoard.pieceAt(board.fen, mv.from))}  ${mv.from} → ${mv.to}    ${mv.evalText}"
                         arrow?.setArrow(board.coords[mv.from], board.coords[mv.to], cellSize(board.coords))
                     } else {
                         arrow?.setArrow(null, null, 0)   // clear the stale arrow so it isn't misleading
@@ -154,10 +154,9 @@ class ChessCoachService : Service() {
         }
     }
 
-    /** Human name of the piece being moved, from SAN ("Nf3" → Knight, "O-O" → Castle, else Pawn). */
-    private fun pieceName(san: String): String {
-        if (san.startsWith("O-O")) return "Castle"
-        return when (san.firstOrNull()) { 'N' -> "Knight"; 'B' -> "Bishop"; 'R' -> "Rook"; 'Q' -> "Queen"; 'K' -> "King"; else -> "Pawn" }
+    /** Human name of the piece being moved, from its FEN letter. */
+    private fun pieceName(p: Char?): String = when (p?.uppercaseChar()) {
+        'N' -> "Knight"; 'B' -> "Bishop"; 'R' -> "Rook"; 'Q' -> "Queen"; 'K' -> "King"; 'P' -> "Pawn"; else -> "Move"
     }
 
     /** Approximate one square's size in pixels = the smallest gap between two square centres. */
