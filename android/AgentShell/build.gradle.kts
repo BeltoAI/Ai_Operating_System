@@ -44,6 +44,10 @@ android {
         // Both come from apikey.properties (gitignored). See ACCOUNT_AND_SYNC.md for the DB contract.
         buildConfigField("String", "SUPABASE_URL", "\"${apiKeyProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${apiKeyProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
+        // PERSONAL-ONLY features (e.g. Chess Coach) — only ON when ENABLE_CHESS=true is present in the local,
+        // gitignored apikey.properties. CI / the public website build never has that line → defaults false →
+        // the feature is compiled out of every release everyone else downloads.
+        buildConfigField("boolean", "ENABLE_CHESS", apiKeyProps.getProperty("ENABLE_CHESS", "false"))
         manifestPlaceholders["googleRedirectScheme"] = googleRedirectScheme
     }
     // Consistent signing across every machine AND CI, so a newer APK always installs OVER the old one as

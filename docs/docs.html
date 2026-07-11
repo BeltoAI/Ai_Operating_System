@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlyOS — Docs &amp; How-to</title>
+<meta name="description" content="Searchable SlyOS documentation: step-by-step guides for every feature on your Android phone — setup, messaging, the brain, operating your phone, research, Cowork, account sync and more.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SlyOS — Docs">
+<meta property="og:description" content="Search any feature and learn exactly how to use it, step by step, on your Android.">
+<meta property="og:url" content="https://slyos.world/docs.html">
+<meta property="og:image" content="https://slyos.world/og.png">
+<meta name="theme-color" content="#15120E">
+<script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .docsearch{position:sticky;top:12px;z-index:20;max-width:720px;margin:0 auto}
+  .docsearch input{width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);color:var(--ink);
+    font-size:17px;padding:16px 18px;border-radius:16px;outline:none}
+  .docsearch input:focus{border-color:var(--accent)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:820px;margin:16px auto 0}
+  .chip{font-size:13px;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer;user-select:none}
+  .chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .doclist{max-width:820px;margin:26px auto 0;display:flex;flex-direction:column;gap:14px}
+  .doc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px 22px}
+  .doc .doctag{display:inline-block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);
+    border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin-bottom:10px}
+  .doc h3{margin:0 0 6px;font-size:21px}
+  .doc p.d{color:var(--soft);margin:0 0 12px;font-size:15px}
+  .steps{margin:0;padding:0;list-style:none;counter-reset:s}
+  .steps li{counter-increment:s;position:relative;padding:6px 0 6px 40px;color:var(--ink);font-size:15px;line-height:1.55}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:5px;width:26px;height:26px;border-radius:50%;
+    background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .steps li + li{border-top:1px solid rgba(255,255,255,.05)}
+  .doc code{background:rgba(255,255,255,.06);border-radius:6px;padding:1px 6px;font-size:13px}
+  .doc .tip{margin-top:12px;font-size:13.5px;color:var(--faint);border-left:2px solid var(--accent);padding-left:12px}
+  .noresult{text-align:center;color:var(--faint);margin:30px auto}
+  .path{color:var(--accent);white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><a href="/" style="color:inherit;text-decoration:none">Sly<b>OS</b></a></div>
+    <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
+    <div class="navlinks" onclick="this.classList.remove('open')">
+      <a href="/">Home</a>
+      <a href="/features.html">Features</a>
+      <a href="/docs.html">Docs</a>
+      <a href="/vision.html">Vision</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="/#get" class="navdl">Download</a>
+    </div>
+  </nav>
+
+  <section style="padding-bottom:8px;text-align:center">
+    <p class="eyebrow">Docs &amp; how-to</p>
+    <h1 style="font-size:clamp(34px,6vw,60px);line-height:1.04;margin:.1em 0 .35em">Search anything.<br>Learn how to use it.</h1>
+    <p class="muted" style="max-width:640px;margin:0 auto 22px">Every SlyOS feature, with clear step-by-step instructions for your Android phone. Type what you want to do.</p>
+  </section>
+
+  <div class="docsearch"><input id="q" type="search" placeholder="Search — e.g. “turn on bluetooth”, “backup”, “auto reply”, “sync”…" autocomplete="off"></div>
+  <div class="chips" id="chips"></div>
+  <div class="noresult" id="noresult" hidden>No matches. Try another word, or <a href="mailto:support@belto.world">ask support</a>.</div>
+
+  <div class="doclist" id="list">
+
+    <!-- GETTING STARTED -->
+    <article class="doc" data-cat="Getting started" data-keys="install download apk unknown sources sideload update">
+      <div class="doctag">Getting started</div>
+      <h3>Install SlyOS on your Android</h3>
+      <p class="d">SlyOS installs from an APK you download from this site.</p>
+      <ol class="steps">
+        <li>On your phone, open <span class="path">slyos.world</span> and tap <b>Download for Android</b>.</li>
+        <li>When it finishes, tap the downloaded <code>.apk</code> file (in your notifications or Files → Downloads).</li>
+        <li>If prompted, allow <b>“Install unknown apps”</b> for your browser, then tap <b>Install</b>.</li>
+        <li>Open SlyOS. To update later, just download and install the newer APK over it — no uninstall needed.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Getting started" data-keys="setup wizard first run onboarding key model gemini claude openai about permissions">
+      <div class="doctag">Getting started</div>
+      <h3>First-run setup</h3>
+      <p class="d">A short wizard gets SlyOS ready to be you. Everything stays on your phone.</p>
+      <ol class="steps">
+        <li><b>Pick your brain:</b> choose a model and paste its API key. Gemini has a free tier — start there. (Get a key from the linked page.)</li>
+        <li><b>Offline backup (optional):</b> choose a small on-device model to run when you’re offline.</li>
+        <li><b>About you:</b> a few lines — your name, work, how you text — so replies sound like you.</li>
+        <li><b>Bring in your data (optional):</b> import your chat exports to teach your voice (see “Import your history”).</li>
+        <li><b>Turn it on:</b> grant the permissions, then set SlyOS as your Home app.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Getting started" data-keys="home launcher default app replace home screen">
+      <div class="doctag">Getting started</div>
+      <h3>Set SlyOS as your home screen</h3>
+      <p class="d">SlyOS is a launcher — it replaces your home screen so it’s what you see on Home.</p>
+      <ol class="steps">
+        <li>In setup, tap <b>Set SlyOS as my Home app</b> (or later: phone <span class="path">Settings → Apps → Default apps → Home app</span>).</li>
+        <li>Choose <b>SlyOS</b> → <b>Always</b>.</li>
+        <li>Press Home — you’ll land on SlyOS. Reverse anytime from the same Settings screen.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Getting started" data-keys="permissions accessibility notifications overlay display over other apps microphone camera">
+      <div class="doctag">Getting started</div>
+      <h3>Grant the permissions it needs</h3>
+      <p class="d">Each permission unlocks a capability; all are revocable and everything stays on-device.</p>
+      <ol class="steps">
+        <li><b>Notification access</b> — lets it read &amp; reply across WhatsApp, SMS, Telegram, etc. (<span class="path">Settings → Notifications → Notification access → SlyOS</span>).</li>
+        <li><b>Accessibility</b> — lets it read the screen and operate apps for you (<span class="path">Settings → Accessibility → SlyOS</span>). After enabling, toggle it off/on once if a feature says it can’t see the screen.</li>
+        <li><b>Display over other apps</b> — for the floating bar and on-screen helpers (<span class="path">Settings → Apps → SlyOS → Display over other apps</span>).</li>
+        <li><b>Microphone &amp; Camera</b> — for voice and Look mode. Granted the first time you use each.</li>
+      </ol>
+    </article>
+
+    <!-- EVERYDAY -->
+    <article class="doc" data-cat="Everyday" data-keys="ask prompt home type talk command do anything">
+      <div class="doctag">Everyday</div>
+      <h3>Ask it anything</h3>
+      <p class="d">The Home screen is one box that understands what you mean and does it.</p>
+      <ol class="steps">
+        <li>On Home, type a request — “text Anna I’m running late”, “what’s the weather”, “remind me at 6 to call mom”.</li>
+        <li>Press send. SlyOS decides the best action(s) and does them — often several at once.</li>
+        <li>Anything it prepares to send shows a confirm card first, so you stay in control.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Everyday" data-keys="voice talk speak microphone hold to speak dictate">
+      <div class="doctag">Everyday</div>
+      <h3>Talk to it (voice)</h3>
+      <ol class="steps">
+        <li>On Home, tap or hold the <b>mic</b> at the bottom.</li>
+        <li>Speak your request; it transcribes and runs it.</li>
+        <li>Replies can be read aloud — handy hands-free.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Everyday" data-keys="auto reply messages whatsapp sms voice inbox answer automatically">
+      <div class="doctag">Everyday</div>
+      <h3>Auto-reply to your messages</h3>
+      <p class="d">SlyOS can answer incoming messages in your voice, with an undo window.</p>
+      <ol class="steps">
+        <li>Make sure <b>Notification access</b> is granted (see permissions above).</li>
+        <li>Turn on auto-reply from the Now screen / settings.</li>
+        <li>Incoming messages get a drafted reply in your voice; you get a moment to undo before it sends.</li>
+      </ol>
+    </article>
+
+    <!-- THE BRAIN -->
+    <article class="doc" data-cat="The brain" data-keys="memory brain ask recall remember people what did say search my life">
+      <div class="doctag">The brain</div>
+      <h3>Ask your memory (the brain)</h3>
+      <p class="d">Everything flows into a private, searchable memory you can just ask.</p>
+      <ol class="steps">
+        <li>Tap the <b>Brain</b> icon (center of the bottom bar).</li>
+        <li>Type a question — “what did Papa say about the trip?”, “do I know any VCs?”, “what did I spend on food this month?”.</li>
+        <li>It answers from your imported chats, notes, docs, receipts and past conversations.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="The brain" data-keys="import chats history whatsapp linkedin instagram telegram export voice learning">
+      <div class="doctag">The brain</div>
+      <h3>Import your history</h3>
+      <p class="d">Optional, but it’s what makes the brain sound like <em>you</em>.</p>
+      <ol class="steps">
+        <li><b>WhatsApp:</b> open a chat → ⋮ → <span class="path">More → Export chat → Without media</span> → save the <code>.txt</code> to your phone.</li>
+        <li><b>LinkedIn:</b> <span class="path">Settings → Data privacy → Get a copy of your data</span> → tick Connections &amp; Messages → they email a <code>.zip</code>.</li>
+        <li><b>Instagram / Telegram / Messenger:</b> use each app’s “Download your information” → JSON.</li>
+        <li>In SlyOS: <span class="path">setup → “Bring in your data”</span> (or <span class="path">Brain → About</span>) and pick the files. It detects the format and learns your writing voice.</li>
+      </ol>
+    </article>
+
+    <!-- CHAT -->
+    <article class="doc" data-cat="Chat" data-keys="chatbot chat gpt claude conversation research tab classical chat">
+      <div class="doctag">Chat</div>
+      <h3>Use the chatbot</h3>
+      <p class="d">A regular Claude/ChatGPT-style chat on your chosen model, with web search and your brain.</p>
+      <ol class="steps">
+        <li>Go to <b>Research</b> (bottom bar) → tap <b>Chat</b>.</li>
+        <li>Tap <b>New chat</b> and type. It can search the web and draw on your brain.</li>
+        <li>Long-press a chat’s name to rename it. Tap the copy/delete icons under any message. Attach an image or use the mic.</li>
+        <li>Search past chats with the search box on the chat list.</li>
+      </ol>
+    </article>
+
+    <!-- OPERATE -->
+    <article class="doc" data-cat="Operate your phone" data-keys="operate control phone bluetooth wifi settings toggle do it for me automation accessibility">
+      <div class="doctag">Operate your phone</div>
+      <h3>Operate your phone for you</h3>
+      <p class="d">SlyOS can tap and type across any app to complete a task. It stops before spending money.</p>
+      <ol class="steps">
+        <li>Enable the <b>Accessibility</b> service (permissions above).</li>
+        <li>On Home, say what you want in plain words: “turn on Bluetooth”, “set my ringer to silent”, “open Chrome and search for X”.</li>
+        <li>Watch the STOP banner while it works — tap it (or swipe it away) to take back control any time.</li>
+        <li>At any Pay / Buy / Checkout step it stops and hands you the final tap.</li>
+      </ol>
+      <p class="tip">System toggles are the most reliable — it jumps straight to the right Settings page.</p>
+    </article>
+
+    <article class="doc" data-cat="Operate your phone" data-keys="sign up register login account 2fa verification code email otp create account app">
+      <div class="doctag">Operate your phone</div>
+      <h3>Sign up &amp; log in (with 2FA)</h3>
+      <ol class="steps">
+        <li>Say: “sign me up for &lt;app&gt; with email <code>you@x.com</code> and password <code>&lt;pw&gt;</code>”.</li>
+        <li>It fills the fields and submits (your password is typed but never read back or stored).</li>
+        <li>If the app emails a link or texts a code, it reads it and completes verification automatically (keep Google connected for email codes).</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Operate your phone" data-keys="teach skill reflex record replay repeat routine demonstration macro">
+      <div class="doctag">Operate your phone</div>
+      <h3>Teach it a skill (do it once, it repeats)</h3>
+      <p class="d">Record a fixed routine once and SlyOS replays your exact steps forever — reliable, no AI guessing.</p>
+      <ol class="steps">
+        <li>Go to <span class="path">Brain → settings → Teach a skill</span>.</li>
+        <li>Name it (e.g. “message my landlord”), tap <b>Start recording</b>.</li>
+        <li>Do the task by hand in the app, then come back and tap <b>Stop &amp; save</b>.</li>
+        <li>Run it anytime by saying: “operate: &lt;the skill name&gt;”.</li>
+      </ol>
+      <p class="tip">Best for fixed sequences (stable buttons). Not for scrolling feeds, where targets move.</p>
+    </article>
+
+    <!-- CAMERA -->
+    <article class="doc" data-cat="Camera &amp; docs" data-keys="look camera identify object what is this plant building shoe scan vision">
+      <div class="doctag">Camera &amp; docs</div>
+      <h3>Look mode — identify anything</h3>
+      <ol class="steps">
+        <li>On Home, say “what is this” or open <b>Look</b>.</li>
+        <li>Point the camera; tap an object to lock on and ask about it out loud.</li>
+        <li>Then shop it, map it, or learn more in a tap.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Camera &amp; docs" data-keys="scan receipt document invoice expense ocr file id form">
+      <div class="doctag">Camera &amp; docs</div>
+      <h3>Scan receipts &amp; documents</h3>
+      <ol class="steps">
+        <li>Say “log a receipt” or open <b>Documents</b>.</li>
+        <li>Snap the receipt/form/ID — a receipt logs the expense with line items; forms &amp; IDs auto-file into your brain.</li>
+        <li>Ask later: “how much did I spend at Costco?” or “show my scanned documents”.</li>
+      </ol>
+    </article>
+
+    <!-- CREATE -->
+    <article class="doc" data-cat="Create" data-keys="research paper write publish zenodo doi essay report cited sources pdf">
+      <div class="doctag">Create</div>
+      <h3>Write research &amp; publish it</h3>
+      <ol class="steps">
+        <li>Go to <b>Research</b> → <b>New paper</b>, describe the topic, tap <b>Write paper</b>.</li>
+        <li>Message it to expand or edit any section; it cites real sources and typesets a PDF.</li>
+        <li>Tap <b>Zenodo</b> to publish and mint a real DOI (paste your Zenodo token once).</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Create" data-keys="cowork build files apps code docs slides sheets pdf google create">
+      <div class="doctag">Create</div>
+      <h3>Cowork — build real things</h3>
+      <ol class="steps">
+        <li>Go to <b>Research</b> → <b>Cowork</b>.</li>
+        <li>Ask it to build or edit something — a script, a spreadsheet, a document.</li>
+        <li>It produces real files and can create Google Docs / Slides / Sheets / PDFs you can open anywhere.</li>
+      </ol>
+    </article>
+
+    <!-- MONEY & NETWORK -->
+    <article class="doc" data-cat="Money &amp; network" data-keys="mission goal find customers leads grow followers plan autonomous">
+      <div class="doctag">Money &amp; network</div>
+      <h3>Give it a mission</h3>
+      <ol class="steps">
+        <li>On the Brain page, set a standing goal: “find me 10 new customers for my studio”.</li>
+        <li>It breaks the goal into a checkable plan and drafts the next best move in your voice.</li>
+        <li>It re-checks daily and pings you on a real jump, a stall, or the finish line.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Money &amp; network" data-keys="invest portfolio practice stocks paper trading money">
+      <div class="doctag">Money &amp; network</div>
+      <h3>Practice investing</h3>
+      <ol class="steps">
+        <li>Say “open my portfolio” or “invest”.</li>
+        <li>Tell it your risk &amp; interests; it designs a diversified practice portfolio from real tickers with live prices.</li>
+        <li>It’s paper-traded — you tap to approve any trade; nothing is at risk.</li>
+      </ol>
+    </article>
+
+    <!-- ACCOUNT & DATA -->
+    <article class="doc" data-cat="Account &amp; data" data-keys="account sign in sync devices cross device supabase login create account">
+      <div class="doctag">Account &amp; data</div>
+      <h3>Create an account &amp; sync across devices</h3>
+      <ol class="steps">
+        <li>Go to <span class="path">Brain → settings → Account</span>.</li>
+        <li>Enter an email &amp; password and tap <b>Create account</b> (or <b>Sign in</b>).</li>
+        <li>Tap <b>Sync now</b> — your profile and chats sync to your account so a new device signs in and picks up where you left off.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Account &amp; data" data-keys="backup brain google drive restore uninstall wipe new phone">
+      <div class="doctag">Account &amp; data</div>
+      <h3>Back up your brain to Google Drive</h3>
+      <ol class="steps">
+        <li>Connect Google, then open <span class="path">Brain → settings → Brain backup</span>.</li>
+        <li>It continuously zips your whole brain to your Drive (and Downloads) — surviving uninstalls and new phones.</li>
+        <li>Tap <b>Restore</b> on a fresh install to bring everything back.</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Account &amp; data" data-keys="bank vault pin encrypted sensitive bank account number password lock">
+      <div class="doctag">Account &amp; data</div>
+      <h3>Bank vault (PIN-locked)</h3>
+      <p class="d">Store sensitive details end-to-end encrypted; only your PIN unlocks them.</p>
+      <ol class="steps">
+        <li>Open <span class="path">Brain → settings → Bank vault</span>, set a PIN.</li>
+        <li>Add entries (label + value). They’re AES-encrypted — nothing is stored in the clear.</li>
+        <li>Ask the brain “what’s my account number” and it prompts for the PIN, then shows it — on-device only, never sent to a model.</li>
+      </ol>
+    </article>
+
+    <!-- SETTINGS -->
+    <article class="doc" data-cat="Settings" data-keys="api keys models validate valid invalid gemini claude openai routing cost spending on-device offline model">
+      <div class="doctag">Settings</div>
+      <h3>API keys, models &amp; cost</h3>
+      <ol class="steps">
+        <li>Open <span class="path">Brain → settings → API keys &amp; model</span>. Paste keys — each shows a live ✓ Valid / ✗ Invalid dot.</li>
+        <li>In <b>Models &amp; spending</b>, choose which model handles quick tasks vs heavy work, and watch your projected monthly cost.</li>
+        <li><b>On-device model</b>: pick a small model to run free &amp; offline as a backup (used only when you’re offline).</li>
+      </ol>
+    </article>
+
+    <article class="doc" data-cat="Settings" data-keys="floating nav panel overlay bar read screen brain over apps">
+      <div class="doctag">Settings</div>
+      <h3>Floating nav panel</h3>
+      <ol class="steps">
+        <li>Enable it in <span class="path">Brain → settings → Floating nav panel</span> (needs Display over other apps + Accessibility).</li>
+        <li>A glassy SlyOS bar floats over every app.</li>
+        <li>Tap the centre Brain over another app to read that screen, explain it, and save it to your brain. Swipe the bar to dismiss.</li>
+      </ol>
+    </article>
+
+  </div>
+
+  <section style="text-align:center;margin-top:10px"><a class="btn" href="/#get">↓ Download for Android</a></section>
+
+  <footer>
+    <div style="margin-bottom:12px">
+      <a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a>
+      <a href="/docs.html">Docs</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="mailto:support@belto.world">Contact</a>
+    </div>
+    <strong>SlyOS</strong> by Belto · Android today · everything on-device, on your own key. © 2026 Belto.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var q = document.getElementById('q');
+  var docs = Array.prototype.slice.call(document.querySelectorAll('.doc'));
+  var noresult = document.getElementById('noresult');
+  var chipsWrap = document.getElementById('chips');
+  var activeCat = '';
+
+  // Build category chips from the docs.
+  var cats = [];
+  docs.forEach(function(d){ var c = d.getAttribute('data-cat'); if (cats.indexOf(c) < 0) cats.push(c); });
+  var allChip = mkChip('All', ''); allChip.classList.add('active'); chipsWrap.appendChild(allChip);
+  cats.forEach(function(c){ chipsWrap.appendChild(mkChip(c, c)); });
+  function mkChip(label, cat){
+    var el = document.createElement('span'); el.className='chip'; el.innerHTML = label;
+    el.onclick = function(){
+      activeCat = cat;
+      Array.prototype.forEach.call(chipsWrap.children, function(ch){ ch.classList.remove('active'); });
+      el.classList.add('active'); apply();
+    };
+    return el;
+  }
+
+  function textOf(d){ return (d.getAttribute('data-cat')+' '+d.getAttribute('data-keys')+' '+d.textContent).toLowerCase(); }
+
+  function apply(){
+    var term = (q.value||'').trim().toLowerCase();
+    var words = term.split(/\s+/).filter(Boolean);
+    var shown = 0;
+    docs.forEach(function(d){
+      var hay = textOf(d);
+      var catOk = !activeCat || d.getAttribute('data-cat') === activeCat;
+      var wordOk = words.every(function(w){ return hay.indexOf(w) >= 0; });
+      var vis = catOk && wordOk;
+      d.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    });
+    noresult.hidden = shown !== 0;
+  }
+  q.addEventListener('input', apply);
+  // Deep link: docs.html?q=bluetooth
+  var pre = new URLSearchParams(location.search).get('q');
+  if (pre){ q.value = pre; apply(); }
+})();
+</script>
+</body>
+</html>

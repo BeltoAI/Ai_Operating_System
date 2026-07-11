@@ -238,8 +238,9 @@ class InteractionLogService : AccessibilityService() {
             } catch (e: Exception) {}
         }
         // Auto-start Chess Coach when a chess app comes to the foreground (if the user armed it).
+        // PERSONAL-ONLY: never runs in public builds.
         try {
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            if (com.agentos.shell.BuildConfig.ENABLE_CHESS && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 val fg = event.packageName?.toString() ?: ""
                 if (Regex("(?i)chess|lichess").containsMatchIn(fg) && !com.agentos.shell.ChessCoachService.running) {
                     val p = applicationContext.getSharedPreferences("slyos", android.content.Context.MODE_PRIVATE)

@@ -962,8 +962,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         // Reflex Learn — teach a repeatable operate skill by demonstration.
         ReflexLearnCard()
 
-        // Chess Coach — live best-move overlay.
-        ChessCoachCard()
+        // Chess Coach — live best-move overlay. PERSONAL-ONLY: compiled out of public builds.
+        if (com.agentos.shell.BuildConfig.ENABLE_CHESS) ChessCoachCard()
 
         // ---- Appearance ----
         Collapsible("Appearance") {
