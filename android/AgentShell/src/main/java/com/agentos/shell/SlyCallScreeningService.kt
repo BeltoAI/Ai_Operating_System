@@ -95,6 +95,14 @@ class SlyCallScreeningService : CallScreeningService() {
 
     /** A heads-up notification: who called, and a one-tap "answer with AI on speaker". */
     private fun notifyHandled(number: String) {
+        // Log every screened call into the brain, timestamped.
+        Thread {
+            try {
+                val t = java.text.SimpleDateFormat("MMM d, HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                val label = "Call from $number"
+                MessageStore.insertOne(applicationContext, label, "Calls", label, "them", "📞 Call from $number — screened by AI at $t")
+            } catch (e: Exception) {}
+        }.start()
         try {
             val ctx = applicationContext
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

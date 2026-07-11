@@ -52,16 +52,25 @@ class CallAgentService : Service() {
     private var recog: SpeechRecognizer? = null
     private var player: MediaPlayer? = null
     private var history = listOf<Pair<String, String>>()
+    private var who = "WhatsApp caller"          // brain contact this call is filed under
     @Volatile private var alive = false
     private var speaking = false
+
+    private fun ts(): String =
+        java.text.SimpleDateFormat("MMM d, HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (alive) return START_STICKY
         alive = true; running = true
+        who = intent?.getStringExtra("caller")?.trim()?.takeIf { it.isNotBlank() } ?: "WhatsApp caller"
+        // Brain marker: the call itself, timestamped, so every call is on the record.
+        scope.launch { withContext(Dispatchers.IO) {
+            try { MessageStore.insertOne(applicationContext, who, "Calls", who, "them", "📞 Incoming call — AI answered at ${ts()}") } catch (e: Exception) {}
+        } }
         try { startForeground(31, notif()) } catch (e: Exception) { Log.e(TAG, "fg", e) }
-        tts = TextToSpeech(applicationContext) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
+        tts = TextToSpeech(applicationContext) { }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) { main.post { speaking = false; if (alive) listen() } }
@@ -78,6 +87,8 @@ class CallAgentService : Service() {
 
     override fun onDestroy() {
         alive = false; running = false
+        val label = who
+        Thread { try { MessageStore.insertOne(applicationContext, label, "Calls", label, "them", "📞 Call ended at ${ts()}") } catch (e: Exception) {} }.start()
         try { recog?.destroy() } catch (e: Exception) {}
         try { tts?.shutdown() } catch (e: Exception) {}
         try { player?.release() } catch (e: Exception) {}
@@ -125,9 +136,11 @@ class CallAgentService : Service() {
             }) ?: AgentLoop.Result("Sorry, could you say that again?", emptyList())
             val say = out.answer.ifBlank { "Mm-hmm, go on." }
             history = (history + (caller to say)).takeLast(12)
+            // Full transcript into the brain, timestamped (insertOne stamps each row): what the caller said
+            // and what the AI answered, filed under this caller.
             withContext(Dispatchers.IO) {
-                MessageStore.insertOne(applicationContext, "Caller", "Calls", "Caller", "them", caller)
-                MessageStore.insertOne(applicationContext, "SlyOS", "Calls", "SlyOS", "me", say)
+                MessageStore.insertOne(applicationContext, who, "Calls", who, "them", caller)
+                MessageStore.insertOne(applicationContext, who, "Calls", "SlyOS", "me", say)
             }
             speak(say)
         }
@@ -157,6 +170,7 @@ class CallAgentService : Service() {
     private fun deviceSpeak(text: String) {
         val e = tts
         if (e == null) { speaking = false; return }
+        try { e.language = Locale.getDefault() } catch (ex: Exception) {}
         e.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "call")
     }
 
@@ -175,9 +189,9 @@ class CallAgentService : Service() {
         private const val TAG = "SlyOS-CallAgent"
         @Volatile var running = false
 
-        fun start(ctx: Context) {
+        fun start(ctx: Context, caller: String = "") {
             if (running) return
-            val i = Intent(ctx, CallAgentService::class.java)
+            val i = Intent(ctx, CallAgentService::class.java).putExtra("caller", caller)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
         }
         fun stop(ctx: Context) { try { ctx.stopService(Intent(ctx, CallAgentService::class.java)) } catch (e: Exception) {} }

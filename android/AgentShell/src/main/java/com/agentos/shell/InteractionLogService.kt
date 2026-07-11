@@ -291,6 +291,8 @@ class InteractionLogService : AccessibilityService() {
             val slide = findNodeMatching(root, Regex("(?i)(swipe|slide).{0,12}(up|answer)"))
             if (slide != null) swipe("up") else return
         }
+        // Best-effort caller name from the call screen, so the transcript files under the right person.
+        val caller = readCallerName(root)
         // Give the call a beat to connect, then force speaker + hand off to the AI.
         android.os.Handler(mainLooper).postDelayed({
             try {
@@ -300,11 +302,26 @@ class InteractionLogService : AccessibilityService() {
             } catch (e: Exception) {}
             try {
                 val am = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
-                am?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
-                @Suppress("DEPRECATION") am?.isSpeakerphoneOn = true
+                am?.let {
+                    it.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                    it.isSpeakerphoneOn = true
+                }
             } catch (e: Exception) {}
-            CallAgentService.start(applicationContext)
+            CallAgentService.start(applicationContext, caller)
         }, 1800)
+    }
+
+    /** Grab a likely caller name from the WhatsApp call screen (skips UI labels). "" if none found. */
+    private fun readCallerName(root: AccessibilityNodeInfo?): String {
+        val skip = Regex("(?i)answer|accept|decline|reject|speaker|mute|video|voice call|whats\\s?app|calling|ringing|end call|swipe|slide|add|hold|minimi[sz]e|encrypted")
+        fun dfs(n: AccessibilityNodeInfo?, depth: Int): String {
+            if (n == null || depth > 40) return ""
+            val t = n.text?.toString()?.trim().orEmpty()
+            if (t.length in 2..40 && !skip.containsMatchIn(t) && !t.any { it.isDigit() && t.count { c -> c.isDigit() } > 6 }) return t
+            for (i in 0 until n.childCount) { val r = dfs(n.getChild(i), depth + 1); if (r.isNotEmpty()) return r }
+            return ""
+        }
+        return try { dfs(root, 0) } catch (e: Exception) { "" }
     }
 
     private fun isOn(n: AccessibilityNodeInfo): Boolean = try { n.isChecked || n.isSelected } catch (e: Exception) { false }

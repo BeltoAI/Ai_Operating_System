@@ -34,6 +34,27 @@ class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
+        // Ask for any missing runtime permissions on EVERY launch — so a new build that adds permissions
+        // (or a device where they were never granted) always prompts, without needing the setup wizard.
+        // Already-granted permissions return instantly with no dialog, so this only surfaces what's missing.
+        try {
+            val perms = mutableListOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.SEND_SMS,
+                android.Manifest.permission.READ_CONTACTS,
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.WRITE_CALENDAR,
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.RECORD_AUDIO
+            )
+            if (android.os.Build.VERSION.SDK_INT >= 33) perms.add(android.Manifest.permission.POST_NOTIFICATIONS)
+            val missing = perms.filter {
+                androidx.core.content.ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty())
+                androidx.core.app.ActivityCompat.requestPermissions(this, missing.toTypedArray(), 9911)
+        } catch (e: Exception) {}
         // Lets every model call read provider keys + record cost, and route across Claude/OpenAI/Gemini.
         com.agentos.shell.tools.AgentClient.appContext = applicationContext
         // Your Anthropic key, pasted in-app and stored on-device (so a prebuilt APK needs no compiled key).
