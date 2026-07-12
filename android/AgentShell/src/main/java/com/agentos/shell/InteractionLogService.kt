@@ -244,11 +244,16 @@ class InteractionLogService : AccessibilityService() {
                  event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
                  event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED)) {
                 val fg = event.packageName?.toString() ?: ""
-                if (fg.contains("whatsapp", true)) {
-                    android.util.Log.i("SlyOS-Call", "wa event type=${event.eventType} pkg=$fg running=${CallAgentService.running}")
+                // Diagnostic: log EVERY relevant event's package so we can see what an incoming call surfaces as.
+                android.util.Log.i("SlyOS-Call", "evt type=${event.eventType} pkg=$fg running=${CallAgentService.running}")
+                val wa = fg.contains("whatsapp", true)
+                // The call UI may be hosted by the system, not WhatsApp — treat these as "maybe a call" and scan.
+                val callHost = wa || fg.contains("systemui", true) || fg.contains("telecom", true) ||
+                    fg.contains("incallui", true) || fg.contains("dialer", true) || fg.contains("server.telecom", true)
+                if (callHost && !CallAgentService.running) {
                     handleWhatsAppCall()
-                } else if (CallAgentService.running && fg.isNotEmpty() && fg != packageName && !fg.contains("whatsapp", true)) {
-                    android.util.Log.i("SlyOS-Call", "left whatsapp (now $fg) → stopping agent")
+                } else if (CallAgentService.running && fg.isNotEmpty() && fg != packageName && !wa && !fg.contains("systemui", true)) {
+                    android.util.Log.i("SlyOS-Call", "left call UI (now $fg) → stopping agent")
                     CallAgentService.stop(applicationContext)
                 }
             }
@@ -302,7 +307,8 @@ class InteractionLogService : AccessibilityService() {
     private fun handleWhatsAppCall() {
         if (CallAgentService.running) return
         val now = System.currentTimeMillis()
-        if (now - lastAnswerAttempt < 4000) return          // don't spam taps across rapid content events
+        if (now - lastAnswerAttempt < 2500) return          // throttle scans across rapid content events
+        lastAnswerAttempt = now
 
         val roots = allRoots()
         android.util.Log.i("SlyOS-Call", "scanning ${roots.size} window(s) for the Answer button")
@@ -323,7 +329,6 @@ class InteractionLogService : AccessibilityService() {
             if (slide != null) { android.util.Log.i("SlyOS-Call", "slide-to-answer → swiping up"); swipe("up") }
             else { android.util.Log.w("SlyOS-Call", "giving up on this event"); return }
         }
-        lastAnswerAttempt = now
         val caller = readCallerName(roots)
 
         // Give the call a beat to connect, then force speaker + hand off to the AI.
