@@ -110,11 +110,19 @@ class CallAgentService : Service() {
 
     override fun onDestroy() {
         alive = false; running = false
+        Log.i(TAG, "onDestroy — call agent stopped")
         val label = who
         Thread { try { MessageStore.insertOne(applicationContext, label, "Calls", label, "them", "📞 Call ended at ${ts()}") } catch (e: Exception) {} }.start()
+        try { recog?.cancel() } catch (e: Exception) {}
         try { recog?.destroy() } catch (e: Exception) {}
+        try { tts?.stop() } catch (e: Exception) {}
         try { tts?.shutdown() } catch (e: Exception) {}
         try { player?.release() } catch (e: Exception) {}
+        // CRITICAL: restore normal audio so the NEXT call rings & answers properly.
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            am?.let { @Suppress("DEPRECATION") it.isSpeakerphoneOn = false; it.mode = android.media.AudioManager.MODE_NORMAL }
+        } catch (e: Exception) {}
         scope.cancel()
     }
 
@@ -124,26 +132,33 @@ class CallAgentService : Service() {
         try {
             val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                // Be patient: give the caller time to speak and don't cut off on brief pauses.
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 8000L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
             Log.i(TAG, "listening for the caller…")
             recog?.startListening(i)
         } catch (e: Exception) { Log.e(TAG, "listen", e) }
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(p: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
+        override fun onReadyForSpeech(p: Bundle?) { Log.i(TAG, "mic ready, waiting for caller") }
+        override fun onBeginningOfSpeech() { Log.i(TAG, "★ detecting speech from the line") }
         override fun onRmsChanged(v: Float) {}
         override fun onBufferReceived(b: ByteArray?) {}
-        override fun onEndOfSpeech() {}
-        override fun onError(e: Int) { Log.w(TAG, "recognizer error $e"); if (alive && !speaking) main.postDelayed({ listen() }, 600) }
+        override fun onEndOfSpeech() { Log.i(TAG, "end of speech") }
+        override fun onError(e: Int) { Log.w(TAG, "recognizer error $e (7=no-match,6=timeout,9=perms,8=busy)"); if (alive && !speaking) main.postDelayed({ listen() }, 600) }
         override fun onResults(res: Bundle?) {
             val said = res?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
             Log.i(TAG, "heard caller: \"$said\"")
             if (said.isBlank()) { if (alive) listen(); return }
             answer(said)
         }
-        override fun onPartialResults(res: Bundle?) {}
+        override fun onPartialResults(res: Bundle?) {
+            val p = res?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+            if (p.isNotBlank()) Log.i(TAG, "partial: \"$p\"")
+        }
         override fun onEvent(t: Int, b: Bundle?) {}
     }
 
