@@ -239,12 +239,20 @@ class InteractionLogService : AccessibilityService() {
         }
         // AUTO-ANSWER incoming WhatsApp/VoIP calls and hand them to the AI (experimental, off by default).
         try {
-            if (MemoryStore.answerCalls(applicationContext) && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            if (MemoryStore.answerCalls(applicationContext) &&
+                (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                 event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                 event.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED)) {
                 val fg = event.packageName?.toString() ?: ""
-                if (fg == "com.whatsapp" || fg == "com.whatsapp.w4b") handleWhatsAppCall()
-                else if (CallAgentService.running && fg != packageName) CallAgentService.stop(applicationContext) // call UI gone → hang up the agent
+                if (fg.contains("whatsapp", true)) {
+                    android.util.Log.i("SlyOS-Call", "wa event type=${event.eventType} pkg=$fg running=${CallAgentService.running}")
+                    handleWhatsAppCall()
+                } else if (CallAgentService.running && fg.isNotEmpty() && fg != packageName && !fg.contains("whatsapp", true)) {
+                    android.util.Log.i("SlyOS-Call", "left whatsapp (now $fg) → stopping agent")
+                    CallAgentService.stop(applicationContext)
+                }
             }
-        } catch (e: Throwable) {}
+        } catch (e: Throwable) { android.util.Log.e("SlyOS-Call", "trigger", e) }
         // Auto-start Chess Coach when a chess app comes to the foreground (if the user armed it).
         // PERSONAL-ONLY: never runs in public builds.
         try {
@@ -280,25 +288,51 @@ class InteractionLogService : AccessibilityService() {
     // Detect the incoming-call UI, tap Answer (or slide up), switch to speaker so the mic can hear the
     // caller and the AI's voice reaches them, then start the headless CallAgent loop. WhatsApp's UI text
     // varies by version/locale, so this uses broad heuristics and is tuned on-device.
+    @Volatile private var lastAnswerAttempt = 0L
+
+    /** All node trees currently on screen: the active window plus every interactive window (the incoming
+     *  call often lives in its OWN window, not the active one). */
+    private fun allRoots(): List<AccessibilityNodeInfo> {
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        try { rootInActiveWindow?.let { roots.add(it) } } catch (e: Exception) {}
+        try { for (w in windows) { try { w.root?.let { roots.add(it) } } catch (e: Exception) {} } } catch (e: Exception) {}
+        return roots
+    }
+
     private fun handleWhatsAppCall() {
         if (CallAgentService.running) return
-        val root = rootInActiveWindow ?: return
-        val answer = findClickableMatching(root, Regex("(?i)\\b(answer|accept)\\b"))
+        val now = System.currentTimeMillis()
+        if (now - lastAnswerAttempt < 4000) return          // don't spam taps across rapid content events
+
+        val roots = allRoots()
+        android.util.Log.i("SlyOS-Call", "scanning ${roots.size} window(s) for the Answer button")
+        val rx = Regex("(?i)\\b(answer|accept)\\b")
+        var answer: AccessibilityNodeInfo? = null
+        for (r in roots) { answer = findClickableMatching(r, rx); if (answer != null) break }
+
         if (answer != null) {
+            android.util.Log.i("SlyOS-Call", "found Answer: '${(answer.text ?: answer.contentDescription)}' — tapping")
             clickNode(answer)
         } else {
-            // Fallback for "slide up to answer" style: swipe up if that hint is present.
-            val slide = findNodeMatching(root, Regex("(?i)(swipe|slide).{0,12}(up|answer)"))
-            if (slide != null) swipe("up") else return
+            // No labelled Answer button — dump what IS on screen so we can tune the matcher, then try slide-up.
+            val labels = StringBuilder()
+            for (r in roots) collectLabels(r, labels, 0)
+            android.util.Log.w("SlyOS-Call", "NO answer button. on-screen labels = [${labels.toString().take(500)}]")
+            var slide: AccessibilityNodeInfo? = null
+            for (r in roots) { slide = findNodeMatching(r, Regex("(?i)(swipe|slide|up).{0,14}(up|answer)")); if (slide != null) break }
+            if (slide != null) { android.util.Log.i("SlyOS-Call", "slide-to-answer → swiping up"); swipe("up") }
+            else { android.util.Log.w("SlyOS-Call", "giving up on this event"); return }
         }
-        // Best-effort caller name from the call screen, so the transcript files under the right person.
-        val caller = readCallerName(root)
+        lastAnswerAttempt = now
+        val caller = readCallerName(roots)
+
         // Give the call a beat to connect, then force speaker + hand off to the AI.
         android.os.Handler(mainLooper).postDelayed({
             try {
-                val r2 = rootInActiveWindow
-                val spk = if (r2 != null) findClickableMatching(r2, Regex("(?i)speaker")) else null
-                if (spk != null && !isOn(spk)) clickNode(spk)
+                var spk: AccessibilityNodeInfo? = null
+                for (r in allRoots()) { spk = findClickableMatching(r, Regex("(?i)speaker")); if (spk != null) break }
+                if (spk != null && !isOn(spk)) { android.util.Log.i("SlyOS-Call", "tapping Speaker"); clickNode(spk) }
+                else android.util.Log.i("SlyOS-Call", "no Speaker button found (using AudioManager)")
             } catch (e: Exception) {}
             try {
                 val am = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
@@ -307,12 +341,21 @@ class InteractionLogService : AccessibilityService() {
                     it.isSpeakerphoneOn = true
                 }
             } catch (e: Exception) {}
+            android.util.Log.i("SlyOS-Call", "starting CallAgent for '$caller'")
             CallAgentService.start(applicationContext, caller)
         }, 1800)
     }
 
+    /** Collect visible text/desc labels (for diagnosing the call screen). */
+    private fun collectLabels(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
+        if (n == null || depth > 40 || sb.length > 600) return
+        val t = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
+        if (t.isNotEmpty() && t.length <= 40) sb.append(t).append(if (n.isClickable) "(clk)" else "").append(" | ")
+        for (i in 0 until n.childCount) collectLabels(n.getChild(i), sb, depth + 1)
+    }
+
     /** Grab a likely caller name from the WhatsApp call screen (skips UI labels). "" if none found. */
-    private fun readCallerName(root: AccessibilityNodeInfo?): String {
+    private fun readCallerName(roots: List<AccessibilityNodeInfo>): String {
         val skip = Regex("(?i)answer|accept|decline|reject|speaker|mute|video|voice call|whats\\s?app|calling|ringing|end call|swipe|slide|add|hold|minimi[sz]e|encrypted")
         fun dfs(n: AccessibilityNodeInfo?, depth: Int): String {
             if (n == null || depth > 40) return ""
@@ -321,7 +364,7 @@ class InteractionLogService : AccessibilityService() {
             for (i in 0 until n.childCount) { val r = dfs(n.getChild(i), depth + 1); if (r.isNotEmpty()) return r }
             return ""
         }
-        return try { dfs(root, 0) } catch (e: Exception) { "" }
+        return try { for (r in roots) { val name = dfs(r, 0); if (name.isNotEmpty()) return name }; "" } catch (e: Exception) { "" }
     }
 
     private fun isOn(n: AccessibilityNodeInfo): Boolean = try { n.isChecked || n.isSelected } catch (e: Exception) { false }
