@@ -55,6 +55,13 @@ class CallAgentService : Service() {
     private var who = "WhatsApp caller"          // brain contact this call is filed under
     @Volatile private var alive = false
     private var speaking = false
+    private var ttsReady = false
+    private var pendingSpeak: String? = null
+
+    private val voiceAttrs = android.media.AudioAttributes.Builder()
+        .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
 
     private fun ts(): String =
         java.text.SimpleDateFormat("MMM d, HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
@@ -70,7 +77,22 @@ class CallAgentService : Service() {
             try { MessageStore.insertOne(applicationContext, who, "Calls", who, "them", "📞 Incoming call — AI answered at ${ts()}") } catch (e: Exception) {}
         } }
         try { startForeground(31, notif()) } catch (e: Exception) { Log.e(TAG, "fg", e) }
-        tts = TextToSpeech(applicationContext) { }
+        // Route audio through the call path + speaker so the caller can hear the AI.
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            am?.let { it.mode = android.media.AudioManager.MODE_IN_COMMUNICATION; @Suppress("DEPRECATION") it.isSpeakerphoneOn = true }
+        } catch (e: Exception) {}
+        Log.i(TAG, "onStartCommand — starting call agent")
+        tts = TextToSpeech(applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+                try { tts?.language = Locale.getDefault() } catch (e: Exception) {}
+                try { tts?.setAudioAttributes(voiceAttrs) } catch (e: Exception) {}
+                Log.i(TAG, "tts ready")
+                val p = pendingSpeak; pendingSpeak = null
+                if (p != null) main.post { deviceSpeak(p) }
+            } else Log.w(TAG, "tts init FAILED status=$status")
+        }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) { main.post { speaking = false; if (alive) listen() } }
@@ -78,6 +100,7 @@ class CallAgentService : Service() {
         })
         recog = if (SpeechRecognizer.isRecognitionAvailable(applicationContext))
             SpeechRecognizer.createSpeechRecognizer(applicationContext) else null
+        if (recog == null) Log.w(TAG, "no SpeechRecognizer available on this device")
         recog?.setRecognitionListener(listener)
         // Open with a natural greeting in your voice, then start listening.
         val name = MemoryStore.ownerName(applicationContext).ifBlank { MemoryStore.profileName(applicationContext) }.trim()
@@ -102,6 +125,7 @@ class CallAgentService : Service() {
             val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            Log.i(TAG, "listening for the caller…")
             recog?.startListening(i)
         } catch (e: Exception) { Log.e(TAG, "listen", e) }
     }
@@ -112,9 +136,10 @@ class CallAgentService : Service() {
         override fun onRmsChanged(v: Float) {}
         override fun onBufferReceived(b: ByteArray?) {}
         override fun onEndOfSpeech() {}
-        override fun onError(e: Int) { if (alive && !speaking) main.postDelayed({ listen() }, 400) }
+        override fun onError(e: Int) { Log.w(TAG, "recognizer error $e"); if (alive && !speaking) main.postDelayed({ listen() }, 600) }
         override fun onResults(res: Bundle?) {
             val said = res?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+            Log.i(TAG, "heard caller: \"$said\"")
             if (said.isBlank()) { if (alive) listen(); return }
             answer(said)
         }
@@ -149,13 +174,15 @@ class CallAgentService : Service() {
     // ── Speak (out the speaker so the caller hears it) ────────────────────────────────────────────
     private fun speak(text: String) {
         speaking = true
+        Log.i(TAG, "speak: \"${text.take(60)}\"  (elevenlabs=${ElevenLabs.available(applicationContext)})")
         if (ElevenLabs.available(applicationContext)) {
             scope.launch {
                 val f = withContext(Dispatchers.IO) { ElevenLabs.synthesize(applicationContext, text) }
-                if (f == null) { deviceSpeak(text); return@launch }
+                if (f == null) { Log.w(TAG, "elevenlabs synth null → device voice"); deviceSpeak(text); return@launch }
                 try {
                     try { player?.release() } catch (e: Exception) {}
                     val mp = MediaPlayer()
+                    mp.setAudioAttributes(voiceAttrs)
                     mp.setDataSource(f.absolutePath)
                     mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {}; speaking = false; if (alive) listen() }
                     mp.setOnErrorListener { _, _, _ -> speaking = false; if (alive) listen(); true }
@@ -169,8 +196,9 @@ class CallAgentService : Service() {
 
     private fun deviceSpeak(text: String) {
         val e = tts
-        if (e == null) { speaking = false; return }
+        if (e == null || !ttsReady) { Log.i(TAG, "tts not ready yet — queued greeting"); pendingSpeak = text; return }
         try { e.language = Locale.getDefault() } catch (ex: Exception) {}
+        Log.i(TAG, "device TTS speaking")
         e.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "call")
     }
 

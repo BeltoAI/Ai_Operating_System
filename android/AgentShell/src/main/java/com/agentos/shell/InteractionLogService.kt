@@ -361,7 +361,7 @@ class InteractionLogService : AccessibilityService() {
 
     /** Grab a likely caller name from the WhatsApp call screen (skips UI labels). "" if none found. */
     private fun readCallerName(roots: List<AccessibilityNodeInfo>): String {
-        val skip = Regex("(?i)answer|accept|decline|reject|speaker|mute|video|voice call|whats\\s?app|calling|ringing|end call|swipe|slide|add|hold|minimi[sz]e|encrypted")
+        val skip = Regex("(?i)answer|accept|decline|reject|speaker|mute|video|voice call|whats\\s?app|calling|ringing|end call|swipe|slide|add|hold|minimi[sz]e|encrypted|\\d{1,2}:\\d{2}|\\b(mon|tue|wed|thu|fri|sat|sun)\\b|\\b(am|pm)\\b|slyos|notification|battery|wifi|signal")
         fun dfs(n: AccessibilityNodeInfo?, depth: Int): String {
             if (n == null || depth > 40) return ""
             val t = n.text?.toString()?.trim().orEmpty()
