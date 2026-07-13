@@ -298,6 +298,7 @@ class ShellActivity : ComponentActivity() {
                 }
               }
               BusyDog()   // non-blocking "generating" animation, app-wide
+              EdgeShimmer()   // accent light glides around the phone's border while anything loads
               }
             }
         }

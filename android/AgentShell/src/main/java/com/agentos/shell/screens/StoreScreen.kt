@@ -235,7 +235,7 @@ private fun RailCard(p: Power, onClick: () -> Unit) {
     Column(Modifier.padding(end = 12.dp, top = 4.dp).width(150.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).clickable { onClick() }.padding(12.dp)) {
         Crest(p, 52)
         Spacer(Modifier.height(10.dp))
-        Text("power to ${p.tagline}", fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp, maxLines = 3, modifier = Modifier.height(54.dp))
+        Text(p.tagline, fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp, maxLines = 3, modifier = Modifier.height(54.dp))
         Spacer(Modifier.height(6.dp))
         RatingRow(p)
     }
@@ -248,10 +248,11 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
         Crest(p, 48)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text("power to ${p.tagline}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Spacer(Modifier.height(2.dp))
+            Text(p.tagline, fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold, maxLines = 2, lineHeight = 20.sp)
+            Spacer(Modifier.height(3.dp))
             RatingRow(p)
         }
+        Spacer(Modifier.width(8.dp))
         Text(if (installed) "ACTIVE" else "GET", fontSize = T.caption, color = if (installed) T.inkFaint else T.accent, fontWeight = FontWeight.Bold,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (installed) T.hairline else T.accentSoft.copy(alpha = 0.5f)).clickable { onClick() }.padding(horizontal = 16.dp, vertical = 7.dp))
     }

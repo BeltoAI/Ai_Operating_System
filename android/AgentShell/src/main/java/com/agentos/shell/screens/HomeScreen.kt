@@ -730,8 +730,8 @@ fun HomeScreen(
             ) {
                 if (thinking) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("●", color = T.accent, fontSize = T.small)
-                        Spacer(Modifier.width(10.dp))
+                        SlyOrbit(34)
+                        Spacer(Modifier.width(14.dp))
                         Text("thinking…", fontSize = T.body, color = T.inkFaint)
                     }
                 } else {

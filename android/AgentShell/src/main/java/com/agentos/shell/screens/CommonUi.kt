@@ -23,8 +23,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -202,3 +213,74 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
         NavTab(Icons.Filled.Storefront, "Powers", current == Screen.Store) { onNav(Screen.Store) }
     }
+
+/**
+ * EDGE SHIMMER — while anything is generating, a soft accent light glides around the phone's border.
+ * App-wide (driven by the global Busy signal), non-interactive, and gone the instant work finishes.
+ */
+@Composable
+fun EdgeShimmer() {
+    if (com.agentos.shell.tools.Busy.active <= 0) return
+    val t = rememberInfiniteTransition(label = "edge")
+    val phase by t.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = LinearEasing)), label = "phase")
+    val breathe by t.animateFloat(0.75f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "breathe")
+    Canvas(Modifier.fillMaxSize()) {
+        val inset = 2.5f.dp.toPx()
+        val cr = 46.dp.toPx()
+        val path = Path().apply {
+            addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr)))
+        }
+        val pm = PathMeasure().apply { setPath(path, false) }
+        val len = pm.length
+        if (len <= 0f) return@Canvas
+        drawPath(path, T.accent.copy(alpha = 0.05f), style = Stroke(width = 1.5f.dp.toPx()))
+        val segLen = len * 0.17f
+        fun DrawScope.comet(startFrac: Float, glow: Float) {
+            val start = (startFrac % 1f + 1f) % 1f * len
+            val end = start + segLen
+            val seg = Path()
+            if (end <= len) pm.getSegment(start, end, seg, true)
+            else { pm.getSegment(start, len, seg, true); val s2 = Path(); pm.getSegment(0f, end - len, s2, true); seg.addPath(s2) }
+            drawPath(seg, T.accent.copy(alpha = 0.12f * glow), style = Stroke(7f.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(seg, T.accent.copy(alpha = 0.42f * glow), style = Stroke(3.5f.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(seg, T.accent.copy(alpha = glow), style = Stroke(2f.dp.toPx(), cap = StrokeCap.Round))
+        }
+        comet(phase, breathe)
+        comet(phase + 0.5f, breathe)
+    }
+}
+
+/**
+ * SLY ORBIT — a stylized Calabi-Yau: three interlocking loops tumbling in 3D with real depth, rendered in
+ * the accent. Where a response is being generated, this quietly spins. Drop it in any loading spot.
+ */
+@Composable
+fun SlyOrbit(size: Int = 30) {
+    val t = rememberInfiniteTransition(label = "manifold")
+    val twoPi = (2 * PI).toFloat()
+    val ry by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "ry")
+    val rx by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(8300, easing = LinearEasing)), label = "rx")
+    Canvas(Modifier.size(size.dp)) {
+        val cx = this.size.width / 2f; val cy = this.size.height / 2f
+        val rad = this.size.minDimension * 0.42f
+        val w = 1.6f.dp.toPx()
+        val loops = 3; val steps = 44
+        for (l in 0 until loops) {
+            val tilt = l * (PI / loops).toFloat()
+            var prev: Offset? = null
+            for (i in 0..steps) {
+                val a = i.toFloat() / steps * twoPi
+                // unit circle, tilted into 3D, then tumbled by (ry about Y, rx about X)
+                val x0 = cos(a); val yt = sin(a) * cos(tilt); val zt = sin(a) * sin(tilt)
+                val x1 = x0 * cos(ry) + zt * sin(ry); val z1 = -x0 * sin(ry) + zt * cos(ry)
+                val y2 = yt * cos(rx) - z1 * sin(rx); val z2 = yt * sin(rx) + z1 * cos(rx)
+                val depth = (z2 + 1f) / 2f
+                val persp = 0.72f + 0.28f * depth
+                val p = Offset(cx + x1 * rad * persp, cy + y2 * rad * persp)
+                prev?.let { drawLine(T.accent.copy(alpha = 0.18f + 0.82f * depth), it, p, strokeWidth = w, cap = StrokeCap.Round) }
+                prev = p
+            }
+        }
+        drawCircle(T.accent.copy(alpha = 0.9f), w, Offset(cx, cy))
+    }
+}
