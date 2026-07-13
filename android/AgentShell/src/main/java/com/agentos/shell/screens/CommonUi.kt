@@ -3,7 +3,11 @@ package com.agentos.shell.screens
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -132,11 +136,15 @@ fun BusyDog() {
 
 /** One bottom-nav tab with a clear active state, plus an optional unread-count badge. */
 @Composable
-private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) =
+private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.84f else 1f, tween(130), label = "navtab")
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         // No clip here — a rounded clip would crop the notification badge that sits above the icon.
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(interactionSource = src, indication = null) { onClick() }
             .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp)
     ) {
         Box {
@@ -153,6 +161,7 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
             }
         }
     }
+}
 
 /**
  * Persistent bottom navigation shared by every main panel — the Memory "brain" sits dead center,

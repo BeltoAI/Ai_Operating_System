@@ -9,9 +9,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -213,7 +215,9 @@ class ShellActivity : ComponentActivity() {
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
-                        (fadeIn(tween(600)) togetherWith fadeOut(tween(400)))
+                        // Every screen glides: a soft fade with a subtle upward settle. Feels smooth, not clicky.
+                        (fadeIn(tween(420)) + slideInVertically(tween(440, easing = FastOutSlowInEasing)) { it / 22 }) togetherWith
+                            fadeOut(tween(230))
                     },
                     label = "screen",
                     modifier = Modifier.weight(1f)

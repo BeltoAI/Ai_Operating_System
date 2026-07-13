@@ -45,6 +45,12 @@
   .st-row .meta .sub{ font-size:10px; color:var(--faint); }
   .st-row .get{ background:rgba(232,100,44,.16); color:var(--accent); font-size:9px; font-weight:800; padding:4px 12px; border-radius:999px; }
   .st-row + .st-row{ border-top:1px solid var(--line); }
+  .pw-line{ display:flex; gap:11px; padding:9px 0; border-top:1px solid var(--line); }
+  .pw-dot{ width:7px; height:7px; border-radius:50%; flex:0 0 auto; margin-top:6px; }
+  .pw-skill{ background:#E8642C; } .pw-connect{ background:#4E86B0; } .pw-tool{ background:#5E9A78; }
+  .pw-line .ph{ font-size:14px; color:var(--ink); font-weight:600; line-height:1.3; }
+  .pw-line .mt{ font-size:10px; color:var(--faint); margin-top:2px; }
+  .tdot{ width:12px; height:12px; border-radius:50%; margin-bottom:4px; }
   .code{ background:#0f0d0b; border:1px solid var(--line); border-radius:14px; padding:18px 20px; overflow:auto;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; line-height:1.7; color:#d7cdbd; }
   .code .k{ color:#F0703A; } .code .s{ color:#9ec7a0; } .code .c{ color:#6b6156; }
@@ -93,25 +99,21 @@
           <div class="t">Power Store</div>
           <div class="st-active">4 active</div>
         </div>
-        <div class="st-search"><span class="mg"></span> Search powers, or any GitHub repo…</div>
+        <div class="st-search"><span class="mg"></span> search powers, or any GitHub repo</div>
         <div class="st-chips">
-          <span class="st-chip on">All</span><span class="st-chip">⚡ Skill</span>
-          <span class="st-chip">🔌 Connect</span><span class="st-chip">🛠 Tool</span>
+          <span class="st-chip on">All</span><span class="st-chip">Skill</span>
+          <span class="st-chip">Connect</span><span class="st-chip">Tool</span>
         </div>
 
-        <div class="st-sec">Power to see</div>
-        <div class="st-row"><div class="tile sm g2">🔎</div>
-          <div class="meta"><div class="nm">Perplexica <b>🔌</b></div><div class="sub">…see the live web, with sources</div></div><span class="get">GET</span></div>
-        <div class="st-row"><div class="tile sm g3">🌙</div>
-          <div class="meta"><div class="nm">Deep Research <b>⚡</b></div><div class="sub">…research any topic while you sleep</div></div><span class="get">GET</span></div>
+        <div class="st-sec">See</div>
+        <div class="pw-line"><span class="pw-dot pw-connect"></span><div><div class="ph">see the live web, with sources</div><div class="mt">connect · Perplexica · ★ 35k</div></div></div>
+        <div class="pw-line"><span class="pw-dot pw-skill"></span><div><div class="ph">research any topic while you sleep</div><div class="mt">skill · Deep Research · ★ 19k</div></div></div>
 
-        <div class="st-sec" style="margin-top:12px">Power to speak</div>
-        <div class="st-row"><div class="tile sm g1">🗣️</div>
-          <div class="meta"><div class="nm">OpenVoice <b>🛠</b></div><div class="sub">…speak in your own voice</div></div><span class="get">GET</span></div>
+        <div class="st-sec" style="margin-top:10px">Speak</div>
+        <div class="pw-line"><span class="pw-dot pw-tool"></span><div><div class="ph">speak in your own voice</div><div class="mt">tool · OpenVoice · ★ 37k</div></div></div>
 
-        <div class="st-sec" style="margin-top:12px">Power to remember</div>
-        <div class="st-row"><div class="tile sm g4">🦉</div>
-          <div class="meta"><div class="nm">OCRmyPDF <b>🛠</b></div><div class="sub">…read any scan</div></div><span class="get">GET</span></div>
+        <div class="st-sec" style="margin-top:10px">Remember</div>
+        <div class="pw-line"><span class="pw-dot pw-tool"></span><div><div class="ph">read any scan</div><div class="mt">tool · OCRmyPDF · ★ 34k</div></div></div>
 
         <div class="navbar" data-active="apps"></div>
       </div></div>
@@ -135,13 +137,13 @@
     <p class="muted">Every power is one of three shapes — decided by where its intelligence lives. The store
       handles the wiring for each; you just tap add.</p>
     <div class="typegrid">
-      <div class="typecard"><div class="g">⚡</div><h4>Skill</h4>
+      <div class="typecard"><div class="tdot pw-skill"></div><h4>Skill</h4>
         <p>A prompt/workflow pack that upgrades the AI itself. Added straight into the brain — no server, instant.</p>
         <div class="ex">e.g. Deep Research, Taste, Huashu Design</div></div>
-      <div class="typecard"><div class="g">🔌</div><h4>Connect</h4>
+      <div class="typecard"><div class="tdot pw-connect"></div><h4>Connect</h4>
         <p>A self-hosted app the AI reads &amp; writes over an endpoint you connect (or a hosted one).</p>
         <div class="ex">e.g. Perplexica, Immich, AppFlowy, n8n, Twenty</div></div>
-      <div class="typecard"><div class="g">🛠</div><h4>Tool</h4>
+      <div class="typecard"><div class="tdot pw-tool"></div><h4>Tool</h4>
         <p>A file or media transform the AI can run — OCR a scan, cut a background, clone a voice.</p>
         <div class="ex">e.g. OpenVoice, OCRmyPDF, rembg, Spleeter</div></div>
     </div>
@@ -193,7 +195,7 @@
 
     <div class="frow">
       <div class="fvisual"><div class="phone"><div class="screen"><div class="notch"></div>
-        <div class="st-head"><div class="t" style="flex:1">OpenVoice</div><div class="st-active">🛠 Tool</div></div>
+        <div class="st-head"><div class="t" style="flex:1">OpenVoice</div><div class="st-active">Tool</div></div>
         <div style="font-size:13px;color:var(--ink);margin-top:6px">Gives your phone the power to <b style="color:var(--accent)">speak in your own voice</b>.</div>
         <div class="st-search" style="margin-top:12px">https://your-instance…  (optional)</div>
         <div style="background:var(--accent);color:#fff;text-align:center;font-size:13px;font-weight:700;border-radius:12px;padding:12px;margin-top:12px">Add this tool</div>

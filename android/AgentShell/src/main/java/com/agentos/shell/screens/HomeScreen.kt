@@ -52,6 +52,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -600,13 +603,23 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
-        // Personalized greeting: "what should happen, Emil?" when we know a first name.
+        // Personalized greeting: "what should happen, Emil?" — fades + rises in once, with a hairline accent
+        // underline that draws itself in. One quiet, deliberate motion; never repeats.
         val firstName = remember {
             (com.agentos.shell.tools.MemoryStore.profileName(ctx).ifBlank { com.agentos.shell.tools.MemoryStore.ownerName(ctx) })
                 .trim().substringBefore(' ').take(20)
         }
-        Text(if (firstName.isBlank()) "what should happen?" else "what should happen, $firstName?",
-            fontSize = T.prompt, color = T.ink)
+        var greetShown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { greetShown = true }
+        val gAlpha by animateFloatAsState(if (greetShown) 1f else 0f, tween(650), label = "gAlpha")
+        val gRise by animateFloatAsState(if (greetShown) 0f else 16f, tween(650, easing = FastOutSlowInEasing), label = "gRise")
+        val gLine by animateFloatAsState(if (greetShown) 1f else 0f, tween(780, delayMillis = 240), label = "gLine")
+        Column(Modifier.graphicsLayer { alpha = gAlpha; translationY = gRise }) {
+            Text(if (firstName.isBlank()) "what should happen?" else "what should happen, $firstName?",
+                fontSize = T.prompt, color = T.ink)
+            Spacer(Modifier.height(9.dp))
+            Box(Modifier.width((90 * gLine).dp).height(2.dp).clip(RoundedCornerShape(2.dp)).background(T.accent))
+        }
         Spacer(Modifier.height(14.dp))
 
         // App-name autocomplete: as you type, surface matching installed apps to open instantly.
