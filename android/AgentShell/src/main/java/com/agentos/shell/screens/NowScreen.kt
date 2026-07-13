@@ -21,8 +21,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MemoryStore
@@ -81,7 +83,7 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         com.agentos.shell.tools.ProposalStore.ensureLoaded(ctx)
         val proposals = com.agentos.shell.tools.ProposalStore.items
         if (proposals.isNotEmpty()) {
-            Text("SUGGESTED FOR YOU", fontSize = T.caption, color = T.inkFaint)
+            Text("SUGGESTED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             proposals.toList().forEach { p ->
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
@@ -89,7 +91,7 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                     if (p.subtitle.isNotBlank()) Text(p.subtitle, fontSize = T.caption, color = T.inkFaint)
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Confirm ✓", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
+                        Text("Confirm", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
                             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable {
                                 scope.launch {
                                     val msg = withContext(Dispatchers.IO) { com.agentos.shell.tools.ToolRouter.executeActions(ctx, p.actions, userInitiated = true) }
@@ -117,14 +119,14 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             }
             .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("✨  What you missed", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
-                Text(if (loading) "reading…" else "⟳", fontSize = T.small, color = T.accent,
+                Text("WHAT YOU MISSED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                Text(if (loading) "reading…" else "↻", fontSize = T.small, color = T.accent,
                     modifier = Modifier.clickable(enabled = !loading) { catchUp() }.padding(4.dp))
             }
             Spacer(Modifier.height(10.dp))
             when {
                 loading && digest.isBlank() -> Text("Reading your day…", fontSize = T.small, color = T.accent)
-                digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up — nothing waiting. ✨" else "Tap ⟳ for a summary of what's waiting.", fontSize = T.small, color = T.inkSoft)
+                digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up." else "Tap ↻ for a summary.", fontSize = T.small, color = T.inkSoft)
                 else -> {
                     val idx = digest.indexOf("Text back", ignoreCase = true)
                     if (idx > 0) {
@@ -138,16 +140,16 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
 
         if (notes.isEmpty()) {
             Spacer(Modifier.height(16.dp))
-            Text("Nothing waiting right now.", fontSize = T.body, color = T.inkSoft)
+            Text("All caught up.", fontSize = T.body, color = T.inkSoft)
             Spacer(Modifier.height(8.dp))
-            Text("Send yourself a message — or grant access:\nSettings → Notifications → Notification access → enable SlyOS.",
+            Text("Grant notification access in Settings to see what's waiting.",
                 fontSize = T.caption, color = T.inkFaint)
             return@Column
         }
 
         Spacer(Modifier.height(20.dp))
         val groups = notes.groupBy { it.title.ifBlank { it.app } }.map { it.key to it.value }
-        Text("WAITING ON YOU · ${groups.size}", fontSize = T.caption, color = T.inkFaint)
+        Text("WAITING · ${groups.size}", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
         Spacer(Modifier.height(10.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(groups, key = { it.first }) { (contact, group) -> NoteGroupCard(ctx, contact, group) }
