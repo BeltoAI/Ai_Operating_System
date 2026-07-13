@@ -17,9 +17,10 @@ object GitHubSearch {
     /** Search GitHub repositories, most-starred first. Returns Powers ready to preview/install. */
     fun search(query: String, limit: Int = 25): List<Power> {
         if (query.isBlank()) return emptyList()
-        val q = URLEncoder.encode(query, "UTF-8")
-        val url = "https://api.github.com/search/repositories?q=$q&sort=stars&order=desc&per_page=$limit"
+        Busy.start()   // drive the global edge-loader while we wait on GitHub
         return try {
+            val q = URLEncoder.encode(query, "UTF-8")
+            val url = "https://api.github.com/search/repositories?q=$q&sort=stars&order=desc&per_page=$limit"
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"; connectTimeout = 12000; readTimeout = 20000
                 setRequestProperty("Accept", "application/vnd.github+json")
@@ -32,6 +33,7 @@ object GitHubSearch {
             val items = JSONObject(txt).optJSONArray("items") ?: return emptyList()
             (0 until items.length()).mapNotNull { i -> items.optJSONObject(i)?.let { fromRepo(it) } }
         } catch (e: Exception) { Log.w(TAG, "search failed: ${e.message}"); emptyList() }
+        finally { Busy.end() }
     }
 
     private fun fromRepo(o: JSONObject): Power {

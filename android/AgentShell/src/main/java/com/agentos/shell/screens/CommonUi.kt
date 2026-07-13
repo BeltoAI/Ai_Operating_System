@@ -100,6 +100,23 @@ fun ScreenHeader(title: String, onBack: () -> Unit) =
 fun Hairline() =
     Spacer(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
 
+/** The device's real display corner radius in px (0 if unknown / square) — so the edge line hugs any phone. */
+@Composable
+private fun deviceCornerPx(): Int {
+    val ctx = LocalContext.current
+    return remember {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val d = ctx.display
+                maxOf(
+                    d?.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0,
+                    d?.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_RIGHT)?.radius ?: 0
+                )
+            } else 0
+        } catch (e: Exception) { 0 }
+    }
+}
+
 /**
  * The pixel dog now trots all the way AROUND the phone's edge, along the shimmer line, while anything is
  * generating. Driven by the global Busy signal; soft haptic when work finishes. Feet stay on the line,
@@ -127,11 +144,12 @@ fun BusyDog() {
     val t = rememberInfiniteTransition(label = "dog")
     val x by t.animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "x")
     val legUp by t.animateFloat(0f, 1f, infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "leg")
+    val cornerPx = deviceCornerPx()
 
     Canvas(Modifier.fillMaxSize()) {
         val p = 3.4f
         val ink = T.ink
-        val inset = 1.5f.dp.toPx(); val cr = 46.dp.toPx()
+        val cr = if (cornerPx > 0) cornerPx.toFloat() else 28f.dp.toPx(); val inset = 0.5f.dp.toPx()
         val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
         val pm = PathMeasure().apply { setPath(path, false) }
         val len = pm.length
@@ -243,8 +261,9 @@ fun EdgeShimmer() {
     if (com.agentos.shell.tools.Busy.active <= 0) return
     val t = rememberInfiniteTransition(label = "edge")
     val ph by t.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "ph")
+    val cornerPx = deviceCornerPx()
     Canvas(Modifier.fillMaxSize()) {
-        val inset = 1.5f.dp.toPx(); val cr = 46.dp.toPx()
+        val cr = if (cornerPx > 0) cornerPx.toFloat() else 28f.dp.toPx(); val inset = 0.5f.dp.toPx()
         val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
         val m = EDGE_PALETTE.size
         val samples = 13
