@@ -75,6 +75,8 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
     var ghResults by remember { mutableStateOf<List<Power>>(emptyList()) }
     var loadingGh by remember { mutableStateOf(false) }
     var tick by remember { mutableStateOf(0) }
+    var showReset by remember { mutableStateOf(false) }
+    var flash by remember { mutableStateOf("") }
 
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
@@ -100,8 +102,13 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
     fun searchGitHub() { val q = query.trim(); if (q.isBlank()) return; loadingGh = true; scope.launch { val r = withContext(Dispatchers.IO) { GitHubSearch.search(q) }; ghResults = r; loadingGh = false } }
 
     Column(modifier.alpha(enter)) {
-        Text("Powers", fontSize = 34.sp, color = T.ink, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Powers", fontSize = 34.sp, color = T.ink, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (installedCount > 0) Text("reset", fontSize = T.caption, color = T.danger, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { showReset = true }.padding(6.dp))
+        }
         if (installedCount > 0) Text("$installedCount active", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold)
+        if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(16.dp))
 
         // ── Intent bar — the hero ────────────────────────────────────────────────────
@@ -180,6 +187,26 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
             onInstall = { ep -> PowerRegistry.install(ctx, p, ep); tick++; selected = null },
             onRemove = { PowerRegistry.remove(ctx, p.id); tick++; selected = null },
             onRepo = { openRepo(p) }) { selected = null }
+    }
+
+    if (showReset) androidx.compose.ui.window.Dialog(onDismissRequest = { showReset = false }) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(T.bgElevated).padding(20.dp)) {
+            Text("Reset all Powers?", fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Text("Removes every installed power, stops their local servers in Termux, and clears the skills they added to your brain. Your chats, memory and settings stay untouched.",
+                fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+            Spacer(Modifier.height(18.dp))
+            Text("Reset everything", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger)
+                    .clickable {
+                        scope.launch {
+                            val msg = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerReset.resetAll(ctx) }
+                            flash = msg; tick++; showReset = false
+                        }
+                    }.padding(vertical = 13.dp))
+            Spacer(Modifier.height(10.dp))
+            Text("Cancel", fontSize = T.small, color = T.inkSoft, modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showReset = false })
+        }
     }
 }
 
@@ -265,6 +292,9 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var testMsg by remember(p.id) { mutableStateOf("") }
+    var askQ by remember(p.id) { mutableStateOf("") }
+    var askA by remember(p.id) { mutableStateOf("") }
+    var asking by remember(p.id) { mutableStateOf(false) }
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).clip(RoundedCornerShape(22.dp)).background(T.bgElevated).verticalScroll(rememberScrollState()).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -279,6 +309,32 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
             Spacer(Modifier.height(14.dp))
             Text(p.description, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
             Text("view on github ↗", fontSize = T.caption, color = T.accent, modifier = Modifier.padding(top = 10.dp).clickable { onRepo() })
+
+            // Ask whether/how this repo would integrate into SlyOS.
+            Spacer(Modifier.height(16.dp))
+            Text("WOULD IT WORK ON SLYOS?", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(6.dp))
+            Column {
+                BasicTextField(askQ, { askQ = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    decorationBox = { inner -> if (askQ.isEmpty()) Text("ask how it'd integrate…", fontSize = 15.sp, color = T.inkFaint); inner() })
+                Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(if (asking) "thinking…" else "Ask", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable(enabled = !asking) {
+                    asking = true; askA = ""
+                    scope.launch {
+                        val ans = withContext(Dispatchers.IO) {
+                            com.agentos.shell.tools.AgentClient.appAsk(
+                                "You are SlyOS, an AI Android launcher that can call self-hosted HTTP tools, run repos on-phone via Termux, and wire results into its brain. A user is viewing the GitHub repo '${p.repo}' — ${p.description}. Concisely assess integrating it into SlyOS: is it straightforward? Does it expose an HTTP API or a CLI? Can it run on-phone via Termux, or does it need a server/GPU? How would it look and work on the phone? " +
+                                    (if (askQ.isBlank()) "" else "Their question: ${askQ.trim()}"),
+                                "")
+                        }
+                        askA = ans; asking = false
+                    }
+                })
+            if (askA.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(askA, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp) }
 
             if (p.type != PowerType.SKILL) {
                 Spacer(Modifier.height(14.dp))
@@ -300,7 +356,7 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                         })
                     if (testMsg.isNotBlank()) { Spacer(Modifier.width(10.dp)); Text(testMsg, fontSize = T.caption, color = T.inkFaint) }
                 }
-                if (com.agentos.shell.tools.PowerBuilder.hasRecipe(p.id)) {
+                run {
                     Spacer(Modifier.height(12.dp))
                     Text("Build & run on this phone  (Termux)", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent.copy(alpha = 0.85f))

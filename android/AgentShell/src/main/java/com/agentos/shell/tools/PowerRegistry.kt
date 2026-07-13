@@ -51,6 +51,9 @@ object PowerRegistry {
 
     fun remove(ctx: Context, id: String) = save(ctx, load(ctx).filterNot { it.optString("id") == id })
 
+    /** KILL SWITCH: forget every installed power (skills, endpoints, awareness) in one shot. */
+    fun clear(ctx: Context) = prefs(ctx).edit().remove("installed").apply()
+
     fun installed(ctx: Context): List<Power> = load(ctx).map { fromJson(it).first }
 
     fun endpointOf(ctx: Context, id: String): String =

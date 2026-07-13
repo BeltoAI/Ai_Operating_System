@@ -36,6 +36,7 @@ import com.agentos.shell.theme.T
 import com.agentos.shell.tools.KnowledgeStore
 import com.agentos.shell.tools.MemoryStore
 import com.agentos.shell.tools.KeyValidator
+import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -791,6 +792,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var callText by remember { mutableStateOf(MemoryStore.callTextBack(ctx)) }
     var answerCalls by remember { mutableStateOf(MemoryStore.answerCalls(ctx)) }
     var showVoiceSetup by remember { mutableStateOf(false) }
+    var powerResetMsg by remember { mutableStateOf("") }
     var spicyDaily by remember { mutableStateOf(MemoryStore.spicyDaily(ctx)) }
     var kbName by remember { mutableStateOf(KnowledgeStore.name(ctx)) }
     var kbStatus by remember { mutableStateOf("") }
@@ -1238,6 +1240,23 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
         if (showVoiceSetup) VoiceSetupDialog { showVoiceSetup = false }
+
+        // ── Kill switch: reset all Powers ───────────────────────────────────────────
+        Spacer(Modifier.height(16.dp))
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+            Text("Reset all Powers", fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+            Text("Kill switch — removes every installed power, stops their local servers in Termux, and clears the skills they added to the brain. Your chats, memory and settings stay untouched.",
+                fontSize = T.small, color = T.inkFaint)
+            Spacer(Modifier.height(12.dp))
+            Text(powerResetMsg.ifBlank { "Reset everything" }, fontSize = T.small,
+                color = if (powerResetMsg.isBlank()) Color.White else T.accent, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .background(if (powerResetMsg.isBlank()) T.danger else T.hairline)
+                    .clickable {
+                        powerResetMsg = "resetting…"
+                        scope.launch { powerResetMsg = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerReset.resetAll(ctx) } }
+                    }.padding(vertical = 13.dp))
+        }
 
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
