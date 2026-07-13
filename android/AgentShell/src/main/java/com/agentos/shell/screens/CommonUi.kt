@@ -33,9 +33,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.cosh
 import kotlin.math.sin
+import kotlin.math.sinh
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -218,69 +222,100 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
  * EDGE SHIMMER — while anything is generating, a soft accent light glides around the phone's border.
  * App-wide (driven by the global Busy signal), non-interactive, and gone the instant work finishes.
  */
+private val EDGE_PALETTE = listOf(
+    Color(0xFFE8642C),  // accent orange
+    Color(0xFFE39A3C),  // warm amber
+    Color(0xFFC85A7C),  // rose
+    Color(0xFF8A6DBE)   // soft violet
+)
+
 @Composable
 fun EdgeShimmer() {
     if (com.agentos.shell.tools.Busy.active <= 0) return
     val t = rememberInfiniteTransition(label = "edge")
-    val phase by t.animateFloat(0f, 1f, infiniteRepeatable(tween(2600, easing = LinearEasing)), label = "phase")
-    val breathe by t.animateFloat(0.75f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "breathe")
+    // Slow, continuous glide through the palette; a gentle brightness shimmer over the top.
+    val cyc by t.animateFloat(0f, EDGE_PALETTE.size.toFloat(), infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "cyc")
+    val shim by t.animateFloat(0.68f, 1f, infiniteRepeatable(tween(1300), RepeatMode.Reverse), label = "shim")
+    val n = EDGE_PALETTE.size
+    val idx = cyc.toInt() % n
+    val col = lerp(EDGE_PALETTE[idx], EDGE_PALETTE[(idx + 1) % n], cyc - cyc.toInt())
     Canvas(Modifier.fillMaxSize()) {
         val inset = 2.5f.dp.toPx()
         val cr = 46.dp.toPx()
         val path = Path().apply {
             addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr)))
         }
-        val pm = PathMeasure().apply { setPath(path, false) }
-        val len = pm.length
-        if (len <= 0f) return@Canvas
-        drawPath(path, T.accent.copy(alpha = 0.05f), style = Stroke(width = 1.5f.dp.toPx()))
-        val segLen = len * 0.17f
-        fun DrawScope.comet(startFrac: Float, glow: Float) {
-            val start = (startFrac % 1f + 1f) % 1f * len
-            val end = start + segLen
-            val seg = Path()
-            if (end <= len) pm.getSegment(start, end, seg, true)
-            else { pm.getSegment(start, len, seg, true); val s2 = Path(); pm.getSegment(0f, end - len, s2, true); seg.addPath(s2) }
-            drawPath(seg, T.accent.copy(alpha = 0.12f * glow), style = Stroke(7f.dp.toPx(), cap = StrokeCap.Round))
-            drawPath(seg, T.accent.copy(alpha = 0.42f * glow), style = Stroke(3.5f.dp.toPx(), cap = StrokeCap.Round))
-            drawPath(seg, T.accent.copy(alpha = glow), style = Stroke(2f.dp.toPx(), cap = StrokeCap.Round))
-        }
-        comet(phase, breathe)
-        comet(phase + 0.5f, breathe)
+        // A single continuous line: a soft outer glow, a mid halo, and a crisp core — all one shifting colour.
+        drawPath(path, col.copy(alpha = 0.10f * shim), style = Stroke(9f.dp.toPx()))
+        drawPath(path, col.copy(alpha = 0.34f * shim), style = Stroke(4f.dp.toPx()))
+        drawPath(path, col.copy(alpha = 0.85f * shim), style = Stroke(1.8f.dp.toPx()))
     }
 }
 
+// One point on the Fermat-quintic Calabi-Yau cross-section (Hanson's parametrization), degree n=5.
+// Returns the raw 3D surface point [x,y,z] before animation.
+private fun cyPoint(k1: Int, k2: Int, u: Double, v: Double): FloatArray {
+    val n = 5.0; val p = 2.0 / n
+    // z1 = (cos(u+iv))^(2/n) · e^(i·2πk1/n)
+    var re = cos(u) * cosh(v); var im = -sin(u) * sinh(v)
+    var mag = Math.pow(re * re + im * im, p / 2.0); var ang = atan2(im, re) * p
+    var z1re = mag * cos(ang); var z1im = mag * sin(ang)
+    val f1 = 2 * PI * k1 / n
+    val a1re = z1re * cos(f1) - z1im * sin(f1); val a1im = z1re * sin(f1) + z1im * cos(f1)
+    z1re = a1re; z1im = a1im
+    // z2 = (sin(u+iv))^(2/n) · e^(i·2πk2/n)
+    re = sin(u) * cosh(v); im = cos(u) * sinh(v)
+    mag = Math.pow(re * re + im * im, p / 2.0); ang = atan2(im, re) * p
+    var z2re = mag * cos(ang); var z2im = mag * sin(ang)
+    val f2 = 2 * PI * k2 / n
+    val a2re = z2re * cos(f2) - z2im * sin(f2); val a2im = z2re * sin(f2) + z2im * cos(f2)
+    z2re = a2re; z2im = a2im
+    val alpha = PI / 4.0
+    return floatArrayOf(z1re.toFloat(), z2re.toFloat(), (cos(alpha) * z1im + sin(alpha) * z2im).toFloat())
+}
+
 /**
- * SLY ORBIT — a stylized Calabi-Yau: three interlocking loops tumbling in 3D with real depth, rendered in
- * the accent. Where a response is being generated, this quietly spins. Drop it in any loading spot.
+ * SLY ORBIT — an actual Calabi-Yau manifold (the quintic cross-section, 25 patches) tumbling in 3D, meshed
+ * and depth-shaded in the accent. Wherever a response is being generated, this quietly turns.
  */
 @Composable
-fun SlyOrbit(size: Int = 30) {
-    val t = rememberInfiniteTransition(label = "manifold")
+fun SlyOrbit(size: Int = 48) {
+    val t = rememberInfiniteTransition(label = "cy")
     val twoPi = (2 * PI).toFloat()
-    val ry by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "ry")
-    val rx by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(8300, easing = LinearEasing)), label = "rx")
+    val ry by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(6400, easing = LinearEasing)), label = "ry")
+    val rx by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(9700, easing = LinearEasing)), label = "rx")
+    val nu = 5; val nv = 4
+    val patches = remember {
+        val out = ArrayList<Array<FloatArray>>()
+        for (k1 in 0 until 5) for (k2 in 0 until 5) {
+            out.add(Array((nu + 1) * (nv + 1)) { idx ->
+                val iu = idx / (nv + 1); val iv = idx % (nv + 1)
+                cyPoint(k1, k2, iu.toDouble() / nu * (PI / 2.0), (iv.toDouble() / nv - 0.5) * 1.8)
+            })
+        }
+        out
+    }
     Canvas(Modifier.size(size.dp)) {
         val cx = this.size.width / 2f; val cy = this.size.height / 2f
-        val rad = this.size.minDimension * 0.42f
-        val w = 1.6f.dp.toPx()
-        val loops = 3; val steps = 44
-        for (l in 0 until loops) {
-            val tilt = l * (PI / loops).toFloat()
-            var prev: Offset? = null
-            for (i in 0..steps) {
-                val a = i.toFloat() / steps * twoPi
-                // unit circle, tilted into 3D, then tumbled by (ry about Y, rx about X)
-                val x0 = cos(a); val yt = sin(a) * cos(tilt); val zt = sin(a) * sin(tilt)
-                val x1 = x0 * cos(ry) + zt * sin(ry); val z1 = -x0 * sin(ry) + zt * cos(ry)
-                val y2 = yt * cos(rx) - z1 * sin(rx); val z2 = yt * sin(rx) + z1 * cos(rx)
-                val depth = (z2 + 1f) / 2f
-                val persp = 0.72f + 0.28f * depth
-                val p = Offset(cx + x1 * rad * persp, cy + y2 * rad * persp)
-                prev?.let { drawLine(T.accent.copy(alpha = 0.18f + 0.82f * depth), it, p, strokeWidth = w, cap = StrokeCap.Round) }
-                prev = p
+        val scale = this.size.minDimension * 0.34f
+        val w = 1f.dp.toPx()
+        val cry = cos(ry); val sry = sin(ry); val crx = cos(rx); val srx = sin(rx)
+        for (g in patches) {
+            val pts = Array(g.size) { Offset.Zero }
+            val dep = FloatArray(g.size)
+            for (i in g.indices) {
+                val x = g[i][0]; val y = g[i][1]; val z = g[i][2]
+                val x1 = x * cry + z * sry; val z1 = -x * sry + z * cry           // rotate about Y
+                val y2 = y * crx - z1 * srx; val z2 = y * srx + z1 * crx          // rotate about X
+                pts[i] = Offset(cx + x1 * scale, cy - y2 * scale); dep[i] = z2
+            }
+            for (iu in 0..nu) for (iv in 0..nv) {
+                val id = iu * (nv + 1) + iv
+                val d = ((dep[id] + 1.4f) / 2.8f).coerceIn(0f, 1f)
+                val col = T.accent.copy(alpha = (0.10f + 0.75f * d))
+                if (iu < nu) drawLine(col, pts[id], pts[(iu + 1) * (nv + 1) + iv], strokeWidth = w)
+                if (iv < nv) drawLine(col, pts[id], pts[iu * (nv + 1) + iv + 1], strokeWidth = w)
             }
         }
-        drawCircle(T.accent.copy(alpha = 0.9f), w, Offset(cx, cy))
     }
 }
