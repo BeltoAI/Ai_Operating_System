@@ -52,6 +52,7 @@ object PowerBuilder {
         val r = RECIPES[power.id] ?: aiRecipe(power)
             ?: return false to "Couldn't work out how to build ${power.repo} on-phone. It may be too heavy for a phone, or need a GUI/GPU. Try a lighter repo, or run it on a server and paste the URL."
         val log = TermuxBridge.run(ctx, r.setup, 300_000)          // pip installs can be slow
+        if (TermuxBridge.isSetupHint(log)) return false to log     // show the friendly setup steps, not a raw error
         val endpoint = "http://127.0.0.1:${r.port}"
         return if (PowerDispatch.ping(endpoint)) {
             PowerRegistry.install(ctx, power, endpoint)             // running locally → wire it into the brain

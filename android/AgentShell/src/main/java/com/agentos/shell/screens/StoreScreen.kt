@@ -291,98 +291,128 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
     var endpoint by remember(p.id) { mutableStateOf("") }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var testMsg by remember(p.id) { mutableStateOf("") }
+    var status by remember(p.id) { mutableStateOf("") }
     var askQ by remember(p.id) { mutableStateOf("") }
     var askA by remember(p.id) { mutableStateOf("") }
     var asking by remember(p.id) { mutableStateOf(false) }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).clip(RoundedCornerShape(22.dp)).background(T.bgElevated).verticalScroll(rememberScrollState()).padding(20.dp)) {
+
+    fun ask() {
+        asking = true; askA = ""
+        scope.launch {
+            val ans = withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.AgentClient.appAsk(
+                    "You are SlyOS, an AI Android launcher that can call self-hosted HTTP tools, run repos on-phone via Termux, and wire results into its brain. A user is viewing the GitHub repo '${p.repo}' — ${p.description}. Concisely assess integrating it into SlyOS: is it straightforward? HTTP API or CLI? Can it run on-phone via Termux, or need a server/GPU? How would it look on the phone? " +
+                        (if (askQ.isBlank()) "" else "Their question: ${askQ.trim()}"), "")
+            }
+            askA = ans; asking = false
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(T.bg).verticalScroll(rememberScrollState()).padding(20.dp)) {
+            Text("←  Powers", fontSize = T.small, color = T.inkSoft, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { onClose() }.padding(vertical = 6.dp))
+            Spacer(Modifier.height(18.dp))
+
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Crest(p, 64)
-                Spacer(Modifier.width(14.dp))
+                Crest(p, 72)
+                Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("power to ${p.tagline}", fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
-                    Spacer(Modifier.height(4.dp))
-                    Text("★ ${"%.1f".format(p.rating)}  ·  ${p.stars}  ·  ${p.type.label}", fontSize = T.caption, color = T.inkFaint)
+                    Text(p.name, fontSize = 24.sp, color = T.ink, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(3.dp))
+                    Text("★ ${"%.1f".format(p.rating)}    ${p.stars} stars    ·    ${p.type.label}", fontSize = T.caption, color = T.inkFaint)
+                    if (installed) { Spacer(Modifier.height(4.dp)); Text("active", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold) }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text(p.description, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+            Spacer(Modifier.height(16.dp))
+            Text("power to ${p.tagline}", fontSize = 18.sp, color = T.ink, fontWeight = FontWeight.Medium, lineHeight = 23.sp)
+            Spacer(Modifier.height(10.dp))
+            Text(p.description, fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp)
             Text("view on github ↗", fontSize = T.caption, color = T.accent, modifier = Modifier.padding(top = 10.dp).clickable { onRepo() })
 
-            // Ask whether/how this repo would integrate into SlyOS.
-            Spacer(Modifier.height(16.dp))
+            // ── Integration chat (with a real send button) ──
+            Spacer(Modifier.height(24.dp))
             Text("WOULD IT WORK ON SLYOS?", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            Spacer(Modifier.height(6.dp))
-            Column {
-                BasicTextField(askQ, { askQ = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    decorationBox = { inner -> if (askQ.isEmpty()) Text("ask how it'd integrate…", fontSize = 15.sp, color = T.inkFaint); inner() })
-                Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
-            }
             Spacer(Modifier.height(8.dp))
-            Text(if (asking) "thinking…" else "Ask", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clickable(enabled = !asking) {
-                    asking = true; askA = ""
-                    scope.launch {
-                        val ans = withContext(Dispatchers.IO) {
-                            com.agentos.shell.tools.AgentClient.appAsk(
-                                "You are SlyOS, an AI Android launcher that can call self-hosted HTTP tools, run repos on-phone via Termux, and wire results into its brain. A user is viewing the GitHub repo '${p.repo}' — ${p.description}. Concisely assess integrating it into SlyOS: is it straightforward? Does it expose an HTTP API or a CLI? Can it run on-phone via Termux, or does it need a server/GPU? How would it look and work on the phone? " +
-                                    (if (askQ.isBlank()) "" else "Their question: ${askQ.trim()}"),
-                                "")
-                        }
-                        askA = ans; asking = false
-                    }
-                })
-            if (askA.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(askA, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp) }
-
-            if (p.type != PowerType.SKILL) {
-                Spacer(Modifier.height(14.dp))
-                Column {
-                    BasicTextField(endpoint, { endpoint = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    BasicTextField(askQ, { askQ = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        decorationBox = { inner -> if (endpoint.isEmpty()) Text("https://your-instance  (optional)", fontSize = 15.sp, color = T.inkFaint); inner() })
+                        decorationBox = { inner -> if (askQ.isEmpty()) Text("ask how it'd integrate…", fontSize = 15.sp, color = T.inkFaint); inner() })
                     Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Test connection", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable {
-                            testMsg = "testing…"
-                            scope.launch {
-                                val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerDispatch.ping(endpoint) }
-                                testMsg = if (ok) "reachable ✓" else "no response ✕"
-                            }
-                        })
-                    if (testMsg.isNotBlank()) { Spacer(Modifier.width(10.dp)); Text(testMsg, fontSize = T.caption, color = T.inkFaint) }
+                Spacer(Modifier.width(12.dp))
+                Box(Modifier.size(42.dp).clip(CircleShape).background(if (asking) T.hairline else T.accent)
+                    .clickable(enabled = !asking) { ask() }, contentAlignment = Alignment.Center) {
+                    Text(if (asking) "…" else "→", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 }
-                run {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Build & run on this phone  (Termux)", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent.copy(alpha = 0.85f))
-                            .clickable {
-                                testMsg = "building in Termux… this can take a minute"
-                                scope.launch {
-                                    val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
-                                    testMsg = log
-                                    if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
-                                }
-                            }.padding(vertical = 12.dp))
-                    Text("Runs the repo locally — no computer needed.", fontSize = 10.sp, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
-                }
+            }
+            if (askA.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(askA, fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp))
             }
 
-            Spacer(Modifier.height(18.dp))
-            if (installed) {
-                Text("Remove", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            // ── Get it (clear, distinct paths) ──
+            Spacer(Modifier.height(26.dp))
+            Text("GET IT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(10.dp))
+            when {
+                installed -> Text("Remove this power", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { onRemove() }.padding(vertical = 13.dp))
-            } else {
-                Text(when (p.type) { PowerType.SKILL -> "Add skill"; PowerType.CONNECT -> "Connect"; PowerType.TOOL -> "Add tool" },
-                    fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { onInstall(endpoint.trim()) }.padding(vertical = 13.dp))
+                p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
+                else -> {
+                    ActionCard("Run it on my phone", "SlyOS builds and runs the repo inside Termux, on-device. No computer needed.",
+                        if (status.startsWith("building")) "building…" else "Build & run") {
+                        status = "building in Termux… this can take a minute"
+                        scope.launch {
+                            val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
+                            status = log
+                            if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                        Text("Connect my own instance", fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+                        Text("Already running it on a computer or server? Paste its web address.", fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.height(10.dp))
+                        BasicTextField(endpoint, { endpoint = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            decorationBox = { inner -> if (endpoint.isEmpty()) Text("http://192.168.1.x:port", fontSize = 15.sp, color = T.inkFaint); inner() })
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
+                        Spacer(Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Connect", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (endpoint.isBlank()) T.hairline else T.accent)
+                                    .clickable(enabled = endpoint.isNotBlank()) { onInstall(endpoint.trim()) }.padding(vertical = 11.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Test", fontSize = T.small, color = T.accent, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable {
+                                    status = "testing…"
+                                    scope.launch { val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerDispatch.ping(endpoint) }; status = if (ok) "reachable ✓" else "no response ✕" }
+                                }.padding(horizontal = 16.dp, vertical = 11.dp))
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            Text("Close", fontSize = T.small, color = T.inkSoft, modifier = Modifier.align(Alignment.CenterHorizontally).clickable { onClose() })
+            if (status.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(status, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp))
+            }
+            Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun ActionCard(title: String, sub: String, cta: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+        Text(title, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+        Text(sub, fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(12.dp))
+        Text(cta, fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.accent).clickable { onClick() }.padding(vertical = 12.dp))
     }
 }

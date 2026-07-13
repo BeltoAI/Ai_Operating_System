@@ -91,6 +91,18 @@ object TermuxBridge {
         }
         val ok = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
         try { ctx.unregisterReceiver(receiver) } catch (e: Exception) {}
-        return if (ok) result.take(9000) else "Timed out after ${timeoutMs / 1000}s (command may still be running in Termux)."
+        if (!ok) return "Timed out after ${timeoutMs / 1000}s (command may still be running in Termux)."
+        val r = result.take(9000)
+        // Translate the one common setup error into plain, actionable steps — never surface the raw message.
+        return if (r.contains("allow-external-apps", true) || r.contains("RunCommandService requires", true)) setupHint() else r
     }
+
+    /** True if a run result is actually the "please configure Termux" hint (not real output). */
+    fun isSetupHint(s: String): Boolean = s.startsWith("One-time Termux setup")
+
+    /** Friendly one-time-setup text shown when Termux isn't configured to accept external commands. */
+    fun setupHint(): String =
+        "One-time Termux setup. Open Termux and run these two lines, then try again:\n\n" +
+            "echo \"allow-external-apps=true\" >> ~/.termux/termux.properties\n" +
+            "termux-reload-settings"
 }
