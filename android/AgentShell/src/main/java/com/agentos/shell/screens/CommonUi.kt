@@ -191,5 +191,5 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
         }
 
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
-        NavTab(Icons.Filled.Storefront, "Store", current == Screen.Store) { onNav(Screen.Store) }
+        NavTab(Icons.Filled.Storefront, "Powers", current == Screen.Store) { onNav(Screen.Store) }
     }

@@ -217,6 +217,7 @@ object AgentClient {
                 append("Personal facts (use ONLY when relevant to the request; never force them " +
                     "into unrelated answers): $memory. ")
             append("You are SlyOS, an agent living on the user's phone. ")
+            appContext?.let { val powers = PowerRegistry.brainInstructions(it); if (powers.isNotBlank()) append(powers).append(" ") }
             append("Decide the single best thing to do for their request. ")
             append("VISUAL CARD (optional): if your \"say\" has ONE striking headline value the user would love " +
                 "to see big, BEGIN \"say\" with exactly one tag, then the sentence. Tags: " +
