@@ -262,6 +262,9 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
 @Composable
 private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit, onRemove: () -> Unit, onRepo: () -> Unit, onClose: () -> Unit) {
     var endpoint by remember(p.id) { mutableStateOf("") }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var testMsg by remember(p.id) { mutableStateOf("") }
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).clip(RoundedCornerShape(22.dp)).background(T.bgElevated).verticalScroll(rememberScrollState()).padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -284,6 +287,32 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         decorationBox = { inner -> if (endpoint.isEmpty()) Text("https://your-instance  (optional)", fontSize = 15.sp, color = T.inkFaint); inner() })
                     Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Test connection", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable {
+                            testMsg = "testing…"
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerDispatch.ping(endpoint) }
+                                testMsg = if (ok) "reachable ✓" else "no response ✕"
+                            }
+                        })
+                    if (testMsg.isNotBlank()) { Spacer(Modifier.width(10.dp)); Text(testMsg, fontSize = T.caption, color = T.inkFaint) }
+                }
+                if (com.agentos.shell.tools.PowerBuilder.hasRecipe(p.id)) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Build & run on this phone  (Termux)", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent.copy(alpha = 0.85f))
+                            .clickable {
+                                testMsg = "building in Termux… this can take a minute"
+                                scope.launch {
+                                    val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
+                                    testMsg = log
+                                    if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
+                                }
+                            }.padding(vertical = 12.dp))
+                    Text("Runs the repo locally — no computer needed.", fontSize = 10.sp, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
                 }
             }
 

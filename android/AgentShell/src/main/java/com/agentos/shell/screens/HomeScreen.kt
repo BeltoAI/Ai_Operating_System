@@ -205,6 +205,27 @@ fun HomeScreen(
             if (photos.isNotEmpty()) {
                 val attached = photos
                 photos = emptyList()
+                // POWER: "remove the background" → run the connected rembg instance on the first photo.
+                if (com.agentos.shell.tools.PowerRegistry.isInstalled(ctx, "rembg") &&
+                    Regex("(?i)\\b(background|cut ?out|cutout|remove bg)\\b").containsMatchIn(q)) {
+                    val ep = com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, "rembg").trim()
+                    reply = if (ep.isBlank()) "Add your rembg address first: Powers → rembg → Connect."
+                    else withContext(Dispatchers.IO) {
+                        val src = com.agentos.shell.tools.PowerDispatch.bytesOf(ctx, attached.first())
+                        if (src == null) "Couldn't read that photo."
+                        else {
+                            val png = com.agentos.shell.tools.PowerDispatch.removeBackground(ep, src)
+                            if (png == null) "Couldn't reach rembg at $ep — is the server running on your machine?"
+                            else {
+                                val uri = com.agentos.shell.tools.PowerDispatch.saveImage(ctx, png, "cutout_${System.currentTimeMillis()}.png")
+                                if (uri != null) "Done — removed the background and saved the cut-out to your gallery." else "Removed the background but couldn't save it."
+                            }
+                        }
+                    }
+                    if (doSpeak) speak(reply)
+                    thinking = false
+                    return@launch
+                }
                 if (q.lowercase().contains("pdf")) {
                     val uri = withContext(Dispatchers.IO) { PdfTool.imagesToPdf(ctx, attached) }
                     if (uri != null) {
