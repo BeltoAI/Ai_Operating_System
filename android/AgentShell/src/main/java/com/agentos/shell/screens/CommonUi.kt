@@ -131,17 +131,18 @@ fun BusyDog() {
     Canvas(Modifier.fillMaxSize()) {
         val p = 3.4f
         val ink = T.ink
-        val inset = 6f.dp.toPx(); val cr = 44.dp.toPx()
+        val inset = 1.5f.dp.toPx(); val cr = 46.dp.toPx()
         val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
         val pm = PathMeasure().apply { setPath(path, false) }
         val len = pm.length
         if (len <= 0f) return@Canvas
-        val pos = pm.getPosition((x % 1f) * len)
-        val tan = pm.getTangent((x % 1f) * len)
+        val d = (1f - (x % 1f)) * len                   // run the other way (counter-clockwise)
+        val pos = pm.getPosition(d)
+        val tan = pm.getTangent(d)
         val ang = Math.toDegrees(atan2(tan.y, tan.x).toDouble()).toFloat()
         rotate(ang, pos) {
-            // local frame: +x = running direction (tangent); feet on the line, body toward centre.
-            fun px(c: Float, r: Float) = drawRect(ink, Offset(pos.x + (c - 3f) * p, pos.y + (3.5f - r) * p), Size(p, p))
+            // feet on the line, body toward centre; sprite mirrored so the dog faces its travel direction.
+            fun px(c: Float, r: Float) = drawRect(ink, Offset(pos.x + (3f - c) * p, pos.y + (3.5f - r) * p), Size(p, p))
             for (bx in 0..4) px(bx.toFloat(), 1.5f)
             for (bx in 0..4) px(bx.toFloat(), 2.5f)
             px(5f, 0.5f); px(5f, 1.5f); px(6f, 1.5f); px(5f, 2.5f)   // head + snout
@@ -243,7 +244,7 @@ fun EdgeShimmer() {
     val t = rememberInfiniteTransition(label = "edge")
     val ph by t.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "ph")
     Canvas(Modifier.fillMaxSize()) {
-        val inset = 6f.dp.toPx(); val cr = 44.dp.toPx()
+        val inset = 1.5f.dp.toPx(); val cr = 46.dp.toPx()
         val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
         val m = EDGE_PALETTE.size
         val samples = 13
