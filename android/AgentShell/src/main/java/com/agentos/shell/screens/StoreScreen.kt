@@ -307,9 +307,12 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
             val ans = withContext(Dispatchers.IO) {
                 com.agentos.shell.tools.AgentClient.appAsk(
                     "You are SlyOS, a friendly AI phone assistant. A NON-TECHNICAL person is looking at the open-source tool '${p.name}', which can ${p.description}. " +
-                        (if (askQ.isBlank()) "In 2–3 short, warm, plain sentences, tell them what this could do for them on their phone and whether SlyOS can set it up easily. "
-                         else "They said: \"${askQ.trim()}\". In 2–3 short, warm, plain sentences, tell them exactly how SlyOS would do that for them with this tool. ") +
-                        "Absolutely NO markdown, NO headings, NO bullet points, NO code, NO technical jargon (avoid words like API, Termux, HTTP, server, endpoint), and NO emoji. Just talk like a helpful human.",
+                        "FACT you must respect: " + (if (p.onPhone) "SlyOS can do this RIGHT ON THE PHONE, instantly, with no setup. "
+                            else "This is bigger software meant for a computer or home server — it does NOT run on a phone; the phone would connect to one they run on a computer. ") +
+                        "Be HONEST and never over-promise. " +
+                        (if (askQ.isBlank()) "In 2–3 short, warm, plain sentences, tell them what this could do for them and, truthfully, whether it works on their phone. "
+                         else "They said: \"${askQ.trim()}\". In 2–3 short, warm, plain sentences, tell them truthfully whether SlyOS can do that on their phone, and how. ") +
+                        "Absolutely NO markdown, NO headings, NO bullet points, NO code, NO technical jargon (avoid words like API, Termux, HTTP, server, endpoint, Docker), and NO emoji. Talk like a helpful human.",
                     "")
             }
             askA = cleanMd(ans); asking = false
@@ -372,22 +375,15 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                 installed -> Text("Remove this power", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { onRemove() }.padding(vertical = 13.dp))
                 p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
+                p.onPhone -> ActionCard("Add to your phone", "Runs right on your phone — no setup, no computer, nothing to install.", "Add") { onInstall("") }
                 else -> {
-                    ActionCard("Run it on my phone", "SlyOS builds and runs the repo inside Termux, on-device. No computer needed.",
-                        if (status.startsWith("building")) "building…" else "Build & run") {
-                        status = "building in Termux… this can take a minute"
-                        scope.launch {
-                            val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
-                            status = log
-                            if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
-                        }
-                    }
+                    Text("This one runs on a computer or home server — it's too big for a phone.", fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
                     Spacer(Modifier.height(10.dp))
-                    Text(if (showConnect) "Hide" else "Already run it on a computer?", fontSize = T.caption, color = T.inkFaint,
+                    Text(if (showConnect) "Hide" else "I run it on a computer  →", fontSize = T.caption, color = T.accent,
                         fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { showConnect = !showConnect }.padding(vertical = 6.dp))
                     if (showConnect) {
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
-                            Text("Connect it instead", fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+                            Text("Connect it", fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
                             Text("If you already run it on your computer, paste its address here.", fontSize = T.caption, color = T.inkFaint)
                             Spacer(Modifier.height(10.dp))
                             BasicTextField(endpoint, { endpoint = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 15.sp),
@@ -407,6 +403,16 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                                     }.padding(horizontal = 16.dp, vertical = 11.dp))
                             }
                         }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Advanced: build it on this phone (needs Termux)", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).clickable {
+                                status = "building in Termux… this can take a minute"
+                                scope.launch {
+                                    val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
+                                    status = log
+                                    if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
+                                }
+                            }.padding(vertical = 11.dp))
                     }
                 }
             }

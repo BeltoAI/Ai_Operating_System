@@ -27,7 +27,8 @@ data class Power(
     val instructions: String = "", // SKILL: the guidance injected into the brain when installed
     val rating: Double = 4.7,      // editorial rating shown as ★
     val featured: Boolean = false,
-    val trending: Boolean = false
+    val trending: Boolean = false,
+    val onPhone: Boolean = false   // true = runs natively on-device, zero setup (no server, no Termux)
 ) {
     val repoUrl get() = "https://github.com/$repo"
     /** GitHub stars as a number, for ranking ("35k" → 35000). */
@@ -66,8 +67,9 @@ object PowerCatalog {
         Power("huashu-design", "Huashu Design", "design things that actually look good", PowerType.SKILL, "Create", "✒️",
             "alchaincyf/huashu-design", "21k", "HTML-native design skill — slides, carousels and posters with real taste.",
             "When you create slides, carousels, posters, or mini-app UIs, apply strong visual design: clear hierarchy, generous whitespace, a restrained palette, expressive typography, and a single confident accent. Output clean self-contained HTML/CSS."),
-        Power("rembg", "rembg", "cut the background off any photo", PowerType.TOOL, "Create", "✂️",
-            "danielgatis/rembg", "23k", "Removes the background from any image in one step, clean edges and all."),
+        Power("rembg", "Background Remover", "cut the background off any photo", PowerType.TOOL, "Create", "✂️",
+            "danielgatis/rembg", "23k", "Removes the background from a photo in one tap — runs right on your phone, no setup.",
+            rating = 4.8, onPhone = true),
         Power("spleeter", "Spleeter", "pull the vocals out of any song", PowerType.TOOL, "Create", "🎵",
             "deezer/spleeter", "28k", "Split a track into clean stems — vocals, drums, bass — for karaoke or acapella."),
         Power("pyvideotrans", "pyvideotrans", "dub any video into another language", PowerType.TOOL, "Create", "🌐",

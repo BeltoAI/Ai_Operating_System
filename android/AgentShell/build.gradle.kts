@@ -95,6 +95,8 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
     // On-device object detection — draws a real box around the object you tap in Look mode.
     implementation("com.google.mlkit:object-detection:17.0.2")
+    // On-device background removal (Powers → rembg runs natively, zero setup, no Termux/server).
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     // On-device LLM inference (free, offline endpoint). Called by reflection in LocalLlm, so the app still
     // compiles if this line is removed; present here it powers the local model.
     implementation("com.google.mediapipe:tasks-genai:0.10.24")

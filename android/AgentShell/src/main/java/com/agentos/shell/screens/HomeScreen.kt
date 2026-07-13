@@ -205,20 +205,21 @@ fun HomeScreen(
             if (photos.isNotEmpty()) {
                 val attached = photos
                 photos = emptyList()
-                // POWER: "remove the background" → run the connected rembg instance on the first photo.
-                if (com.agentos.shell.tools.PowerRegistry.isInstalled(ctx, "rembg") &&
-                    Regex("(?i)\\b(background|cut ?out|cutout|remove bg)\\b").containsMatchIn(q)) {
-                    val ep = com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, "rembg").trim()
-                    reply = if (ep.isBlank()) "Add your rembg address first: Powers → rembg → Connect."
-                    else withContext(Dispatchers.IO) {
+                // POWER: "remove the background" → native on-device first (zero setup), then a connected rembg.
+                if (Regex("(?i)\\b(background|cut ?out|cutout|remove bg)\\b").containsMatchIn(q)) {
+                    reply = withContext(Dispatchers.IO) {
                         val src = com.agentos.shell.tools.PowerDispatch.bytesOf(ctx, attached.first())
                         if (src == null) "Couldn't read that photo."
                         else {
-                            val png = com.agentos.shell.tools.PowerDispatch.removeBackground(ep, src)
-                            if (png == null) "Couldn't reach rembg at $ep — is the server running on your machine?"
+                            var png = com.agentos.shell.tools.NativeTools.removeBackground(src)
+                            if (png == null) {
+                                val ep = com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, "rembg").trim()
+                                if (ep.isNotBlank()) png = com.agentos.shell.tools.PowerDispatch.removeBackground(ep, src)
+                            }
+                            if (png == null) "I couldn't cut out the background on this one — try a photo with a clearer subject."
                             else {
                                 val uri = com.agentos.shell.tools.PowerDispatch.saveImage(ctx, png, "cutout_${System.currentTimeMillis()}.png")
-                                if (uri != null) "Done — removed the background and saved the cut-out to your gallery." else "Removed the background but couldn't save it."
+                                if (uri != null) "Done — cut out the background and saved it to your gallery." else "Cut it out, but couldn't save it."
                             }
                         }
                     }
