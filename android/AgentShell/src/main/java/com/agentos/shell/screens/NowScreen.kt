@@ -120,13 +120,13 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("WHAT YOU MISSED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-                if (loading) SlyOrbit(16)
+                if (loading) SlyOrbit(22)
                 else Text("↻", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { catchUp() }.padding(4.dp))
             }
             Spacer(Modifier.height(10.dp))
             when {
                 loading && digest.isBlank() -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    SlyOrbit(18); Spacer(Modifier.width(10.dp)); Text("reading your day", fontSize = T.small, color = T.accent)
+                    SlyOrbit(40); Spacer(Modifier.width(12.dp)); Text("reading your day", fontSize = T.small, color = T.accent)
                 }
                 digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up." else "Tap ↻ for a summary.", fontSize = T.small, color = T.inkSoft)
                 else -> {

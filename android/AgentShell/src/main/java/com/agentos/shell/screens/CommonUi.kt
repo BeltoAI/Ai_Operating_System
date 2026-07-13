@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.atan2
@@ -100,8 +101,9 @@ fun Hairline() =
     Spacer(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
 
 /**
- * A tiny pixel dog that scampers across the top while anything is generating. Non-blocking
- * (no pointer input), driven by the global Busy signal, with a soft haptic when work finishes.
+ * The pixel dog now trots all the way AROUND the phone's edge, along the shimmer line, while anything is
+ * generating. Driven by the global Busy signal; soft haptic when work finishes. Feet stay on the line,
+ * body toward the middle, oriented to the border's tangent so it runs the rim.
  */
 @Composable
 fun BusyDog() {
@@ -123,29 +125,31 @@ fun BusyDog() {
     if (active <= 0) return
 
     val t = rememberInfiniteTransition(label = "dog")
-    val x by t.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "x"
-    )
-    val legUp by t.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "leg"
-    )
+    val x by t.animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "x")
+    val legUp by t.animateFloat(0f, 1f, infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "leg")
 
-    Canvas(Modifier.fillMaxWidth().height(18.dp)) {
-        val p = 4f                                   // pixel size
-        val baseX = x * (size.width + 10f * p) - 10f * p
-        val gy = size.height - p
+    Canvas(Modifier.fillMaxSize()) {
+        val p = 3.4f
         val ink = T.ink
-        fun px(cx: Float, cy: Float) = drawRect(ink, Offset(baseX + cx * p, cy * p), Size(p, p))
-        for (bx in 0..4) px(bx.toFloat(), 1.5f)
-        for (bx in 0..4) px(bx.toFloat(), 2.5f)
-        px(5f, 0.5f); px(5f, 1.5f); px(6f, 1.5f); px(5f, 2.5f)   // head + snout
-        px(4.5f, 0.5f); px(-0.5f, 0.5f)                         // ear + tail
-        val a = if (legUp > 0.5f) 0f else 0.6f
-        val b = if (legUp > 0.5f) 0.6f else 0f
-        px(0.5f, 3.5f + a); px(4f, 3.5f + b)                    // legs
-        drawCircle(ink.copy(alpha = 0.12f), p, Offset(baseX - p, gy))   // dust
+        val inset = 6f.dp.toPx(); val cr = 44.dp.toPx()
+        val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
+        val pm = PathMeasure().apply { setPath(path, false) }
+        val len = pm.length
+        if (len <= 0f) return@Canvas
+        val pos = pm.getPosition((x % 1f) * len)
+        val tan = pm.getTangent((x % 1f) * len)
+        val ang = Math.toDegrees(atan2(tan.y, tan.x).toDouble()).toFloat()
+        rotate(ang, pos) {
+            // local frame: +x = running direction (tangent); feet on the line, body toward centre.
+            fun px(c: Float, r: Float) = drawRect(ink, Offset(pos.x + (c - 3f) * p, pos.y + (3.5f - r) * p), Size(p, p))
+            for (bx in 0..4) px(bx.toFloat(), 1.5f)
+            for (bx in 0..4) px(bx.toFloat(), 2.5f)
+            px(5f, 0.5f); px(5f, 1.5f); px(6f, 1.5f); px(5f, 2.5f)   // head + snout
+            px(4.5f, 0.5f); px(-0.5f, 0.5f)                         // ear + tail
+            val a = if (legUp > 0.5f) 0f else 0.6f
+            val b = if (legUp > 0.5f) 0.6f else 0f
+            px(0.5f, 3.5f + a); px(4f, 3.5f + b)                    // legs
+        }
     }
 }
 
@@ -229,26 +233,29 @@ private val EDGE_PALETTE = listOf(
     Color(0xFF8A6DBE)   // soft violet
 )
 
+/**
+ * A thin, iridescent hairline around the phone's edge: all four brand hues visible at once as a sweep
+ * gradient, gently rotating so the colours flow — a shimmer, not a comet. Whisper-quiet, never in your face.
+ */
 @Composable
 fun EdgeShimmer() {
     if (com.agentos.shell.tools.Busy.active <= 0) return
     val t = rememberInfiniteTransition(label = "edge")
-    // Slow, continuous glide through the palette; a gentle brightness shimmer over the top.
-    val cyc by t.animateFloat(0f, EDGE_PALETTE.size.toFloat(), infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "cyc")
-    val shim by t.animateFloat(0.68f, 1f, infiniteRepeatable(tween(1300), RepeatMode.Reverse), label = "shim")
-    val n = EDGE_PALETTE.size
-    val idx = cyc.toInt() % n
-    val col = lerp(EDGE_PALETTE[idx], EDGE_PALETTE[(idx + 1) % n], cyc - cyc.toInt())
+    val ph by t.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "ph")
     Canvas(Modifier.fillMaxSize()) {
-        val inset = 2.5f.dp.toPx()
-        val cr = 46.dp.toPx()
-        val path = Path().apply {
-            addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr)))
+        val inset = 6f.dp.toPx(); val cr = 44.dp.toPx()
+        val path = Path().apply { addRoundRect(RoundRect(inset, inset, size.width - inset, size.height - inset, CornerRadius(cr, cr))) }
+        val m = EDGE_PALETTE.size
+        val samples = 13
+        val cols = ArrayList<Color>(samples)
+        for (s in 0 until samples) {
+            val tt = ((s.toFloat() / (samples - 1) + ph) % 1f) * m
+            val i = tt.toInt() % m
+            cols.add(lerp(EDGE_PALETTE[i], EDGE_PALETTE[(i + 1) % m], tt - tt.toInt()))
         }
-        // A single continuous line: a soft outer glow, a mid halo, and a crisp core — all one shifting colour.
-        drawPath(path, col.copy(alpha = 0.10f * shim), style = Stroke(9f.dp.toPx()))
-        drawPath(path, col.copy(alpha = 0.34f * shim), style = Stroke(4f.dp.toPx()))
-        drawPath(path, col.copy(alpha = 0.85f * shim), style = Stroke(1.8f.dp.toPx()))
+        val brush = Brush.sweepGradient(cols, Offset(size.width / 2f, size.height / 2f))
+        drawPath(path, brush, alpha = 0.26f, style = Stroke(3.5f.dp.toPx()))   // soft halo
+        drawPath(path, brush, alpha = 0.9f, style = Stroke(1.2f.dp.toPx()))    // crisp hairline
     }
 }
 
@@ -274,48 +281,74 @@ private fun cyPoint(k1: Int, k2: Int, u: Double, v: Double): FloatArray {
     return floatArrayOf(z1re.toFloat(), z2re.toFloat(), (cos(alpha) * z1im + sin(alpha) * z2im).toFloat())
 }
 
+// Iridescent ramp for the manifold surface — violet → magenta → rose → orange → amber.
+private val CY_RAMP = listOf(
+    Color(0xFF6E5AA8), Color(0xFFB0468C), Color(0xFFD65A6E), Color(0xFFE8642C), Color(0xFFE0A24E)
+)
+private fun cyRamp(x: Float): Color {
+    val f = x.coerceIn(0f, 0.999f) * (CY_RAMP.size - 1)
+    val i = f.toInt()
+    return lerp(CY_RAMP[i], CY_RAMP[i + 1], f - i)
+}
+
 /**
- * SLY ORBIT — an actual Calabi-Yau manifold (the quintic cross-section, 25 patches) tumbling in 3D, meshed
- * and depth-shaded in the accent. Wherever a response is being generated, this quietly turns.
+ * SLY ORBIT — an actual Calabi-Yau manifold (Fermat-quintic cross-section, 25 patches) rendered as a filled,
+ * shaded, iridescent surface tumbling in 3D (painter's-sorted, back-to-front). Wherever a response is being
+ * generated, the manifold quietly turns.
  */
 @Composable
-fun SlyOrbit(size: Int = 48) {
+fun SlyOrbit(size: Int = 56) {
     val t = rememberInfiniteTransition(label = "cy")
     val twoPi = (2 * PI).toFloat()
-    val ry by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(6400, easing = LinearEasing)), label = "ry")
-    val rx by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(9700, easing = LinearEasing)), label = "rx")
-    val nu = 5; val nv = 4
-    val patches = remember {
-        val out = ArrayList<Array<FloatArray>>()
+    val ry by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "ry")
+    val rx by t.animateFloat(0f, twoPi, infiniteRepeatable(tween(11000, easing = LinearEasing)), label = "rx")
+    val nu = 4; val nv = 3
+    // Build geometry once: flat vertex arrays + quad index list + a per-quad hue.
+    val geo = remember {
+        val vpp = (nu + 1) * (nv + 1)
+        val vx = FloatArray(25 * vpp); val vy = FloatArray(25 * vpp); val vz = FloatArray(25 * vpp)
+        val quads = ArrayList<IntArray>(); val qhue = ArrayList<Float>()
+        var vi = 0
         for (k1 in 0 until 5) for (k2 in 0 until 5) {
-            out.add(Array((nu + 1) * (nv + 1)) { idx ->
-                val iu = idx / (nv + 1); val iv = idx % (nv + 1)
-                cyPoint(k1, k2, iu.toDouble() / nu * (PI / 2.0), (iv.toDouble() / nv - 0.5) * 1.8)
-            })
+            val base = vi
+            for (iu in 0..nu) for (iv in 0..nv) {
+                val pt = cyPoint(k1, k2, iu.toDouble() / nu * (PI / 2.0), (iv.toDouble() / nv - 0.5) * 1.9)
+                vx[vi] = pt[0]; vy[vi] = pt[1]; vz[vi] = pt[2]; vi++
+            }
+            for (iu in 0 until nu) for (iv in 0 until nv) {
+                val a = base + iu * (nv + 1) + iv
+                quads.add(intArrayOf(a, a + (nv + 1), a + (nv + 1) + 1, a + 1))
+                qhue.add(((k1 + k2) % 5) / 4f)
+            }
         }
-        out
+        Triple(Triple(vx, vy, vz), quads.toTypedArray(), qhue.toFloatArray())
     }
+    val (varr, quads, qhue) = geo
+    val (vx, vy, vz) = varr
     Canvas(Modifier.size(size.dp)) {
         val cx = this.size.width / 2f; val cy = this.size.height / 2f
-        val scale = this.size.minDimension * 0.34f
-        val w = 1f.dp.toPx()
+        val scale = this.size.minDimension * 0.33f
         val cry = cos(ry); val sry = sin(ry); val crx = cos(rx); val srx = sin(rx)
-        for (g in patches) {
-            val pts = Array(g.size) { Offset.Zero }
-            val dep = FloatArray(g.size)
-            for (i in g.indices) {
-                val x = g[i][0]; val y = g[i][1]; val z = g[i][2]
-                val x1 = x * cry + z * sry; val z1 = -x * sry + z * cry           // rotate about Y
-                val y2 = y * crx - z1 * srx; val z2 = y * srx + z1 * crx          // rotate about X
-                pts[i] = Offset(cx + x1 * scale, cy - y2 * scale); dep[i] = z2
-            }
-            for (iu in 0..nu) for (iv in 0..nv) {
-                val id = iu * (nv + 1) + iv
-                val d = ((dep[id] + 1.4f) / 2.8f).coerceIn(0f, 1f)
-                val col = T.accent.copy(alpha = (0.10f + 0.75f * d))
-                if (iu < nu) drawLine(col, pts[id], pts[(iu + 1) * (nv + 1) + iv], strokeWidth = w)
-                if (iv < nv) drawLine(col, pts[id], pts[iu * (nv + 1) + iv + 1], strokeWidth = w)
-            }
+        val n = vx.size
+        val sx = FloatArray(n); val sy = FloatArray(n); val sz = FloatArray(n)
+        for (i in 0 until n) {
+            val x = vx[i]; val y = vy[i]; val z = vz[i]
+            val x1 = x * cry + z * sry; val z1 = -x * sry + z * cry
+            val y2 = y * crx - z1 * srx; val z2 = y * srx + z1 * crx
+            sx[i] = cx + x1 * scale; sy[i] = cy - y2 * scale; sz[i] = z2
+        }
+        val order = quads.indices.sortedBy { qi -> val q = quads[qi]; sz[q[0]] + sz[q[1]] + sz[q[2]] + sz[q[3]] }
+        val face = Path()
+        val edge = Color(0xFF15120E)
+        for (qi in order) {
+            val q = quads[qi]
+            val shade = (((sz[q[0]] + sz[q[1]] + sz[q[2]] + sz[q[3]]) / 4f + 1.4f) / 2.8f).coerceIn(0f, 1f)
+            val col = lerp(Color(0xFF1A1714), cyRamp(qhue[qi]), 0.32f + 0.68f * shade)
+            face.rewind()
+            face.moveTo(sx[q[0]], sy[q[0]]); face.lineTo(sx[q[1]], sy[q[1]])
+            face.lineTo(sx[q[2]], sy[q[2]]); face.lineTo(sx[q[3]], sy[q[3]]); face.close()
+            drawPath(face, col)
+            drawPath(face, edge.copy(alpha = 0.16f), style = Stroke(0.7f.dp.toPx()))
         }
     }
 }
