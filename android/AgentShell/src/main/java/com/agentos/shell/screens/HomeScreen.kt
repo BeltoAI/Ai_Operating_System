@@ -160,25 +160,36 @@ fun HomeScreen(
     }
     // Attach ANYTHING — an image goes to the vision path; any other file (PDF/doc) becomes an attachment
     // the AI can read, fill, send or move. One minimal paperclip, everything flows through the brain.
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
-            if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
-            else attachments = attachments + uri
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    val body = if (com.agentos.shell.tools.FileOps.isPdf(ctx, uri))
-                        com.agentos.shell.tools.FileOps.pdfText(ctx, uri) else ""
-                    com.agentos.shell.tools.AttachContext.set(
-                        ctx, com.agentos.shell.tools.AttachContext.Open(
-                            uri = uri.toString(),
-                            name = com.agentos.shell.tools.FileOps.displayName(ctx, uri),
-                            text = body
+    // Attach one OR several files at once.
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val picked = uris ?: emptyList()
+        if (picked.isNotEmpty()) {
+            picked.forEach { uri ->
+                try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+                if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
+                else attachments = attachments + uri
+            }
+            // Keep the most recent non-image doc "open" in the brain for follow-ups.
+            picked.lastOrNull { !com.agentos.shell.tools.FileOps.isImage(ctx, it) }?.let { doc ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val body = if (com.agentos.shell.tools.FileOps.isPdf(ctx, doc))
+                            com.agentos.shell.tools.FileOps.pdfText(ctx, doc) else ""
+                        com.agentos.shell.tools.AttachContext.set(
+                            ctx, com.agentos.shell.tools.AttachContext.Open(
+                                uri = doc.toString(),
+                                name = com.agentos.shell.tools.FileOps.displayName(ctx, doc),
+                                text = body
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
+    }
+    // Preview any attached file in the phone's viewer.
+    val preview: (Uri) -> Unit = { uri ->
+        scope.launch { withContext(Dispatchers.IO) { com.agentos.shell.tools.FileOps.preview(ctx, uri) } }
     }
 
     // The attach sheet: browse, shoot, or grab something someone already sent you.
@@ -282,25 +293,31 @@ fun HomeScreen(
                 val files = attachments; attachments = emptyList()
                 val f = files.first(); val lc = q.lowercase()
                 val FO = com.agentos.shell.tools.FileOps
+                val many = files.size > 1
                 reply = withContext(Dispatchers.IO) {
                     when {
-                        Regex("(?i)\\b(fill|complete)\\b").containsMatchIn(q) && FO.isPdf(ctx, f) ->
-                            FO.fillPdfForm(ctx, f).second
-                        Regex("(?i)\\bsend\\b|email (this|it|the)").containsMatchIn(q) -> {
+                        Regex("(?i)\\b(fill|complete)\\b").containsMatchIn(q) && files.any { FO.isPdf(ctx, it) } -> {
+                            val results = files.filter { FO.isPdf(ctx, it) }.map { FO.fillPdfForm(ctx, it).second }
+                            results.joinToString("\n")
+                        }
+                        Regex("(?i)\\bsend\\b|email (this|it|the|them)").containsMatchIn(q) -> {
                             val hint = when {
                                 lc.contains("whatsapp") -> "whatsapp"; lc.contains("telegram") -> "telegram"
                                 lc.contains("mail") || lc.contains("email") || lc.contains("gmail") -> "mail"; else -> ""
                             }
-                            if (FO.sendFile(ctx, f, hint)) "Opening ${if (hint.isBlank()) "your share menu" else hint} with the file attached — pick who to send it to."
-                            else "I couldn't send that one."
+                            if (FO.send(ctx, files, hint))
+                                "Opening ${if (hint.isBlank()) "your share menu" else hint} with ${if (many) "${files.size} files" else "the file"} attached — pick who to send to."
+                            else "I couldn't send ${if (many) "those" else "that one"}."
                         }
-                        Regex("(?i)\\b(file|move|put|save (it )?(to|in|into))\\b").containsMatchIn(q) -> {
+                        Regex("(?i)\\b(file|move|put|save (it|them)?\\s*(to|in|into))\\b").containsMatchIn(q) -> {
                             val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
                                 ?.groupValues?.get(1)?.trim()?.trimEnd('.', ' ') ?: ""
                             val cat = com.agentos.shell.tools.SlyFolder.CATEGORIES
                                 .firstOrNull { it.equals(asked, true) || (asked.isNotBlank() && it.contains(asked, true)) } ?: ""
-                            val body = if (FO.isPdf(ctx, f)) FO.pdfText(ctx, f) else ""
-                            com.agentos.shell.tools.SlyFolder.fileExisting(ctx, f, body, cat).second
+                            files.joinToString("\n") { file ->
+                                val body = if (FO.isPdf(ctx, file)) FO.pdfText(ctx, file) else ""
+                                com.agentos.shell.tools.SlyFolder.fileExisting(ctx, file, body, cat).second
+                            }
                         }
                         FO.isPdf(ctx, f) -> {
                             val body = FO.pdfText(ctx, f)
@@ -311,7 +328,7 @@ fun HomeScreen(
                                     emptyList(), MemoryStore.fullProfile(ctx)).say
                             }
                         }
-                        else -> "I've got \"${FO.displayName(ctx, f)}\". Tell me what to do with it — read it, fill it in, send it to someone, or file it away."
+                        else -> "I've got ${if (many) "${files.size} files" else "\"${FO.displayName(ctx, f)}\""}. Tell me what to do — read, fill in, send, or file away."
                     }
                 }
                 if (doSpeak) speak(reply)
@@ -845,22 +862,20 @@ fun HomeScreen(
                 kind = "IMG",
                 title = if (photos.size == 1) "1 photo" else "${photos.size} photos",
                 hint = "ask about it · remove the background · make a PDF",
+                onPreview = { preview(photos.first()) },
                 onRemove = { photos = emptyList() }
             )
         }
-        // THE QUIET NUDGE — one line, only when a real document landed in your inbox. Otherwise: silence.
+        // THE QUIET NUDGE — one document someone emailed you, with a way to peek, use, or dismiss it.
         nudge?.let { n ->
             if (photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
                 Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { attachIncoming(n) }
-                        .padding(vertical = 2.dp),
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // A quiet editorial mark: a hairline rule in the accent, not a badge.
-                    Box(Modifier.width(2.dp).height(34.dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
+                    Box(Modifier.width(2.dp).height(38.dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -872,6 +887,19 @@ fun HomeScreen(
                             com.agentos.shell.tools.Inbox.nudgeLine(n),
                             fontSize = T.caption, color = T.ink, maxLines = 2
                         )
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            Text("Preview", fontSize = 12.sp, color = T.accent,
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, n) }
+                                        if (u != null) preview(u)
+                                    }
+                                })
+                            Spacer(Modifier.width(18.dp))
+                            Text("Use it", fontSize = 12.sp, color = T.accent,
+                                modifier = Modifier.clickable { attachIncoming(n) })
+                        }
                     }
                     Icon(
                         Icons.Filled.Close, contentDescription = "Dismiss", tint = T.inkFaint,
@@ -882,17 +910,19 @@ fun HomeScreen(
             }
         }
 
-        if (attachments.isNotEmpty()) {
-            val first = attachments.first()
-            val nm = com.agentos.shell.tools.FileOps.displayName(ctx, first)
-            val isPdfFile = remember(nm) { com.agentos.shell.tools.FileOps.isPdf(ctx, first) }
-            Spacer(Modifier.height(10.dp))
+        attachments.forEach { file ->
+            val nm = com.agentos.shell.tools.FileOps.displayName(ctx, file)
+            val isPdfFile = remember(nm) { com.agentos.shell.tools.FileOps.isPdf(ctx, file) }
+            Spacer(Modifier.height(8.dp))
             AttachChip(
                 kind = if (isPdfFile) "PDF" else nm.substringAfterLast('.', "FILE").uppercase().take(4),
                 title = nm,
-                hint = if (isPdfFile) "read it · fill it in · send it · file it"
-                       else "read it · send it · file it",
-                onRemove = { attachments = emptyList(); com.agentos.shell.tools.AttachContext.clear(ctx) }
+                hint = if (isPdfFile) "read it · fill it in · send it · file it" else "read it · send it · file it",
+                onPreview = { preview(file) },
+                onRemove = {
+                    attachments = attachments.filterNot { it == file }
+                    if (attachments.isEmpty()) com.agentos.shell.tools.AttachContext.clear(ctx)
+                }
             )
         }
 
@@ -1136,7 +1166,15 @@ fun HomeScreen(
                             else "IMG"
                             val meta = item.who +
                                 (agoLabel(item.ts).let { if (it.isBlank()) "" else " · $it" })
-                            AttachRow(kind, item.name, meta) { attachIncoming(item) }
+                            AttachRow(
+                                kind, item.name, meta,
+                                onPreview = {
+                                    scope.launch {
+                                        val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, item) }
+                                        if (u != null) preview(u)
+                                    }
+                                }
+                            ) { attachIncoming(item) }
                         }
                     }
                 }

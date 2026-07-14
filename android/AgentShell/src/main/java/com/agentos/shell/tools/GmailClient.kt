@@ -469,11 +469,31 @@ object GmailClient {
     ) {
         if (part == null) return
         val fn = part.optString("filename")
-        val aid = part.optJSONObject("body")?.optString("attachmentId").orEmpty()
-        if (fn.isNotBlank() && aid.isNotBlank())
+        val bodyObj = part.optJSONObject("body")
+        val aid = bodyObj?.optString("attachmentId").orEmpty()
+        if (fn.isNotBlank() && aid.isNotBlank() && !isInlineJunk(part, fn, bodyObj))
             out.add(MailAttachment(msgId, aid, fn, part.optString("mimeType"), from, subject, ts))
         val parts = part.optJSONArray("parts") ?: return
         for (i in 0 until parts.length()) collectAttachments(parts.optJSONObject(i), msgId, from, subject, ts, out)
+    }
+
+    /** Reject inline/signature clutter — Content-ID embeds, "inline" disposition, tiny logo images. */
+    private fun isInlineJunk(part: JSONObject, filename: String, body: JSONObject?): Boolean {
+        val mime = part.optString("mimeType").lowercase()
+        val size = body?.optInt("size", 0) ?: 0
+        var inline = false
+        part.optJSONArray("headers")?.let { hs ->
+            for (h in 0 until hs.length()) {
+                val ho = hs.optJSONObject(h) ?: continue
+                when (ho.optString("name").lowercase()) {
+                    "content-disposition" -> if (ho.optString("value").trim().lowercase().startsWith("inline")) inline = true
+                    "content-id", "x-attachment-id" -> inline = true   // embedded in the body, not a real attachment
+                }
+            }
+        }
+        val looksLikeLogo = mime.startsWith("image/") &&
+            (size in 1 until 25_000 || Regex("(?i)(image0\\d\\d|logo|signature|icon|footer)").containsMatchIn(filename))
+        return inline || looksLikeLogo
     }
 
     /** Pull one attachment down to cache and hand back a Uri HomeAI can act on. */

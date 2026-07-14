@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,26 +51,29 @@ fun TypeTile(kind: String, size: Int = 34, accent: Boolean = false) {
     }
 }
 
-/** The attached-file chip that sits under the ask bar. */
+/** The attached-file chip that sits under the ask bar. Tap it to preview; ✕ to remove. */
 @Composable
-fun AttachChip(kind: String, title: String, hint: String, onRemove: () -> Unit) {
+fun AttachChip(kind: String, title: String, hint: String, onPreview: () -> Unit, onRemove: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, T.hairline, RoundedCornerShape(16.dp))
+            .clickable { onPreview() }
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TypeTile(kind, accent = true)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                title, fontSize = T.small, color = T.ink,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
+            Text(title, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             Text(hint, fontSize = 11.sp, color = T.inkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        Icon(
+            Icons.Filled.Visibility, contentDescription = "Preview", tint = T.inkFaint,
+            modifier = Modifier.size(17.dp).clickable { onPreview() }
+        )
+        Spacer(Modifier.width(14.dp))
         Icon(
             Icons.Filled.Close, contentDescription = "Remove", tint = T.inkFaint,
             modifier = Modifier.size(16.dp).clickable { onRemove() }
@@ -77,13 +81,14 @@ fun AttachChip(kind: String, title: String, hint: String, onRemove: () -> Unit) 
     }
 }
 
-/** A row in the attach sheet — an action (Browse, Take a photo) or an incoming file. */
+/** A row in the attach sheet — an action (Browse, Take a photo) or an incoming file. Optional eye = preview. */
 @Composable
 fun AttachRow(
     kind: String,
     title: String,
     meta: String,
     accent: Boolean = false,
+    onPreview: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -101,6 +106,12 @@ fun AttachRow(
                 Spacer(Modifier.height(2.dp))
                 Text(meta, fontSize = 11.sp, color = T.inkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        if (onPreview != null) {
+            Icon(
+                Icons.Filled.Visibility, contentDescription = "Preview", tint = T.inkFaint,
+                modifier = Modifier.size(17.dp).clickable { onPreview() }
+            )
         }
     }
 }

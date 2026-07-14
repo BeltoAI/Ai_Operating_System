@@ -70,25 +70,55 @@ object FileOps {
         } catch (e: Exception) { Log.w(TAG, "fillForm: ${e.message}"); null to "Couldn't fill that form." }
     }
 
-    /** Send a file straight to a channel: email pre-fills the recipient; others open with the file attached. */
-    fun sendFile(ctx: Context, uri: Uri, appHint: String, to: String = "", subject: String = ""): Boolean = try {
-        val mime = mimeOf(ctx, uri)
-        val hint = appHint.lowercase()
-        val i = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
+    /**
+     * Copy any content Uri into our FileProvider cache and hand back a Uri EVERY app can read. This is the
+     * fix for "WhatsApp/Gmail won't accept the file": a raw MediaStore/document Uri often isn't grantable to
+     * another app, but a FileProvider Uri always is.
+     */
+    fun stage(ctx: Context, uri: Uri): Uri? = try {
+        val safe = displayName(ctx, uri).replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "file_${System.currentTimeMillis()}" }
+        val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        val f = java.io.File(ctx.cacheDir, safe); f.writeBytes(bytes)
+        androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", f)
+    } catch (e: Exception) { Log.w(TAG, "stage: ${e.message}"); null }
+
+    /** Open a file in whatever app can view it (preview). Staged so external viewers can read it. */
+    fun preview(ctx: Context, uri: Uri): Boolean = try {
+        val shareable = stage(ctx, uri) ?: uri
+        val i = Intent(Intent.ACTION_VIEW).setDataAndType(shareable, mimeOf(ctx, uri))
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        when {
-            hint.contains("mail") || hint.contains("gmail") -> {
-                if (to.isNotBlank()) i.putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
-                if (subject.isNotBlank()) i.putExtra(Intent.EXTRA_SUBJECT, subject)
-                try { i.setPackage("com.google.android.gm") } catch (e: Exception) {}
-            }
-            hint.contains("whatsapp") -> try { i.setPackage("com.whatsapp") } catch (e: Exception) {}
-            hint.contains("telegram") -> try { i.setPackage("org.telegram.messenger") } catch (e: Exception) {}
-        }
         try { ctx.startActivity(i) } catch (e: Exception) {
-            ctx.startActivity(Intent.createChooser(i.setPackage(null), "Send file").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ctx.startActivity(Intent.createChooser(i, "Open").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         true
+    } catch (e: Exception) { Log.w(TAG, "preview: ${e.message}"); false }
+
+    /** Send one or more files to a channel. Email pre-fills the recipient; others open with the file(s) attached. */
+    fun send(ctx: Context, uris: List<Uri>, appHint: String, to: String = "", subject: String = ""): Boolean = try {
+        val staged = ArrayList(uris.mapNotNull { stage(ctx, it) })
+        if (staged.isEmpty()) false else {
+            val hint = appHint.lowercase()
+            val multi = staged.size > 1
+            val i = Intent(if (multi) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
+                .setType(if (multi) "*/*" else mimeOf(ctx, uris.first()))
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (multi) i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, staged)
+            else i.putExtra(Intent.EXTRA_STREAM, staged.first())
+            when {
+                hint.contains("mail") || hint.contains("gmail") -> {
+                    if (to.isNotBlank()) i.putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
+                    if (subject.isNotBlank()) i.putExtra(Intent.EXTRA_SUBJECT, subject)
+                    i.setPackage("com.google.android.gm")
+                }
+                hint.contains("whatsapp") -> i.setPackage("com.whatsapp")
+                hint.contains("telegram") -> i.setPackage("org.telegram.messenger")
+            }
+            try { ctx.startActivity(i) } catch (e: Exception) {
+                // Named app missing / refused → fall back to the system share sheet (still has the file attached).
+                ctx.startActivity(Intent.createChooser(i.setPackage(null), "Send").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            true
+        }
     } catch (e: Exception) { Log.w(TAG, "send: ${e.message}"); false }
 
     /** Copy an attachment into Downloads/SlyOS/<folder> (a simple, safe "move into a folder"). */
