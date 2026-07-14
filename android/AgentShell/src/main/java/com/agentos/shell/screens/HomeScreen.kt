@@ -187,6 +187,12 @@ fun HomeScreen(
             }
         }
     }
+    // Pick photos/videos straight from the gallery (the system photo picker — no storage permission needed).
+    val pickGallery = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(10)
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) photos = photos + uris
+    }
     // Preview any attached file in the phone's viewer.
     val preview: (Uri) -> Unit = { uri ->
         scope.launch { withContext(Dispatchers.IO) { com.agentos.shell.tools.FileOps.preview(ctx, uri) } }
@@ -238,6 +244,11 @@ fun HomeScreen(
     }
     // The SlyOS filing cabinet exists from first launch, so the user can see it in their file manager.
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.agentos.shell.tools.SlyFolder.ensure(ctx) } }
+    // Rehydrate the conversation so HomeAI actually remembers across restarts (feeds the model too).
+    LaunchedEffect(Unit) {
+        val past = withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.recentPairs(ctx, 12) }
+        if (past.isNotEmpty() && history.isEmpty()) history = past
+    }
     // The rare nudge: only a document someone emailed you in the last few days, never anything else.
     LaunchedEffect(Unit) {
         nudge = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudge(ctx) }
@@ -288,6 +299,62 @@ fun HomeScreen(
         }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null
         scope.launch {
+            // ── SEND / FILE anything attached (photos OR documents) ──────────────────────────────────
+            // This runs FIRST so "send this photo to Ana on WhatsApp" actually sends — images used to fall
+            // into the vision path and the model would just claim it sent. One place, works for both.
+            run {
+                val FO = com.agentos.shell.tools.FileOps
+                val attachedNow = photos + attachments
+                val sendIntent = Regex("(?i)\\b(send|share|forward|email|whats\\s?app|dm)\\b").containsMatchIn(q) ||
+                    Regex("(?i)\\btext (it|this|them|these)\\b").containsMatchIn(q)
+                val fileIntent = Regex("(?i)\\b(file it|file them|file these|move (it|them|this|these)|put (it|them|this|these)|save (it|them|this|these) (to|in|into))\\b").containsMatchIn(q)
+                if (attachedNow.isNotEmpty() && (sendIntent || fileIntent)) {
+                    val files = attachedNow; val many = files.size > 1
+                    photos = emptyList(); attachments = emptyList()
+                    reply = withContext(Dispatchers.IO) {
+                        if (fileIntent && !sendIntent) {
+                            val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
+                                ?.groupValues?.get(1)?.trim()?.trimEnd('.', ' ') ?: ""
+                            val cat = com.agentos.shell.tools.SlyFolder.CATEGORIES
+                                .firstOrNull { it.equals(asked, true) || (asked.isNotBlank() && it.contains(asked, true)) } ?: ""
+                            files.joinToString("\n") { file ->
+                                val body = if (FO.isPdf(ctx, file)) FO.pdfText(ctx, file) else ""
+                                com.agentos.shell.tools.SlyFolder.fileExisting(ctx, file, body, cat).second
+                            }
+                        } else {
+                            val what = if (many) "${files.size} files" else "the file"
+                            val channel = FO.detectChannel(q)
+                            val rec = Regex("(?i)\\bto\\s+(.+?)(?:\\s+(?:on|via|through|over|using|by)\\b|\\s+(?:saying|say|tell|and\\s+say|with\\s+(?:the\\s+)?message)\\b|[.,]|$)")
+                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"', '.', ',')
+                                ?.takeUnless { FO.detectChannel(it).isNotBlank() }
+                            val msg = Regex("(?i)(?:saying|say|tell(?:\\s+(?:her|him|them))?|with\\s+(?:the\\s+)?message|and\\s+say)\\s+(.+)$")
+                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"') ?: ""
+                            val emailInQ = Regex("[\\w.+-]+@[\\w.-]+\\.\\w+").find(q)?.value
+                            val CT = com.agentos.shell.tools.ContactsTool
+                            val r = when {
+                                rec.isNullOrBlank() && emailInQ == null ->
+                                    if (FO.send(ctx, files, channel)) "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached — pick who to send to."
+                                    else "I couldn't send ${if (many) "those" else "that one"}."
+                                FO.isEmailChannel(channel) || (channel.isBlank() && emailInQ != null) -> {
+                                    val email = emailInQ ?: (rec?.let { CT.findEmail(ctx, it) } ?: "")
+                                    FO.sendToPerson(ctx, files, channel.ifBlank { "mail" }, rec ?: email, toEmail = email, message = msg, subject = "For you") ?: "I couldn't open email."
+                                }
+                                else -> {
+                                    val c = rec?.let { CT.findContact(ctx, it) }
+                                    FO.sendToPerson(ctx, files, channel, rec ?: c?.name ?: "them", toNumber = c?.number ?: "", message = msg)
+                                        ?: run { FO.send(ctx, files, channel); "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached." }
+                                }
+                            }
+                            com.agentos.shell.tools.MemoryLog.add(ctx, "action", "Shared $what" + (if (channel.isNotBlank()) " over $channel" else ""), r, "Files")
+                            r
+                        }
+                    }
+                    withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
+                    if (doSpeak) speak(reply)
+                    thinking = false
+                    return@launch
+                }
+            }
             // A non-image file is attached (PDF/doc): read it, fill it, send it, or move it — through the brain.
             if (attachments.isNotEmpty()) {
                 val files = attachments; attachments = emptyList()
@@ -634,6 +701,7 @@ fun HomeScreen(
             val cleanReply = RichParse.fromTag(reply).second
             if (doSpeak) speak(cleanReply)
             history = (history + (q to cleanReply)).takeLast(12)   // P4: keep more context across turns
+            withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, cleanReply) }  // survives restarts
             // Capture this exchange as connected memories.
             val pk = MemoryLog.add(ctx, "prompt", q, q, "Home prompt")
             MemoryLog.add(ctx, "response", cleanReply, cleanReply, "Agent reply", pk)
@@ -896,6 +964,8 @@ fun HomeScreen(
         }
         // THE QUIET NUDGE — one document someone emailed you, with a way to peek, use, or dismiss it.
         nudge?.let { n ->
+            // Show it AT MOST once: mark it seen as soon as it surfaces, so the same PDF never nags again.
+            LaunchedEffect(n.key) { withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.dismiss(ctx, n.key) } }
             if (photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
                 Spacer(Modifier.height(14.dp))
                 Row(
@@ -1167,7 +1237,12 @@ fun HomeScreen(
                 }
                 Spacer(Modifier.height(16.dp))
 
-                AttachRow("FILE", "Browse files", "anything on your phone", accent = true) {
+                AttachRow("PIC", "Photos", "pick from your gallery", accent = true) {
+                    attachSheet = false
+                    pickGallery.launch(androidx.activity.result.PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                }
+                AttachRow("FILE", "Browse files", "PDFs, docs, anything", accent = true) {
                     attachSheet = false; pickFile.launch(arrayOf("*/*"))
                 }
                 AttachRow("CAM", "Take a photo", "shoot it now", accent = true) {
