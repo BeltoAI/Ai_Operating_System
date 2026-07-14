@@ -93,6 +93,57 @@ object FileOps {
         true
     } catch (e: Exception) { Log.w(TAG, "preview: ${e.message}"); false }
 
+    /**
+     * Send file(s) straight into ONE person's chat, with the message already typed — you just hit send.
+     *
+     * WhatsApp: the "jid" extra routes an ACTION_SEND with an attachment directly to a contact's chat, and
+     * EXTRA_TEXT rides along as the caption. That is the one reliable way to pre-fill BOTH the person and the
+     * file (wa.me links can pre-fill a message but cannot carry a file). Needs the contact's phone number.
+     *
+     * @param toNumber E.164-ish digits (no +, spaces) for WhatsApp/Telegram; ignored for email.
+     * @param toEmail  recipient for email.
+     * Returns a human line describing what opened, or null if it couldn't.
+     */
+    fun sendToPerson(
+        ctx: Context, uris: List<Uri>, appHint: String, personName: String,
+        toNumber: String = "", toEmail: String = "", message: String = "", subject: String = ""
+    ): String? = try {
+        val staged = ArrayList(uris.mapNotNull { stage(ctx, it) })
+        if (staged.isEmpty()) null else {
+            val hint = appHint.lowercase()
+            val multi = staged.size > 1
+            val i = Intent(if (multi) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
+                .setType(if (multi) "*/*" else mimeOf(ctx, uris.first()))
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (multi) i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, staged)
+            else i.putExtra(Intent.EXTRA_STREAM, staged.first())
+            if (message.isNotBlank()) i.putExtra(Intent.EXTRA_TEXT, message)
+            when {
+                hint.contains("whatsapp") && toNumber.isNotBlank() -> {
+                    val jid = digits(toNumber) + "@s.whatsapp.net"
+                    i.putExtra("jid", jid).setPackage("com.whatsapp")
+                }
+                hint.contains("telegram") -> i.setPackage("org.telegram.messenger")
+                hint.contains("mail") || hint.contains("gmail") -> {
+                    if (toEmail.isNotBlank()) i.putExtra(Intent.EXTRA_EMAIL, arrayOf(toEmail))
+                    i.putExtra(Intent.EXTRA_SUBJECT, subject.ifBlank { "For you" })
+                    i.setPackage("com.google.android.gm")
+                }
+                else -> return send(ctx, uris, appHint, toEmail, subject).let { if (it) "opened" else null }
+            }
+            try {
+                ctx.startActivity(i)
+                "Opened your chat with $personName — the ${if (multi) "files are" else "file's"} attached${if (message.isNotBlank()) " with your message" else ""}. Just hit send."
+            } catch (e: Exception) {
+                // Contact-targeting failed (older WhatsApp / not installed) → share sheet, still attached.
+                ctx.startActivity(Intent.createChooser(i.setPackage(null), "Send").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                "Opened the share sheet with the ${if (multi) "files" else "file"} attached — pick $personName and send."
+            }
+        }
+    } catch (e: Exception) { Log.w(TAG, "sendToPerson: ${e.message}"); null }
+
+    private fun digits(s: String) = s.filter { it.isDigit() }
+
     /** Send one or more files to a channel. Email pre-fills the recipient; others open with the file(s) attached. */
     fun send(ctx: Context, uris: List<Uri>, appHint: String, to: String = "", subject: String = ""): Boolean = try {
         val staged = ArrayList(uris.mapNotNull { stage(ctx, it) })

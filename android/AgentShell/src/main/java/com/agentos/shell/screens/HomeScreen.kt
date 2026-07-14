@@ -305,9 +305,33 @@ fun HomeScreen(
                                 lc.contains("whatsapp") -> "whatsapp"; lc.contains("telegram") -> "telegram"
                                 lc.contains("mail") || lc.contains("email") || lc.contains("gmail") -> "mail"; else -> ""
                             }
-                            if (FO.send(ctx, files, hint))
-                                "Opening ${if (hint.isBlank()) "your share menu" else hint} with ${if (many) "${files.size} files" else "the file"} attached — pick who to send to."
-                            else "I couldn't send ${if (many) "those" else "that one"}."
+                            val what = if (many) "${files.size} files" else "the file"
+                            // Who + what to say, so it lands straight in their chat, ready to send.
+                            val rec = Regex("(?i)\\bto\\s+(.+?)(?:\\s+(?:on|via|through|over|using|by)\\b|\\s+(?:saying|say|tell|and\\s+say|with\\s+(?:the\\s+)?message)\\b|[.,]|$)")
+                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"', '.', ',')
+                            val msg = Regex("(?i)(?:saying|say|tell(?:\\s+(?:her|him|them))?|with\\s+(?:the\\s+)?message|and\\s+say)\\s+(.+)$")
+                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"') ?: ""
+                            val emailInQ = Regex("[\\w.+-]+@[\\w.-]+\\.\\w+").find(q)?.value
+                            val CT = com.agentos.shell.tools.ContactsTool
+                            when {
+                                rec.isNullOrBlank() && emailInQ == null -> {
+                                    if (FO.send(ctx, files, hint)) "Opening ${if (hint.isBlank()) "your share menu" else hint} with $what attached — pick who to send to."
+                                    else "I couldn't send ${if (many) "those" else "that one"}."
+                                }
+                                hint == "whatsapp" || hint == "telegram" -> {
+                                    val c = if (rec != null) CT.findContact(ctx, rec) else null
+                                    if (c == null) {
+                                        FO.send(ctx, files, hint)
+                                        "I couldn't find ${rec ?: "that person"} in your contacts — I opened $hint with $what attached, just pick them."
+                                    } else FO.sendToPerson(ctx, files, hint, c.name, toNumber = c.number, message = msg)
+                                        ?: "I couldn't open $hint."
+                                }
+                                else -> { // email
+                                    val email = emailInQ ?: (rec?.let { CT.findEmail(ctx, it) } ?: "")
+                                    FO.sendToPerson(ctx, files, "mail", rec ?: email, toEmail = email, message = msg, subject = "For you")
+                                        ?: "I couldn't open email."
+                                }
+                            }
                         }
                         Regex("(?i)\\b(file|move|put|save (it|them)?\\s*(to|in|into))\\b").containsMatchIn(q) -> {
                             val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)

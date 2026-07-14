@@ -99,4 +99,29 @@ object ContactsTool {
             Log.e("SlyOS", "contacts query failed", e); null
         }
     }
+
+    /** Best email address for a contact name (for pre-filling email sends). */
+    fun findEmail(ctx: Context, query: String): String? {
+        if (!canRead(ctx) || query.isBlank()) return null
+        val q = query.trim().lowercase()
+        return try {
+            val uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Email.ADDRESS,
+                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME
+            )
+            val sel = "${ContactsContract.CommonDataKinds.Email.DISPLAY_NAME} LIKE ?"
+            val rows = mutableListOf<Pair<String, String>>()
+            ctx.contentResolver.query(uri, projection, sel, arrayOf("%$query%"), null)?.use { c ->
+                while (c.moveToNext()) {
+                    val addr = c.getString(0) ?: continue
+                    val name = c.getString(1) ?: ""
+                    rows.add(name to addr)
+                }
+            }
+            rows.firstOrNull { it.first.lowercase() == q }?.second
+                ?: rows.firstOrNull { it.first.lowercase().startsWith(q) }?.second
+                ?: rows.firstOrNull()?.second
+        } catch (e: Exception) { null }
+    }
 }
