@@ -300,38 +300,42 @@ fun HomeScreen(
                             val results = files.filter { FO.isPdf(ctx, it) }.map { FO.fillPdfForm(ctx, it).second }
                             results.joinToString("\n")
                         }
-                        Regex("(?i)\\bsend\\b|email (this|it|the|them)").containsMatchIn(q) -> {
-                            val hint = when {
-                                lc.contains("whatsapp") -> "whatsapp"; lc.contains("telegram") -> "telegram"
-                                lc.contains("mail") || lc.contains("email") || lc.contains("gmail") -> "mail"; else -> ""
-                            }
+                        Regex("(?i)\\bsend\\b|\\bshare\\b|email (this|it|the|them)").containsMatchIn(q) -> {
                             val what = if (many) "${files.size} files" else "the file"
+                            val channel = FO.detectChannel(q)   // whatsapp, instagram, gmail… whatever they named
                             // Who + what to say, so it lands straight in their chat, ready to send.
                             val rec = Regex("(?i)\\bto\\s+(.+?)(?:\\s+(?:on|via|through|over|using|by)\\b|\\s+(?:saying|say|tell|and\\s+say|with\\s+(?:the\\s+)?message)\\b|[.,]|$)")
                                 .find(q)?.groupValues?.get(1)?.trim()?.trim('"', '.', ',')
+                                ?.takeUnless { FO.detectChannel(it).isNotBlank() }   // don't mistake the channel for a name
                             val msg = Regex("(?i)(?:saying|say|tell(?:\\s+(?:her|him|them))?|with\\s+(?:the\\s+)?message|and\\s+say)\\s+(.+)$")
                                 .find(q)?.groupValues?.get(1)?.trim()?.trim('"') ?: ""
                             val emailInQ = Regex("[\\w.+-]+@[\\w.-]+\\.\\w+").find(q)?.value
                             val CT = com.agentos.shell.tools.ContactsTool
-                            when {
+                            val out = when {
                                 rec.isNullOrBlank() && emailInQ == null -> {
-                                    if (FO.send(ctx, files, hint)) "Opening ${if (hint.isBlank()) "your share menu" else hint} with $what attached — pick who to send to."
+                                    if (FO.send(ctx, files, channel))
+                                        "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached — pick who to send to."
                                     else "I couldn't send ${if (many) "those" else "that one"}."
                                 }
-                                hint == "whatsapp" || hint == "telegram" -> {
-                                    val c = if (rec != null) CT.findContact(ctx, rec) else null
-                                    if (c == null) {
-                                        FO.send(ctx, files, hint)
-                                        "I couldn't find ${rec ?: "that person"} in your contacts — I opened $hint with $what attached, just pick them."
-                                    } else FO.sendToPerson(ctx, files, hint, c.name, toNumber = c.number, message = msg)
-                                        ?: "I couldn't open $hint."
-                                }
-                                else -> { // email
+                                FO.isEmailChannel(channel) || (channel.isBlank() && emailInQ != null) -> {
                                     val email = emailInQ ?: (rec?.let { CT.findEmail(ctx, it) } ?: "")
-                                    FO.sendToPerson(ctx, files, "mail", rec ?: email, toEmail = email, message = msg, subject = "For you")
+                                    FO.sendToPerson(ctx, files, channel.ifBlank { "mail" }, rec ?: email, toEmail = email, message = msg, subject = "For you")
                                         ?: "I couldn't open email."
                                 }
+                                else -> {
+                                    // Any messaging channel. WhatsApp can land in the exact chat (needs a number).
+                                    val c = rec?.let { CT.findContact(ctx, it) }
+                                    FO.sendToPerson(ctx, files, channel.ifBlank { "" }, rec ?: c?.name ?: "them",
+                                        toNumber = c?.number ?: "", message = msg)
+                                        ?: run { FO.send(ctx, files, channel); "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached." }
+                                }
                             }
+                            // Fuel the brain: it should remember you sent this, to whom, over what.
+                            com.agentos.shell.tools.MemoryLog.add(ctx, "action",
+                                "Sent ${if (many) "${files.size} files" else files.firstOrNull()?.let { FO.displayName(ctx, it) } ?: "a file"}" +
+                                    (if (!rec.isNullOrBlank()) " to $rec" else "") + (if (channel.isNotBlank()) " over $channel" else ""),
+                                out, "Files")
+                            out
                         }
                         Regex("(?i)\\b(file|move|put|save (it|them)?\\s*(to|in|into))\\b").containsMatchIn(q) -> {
                             val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
