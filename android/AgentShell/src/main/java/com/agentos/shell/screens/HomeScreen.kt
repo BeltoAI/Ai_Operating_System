@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Memory
@@ -149,11 +150,56 @@ fun HomeScreen(
     var dragX by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
     var photos by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }   // any file (PDFs, docs…)
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
 
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) pendingUri?.let { photos = photos + it }
+    }
+    // Attach ANYTHING — an image goes to the vision path; any other file (PDF/doc) becomes an attachment
+    // the AI can read, fill, send or move. One minimal paperclip, everything flows through the brain.
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+            if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
+            else attachments = attachments + uri
+        }
+    }
+
+    // The attach sheet: browse, shoot, or grab something someone already sent you.
+    var attachSheet by remember { mutableStateOf(false) }
+    var incoming by remember { mutableStateOf<List<com.agentos.shell.tools.Inbox.Item>>(emptyList()) }
+    var loadingIncoming by remember { mutableStateOf(false) }
+    var nudge by remember { mutableStateOf<com.agentos.shell.tools.Inbox.Item?>(null) }
+
+    val mediaPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or not — the list simply stays empty if denied */ }
+
+    val loadIncoming: () -> Unit = {
+        loadingIncoming = true
+        scope.launch {
+            incoming = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.recent(ctx) }
+            loadingIncoming = false
+        }
+    }
+    // Attach an incoming item (downloads an email attachment on demand).
+    val attachIncoming: (com.agentos.shell.tools.Inbox.Item) -> Unit = { item ->
+        attachSheet = false
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, item) }
+            if (uri != null) {
+                if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
+                else attachments = attachments + uri
+                com.agentos.shell.tools.Inbox.dismiss(ctx, item.key)
+                nudge = null
+            }
+        }
+    }
+    // The rare nudge: only a document someone emailed you in the last few days, never anything else.
+    LaunchedEffect(Unit) {
+        nudge = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudge(ctx) }
     }
     val capture: () -> Unit = {
         val file = File(ctx.cacheDir, "home_${System.currentTimeMillis()}.jpg")
@@ -201,6 +247,41 @@ fun HomeScreen(
         }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null
         scope.launch {
+            // A non-image file is attached (PDF/doc): read it, fill it, send it, or move it — through the brain.
+            if (attachments.isNotEmpty()) {
+                val files = attachments; attachments = emptyList()
+                val f = files.first(); val lc = q.lowercase()
+                val FO = com.agentos.shell.tools.FileOps
+                reply = withContext(Dispatchers.IO) {
+                    when {
+                        Regex("(?i)\\b(fill|complete)\\b").containsMatchIn(q) && FO.isPdf(ctx, f) ->
+                            FO.fillPdfForm(ctx, f).second
+                        Regex("(?i)\\bsend\\b|email (this|it|the)").containsMatchIn(q) -> {
+                            val hint = when {
+                                lc.contains("whatsapp") -> "whatsapp"; lc.contains("telegram") -> "telegram"
+                                lc.contains("mail") || lc.contains("email") || lc.contains("gmail") -> "mail"; else -> ""
+                            }
+                            if (FO.sendFile(ctx, f, hint)) "Opening ${if (hint.isBlank()) "your share menu" else hint} with the file attached — pick who to send it to."
+                            else "I couldn't send that one."
+                        }
+                        Regex("(?i)\\b(move|put|file it|save (it )?(to|in|into))\\b").containsMatchIn(q) -> {
+                            val folder = Regex("(?i)(?:in|into|to)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
+                                ?.groupValues?.get(1)?.trim()?.trimEnd('.', ' ') ?: ""
+                            FO.moveToFolder(ctx, f, folder)
+                        }
+                        FO.isPdf(ctx, f) -> {
+                            val body = FO.pdfText(ctx, f)
+                            if (body.isBlank()) "I opened it but couldn't pull out any text — it looks like a scan. Add the OCR power and I'll read it."
+                            else AgentClient.ask("$q\n\n--- The attached document says ---\n${body.take(12000)}",
+                                emptyList(), MemoryStore.fullProfile(ctx)).say
+                        }
+                        else -> "I've got \"${FO.displayName(ctx, f)}\". Tell me what to do with it — read it, fill it in, send it to someone, or file it away."
+                    }
+                }
+                if (doSpeak) speak(reply)
+                thinking = false
+                return@launch
+            }
             // If photos are attached, this is an image task (vision Q&A or PDF).
             if (photos.isNotEmpty()) {
                 val attached = photos
@@ -692,6 +773,18 @@ fun HomeScreen(
             )
             Spacer(Modifier.width(10.dp))
             Icon(
+                Icons.Filled.AttachFile,
+                contentDescription = "Attach a file",
+                tint = T.inkSoft,
+                modifier = Modifier.size(22.dp).clickable {
+                    if (android.os.Build.VERSION.SDK_INT >= 33)
+                        mediaPerm.launch(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    else mediaPerm.launch(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    attachSheet = true; loadIncoming()
+                }   // attach anything
+            )
+            Spacer(Modifier.width(10.dp))
+            Icon(
                 Icons.Filled.PhotoCamera,
                 contentDescription = "Look",
                 tint = T.inkSoft,
@@ -713,7 +806,45 @@ fun HomeScreen(
         if (photos.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "📷 ${photos.size} photo${if (photos.size > 1) "s" else ""} attached · ask about it, or say \"save as PDF\"",
+                "${photos.size} photo${if (photos.size > 1) "s" else ""} attached · ask about it, remove the background, or say \"make a PDF\"",
+                fontSize = T.caption, color = T.accent
+            )
+        }
+        // THE QUIET NUDGE — one line, only when a real document landed in your inbox. Otherwise: silence.
+        nudge?.let { n ->
+            if (photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(T.bgElevated.copy(alpha = 0.55f))
+                        .clickable { attachIncoming(n) }
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(T.accent))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        com.agentos.shell.tools.Inbox.nudgeLine(n),
+                        fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "✕", fontSize = T.caption, color = T.inkFaint,
+                        modifier = Modifier
+                            .clickable { com.agentos.shell.tools.Inbox.dismiss(ctx, n.key); nudge = null }
+                            .padding(start = 10.dp)
+                    )
+                }
+            }
+        }
+
+        if (attachments.isNotEmpty()) {
+            val nm = com.agentos.shell.tools.FileOps.displayName(ctx, attachments.first())
+            val isForm = remember(nm) { com.agentos.shell.tools.FileOps.isPdf(ctx, attachments.first()) }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "$nm attached · " + if (isForm) "say \"fill this in\", \"what does it say?\", or \"send it to …\""
+                else "say \"read it\", \"send it to …\", or \"file it in …\"",
                 fontSize = T.caption, color = T.accent
             )
         }
@@ -914,6 +1045,75 @@ fun HomeScreen(
                 }
                 Text("Close", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { showAdd = false; showAddBtn = false }.padding(top = 8.dp))
+            }
+        }
+    }
+
+    // ATTACH — one sheet: shoot it, browse for it, or grab something someone already sent you.
+    if (attachSheet) {
+        Dialog(onDismissRequest = { attachSheet = false }) {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)
+            ) {
+                Text("ATTACH", fontSize = T.caption, color = T.inkFaint, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .clickable { attachSheet = false; pickFile.launch(arrayOf("*/*")) }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.AttachFile, null, tint = T.accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Browse files", fontSize = T.body, color = T.ink)
+                }
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .clickable { attachSheet = false; capture() }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.PhotoCamera, null, tint = T.accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Take a photo", fontSize = T.body, color = T.ink)
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text("SENT TO YOU", fontSize = T.caption, color = T.inkFaint, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(6.dp))
+                if (loadingIncoming) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center) {
+                        SlyOrbit(28)
+                    }
+                } else if (incoming.isEmpty()) {
+                    Text(
+                        "Nothing new. Connect Google in Settings and I'll show what people emailed you.",
+                        fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                        incoming.take(12).forEach { item ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                    .clickable { attachIncoming(item) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(item.name.take(38), fontSize = T.body, color = T.ink, maxLines = 1)
+                                    Text(
+                                        (if (item.source == "email") "from ${item.who}" else item.who),
+                                        fontSize = T.caption, color = T.inkFaint
+                                    )
+                                }
+                                Text(
+                                    if (item.source == "email") "email" else "photo",
+                                    fontSize = T.caption, color = T.inkFaint
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -415,4 +415,78 @@ object GmailClient {
         }
         return added
     }
+
+    // ── INCOMING ATTACHMENTS ──────────────────────────────────────────────────────────────────────
+    // What people actually sent you. HomeAI lists these so a contract, invoice or form that landed in
+    // your inbox is already there — one tap to fill it, read it, or send it on.
+
+    data class MailAttachment(
+        val msgId: String, val attId: String, val name: String, val mime: String,
+        val from: String, val subject: String, val ts: Long
+    ) {
+        val sender: String get() = Regex("^\\s*\"?([^\"<]+?)\"?\\s*<").find(from)?.groupValues?.get(1)?.trim()
+            ?: from.substringBefore("@").trim().ifBlank { "someone" }
+        val isPdf: Boolean get() = mime.contains("pdf") || name.endsWith(".pdf", true)
+    }
+
+    /** The most recent attachments people emailed you. */
+    fun recentAttachments(ctx: Context, max: Int = 10): List<MailAttachment> {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return emptyList()
+        val out = mutableListOf<MailAttachment>()
+        try {
+            val (c, body) = get("$BASE/messages?q=has:attachment&maxResults=$max", token)
+            if (c != 200) return emptyList()
+            val ids = JSONObject(body).optJSONArray("messages") ?: return emptyList()
+            for (i in 0 until ids.length()) {
+                val id = ids.optJSONObject(i)?.optString("id").orEmpty()
+                if (id.isBlank()) continue
+                val (mc, mb) = get("$BASE/messages/$id?format=full", token)
+                if (mc != 200) continue
+                val msg = JSONObject(mb)
+                val ts = msg.optString("internalDate").toLongOrNull() ?: 0L
+                var from = ""; var subject = ""
+                msg.optJSONObject("payload")?.optJSONArray("headers")?.let { hs ->
+                    for (h in 0 until hs.length()) {
+                        val ho = hs.optJSONObject(h) ?: continue
+                        when (ho.optString("name").lowercase()) {
+                            "from" -> from = ho.optString("value")
+                            "subject" -> subject = ho.optString("value")
+                        }
+                    }
+                }
+                collectAttachments(msg.optJSONObject("payload"), id, from, subject, ts, out)
+            }
+        } catch (e: Exception) { Log.w(TAG, "recentAttachments: ${e.message}") }
+        return out.sortedByDescending { it.ts }
+    }
+
+    private fun collectAttachments(
+        part: JSONObject?, msgId: String, from: String, subject: String, ts: Long, out: MutableList<MailAttachment>
+    ) {
+        if (part == null) return
+        val fn = part.optString("filename")
+        val aid = part.optJSONObject("body")?.optString("attachmentId").orEmpty()
+        if (fn.isNotBlank() && aid.isNotBlank())
+            out.add(MailAttachment(msgId, aid, fn, part.optString("mimeType"), from, subject, ts))
+        val parts = part.optJSONArray("parts") ?: return
+        for (i in 0 until parts.length()) collectAttachments(parts.optJSONObject(i), msgId, from, subject, ts, out)
+    }
+
+    /** Pull one attachment down to cache and hand back a Uri HomeAI can act on. */
+    fun downloadAttachment(ctx: Context, a: MailAttachment): android.net.Uri? {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return null
+        return try {
+            val (c, body) = get("$BASE/messages/${a.msgId}/attachments/${a.attId}", token)
+            if (c != 200) return null
+            val data = JSONObject(body).optString("data")
+            if (data.isBlank()) return null
+            val bytes = Base64.decode(data.replace('-', '+').replace('_', '/'), Base64.DEFAULT)
+            val safe = a.name.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "attachment" }
+            val f = java.io.File(ctx.cacheDir, safe)
+            f.writeBytes(bytes)
+            androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", f)
+        } catch (e: Exception) { Log.w(TAG, "downloadAttachment: ${e.message}"); null }
+    }
 }

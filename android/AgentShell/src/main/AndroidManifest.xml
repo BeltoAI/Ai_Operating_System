@@ -27,6 +27,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Live "Look" camera (point-and-identify). -->
     <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Attachments: list the photos people sent you (WhatsApp, Telegram, screenshots) so HomeAI can act on them. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <uses-feature android:name="android.hardware.camera.any" android:required="false"/>
     <!-- Calendar awareness + the ability to block time. -->
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
