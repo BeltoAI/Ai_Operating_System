@@ -426,6 +426,9 @@ object GmailClient {
     ) {
         val sender: String get() = Regex("^\\s*\"?([^\"<]+?)\"?\\s*<").find(from)?.groupValues?.get(1)?.trim()
             ?: from.substringBefore("@").trim().ifBlank { "someone" }
+        /** The bare reply-to address — this is what lets the AI actually answer the email. */
+        val email: String get() = Regex("<([^>]+)>").find(from)?.groupValues?.get(1)?.trim()
+            ?: Regex("[\\w.+-]+@[\\w.-]+\\.\\w+").find(from)?.value.orEmpty()
         val isPdf: Boolean get() = mime.contains("pdf") || name.endsWith(".pdf", true)
     }
 

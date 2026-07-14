@@ -218,6 +218,10 @@ object AgentClient {
                     "into unrelated answers): $memory. ")
             append("You are SlyOS, an agent living on the user's phone. ")
             appContext?.let { val powers = PowerRegistry.brainInstructions(it); if (powers.isNotBlank()) append(powers).append(" ") }
+            // The open attachment + the SlyOS filing cabinet — shared by EVERY AI in the app, so a document
+            // you attached stays known ("reply to that email" works) and any chat can use your files.
+            appContext?.let { val open = AttachContext.brief(it); if (open.isNotBlank()) append(open).append(" ") }
+            appContext?.let { val cab = SlyFolder.brief(it); if (cab.isNotBlank()) append(cab).append(" ") }
             append("Decide the single best thing to do for their request. ")
             append("VISUAL CARD (optional): if your \"say\" has ONE striking headline value the user would love " +
                 "to see big, BEGIN \"say\" with exactly one tag, then the sentence. Tags: " +
@@ -337,7 +341,9 @@ object AgentClient {
                     .put("media_type", "image/jpeg").put("data", b64)))
         }
         content.put(JSONObject().put("type", "text").put("text", prompt))
-        val sys = persona(memory) + "Answer the question about the photo concisely, in your own natural voice."
+        val sys = persona(memory) +
+            (appContext?.let { SlyFolder.brief(it) + " " } ?: "") +
+            "Answer the question about the photo concisely, in your own natural voice."
         val (code, text) = callContent(sys, content, maxTokens, model)
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
     }
@@ -718,7 +724,10 @@ object AgentClient {
     /** Write a research/white paper (Opus). Returns HTML, or "ERR::code::body" on failure. */
     fun writePaper(prompt: String, source: String = "", web: Boolean = false, memory: String = "", library: String = "", docType: String = "paper", thesis: String = ""): String {
         val src = if (web) source.take(2500) else source.take(12000)
-        val sys = docBrief(docType, thesis) +
+        // The research writer sees the open attachment and the SlyOS cabinet too, so "use my resume" or
+        // "build on that PDF I attached" actually works here, not just on Home.
+        val shared = appContext?.let { AttachContext.brief(it) + " " + SlyFolder.brief(it) + " " } ?: ""
+        val sys = shared + docBrief(docType, thesis) +
             "You are an expert research writer. Write a well-structured document IN THE USER'S NAME on their topic. " +
             "Output a COMPLETE self-contained HTML document in a clean LaTeX-article style: a centered <h1> title, a " +
             "centered author/affiliation line directly under it (use <p class=\"author\">), then the abstract wrapped " +
@@ -746,7 +755,8 @@ object AgentClient {
 
     /** Revise the paper HTML. Returns HTML, or "ERR::code::body" on failure. */
     fun revisePaper(currentHtml: String, instruction: String, web: Boolean = false, memory: String = ""): String {
-        val sys = "Revise this HTML research paper per the instruction. Keep it a COMPLETE self-contained " +
+        val sys = (appContext?.let { AttachContext.brief(it) + " " + SlyFolder.brief(it) + " " } ?: "") +
+            "Revise this HTML research paper per the instruction. Keep it a COMPLETE self-contained " +
             "HTML document with the same MathJax setup and academic styling. " +
             (if (memory.isNotBlank()) "About the author: $memory. " else "") +
             (if (web) "Use web search for any new facts/sources and cite them. " else "") +

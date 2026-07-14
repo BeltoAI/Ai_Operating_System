@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Memory
@@ -164,6 +165,19 @@ fun HomeScreen(
             try { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
             if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
             else attachments = attachments + uri
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    val body = if (com.agentos.shell.tools.FileOps.isPdf(ctx, uri))
+                        com.agentos.shell.tools.FileOps.pdfText(ctx, uri) else ""
+                    com.agentos.shell.tools.AttachContext.set(
+                        ctx, com.agentos.shell.tools.AttachContext.Open(
+                            uri = uri.toString(),
+                            name = com.agentos.shell.tools.FileOps.displayName(ctx, uri),
+                            text = body
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -184,7 +198,8 @@ fun HomeScreen(
             loadingIncoming = false
         }
     }
-    // Attach an incoming item (downloads an email attachment on demand).
+    // Attach an incoming item (downloads an email attachment on demand) and OPEN it in the brain — text,
+    // sender and subject — so every AI still knows it turns later ("reply to that email").
     val attachIncoming: (com.agentos.shell.tools.Inbox.Item) -> Unit = { item ->
         attachSheet = false
         scope.launch {
@@ -192,11 +207,26 @@ fun HomeScreen(
             if (uri != null) {
                 if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
                 else attachments = attachments + uri
+                withContext(Dispatchers.IO) {
+                    val body = if (com.agentos.shell.tools.FileOps.isPdf(ctx, uri))
+                        com.agentos.shell.tools.FileOps.pdfText(ctx, uri) else ""
+                    com.agentos.shell.tools.AttachContext.set(
+                        ctx, com.agentos.shell.tools.AttachContext.Open(
+                            uri = uri.toString(), name = item.name, text = body,
+                            fromName = item.mail?.sender ?: item.who,
+                            fromEmail = item.mail?.email ?: "",
+                            subject = item.mail?.subject ?: "",
+                            msgId = item.mail?.msgId ?: ""
+                        )
+                    )
+                }
                 com.agentos.shell.tools.Inbox.dismiss(ctx, item.key)
                 nudge = null
             }
         }
     }
+    // The SlyOS filing cabinet exists from first launch, so the user can see it in their file manager.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.agentos.shell.tools.SlyFolder.ensure(ctx) } }
     // The rare nudge: only a document someone emailed you in the last few days, never anything else.
     LaunchedEffect(Unit) {
         nudge = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudge(ctx) }
@@ -264,16 +294,22 @@ fun HomeScreen(
                             if (FO.sendFile(ctx, f, hint)) "Opening ${if (hint.isBlank()) "your share menu" else hint} with the file attached — pick who to send it to."
                             else "I couldn't send that one."
                         }
-                        Regex("(?i)\\b(move|put|file it|save (it )?(to|in|into))\\b").containsMatchIn(q) -> {
-                            val folder = Regex("(?i)(?:in|into|to)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
+                        Regex("(?i)\\b(file|move|put|save (it )?(to|in|into))\\b").containsMatchIn(q) -> {
+                            val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
                                 ?.groupValues?.get(1)?.trim()?.trimEnd('.', ' ') ?: ""
-                            FO.moveToFolder(ctx, f, folder)
+                            val cat = com.agentos.shell.tools.SlyFolder.CATEGORIES
+                                .firstOrNull { it.equals(asked, true) || (asked.isNotBlank() && it.contains(asked, true)) } ?: ""
+                            val body = if (FO.isPdf(ctx, f)) FO.pdfText(ctx, f) else ""
+                            com.agentos.shell.tools.SlyFolder.fileExisting(ctx, f, body, cat).second
                         }
                         FO.isPdf(ctx, f) -> {
                             val body = FO.pdfText(ctx, f)
                             if (body.isBlank()) "I opened it but couldn't pull out any text — it looks like a scan. Add the OCR power and I'll read it."
-                            else AgentClient.ask("$q\n\n--- The attached document says ---\n${body.take(12000)}",
-                                emptyList(), MemoryStore.fullProfile(ctx)).say
+                            else {
+                                com.agentos.shell.tools.AttachContext.setText(ctx, body)   // stays known for follow-ups
+                                AgentClient.ask("$q\n\n--- The attached document says ---\n${body.take(12000)}",
+                                    emptyList(), MemoryStore.fullProfile(ctx)).say
+                            }
                         }
                         else -> "I've got \"${FO.displayName(ctx, f)}\". Tell me what to do with it — read it, fill it in, send it to someone, or file it away."
                     }
@@ -804,48 +840,59 @@ fun HomeScreen(
         }
 
         if (photos.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${photos.size} photo${if (photos.size > 1) "s" else ""} attached · ask about it, remove the background, or say \"make a PDF\"",
-                fontSize = T.caption, color = T.accent
+            Spacer(Modifier.height(10.dp))
+            AttachChip(
+                kind = "IMG",
+                title = if (photos.size == 1) "1 photo" else "${photos.size} photos",
+                hint = "ask about it · remove the background · make a PDF",
+                onRemove = { photos = emptyList() }
             )
         }
         // THE QUIET NUDGE — one line, only when a real document landed in your inbox. Otherwise: silence.
         nudge?.let { n ->
             if (photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(14.dp))
                 Row(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(T.bgElevated.copy(alpha = 0.55f))
+                        .clip(RoundedCornerShape(16.dp))
                         .clickable { attachIncoming(n) }
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                        .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(T.accent))
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        com.agentos.shell.tools.Inbox.nudgeLine(n),
-                        fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "✕", fontSize = T.caption, color = T.inkFaint,
-                        modifier = Modifier
+                    // A quiet editorial mark: a hairline rule in the accent, not a badge.
+                    Box(Modifier.width(2.dp).height(34.dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "SENT TO YOU", fontSize = 9.sp, color = T.inkFaint,
+                            letterSpacing = 1.6.sp, fontWeight = FontWeight.Medium
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            com.agentos.shell.tools.Inbox.nudgeLine(n),
+                            fontSize = T.caption, color = T.ink, maxLines = 2
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.Close, contentDescription = "Dismiss", tint = T.inkFaint,
+                        modifier = Modifier.size(16.dp)
                             .clickable { com.agentos.shell.tools.Inbox.dismiss(ctx, n.key); nudge = null }
-                            .padding(start = 10.dp)
                     )
                 }
             }
         }
 
         if (attachments.isNotEmpty()) {
-            val nm = com.agentos.shell.tools.FileOps.displayName(ctx, attachments.first())
-            val isForm = remember(nm) { com.agentos.shell.tools.FileOps.isPdf(ctx, attachments.first()) }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "$nm attached · " + if (isForm) "say \"fill this in\", \"what does it say?\", or \"send it to …\""
-                else "say \"read it\", \"send it to …\", or \"file it in …\"",
-                fontSize = T.caption, color = T.accent
+            val first = attachments.first()
+            val nm = com.agentos.shell.tools.FileOps.displayName(ctx, first)
+            val isPdfFile = remember(nm) { com.agentos.shell.tools.FileOps.isPdf(ctx, first) }
+            Spacer(Modifier.height(10.dp))
+            AttachChip(
+                kind = if (isPdfFile) "PDF" else nm.substringAfterLast('.', "FILE").uppercase().take(4),
+                title = nm,
+                hint = if (isPdfFile) "read it · fill it in · send it · file it"
+                       else "read it · send it · file it",
+                onRemove = { attachments = emptyList(); com.agentos.shell.tools.AttachContext.clear(ctx) }
             )
         }
 
@@ -1053,64 +1100,43 @@ fun HomeScreen(
     if (attachSheet) {
         Dialog(onDismissRequest = { attachSheet = false }) {
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(T.bgElevated)
+                    .padding(horizontal = 18.dp, vertical = 16.dp)
             ) {
-                Text("ATTACH", fontSize = T.caption, color = T.inkFaint, letterSpacing = 1.5.sp)
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .clickable { attachSheet = false; pickFile.launch(arrayOf("*/*")) }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.AttachFile, null, tint = T.accent, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text("Browse files", fontSize = T.body, color = T.ink)
+                // Grabber — reads as a sheet you can pull, not a dialog box.
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.width(34.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(T.hairline))
                 }
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .clickable { attachSheet = false; capture() }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Filled.PhotoCamera, null, tint = T.accent, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text("Take a photo", fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(16.dp))
+
+                AttachRow("FILE", "Browse files", "anything on your phone", accent = true) {
+                    attachSheet = false; pickFile.launch(arrayOf("*/*"))
+                }
+                AttachRow("CAM", "Take a photo", "shoot it now", accent = true) {
+                    attachSheet = false; capture()
                 }
 
-                Spacer(Modifier.height(14.dp))
-                Text("SENT TO YOU", fontSize = T.caption, color = T.inkFaint, letterSpacing = 1.5.sp)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(18.dp))
+                SectionLabel("SENT TO YOU")
+                Spacer(Modifier.height(8.dp))
                 if (loadingIncoming) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalArrangement = Arrangement.Center) {
                         SlyOrbit(28)
                     }
                 } else if (incoming.isEmpty()) {
                     Text(
-                        "Nothing new. Connect Google in Settings and I'll show what people emailed you.",
-                        fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(vertical = 8.dp)
+                        "Nothing yet. Connect Google in Settings and whatever people email you shows up here.",
+                        fontSize = 12.sp, color = T.inkFaint, modifier = Modifier.padding(vertical = 6.dp)
                     )
                 } else {
-                    Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
-                        incoming.take(12).forEach { item ->
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                    .clickable { attachIncoming(item) }
-                                    .padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(item.name.take(38), fontSize = T.body, color = T.ink, maxLines = 1)
-                                    Text(
-                                        (if (item.source == "email") "from ${item.who}" else item.who),
-                                        fontSize = T.caption, color = T.inkFaint
-                                    )
-                                }
-                                Text(
-                                    if (item.source == "email") "email" else "photo",
-                                    fontSize = T.caption, color = T.inkFaint
-                                )
-                            }
+                    Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                        incoming.take(14).forEach { item ->
+                            val kind = if (item.source == "email")
+                                (if (item.isPdf) "PDF" else item.name.substringAfterLast('.', "FILE").uppercase())
+                            else "IMG"
+                            val meta = item.who +
+                                (agoLabel(item.ts).let { if (it.isBlank()) "" else " · $it" })
+                            AttachRow(kind, item.name, meta) { attachIncoming(item) }
                         }
                     }
                 }
