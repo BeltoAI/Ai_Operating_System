@@ -402,9 +402,14 @@ fun HomeScreen(
             run {
                 val attachedList = photos + attachments
                 val wantsImageGen = Regex("(?i)\\b(generate|create|make|draw|design|imagine)\\b.{0,24}\\b(image|picture|photo|logo|illustration|art|artwork|wallpaper|icon|drawing|render)\\b").containsMatchIn(q)
-                val looksLikeFileAsk = attachedList.isNotEmpty() || wantsImageGen ||
+                // Finding + sending a GALLERY photo by description (no file attached) must go to the vision-verified
+                // send_photo action — NOT the attachment sender, which just grabs recent images (screenshots).
+                val isPhotoSend = attachedList.isEmpty() && !wantsImageGen &&
+                    Regex("(?i)\\b(photos?|pictures?|images?|pics?|selfies?)\\b").containsMatchIn(q) &&
+                    Regex("(?i)\\b(send|share|text|whats\\s?app|email|forward|find|get me)\\b").containsMatchIn(q)
+                val looksLikeFileAsk = !isPhotoSend && (attachedList.isNotEmpty() || wantsImageGen ||
                     (com.agentos.shell.tools.FileResolver.describesAFile(q) &&
-                        Regex("(?i)\\b(send|share|email|forward|fill|edit|read|summari|convert|file it|attach)\\b").containsMatchIn(q))
+                        Regex("(?i)\\b(send|share|email|forward|fill|edit|read|summari|convert|file it|attach)\\b").containsMatchIn(q)))
                 if (!looksLikeFileAsk) return@run
                 plannerConsidered = true   // once we look at an attached file, the OLD file branches must not re-grab it
 

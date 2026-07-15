@@ -90,6 +90,8 @@ class ShellActivity : ComponentActivity() {
         }
         // Pull the whole calendar (past + future) into the brain so the agent knows every appointment.
         Thread { com.agentos.shell.tools.CalendarTool.syncAllToBrain(applicationContext) }.start()
+        // Warm the Brain graph in the background so swiping into it is instant (no first-open rebuild jank).
+        Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
         Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()
         // Keep filling the index in the background (free-tier-friendly) so the user needn't babysit it.
