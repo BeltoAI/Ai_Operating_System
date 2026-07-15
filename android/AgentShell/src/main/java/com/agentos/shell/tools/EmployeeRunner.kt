@@ -46,12 +46,18 @@ object EmployeeRunner {
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's autonomous AI team. Standing goal: \"${emp.goal}\". " +
                 caps + " You run UNSUPERVISED — take the SINGLE most useful next step toward your goal right now, and when " +
                 "it genuinely helps, actually DO it with one executable action. Output ONLY compact JSON: " +
-                "{\"did\":\"past-tense line, under 14 words\",\"detail\":\"the real draft/finding/result, or empty\"," +
+                "{\"did\":\"past-tense line, under 14 words\",\"detail\":\"a short note on what you did (NOT the post text), or empty\"," +
                 "\"needs\":\"what you need from $owner to go further, or empty\"," +
-                "\"action\":{\"type\":\"send_email|add_event|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
-                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"}}. " +
+                "\"action\":{\"type\":\"send_email|add_event|note|post|save_lead|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"," +
+                "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}}. " +
                 "send_email only to a REAL address, body written in $owner's own voice. add_event uses local ISO times. " +
-                "note saves a finding to $owner's brain. none = you only researched/thought this shift. No prose, no fences."
+                "note saves a finding to $owner's brain. " +
+                "post: for a Reddit comment/post or any social reply. Put the subreddit or platform in \"target\" (e.g. \"r/LocalLLaMA\"). " +
+                "CRITICAL — \"text\" must be ONLY the exact words $owner would paste into the box: no headline unless it's a real post title, " +
+                "NO meta like 'Subreddit:', 'Target thread', 'Exact comment', NO markdown headers, NO '---', NO quotes around it. Just the human message, ready to paste. " +
+                "save_lead: whenever you find or correspond with a REAL person worth remembering — set name + email (+role, +company). It goes into $owner's CRM. " +
+                "none = you only researched/thought this shift. No prose, no fences."
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val user = "Current time: $now\n\n" + (if (live.isNotEmpty()) live.toString() else "") +
                 "Your recent log:\n${recent.ifBlank { "(nothing yet)" }}\n\n" +
@@ -66,7 +72,7 @@ object EmployeeRunner {
             val actType = act?.optString("type").orEmpty()
 
             // Execute one safe headless action (owner set the team to fully autonomous)
-            var didAction = 0; var outcome = ""
+            var didAction = 0; var outcome = ""; var postNeed = ""
             try {
                 when (actType) {
                     "send_email" -> {
@@ -87,6 +93,23 @@ object EmployeeRunner {
                     "note" -> {
                         if (detail.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", detail.take(600), "Team") } catch (e: Exception) {}; outcome = "Saved a note to your brain"; didAction = 1 }
                     }
+                    "post" -> {
+                        val target = act!!.optString("target").trim()
+                        val text = act.optString("text").trim()
+                        if (text.isNotBlank() && !AgentClient.looksLikeError(text)) {
+                            AgentDraft.set(ctx, emp.id, "post", target, text)   // clean, ready-to-paste — copied verbatim later
+                            outcome = "Drafted a post" + (if (target.isNotBlank()) " for $target" else "") + " — ready for your approval"
+                            postNeed = "Approval to post" + (if (target.isNotBlank()) " to $target" else "") + " — open the card to review and post."
+                        }
+                    }
+                    "save_lead" -> {
+                        val nm = act!!.optString("name").trim(); val em = act.optString("email").trim()
+                        if (nm.isNotBlank() || em.contains("@")) {
+                            val extra = act.optJSONObject("extra")?.toString() ?: "{}"
+                            LeadStore.add(ctx, nm, em, act.optString("role").trim(), act.optString("company").trim(), "${emp.name} (${emp.role})", detail.take(200), extra)
+                            outcome = "Saved ${nm.ifBlank { em }} to your CRM"; didAction = 1
+                        }
+                    }
                 }
             } catch (e: Exception) { outcome = "Action failed: ${e.message}" }
 
@@ -95,16 +118,17 @@ object EmployeeRunner {
             EmployeeStats.record(ctx, emp.id, AgentClient.lastProvider, AgentClient.lastModel, inTok, outTok, didAction, valueMin)
             if (valueMin > 0) try { MetricsStore.record(ctx, valueMin * 60) } catch (e: Exception) {}   // feeds the Settings efficiency score
 
+            val needsEff = postNeed.ifBlank { needs }   // a drafted post needs your approval to go out
             EmployeeStore.log(ctx, emp.id, did, false)
             if (outcome.isNotBlank()) EmployeeStore.log(ctx, emp.id, outcome, false)
             if (detail.isNotBlank()) EmployeeStore.log(ctx, emp.id, detail.take(600), false)
-            if (needs.isNotBlank()) EmployeeStore.log(ctx, emp.id, "Needs you: $needs", true)
+            if (needsEff.isNotBlank()) EmployeeStore.log(ctx, emp.id, "Needs you: $needsEff", true)
             try { MemoryLog.add(ctx, "action", "${emp.name} (${emp.role})", (did + (if (outcome.isNotBlank()) "\n$outcome" else "") + (if (detail.isNotBlank()) "\n$detail" else "")).take(800), "Team") } catch (e: Exception) {}
 
-            EmployeeStore.setStatus(ctx, emp.id, if (needs.isNotBlank()) "needs_you" else "idle", touchRun = true)
+            EmployeeStore.setStatus(ctx, emp.id, if (needsEff.isNotBlank()) "needs_you" else "idle", touchRun = true)
             // Ping the lock screen when there's something to see — a result done, or a genuine ask.
             try {
-                if (needs.isNotBlank()) EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needs, true)
+                if (needsEff.isNotBlank()) EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needsEff, true)
                 else if (didAction == 1) EmployeeNotify.post(ctx, emp.id, "${emp.name} · ${emp.role}", outcome.ifBlank { did }, false)
             } catch (e: Exception) {}
             did

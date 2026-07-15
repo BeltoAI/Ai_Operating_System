@@ -125,12 +125,20 @@ object JobDoc {
      * chooser if Gmail isn't installed.
      */
     fun emailWithAttachments(ctx: Context, to: String, subject: String, body: String, files: List<File>) {
+        // Drafts often begin with a "Subject: …" line — lift it into the real subject field so it never
+        // lands in the email BODY. Whatever's on that line wins as the subject; the rest becomes the body.
+        var subj = subject
+        var text = body
+        Regex("(?is)^\\s*subject\\s*:\\s*(.+?)\\r?\\n+").find(text)?.let { m ->
+            m.groupValues[1].trim().takeIf { it.isNotBlank() }?.let { subj = it }
+            text = text.removeRange(m.range).trimStart()
+        }
         val uris = ArrayList<Uri>(files.filter { it.exists() }.map { FileProvider.getUriForFile(ctx, AUTHORITY, it) })
         fun build(): Intent = Intent(if (uris.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND).apply {
             type = "application/pdf"
             if (to.isNotBlank()) putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
-            putExtra(Intent.EXTRA_SUBJECT, subject)
-            putExtra(Intent.EXTRA_TEXT, body)
+            putExtra(Intent.EXTRA_SUBJECT, subj)
+            putExtra(Intent.EXTRA_TEXT, text)
             when {
                 uris.size > 1 -> putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 uris.size == 1 -> putExtra(Intent.EXTRA_STREAM, uris[0])

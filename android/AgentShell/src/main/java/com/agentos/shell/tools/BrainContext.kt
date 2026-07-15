@@ -138,6 +138,7 @@ object BrainContext {
             if (papers.isNotBlank()) append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
             if (docText.isNotBlank()) append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
             if (filedDocs.isNotBlank()) append("\nDocuments filed in your brain (from email attachments, scans, receipts — you CAN read and reference these when relevant):\n").append(filedDocs)
+            try { LeadStore.brief(ctx, 12).takeIf { it.isNotBlank() }?.let { append("\nPeople in your CRM (contacts/leads your team saved — use when relevant, and add new ones you meet):\n").append(it) } } catch (e: Exception) {}
             if (tasks.isNotBlank()) append("\nYour checklist/tasks (use if relevant):\n").append(tasks)
             if (recall.isNotBlank()) append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
             MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {

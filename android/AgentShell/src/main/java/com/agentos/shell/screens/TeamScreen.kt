@@ -231,10 +231,17 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 val sys = "You are ${e.name}, the ${e.role} on $owner's AI team. Standing goal: \"${e.goal}\". $caps " +
                     "Answer $owner's question in clear, readable plain text (a few sentences or short paragraphs). " +
                     "Reference your recent work when relevant. Speak as yourself. No JSON, no markdown headers, no fluff."
-                val user = "Your recent work:\n${log.ifBlank { "(nothing yet)" }}\n\nWhat you know about $owner:\n${brain.take(2500)}\n\n$owner asks: $q"
-                try { com.agentos.shell.tools.AgentClient.complete(sys, user, 450) } catch (ex: Exception) { "" }
+                val user = "Your recent work:\n${log.ifBlank { "(nothing yet)" }}\n\nWhat you know about $owner:\n${brain.take(2500)}\n\n$owner says: $q"
+                val r = try { com.agentos.shell.tools.AgentClient.complete(sys, user, 450) } catch (ex: Exception) { "" }
+                // Persist the exchange so the agent's NEXT shift uses your guidance — and clear any block.
+                try {
+                    EmployeeStore.log(ctx, e.id, "You: $q", false)
+                    if (r.isNotBlank()) EmployeeStore.log(ctx, e.id, "${e.name}: ${r.take(220)}", false)
+                    if (e.status == "needs_you") EmployeeStore.setStatus(ctx, e.id, "idle")
+                } catch (ex: Exception) {}
+                r
             }
-            teamReply = "${e.name}: " + reply.ifBlank { "Couldn't answer just now." }; flash = ""; busy = false
+            teamReply = "${e.name}: " + reply.ifBlank { "Couldn't answer just now." }; flash = ""; refresh(); busy = false
         }
     }
 
@@ -491,18 +498,21 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 com.agentos.shell.tools.EmployeeStats.approve(ctx, e.id)
                 flash = "Approved ✓"; detailEmp = null; refresh()
             }
+            val draftObj = com.agentos.shell.tools.AgentDraft.get(ctx, e.id)
             fun copyAndOpenReddit() {
-                val draft = log.filter { !it.needsInput }.maxByOrNull { it.line.length }?.line ?: (needs?.line ?: "")
+                val text = draftObj?.text ?: (needs?.line ?: "")
                 try {
                     val cb = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    cb.setPrimaryClip(android.content.ClipData.newPlainText("SlyOS post", draft))
-                    val sub = Regex("r/([A-Za-z0-9_]+)").find(needs?.line ?: "")?.groupValues?.get(1)
+                    cb.setPrimaryClip(android.content.ClipData.newPlainText("SlyOS post", text))
+                    val sub = (draftObj?.target ?: "").let { Regex("r/([A-Za-z0-9_]+)").find(it)?.groupValues?.get(1) }
+                        ?: Regex("r/([A-Za-z0-9_]+)").find(needs?.line ?: "")?.groupValues?.get(1)
                     val url = if (sub != null) "https://www.reddit.com/r/$sub/submit" else "https://www.reddit.com"
                     ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
                 } catch (ex: Exception) {}
+                com.agentos.shell.tools.AgentDraft.clear(ctx, e.id)
                 EmployeeStore.log(ctx, e.id, "Copied the post and opened Reddit.", false)
                 EmployeeStore.setStatus(ctx, e.id, "idle"); com.agentos.shell.tools.EmployeeStats.approve(ctx, e.id)
-                flash = "Copied — paste it into Reddit"; detailEmp = null; refresh()
+                flash = "Copied — just paste it into Reddit"; detailEmp = null; refresh()
             }
             Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -545,6 +555,13 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Spacer(Modifier.height(12.dp))
                         Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger.copy(alpha = 0.10f)).padding(12.dp))
+                        if (draftObj != null && draftObj.text.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text((if (draftObj.target.isNotBlank()) "READY TO POST · ${draftObj.target}" else "READY TO POST"), fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(draftObj.text, fontSize = T.small, color = T.ink, lineHeight = 19.sp,
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(12.dp))
+                        }
                         Spacer(Modifier.height(8.dp))
                         if (isPost) Text("Copy the post & open Reddit  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { copyAndOpenReddit() }.padding(vertical = 12.dp))
@@ -568,7 +585,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        if (askText.isEmpty()) Text("Ask ${e.name} a question…", fontSize = 13.sp, color = T.inkFaint)
+                        if (askText.isEmpty()) Text(if (needs != null) "Answer ${e.name}…" else "Ask ${e.name} a question…", fontSize = 13.sp, color = T.inkFaint)
                         BasicTextField(askText, { askText = it }, textStyle = TextStyle(color = T.ink, fontSize = 13.sp), modifier = Modifier.fillMaxWidth())
                     }
                     Spacer(Modifier.width(8.dp))
