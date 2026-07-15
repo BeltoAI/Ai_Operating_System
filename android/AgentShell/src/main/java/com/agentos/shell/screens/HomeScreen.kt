@@ -332,8 +332,9 @@ fun HomeScreen(
                 val res = withContext(Dispatchers.IO) { com.agentos.shell.tools.ActionExecutor.run(ctx, plan, attachedList, q) }
                 // Keep the file attached for actions where you'd naturally do MORE with the same file
                 // (ask another question, fill then send). Clear it for actions that consume/replace it.
-                val A = com.agentos.shell.tools.AttachmentPlanner.Action
-                val keepAttached = plan.action == A.READ || plan.action == A.FILL || plan.action == A.REPLY
+                val keepAttached = plan.action == com.agentos.shell.tools.AttachmentPlanner.Action.READ ||
+                    plan.action == com.agentos.shell.tools.AttachmentPlanner.Action.FILL ||
+                    plan.action == com.agentos.shell.tools.AttachmentPlanner.Action.REPLY
                 if (!keepAttached) { photos = emptyList(); attachments = emptyList() }
                 reply = res.message
                 producedImage = res.producedPng
