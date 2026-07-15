@@ -60,6 +60,21 @@ private fun staffGrad(seed: String): List<Color> {
 }
 private fun initials(name: String) = name.trim().split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("").ifBlank { "•" }
 
+private val NAME_POOL = listOf(
+    "Maya", "Leo", "Nova", "Kai", "Ivy", "Rex", "Zoe", "Milo", "Luna", "Finn",
+    "Ada", "Sol", "Remy", "Juno", "Wren", "Cleo", "Ash", "Nia", "Theo", "Iris",
+    "Otto", "Sage", "Bruno", "Elle", "Dax", "Vera", "Hugo", "Mira", "Enzo", "Pia")
+/** Never ship a second "Alex": keep the drafted name if it's free, else pull a distinct one from the pool. */
+private fun uniqueName(drafted: String, taken: List<String>): String {
+    val t = taken.map { it.trim().lowercase() }.toSet()
+    val d = drafted.trim()
+    if (d.isNotBlank() && d.lowercase() !in t) return d
+    NAME_POOL.firstOrNull { it.lowercase() !in t }?.let { return it }
+    var n = 2; val base = d.ifBlank { "Sam" }
+    while ("${base.lowercase()} $n" in t) n++
+    return "$base $n"
+}
+
 // Office palette.
 private val FLOOR_A = Color(0xFF6B4E2E); private val FLOOR_B = Color(0xFF614426)
 private val WALL = Color(0xFF3A2C1E); private val BASEBOARD = Color(0xFF2A2016)
@@ -127,7 +142,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         busy = true; flash = "Hiring…"; hireText = ""
         scope.launch {
             val cfg = withContext(Dispatchers.IO) { EmployeeRunner.draftFromRequest(req) }
-            val name = cfg.optString("name").ifBlank { "Sam" }
+            val name = uniqueName(cfg.optString("name"), staff.map { it.name })
             withContext(Dispatchers.IO) {
                 EmployeeStore.hire(ctx, name, cfg.optString("role").ifBlank { "assistant" },
                     cfg.optString("goal").ifBlank { req }, cfg.optString("tools"),
@@ -154,6 +169,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
     LaunchedEffect(Unit) { while (true) { delay(3600); talker += 1 } }
 
     var teamText by remember { mutableStateOf("") }
+    var teamReply by remember { mutableStateOf<String?>(null) }
     fun teamAsk() {
         val ask = teamText.trim(); if (ask.isBlank() || busy) return
         busy = true; teamText = ""; flash = "Asking the team…"
@@ -168,7 +184,25 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 try { com.agentos.shell.tools.MemoryLog.add(ctx, "note", "Team ask", "You: $ask\nTeam: $r", "Team") } catch (e: Exception) {}
                 r
             }
-            flash = reply.take(180); busy = false
+            teamReply = reply.ifBlank { "Couldn't reach the team right now." }; flash = ""; busy = false
+        }
+    }
+    fun askAgent(e: EmployeeStore.Employee, q: String) {
+        if (q.isBlank() || busy) return
+        busy = true; flash = "${e.name} is thinking…"
+        scope.launch {
+            val reply = withContext(Dispatchers.IO) {
+                val owner = com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "the owner" }
+                val log = EmployeeStore.logFor(ctx, e.id, 8).joinToString("\n") { "• ${it.line}" }
+                val brain = try { com.agentos.shell.tools.BrainContext.build(ctx, q) } catch (ex: Exception) { "" }
+                val caps = try { com.agentos.shell.tools.Capabilities.summary(ctx) } catch (ex: Exception) { "" }
+                val sys = "You are ${e.name}, the ${e.role} on $owner's AI team. Standing goal: \"${e.goal}\". $caps " +
+                    "Answer $owner's question in clear, readable plain text (a few sentences or short paragraphs). " +
+                    "Reference your recent work when relevant. Speak as yourself. No JSON, no markdown headers, no fluff."
+                val user = "Your recent work:\n${log.ifBlank { "(nothing yet)" }}\n\nWhat you know about $owner:\n${brain.take(2500)}\n\n$owner asks: $q"
+                try { com.agentos.shell.tools.AgentClient.complete(sys, user, 450) } catch (ex: Exception) { "" }
+            }
+            teamReply = "${e.name}: " + reply.ifBlank { "Couldn't answer just now." }; flash = ""; busy = false
         }
     }
 
@@ -435,6 +469,19 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         }
                     }
                 }
+                Spacer(Modifier.height(10.dp))
+                var askText by remember(e.id) { mutableStateOf("") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        if (askText.isEmpty()) Text("Ask ${e.name} a question…", fontSize = 13.sp, color = T.inkFaint)
+                        BasicTextField(askText, { askText = it }, textStyle = TextStyle(color = T.ink, fontSize = 13.sp), modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(if (askText.isBlank()) T.hairline else T.accent)
+                        .clickable(enabled = !busy && askText.isNotBlank()) { val q = askText; askText = ""; detailEmp = null; askAgent(e, q) }, contentAlignment = Alignment.Center) {
+                        Text("↑", fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Run a shift", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
@@ -454,28 +501,19 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         var key by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { connectEmp = null }) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
-                Text("Set up what ${e.name} needs", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                Text("Connect what ${e.name} needs", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                Text("Let SlyOS open the app or site and sign you in — or paste the details yourself.", fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
+                Text("Paste an API key or webhook URL — the reliable way. Most services (HubSpot, Zapier, Notion…) give you one in their settings under “API” or “Developer”.", fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
                 Spacer(Modifier.height(14.dp))
-                Text("Let SlyOS log me in / set it up  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable {
-                        com.agentos.shell.tools.ScreenAgent.start(ctx.applicationContext,
-                            "Set up the tool/connection ${e.name} (${e.role}) needs to do this goal: \"${e.goal}\". Open the right app or website, help me sign in or register step by step, and stop to ask me for any credentials or codes you need.")
-                        flash = "SlyOS is setting it up — follow along on your screen."; connectEmp = null
-                    }.padding(vertical = 13.dp))
-                Spacer(Modifier.height(16.dp))
-                Text("OR PASTE IT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-                Spacer(Modifier.height(8.dp))
                 @Composable fun field(hint: String, v: String, on: (String) -> Unit) {
                     Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(11.dp)) {
                         if (v.isEmpty()) Text(hint, fontSize = 14.sp, color = T.inkFaint)
                         BasicTextField(v, on, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 14.sp), modifier = Modifier.fillMaxWidth())
                     }
                 }
-                field("Service name (e.g. HubSpot)", svc) { svc = it }
+                field("Service name (e.g. Zapier)", svc) { svc = it }
+                field("API key / token / webhook URL", key) { key = it }
                 field("Web address (optional)", url) { url = it }
-                field("API key / token (optional)", key) { key = it }
                 Spacer(Modifier.height(12.dp))
                 Text("Save connection", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (svc.isBlank()) T.hairline else T.accent)
@@ -485,6 +523,28 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             EmployeeStore.setStatus(ctx, e.id, "idle")
                             flash = "$svc connected ✓"; connectEmp = null; refresh()
                         }.padding(vertical = 13.dp))
+                Spacer(Modifier.height(14.dp))
+                Text("Or let SlyOS try setting it up in your browser (experimental — may not finish)", fontSize = T.caption, color = T.inkFaint, textAlign = TextAlign.Center, lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        com.agentos.shell.tools.ScreenAgent.start(ctx.applicationContext,
+                            "Set up the tool/connection ${e.name} (${e.role}) needs to do this goal: \"${e.goal}\". Open the right app or website, help me sign in or register step by step, and stop to ask me for any credentials or codes you need.")
+                        flash = "SlyOS is trying to set it up — follow along on your screen."; connectEmp = null
+                    }.padding(vertical = 8.dp))
+            }
+        }
+    }
+
+    // ── A readable answer from the team / an agent (not a tiny truncated flash) ──
+    teamReply?.let { msg ->
+        Dialog(onDismissRequest = { teamReply = null }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 540.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("YOUR TEAM", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                Spacer(Modifier.height(10.dp))
+                Text(msg, fontSize = 15.sp, color = T.ink, lineHeight = 22.sp,
+                    modifier = Modifier.weight(1f, false).verticalScroll(rememberScrollState()))
+                Spacer(Modifier.height(14.dp))
+                Text("Close", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { teamReply = null }.padding(vertical = 12.dp))
             }
         }
     }

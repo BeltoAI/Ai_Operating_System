@@ -100,6 +100,14 @@ class ShellActivity : ComponentActivity() {
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_checklist", androidx.work.ExistingPeriodicWorkPolicy.KEEP, chkReq)
         } catch (e: Exception) {}
+        // The team's 24/7 heartbeat: every 15 min it runs any employee whose interval is due, on its own.
+        try {
+            val empReq = androidx.work.PeriodicWorkRequestBuilder<EmployeeWorker>(15, java.util.concurrent.TimeUnit.MINUTES)
+                .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                .build()
+            androidx.work.WorkManager.getInstance(applicationContext)
+                .enqueueUniquePeriodicWork("slyos_team", androidx.work.ExistingPeriodicWorkPolicy.KEEP, empReq)
+        } catch (e: Exception) {}
         // Keep new inbox mail flowing into the brain in the background (deduped; no-op if not connected).
         try {
             val gmReq = androidx.work.PeriodicWorkRequestBuilder<GmailSyncWorker>(1, java.util.concurrent.TimeUnit.HOURS)
