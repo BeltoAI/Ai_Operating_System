@@ -4,8 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -43,6 +46,7 @@ import com.agentos.shell.tools.EmployeeRunner
 import com.agentos.shell.tools.EmployeeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.math.hypot
 import kotlinx.coroutines.withContext
 
 private val STAFF_GRADS = listOf(
@@ -201,38 +205,72 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         bxf(x + 64, y + 34, 14f, 24f, c(0xFFC05B4A), c(0xFF7A2E24), c(0xFFE24B4A)); rc(x + 66, y + 37, 10f, 8f, c(0xFFF3D9A0)); dt(x + 68, y + 39, c(0xFFE24B4A))
                         rc(x + 56, y + 20, 4f, 7f, c(0xFFC1743E)); ov(x + 58, y + 16, 7f, 6f, c(0xFF5A9A5C)) }
                 }
-                // ── Living workers: mostly at their stations, but now and then two step into the hallway to chat ──
+                // ── Living workers: they actually walk — out their door, down the hallway, into the lounge/kitchen, and back. ──
                 val stations = listOf(18f to 50f, 100f to 44f, 24f to 96f, 96f to 96f, 40f to 180f, 68f to 152f, 64f to 168f)
-                var outSet by remember { mutableStateOf(setOf<Int>()) }; var atMeet by remember { mutableStateOf(false) }
-                LaunchedEffect(staff.size) {
-                    if (staff.isNotEmpty()) while (true) {
-                        delay(4000)
-                        val n = staff.size
-                        val a = (0 until n).random()
-                        val picks = if (n >= 2) {
-                            var b = (0 until n).random(); var g = 0
-                            while (b == a && g < 6) { b = (0 until n).random(); g++ }
-                            if (b != a) setOf(a, b) else setOf(a)
-                        } else setOf(a)
-                        outSet = picks; delay(2400); atMeet = true; delay(4200); atMeet = false; delay(2400); outSet = emptySet()
-                    }
+                // room of a point: 0 dev, 1 meeting, 2 kitchen, 3 hr, 4 lounge, 5 hallway
+                fun roomOf(x: Float, y: Float): Int = when {
+                    y >= 130f -> 4
+                    x < 52f && y < 66f -> 0
+                    x > 76f && y < 66f -> 1
+                    x < 52f -> 2
+                    x > 76f -> 3
+                    else -> 5
                 }
-                val leadIdx = outSet.minOrNull()
+                // where a room opens onto the hallway (door threshold)
+                fun hallDoor(room: Int): Offset = when (room) {
+                    0 -> Offset(54f, 48f); 1 -> Offset(74f, 48f); 2 -> Offset(54f, 114f); 3 -> Offset(74f, 114f); 4 -> Offset(64f, 132f); else -> Offset(64f, 100f)
+                }
+                // social spots workers wander to: cooler, lounge sofa, lounge rug, kitchen counter, hallway bench
+                data class Spot(val x: Float, val y: Float, val room: Int, val line: String)
+                val hangouts = listOf(
+                    Spot(57f, 122f, 5, "grabbing water"),
+                    Spot(34f, 172f, 4, "taking five"),
+                    Spot(64f, 168f, 4, "on the couch"),
+                    Spot(100f, 168f, 4, "checking the shelf"),
+                    Spot(24f, 100f, 2, "coffee run"),
+                    Spot(68f, 150f, 5, "stretching legs")
+                )
+                fun route(fx: Float, fy: Float, fromRoom: Int, tx: Float, ty: Float, toRoom: Int): List<Offset> {
+                    val w = ArrayList<Offset>()
+                    if (fromRoom != 5 && fromRoom != toRoom) w.add(hallDoor(fromRoom))          // step out to the hall
+                    if (toRoom != 5 && toRoom != fromRoom) w.add(hallDoor(toRoom))               // arrive at the target's door
+                    w.add(Offset(tx, ty))
+                    return w
+                }
                 staff.forEachIndexed { i, e ->
                     val st = stations[i % stations.size]
-                    val inPair = i in outSet
-                    val hallX = if (st.first < 64f) 55f else 72f
-                    // path respects walls: step through the door into the hallway (same y), then meet by the cooler.
-                    val tx = if (!inPair) st.first else if (atMeet) (if (i == leadIdx) 56f else 63f) else hallX
-                    val ty = if (!inPair) st.second else if (atMeet) 129f else st.second
-                    val ax by animateFloatAsState(tx, tween(2200, easing = LinearOutSlowInEasing), label = "ax$i")
-                    val ay by animateFloatAsState(ty, tween(2200, easing = LinearOutSlowInEasing), label = "ay$i")
+                    val homeRoom = roomOf(st.first, st.second)
+                    val pos = remember(e.id) { Animatable(Offset(st.first, st.second), Offset.VectorConverter) }
+                    var saying by remember(e.id) { mutableStateOf<String?>(null) }
+                    LaunchedEffect(e.id) {
+                        delay(600L + i * 500L)
+                        val speed = 0.021f  // units per ms → steady, human pace
+                        suspend fun walk(wps: List<Offset>) {
+                            for (wp in wps) {
+                                val d = hypot(wp.x - pos.value.x, wp.y - pos.value.y)
+                                pos.animateTo(wp, tween((d / speed).toInt().coerceIn(350, 5000), easing = LinearEasing))
+                            }
+                        }
+                        while (true) {
+                            delay((3500L..9000L).random())
+                            val dest = hangouts.random()
+                            walk(route(pos.value.x, pos.value.y, roomOf(pos.value.x, pos.value.y), dest.x, dest.y, dest.room))
+                            saying = dest.line
+                            delay((2500L..4800L).random())
+                            saying = null
+                            walk(route(pos.value.x, pos.value.y, roomOf(pos.value.x, pos.value.y), st.first, st.second, homeRoom))
+                        }
+                    }
                     val inf = rememberInfiniteTransition(label = "b$i")
-                    val bob by inf.animateFloat(-2.5f, 2.5f, infiniteRepeatable(tween(1300 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
-                    val talk = if (inPair && atMeet) (lastLines[e.id] ?: EmployeeStore.LogLine(0L, e.id, 0L, "catching up…", false))
-                               else if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
+                    val bob by inf.animateFloat(-1.4f, 1.4f, infiniteRepeatable(tween(620 + (i % 4) * 120), RepeatMode.Reverse), label = "bx$i")
+                    val ax = pos.value.x; val ay = pos.value.y
+                    val talk: EmployeeStore.LogLine? = when {
+                        saying != null -> lastLines[e.id]?.takeIf { it.needsInput } ?: EmployeeStore.LogLine(0L, e.id, 0L, saying!!, false)
+                        staff.isNotEmpty() && staff[talker % staff.size].id == e.id -> lastLines[e.id]
+                        else -> null
+                    }
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.offset(((ax + bob) * uxDp - 22).dp, (ay * uyDp - 30).dp).width(44.dp).clickable { detailEmp = e }) {
+                        modifier = Modifier.offset(((ax) * uxDp - 22).dp, ((ay + bob) * uyDp - 30).dp).width(44.dp).clickable { detailEmp = e }) {
                         if (talk != null) Text(talk.line.take(40), fontSize = 8.sp, maxLines = 2, lineHeight = 10.sp,
                             color = if (talk.needsInput) T.danger else T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.2f) else T.bgElevated).padding(5.dp))
