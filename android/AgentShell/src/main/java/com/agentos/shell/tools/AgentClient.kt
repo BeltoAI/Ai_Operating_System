@@ -154,6 +154,16 @@ object AgentClient {
         return complete(sys, user, 320)
     }
 
+    /** 3 short, first-person example requests that show a just-added skill in action (for the "Try it" chips). */
+    fun skillStarters(name: String, guidance: String): List<String> {
+        val sys = "You write example requests a person could type to see a phone-AI skill in action. Output EXACTLY 3 " +
+            "lines, one natural first-person request each, under 9 words, no numbering, no quotes, no punctuation at the end."
+        val user = "Skill: $name. What it does: ${guidance.take(600)}. Give 3 example requests:"
+        val out = complete(sys, user, 120)
+        return out.lines().map { it.trim().removePrefix("-").removePrefix("•").trim().trim('"', '.') }
+            .filter { it.length in 3..80 }.take(3)
+    }
+
     /** Single-message call. content may be a String or JSONArray (for multimodal). */
     private fun callContent(system: String, content: Any, maxTokens: Int, model: String = MODEL): Pair<Int, String> =
         callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens, model)

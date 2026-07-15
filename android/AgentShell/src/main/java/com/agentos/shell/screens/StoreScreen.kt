@@ -70,7 +70,7 @@ private fun monogram(name: String) = name.trim().firstOrNull()?.uppercaseChar()?
  * crest, a ★ rating and star-count. Switch the view to facet by Skill / Connect / Tool. No emoji, no clutter.
  */
 @Composable
-fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, onArchitect: () -> Unit = {}, onBack: () -> Unit = {}) {
+fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, onArchitect: () -> Unit = {}, onTry: (String) -> Unit = {}, onBack: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -202,10 +202,7 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
         PowerSheet(p, PowerRegistry.isInstalled(ctx, p.id),
             onInstall = { ep ->
                 val power = p
-                selected = null
-                // A skill with no baked instructions (i.e. from GitHub) → fetch its docs and distill them
-                // into real brain guidance, so adding it genuinely reprograms the AI. Curated skills already
-                // carry instructions and install instantly.
+                // Keep the sheet OPEN so it flips to the "It's live — try it" state; the user sees value at once.
                 if (power.type == PowerType.SKILL && power.instructions.isBlank() && power.repo.contains("/")) {
                     flash = "Teaching your AI \"${power.name}\"…"
                     scope.launch {
@@ -213,15 +210,16 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
                         val instr = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.distillSkill(power.name, docs) }
                         val toInstall = if (instr.isNotBlank()) power.copy(instructions = instr) else power
                         withContext(Dispatchers.IO) { PowerRegistry.install(ctx, toInstall, ep) }
+                        selected = toInstall   // refresh the open sheet with the enriched, installed power
                         tick++
-                        flash = if (instr.isNotBlank()) "Added \"${power.name}\" ✓ — your AI can do this now."
-                                else "Added \"${power.name}\" ✓"
+                        flash = "Added \"${power.name}\" ✓"
                     }
                 } else {
                     PowerRegistry.install(ctx, power, ep); tick++
                     flash = "Added \"${power.name}\" ✓"
                 }
             },
+            onTry = onTry,
             onRemove = { PowerRegistry.remove(ctx, p.id); tick++; selected = null },
             onRepo = { openRepo(p) }) { selected = null }
     }
@@ -330,7 +328,7 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
 }
 
 @Composable
-private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit, onRemove: () -> Unit, onRepo: () -> Unit, onClose: () -> Unit) {
+private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit, onTry: (String) -> Unit, onRemove: () -> Unit, onRepo: () -> Unit, onClose: () -> Unit) {
     var endpoint by remember(p.id) { mutableStateOf("") }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -343,14 +341,24 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
     fun ask() {
         asking = true; askA = ""
         scope.launch {
+            val fact = when {
+                p.type == PowerType.SKILL ->
+                    "FACT you must respect: this is a SKILL — it upgrades SlyOS's own AI (how it thinks and behaves), " +
+                    "instantly, right on the phone. There is NOTHING to run, install or connect and NO computer is needed. " +
+                    "To use it, the person just talks to their AI on the Home screen as usual and it now behaves this way. "
+                p.onPhone ->
+                    "FACT you must respect: SlyOS can do this RIGHT ON THE PHONE, instantly, with no setup. "
+                else ->
+                    "FACT you must respect: this is bigger software meant for a computer or home server — it does NOT run on a " +
+                    "phone by itself; the phone would connect to one they run on a computer. "
+            }
             val ans = withContext(Dispatchers.IO) {
                 com.agentos.shell.tools.AgentClient.appAsk(
-                    "You are SlyOS, a friendly AI phone assistant. A NON-TECHNICAL person is looking at the open-source tool '${p.name}', which can ${p.description}. " +
-                        "FACT you must respect: " + (if (p.onPhone) "SlyOS can do this RIGHT ON THE PHONE, instantly, with no setup. "
-                            else "This is bigger software meant for a computer or home server — it does NOT run on a phone; the phone would connect to one they run on a computer. ") +
-                        "Be HONEST and never over-promise. " +
-                        (if (askQ.isBlank()) "In 2–3 short, warm, plain sentences, tell them what this could do for them and, truthfully, whether it works on their phone. "
-                         else "They said: \"${askQ.trim()}\". In 2–3 short, warm, plain sentences, tell them truthfully whether SlyOS can do that on their phone, and how. ") +
+                    "You are SlyOS, a friendly AI phone assistant. A NON-TECHNICAL person is looking at '${p.name}', which can ${p.description}. " +
+                        fact +
+                        "Be HONEST and never over-promise, but NEVER contradict the FACT above. " +
+                        (if (askQ.isBlank()) "In 2–3 short, warm, plain sentences, tell them what this does for them and how they'd use it. "
+                         else "They said: \"${askQ.trim()}\". In 2–3 short, warm, plain sentences, tell them truthfully how SlyOS handles that and how they'd use it. ") +
                         "Absolutely NO markdown, NO headings, NO bullet points, NO code, NO technical jargon (avoid words like API, Termux, HTTP, server, endpoint, Docker), and NO emoji. Talk like a helpful human.",
                     "")
             }
@@ -412,8 +420,42 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
             Text("GET IT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(Modifier.height(10.dp))
             when {
-                installed -> Text("Remove this power", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { onRemove() }.padding(vertical = 13.dp))
+                installed -> {
+                    val howTo = when {
+                        p.type == PowerType.SKILL -> "Your AI just leveled up — it now knows how to ${p.tagline}. Tap one to see it work, or just talk to your AI on Home."
+                        p.onPhone -> "You can use this right from the Home screen — just ask, or attach a photo, and your AI will ${p.tagline}."
+                        else -> "Connected. Your AI will use this when it's relevant."
+                    }
+                    // Concrete, tappable ways to USE it — one tap runs it live in Home, so value is immediate.
+                    var starters by remember(p.id) { mutableStateOf<List<String>>(emptyList()) }
+                    LaunchedEffect(p.id) {
+                        if (p.type == PowerType.SKILL)
+                            starters = withContext(Dispatchers.IO) {
+                                com.agentos.shell.tools.AgentClient.skillStarters(p.name, p.instructions.ifBlank { p.description })
+                            }
+                    }
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                        Text("✓ It's live", fontSize = T.body, color = T.accent, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(howTo, fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp)
+                        if (starters.isNotEmpty()) {
+                            Spacer(Modifier.height(14.dp))
+                            Text("TRY IT NOW", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                            Spacer(Modifier.height(8.dp))
+                            starters.forEach { s ->
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
+                                        .background(T.accentSoft.copy(alpha = 0.35f)).clickable { onTry(s) }.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                    Text(s, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                    Text("→", fontSize = T.body, color = T.accent, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Remove this power", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { onRemove() }.padding(vertical = 13.dp))
+                }
                 p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
                 p.onPhone -> ActionCard("Add to your phone", "Runs right on your phone — no setup, no computer, nothing to install.", "Add") { onInstall("") }
                 else -> {

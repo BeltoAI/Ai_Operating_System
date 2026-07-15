@@ -107,6 +107,8 @@ fun HomeScreen(
     paused: Boolean,
     autoVoice: Boolean = false,
     onVoiceConsumed: () -> Unit = {},
+    initialPrompt: String = "",              // a prompt handed in (e.g. "Try it" from the Power Store) — auto-runs once
+    onPromptConsumed: () -> Unit = {},
     onOpen: (Screen) -> Unit,
     onManual: () -> Unit,
     onCompose: (String, String) -> Unit = { _, _ -> },
@@ -767,6 +769,11 @@ fun HomeScreen(
     // Launched from the lock-screen "Speak" shortcut → open the mic immediately, ONCE, then clear
     // it so returning to Home (e.g. via the nav bar) never re-opens the mic.
     LaunchedEffect(autoVoice) { if (autoVoice) { startVoice(); onVoiceConsumed() } }
+    // A prompt handed in from elsewhere (e.g. "Try it" on a just-added skill) — show it and run it once,
+    // so the user immediately SEES the new ability work instead of hunting for it.
+    LaunchedEffect(initialPrompt) {
+        if (initialPrompt.isNotBlank()) { text = initialPrompt; submit(initialPrompt, false); onPromptConsumed() }
+    }
 
     // Live status bar: clock + battery, so Home reads like a real OS home screen (One UI hides these
     // while SlyOS is the launcher). Refreshes every 30s; battery via BatteryManager.

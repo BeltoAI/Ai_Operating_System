@@ -171,6 +171,7 @@ class ShellActivity : ComponentActivity() {
                     startVoice -> Screen.Home; openReconnect -> Screen.Reconnect; else -> Screen.Boot })
             }
             var pendingVoice by remember { mutableStateOf(startVoice) }   // one-shot: cleared after the mic opens
+            var pendingHomePrompt by remember { mutableStateOf("") }      // "Try it" from the Power Store → runs in Home
             var agentPaused by remember { mutableStateOf(false) }
             var composePlatform by remember { mutableStateOf("") }
             var composeTopic by remember { mutableStateOf("") }
@@ -232,6 +233,8 @@ class ShellActivity : ComponentActivity() {
                             paused = agentPaused,
                             autoVoice = pendingVoice,
                             onVoiceConsumed = { pendingVoice = false },
+                            initialPrompt = pendingHomePrompt,
+                            onPromptConsumed = { pendingHomePrompt = "" },
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },
@@ -258,7 +261,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
-                        Screen.Store  -> StoreScreen(m, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }, onArchitect = { screen = Screen.Architect }) { screen = Screen.Home }
+                        Screen.Store  -> StoreScreen(m, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }, onArchitect = { screen = Screen.Architect },
+                            onTry = { prompt -> pendingHomePrompt = prompt; screen = Screen.Home }) { screen = Screen.Home }
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
                         Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }, onChat = { screen = Screen.Chat }) { researchTopic = ""; screen = Screen.Home }
