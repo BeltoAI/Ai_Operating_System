@@ -139,6 +139,23 @@ object AgentClient {
         return if (code == 200) text.trim() else ""
     }
 
+    // ── Last successful call's token usage (for per-employee ledgers). Serialize callers to avoid races. ──
+    @Volatile var lastInTok = 0
+    @Volatile var lastOutTok = 0
+    @Volatile var lastProvider = "anthropic"
+    @Volatile var lastModel = MODEL
+
+    /**
+     * A real WORK call for an autonomous employee: quality tier, optional live web browsing, and it
+     * returns the token usage so the worker's cost can be billed to it. Returns (text, inTok, outTok).
+     */
+    fun work(system: String, user: String, maxTokens: Int = 900, web: Boolean = true): Triple<String, Int, Int> {
+        val tools = if (web) webTool() else null
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
+        val (code, text) = callMessages(system, msgs, maxTokens, VOICE, 120000, tools)
+        return if (code == 200) Triple(text.trim(), lastInTok, lastOutTok) else Triple("", lastInTok, lastOutTok)
+    }
+
     /**
      * Distill a GitHub project's docs into clean, injectable SKILL instructions for the brain — imperative
      * guidance on HOW to behave / what to do, stripped of install steps, badges and repo fluff. This is what
@@ -216,6 +233,7 @@ object AgentClient {
                 val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
                 if (r.code == 200) {
                     if (ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+                    lastInTok = r.inTokens; lastOutTok = r.outTokens; lastProvider = choice.provider; lastModel = choice.model
                     Log.i("SlyOS", "llm ${choice.provider}/${choice.model} OK in=${r.inTokens} out=${r.outTokens}")
                     return 200 to r.text
                 }

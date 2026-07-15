@@ -26,6 +26,7 @@ object T {
     val accentSoft get() = if (dark) Color(0xFF5A3120) else Color(0xFFF2C7AE)
     val hairline get() = if (dark) Color(0xFF352D24) else Color(0xFFE2DACB)
     val danger get() = if (dark) Color(0xFFE06A5C) else Color(0xFFB23A2E)
+    val good get() = if (dark) Color(0xFF5DCAA5) else Color(0xFF1D8F63)   // positive / value delivered
 
     // type sizes
     val wordmark = 30.sp

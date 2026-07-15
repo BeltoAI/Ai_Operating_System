@@ -396,6 +396,27 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Text(if (e.intervalMin > 0) "runs every ${e.intervalMin} min" else "runs on demand", fontSize = T.caption, color = T.inkFaint)
                     }
                 }
+                // ── the receipt: what this worker cost vs. delivered ──
+                val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }
+                val tokLabel = if (stat.tokens >= 1000) String.format("%.1fk", stat.tokens / 1000.0) else stat.tokens.toString()
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(vertical = 10.dp)) {
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SPENT", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(tokLabel, fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                        Text("~$" + String.format("%.2f", stat.costUsd), fontSize = 9.sp, color = T.inkFaint)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("DID", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("${stat.actions}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                        Text("${stat.approved} approved", fontSize = 9.sp, color = T.inkFaint)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("SAVED", fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("~${stat.valueMin}m", fontSize = 16.sp, color = T.good, fontWeight = FontWeight.SemiBold)
+                        Text("${stat.shifts} shifts", fontSize = 9.sp, color = T.inkFaint)
+                    }
+                }
                 if (needs != null) {
                     Spacer(Modifier.height(12.dp))
                     Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,

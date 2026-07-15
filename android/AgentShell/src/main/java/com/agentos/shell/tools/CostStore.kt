@@ -36,6 +36,12 @@ object CostStore {
             else -> 3.0 to 15.0
         }
 
+    /** Public estimate (micro-dollars) for a single call — used by per-employee ledgers. */
+    fun estimateMicros(provider: String, model: String, inTok: Int, outTok: Int): Long {
+        val (pin, pout) = priceFor(provider, model)
+        return ((inTok / 1_000_000.0 * pin + outTok / 1_000_000.0 * pout) * 1_000_000).toLong()
+    }
+
     fun record(ctx: Context, provider: String, model: String, inTok: Int, outTok: Int) {
         val (pin, pout) = priceFor(provider, model)
         val cost = inTok / 1_000_000.0 * pin + outTok / 1_000_000.0 * pout
