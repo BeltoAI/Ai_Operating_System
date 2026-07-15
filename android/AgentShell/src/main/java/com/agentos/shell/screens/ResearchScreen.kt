@@ -519,12 +519,15 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
     }
 
     Column(modifier) {
-        ScreenHeader(if (mode == "editor") "Paper" else "Research") {
-            if (mode == "library") onBack() else { PaperStore.list(ctx); papers = PaperStore.list(ctx); mode = "library" }
+        // Team mode is a full-screen office — no header, so it fills the whole panel (only the nav shows).
+        if (mode != "team") {
+            ScreenHeader(if (mode == "editor") "Paper" else "Research") {
+                if (mode == "library") onBack() else { PaperStore.list(ctx); papers = PaperStore.list(ctx); mode = "library" }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("Opus · $remaining/$CAP left today (new paper + each suggestion)", fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(4.dp))
-        Text("Opus · $remaining/$CAP left today (new paper + each suggestion)", fontSize = T.caption, color = T.inkFaint)
-        Spacer(Modifier.height(10.dp))
 
         when (mode) {
             "library" -> {
@@ -617,7 +620,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                         .clickable(enabled = !busy && prompt.isNotBlank()) { generate() }
                         .padding(horizontal = 20.dp, vertical = 11.dp))
             }
-            "team" -> TeamPanel()
+            "team" -> TeamPanel(onExit = { mode = "library" })
             "editor" -> {
                 // Top bar: switch between the conversational writing flow and the full paper view.
                 Row(verticalAlignment = Alignment.CenterVertically) {

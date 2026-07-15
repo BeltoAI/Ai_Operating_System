@@ -3,6 +3,7 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -105,7 +106,7 @@ private fun PixelPet(seed: String, sizeDp: Int = 40) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TeamPanel(modifier: Modifier = Modifier) {
+fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var staff by remember { mutableStateOf(EmployeeStore.all(ctx)) }
@@ -146,68 +147,89 @@ fun TeamPanel(modifier: Modifier = Modifier) {
     LaunchedEffect(staff) { lastLines = withContext(Dispatchers.IO) { staff.associate { it.id to EmployeeStore.logFor(ctx, it.id, 1).firstOrNull() } } }
     LaunchedEffect(Unit) { while (true) { delay(3600); talker += 1 } }
 
-    // ── THE OFFICE — the whole screen. Staff mill about; tap one for details; + to hire. ──────────────
+    // ── THE OFFICE BUILDING — full-screen cutaway: rooms off a central hallway, doors, a shared lounge. ──
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(FLOOR_A)) {
-            val s = maxWidth.value / 10f   // tile side (dp); the whole office is a 10-wide grid
-            // ── Draw the room: floor, walls, window, desks, kitchen, meeting table, lounge ──
-            Canvas(Modifier.fillMaxSize()) {
-                val t = size.width / 10f
-                val rows = (size.height / t).toInt() + 2
-                fun rect(c: Float, r: Float, w: Float, h: Float, col: Color) = drawRect(col, Offset(c * t, r * t), Size(w * t, h * t))
-                fun rr(c: Float, r: Float, w: Float, h: Float, col: Color, rad: Float = 0.3f) =
-                    drawRoundRect(col, Offset(c * t, r * t), Size(w * t, h * t), CornerRadius(rad * t, rad * t))
-                for (rr2 in 0 until rows) for (cc in 0 until 10)
-                    rect(cc.toFloat(), rr2.toFloat(), 1f, 1f, if ((cc + rr2) % 2 == 0) FLOOR_A else FLOOR_B)
-                for (cc in 0 until 10) { rect(cc.toFloat(), 0f, 1f, 1f, WALL); rect(cc.toFloat(), (rows - 1).toFloat(), 1f, 1f, WALL) }
-                for (rr2 in 0 until rows) { rect(0f, rr2.toFloat(), 1f, 1f, WALL); rect(9f, rr2.toFloat(), 1f, 1f, WALL) }
-                rect(0f, 1f, 10f, 0.18f, BASEBOARD)                                   // baseboard shadow
-                rect(2f, 0.15f, 3f, 0.7f, WINDOW_SKY); rect(3.45f, 0.15f, 0.1f, 0.7f, WINDOW_FR)   // window + mullion
-                // Desks (work zone).
-                fun desk(c: Float) { rect(c, 2f, 1.7f, 0.75f, DESK); rect(c + 0.35f, 1.45f, 1f, 0.6f, MONITOR)
-                    rect(c + 0.45f, 1.55f, 0.8f, 0.38f, SCREEN); rect(c + 1.4f, 2.15f, 0.28f, 0.32f, MUG) }
-                desk(1f); desk(3.2f); desk(5.4f)
-                // Kitchen (top-right).
-                rect(6.5f, 2f, 1.6f, 0.75f, COUNTER); rect(6.8f, 2.15f, 0.55f, 0.45f, SINK)
-                rect(8.05f, 1.4f, 0.85f, 1.35f, FRIDGE); rect(8.12f, 2.2f, 0.12f, 0.5f, FRIDGE_H); rect(8.05f, 1.95f, 0.85f, 0.06f, FRIDGE_H)
-                rect(6.55f, 1.65f, 0.42f, 0.4f, COFFEE); rect(6.63f, 1.7f, 0.1f, 0.1f, COFFEE_RED)
-                // Meeting table (centre).
-                rr(3.3f, 5.6f, 3.4f, 1.5f, TABLE, 0.5f)
-                // Lounge (bottom).
-                rr(0.8f, 9.2f, 5.2f, 3f, RUG, 0.6f)
-                rect(1.2f, 9.55f, 3.6f, 0.28f, COUCH_BK); rr(1.2f, 9.8f, 3.6f, 1.2f, COUCH, 0.35f)
-                rr(2.1f, 11.2f, 1.5f, 0.6f, TABLE, 0.3f)
-                rect(6.5f, 10f, 0.8f, 0.7f, POT); rect(6.35f, 9.1f, 1.1f, 1f, LEAF)
-            }
-            // ── Workers at valid stations (desks, meeting seats, lounge) — never on furniture ──
-            val stations = listOf(1.55f to 2.95f, 3.75f to 2.95f, 5.95f to 2.95f, 6.6f to 5.7f, 3.1f to 5.7f, 2.2f to 10.3f, 4.1f to 10.3f)
-            staff.forEachIndexed { i, e ->
-                val st = stations[i % stations.size]
-                val inf = rememberInfiniteTransition(label = "b$i")
-                val bx by inf.animateFloat(-3f, 3f, infiniteRepeatable(tween(1400 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
-                val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
-                Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.offset((st.first * s + bx).dp, (st.second * s).dp).width((s * 1.6f).dp).clickable { detailEmp = e }) {
-                    Box(Modifier.height((s * 1.1f).dp), contentAlignment = Alignment.BottomCenter) {
-                        if (talk != null) Text(talk.line.take(48), fontSize = 9.sp, maxLines = 3, lineHeight = 11.sp,
+        BoxWithConstraints(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            val u = maxWidth.value / 128f   // dp per building unit (building is 128 wide × 208 tall)
+            Box(Modifier.fillMaxWidth().height((208f * u).dp)) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val k = size.width / 128f
+                    fun c(v: Long) = Color(v)
+                    fun rc(x: Float, y: Float, w: Float, h: Float, col: Color) = drawRect(col, Offset(x * k, y * k), Size(w * k, h * k))
+                    fun ov(cx: Float, cy: Float, rx: Float, ry: Float, col: Color) = drawOval(col, Offset((cx - rx) * k, (cy - ry) * k), Size(rx * 2 * k, ry * 2 * k))
+                    fun bxf(x: Float, y: Float, w: Float, h: Float, fill: Color, ol: Color, hi: Color? = null) { rc(x, y, w, h, ol); rc(x + 1, y + 1, w - 2, h - 2, fill); if (hi != null) rc(x + 1, y + 1, w - 2, 1f, hi) }
+                    fun dt(x: Float, y: Float, col: Color) = rc(x, y, 1f, 1f, col)
+                    val OUTc = c(0xFF211812); val DOORc = c(0xFF7A4E2A); val DOORF = c(0xFF3A2C1E); val HALL = c(0xFFB79CA6); val HALLC = c(0xFFC6AEB6)
+                    rc(0f, 0f, 128f, 208f, c(0xFF2A2016)); rc(3f, 3f, 122f, 202f, OUTc)
+                    // hallway
+                    rc(52f, 4f, 24f, 201f, HALL); rc(58f, 4f, 12f, 201f, HALLC)
+                    var yy = 8f; while (yy < 205f) { rc(53f, yy, 22f, 0.7f, c(0xFFA98C97)); yy += 10f }
+                    for (i in 0 until 5) { rc(55f, 60f + i * 2.2f, 18f, 2.2f, if (i % 2 == 0) c(0xFFC6AEB6) else c(0xFFA98C97)); rc(55f, 60f + i * 2.2f, 18f, 0.6f, c(0xFF8A6E7A)) }
+                    bxf(54f, 120f, 6f, 12f, c(0xFFDDEAF2), c(0xFF9FB4C0)); rc(55f, 122f, 4f, 5f, c(0xFF7FB4D6)); dt(56f, 131f, c(0xFF4E86B0))   // cooler
+                    bxf(66f, 150f, 8f, 5f, c(0xFF8A5A34), c(0xFF5A3A20), c(0xFFA9713C))                                                        // bench
+                    rc(63f, 18f, 4f, 6f, c(0xFFC1743E)); ov(65f, 15f, 6f, 5f, c(0xFF5A9A5C)); rc(70f, 178f, 4f, 6f, c(0xFFC1743E)); ov(72f, 175f, 5f, 5f, c(0xFF57955A))
+                    fun doorL(dy: Float) { rc(50f, dy, 3f, 16f, HALL); rc(50f, dy - 1, 3f, 1.5f, DOORF); rc(50f, dy + 15, 3f, 1.5f, DOORF); rc(52f, dy + 2, 1.5f, 12f, DOORc); rc(47f, dy + 4, 4f, 8f, c(0xFF9C7A86)) }
+                    fun doorR(dy: Float) { rc(75f, dy, 3f, 16f, HALL); rc(75f, dy - 1, 3f, 1.5f, DOORF); rc(75f, dy + 15, 3f, 1.5f, DOORF); rc(75.5f, dy + 2, 1.5f, 12f, DOORc); rc(77f, dy + 4, 4f, 8f, c(0xFF9C7A86)) }
+                    // DEV (F1 left)
+                    run { val x = 4f; val y = 4f; val w = 48f; val h = 62f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFF26333E)); rc(x + 1, y + 1, w - 2, 16f, c(0xFF2E3E4A)); rc(x + 1, y + h - 8, w - 2, 7f, c(0xFF3B4A54))
+                        bxf(x + 5, y + 28, 20f, 9f, c(0xFF7A4E2A), c(0xFF4A2E18), c(0xFF95633A)); bxf(x + 8, y + 20, 14f, 8f, c(0xFF15140F), OUTc); rc(x + 9, y + 21, 12f, 5f, c(0xFF7CE0A0)); for (i in 0 until 3) rc(x + 10, y + 22 + i * 1.4f, 7f, 0.8f, c(0xFF2B4A38))
+                        bxf(x + 30, y + 14, 14f, 38f, c(0xFF20262B), c(0xFF10151A)); for (i in 0 until 6) { rc(x + 32, y + 17 + i * 5.5f, 10f, 3f, c(0xFF161B20)); dt(x + 40, y + 18 + i * 5.5f, if (i % 2 == 0) c(0xFF7CE0A0) else c(0xFFE0A24E)) }
+                        rc(x + 3, y + 5, 12f, 8f, c(0xFFEDE7DB)); dt(x + 6, y + 8, c(0xFF4E86B0)); dt(x + 9, y + 10, c(0xFFC05B4A)); doorL(y + 40) }
+                    // MEETING (F1 right)
+                    run { val x = 78f; val y = 4f; val w = 46f; val h = 62f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFEADFC9)); rc(x + 1, y + 20, w - 2, h - 21, c(0xFFC69A5E)); var s2 = y + 20; while (s2 < y + h) { rc(x + 1, s2, w - 2, 0.7f, c(0xFFA67C42)); s2 += 8f }
+                        bxf(x + 16, y + 4, 24f, 13f, c(0xFF2E2A22), OUTc); rc(x + 17, y + 5, 22f, 11f, c(0xFFF3ECDD)); rc(x + 19, y + 8, 8f, 3f, c(0xFF4E86B0)); rc(x + 29, y + 7, 7f, 5f, c(0xFF5A9A5C))
+                        ov(x + 23, y + 42, 17f, 10f, c(0xFF7A4E2A)); ov(x + 23, y + 41, 17f, 9f, c(0xFF8A5A32)); bxf(x + 12, y + 30, 6f, 5f, c(0xFF6E7B8A), c(0xFF49525C)); bxf(x + 30, y + 30, 6f, 5f, c(0xFF6E7B8A), c(0xFF49525C)); doorR(y + 40) }
+                    // KITCHEN (F2 left)
+                    run { val x = 4f; val y = 68f; val w = 48f; val h = 60f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFD3E4DE)); for (a in 0 until 7) for (b in 0 until 5) if ((a + b) % 2 == 0) rc(x + 2 + a * 6.5f, y + 22 + b * 6.5f, 6.5f, 6.5f, c(0xFFE7EFEB))
+                        bxf(x + 3, y + 4, 24f, 6f, c(0xFFC9BFAE), c(0xFFA98F63), c(0xFFDAD2C4)); bxf(x + 3, y + 28, 28f, 9f, c(0xFFDAD2C4), c(0xFFB4AA98), c(0xFFEAE3D6)); bxf(x + 8, y + 31, 7f, 4f, c(0xFF8F9598), c(0xFF5E6266))
+                        bxf(x + 34, y + 20, 13f, 30f, c(0xFFEDE7DB), c(0xFFC9BFAE)); rc(x + 34, y + 34, 13f, 1f, c(0xFFC9BFAE)); rc(x + 45, y + 25, 1.4f, 5f, c(0xFFB4AA98)); dt(x + 37, y + 38, c(0xFFE0A24E))
+                        bxf(x + 6, y + 22, 5f, 6f, c(0xFF4E6E7E), c(0xFF2E4652)); doorL(y + 38) }
+                    // HR (F2 right)
+                    run { val x = 78f; val y = 68f; val w = 46f; val h = 60f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFE8DCC8)); rc(x + 1, y + 28, w - 2, h - 29, c(0xFFB98F53)); var s3 = y + 28; while (s3 < y + h) { rc(x + 1, s3, w - 2, 0.7f, c(0xFF9C7440)); s3 += 8f }
+                        bxf(x + 5, y + 24, 20f, 9f, c(0xFFA9713C), c(0xFF6B4426), c(0xFFC08A50)); bxf(x + 8, y + 16, 12f, 7f, c(0xFF15140F), OUTc); rc(x + 9, y + 17, 10f, 4f, c(0xFF6FD0C4)); rc(x + 22, y + 27, 2.5f, 2.5f, c(0xFFD0603A))
+                        bxf(x + 30, y + 20, 10f, 18f, c(0xFF7E8894), c(0xFF565E68)); for (i in 0 until 3) rc(x + 31, y + 23 + i * 5f, 8f, 3f, c(0xFF6B7581))
+                        bxf(x + 5, y + 42, 22f, 9f, c(0xFFC05B4A), c(0xFF8A3A2E), c(0xFFD67A6C)); doorR(y + 38) }
+                    // COMMON LOUNGE (F3 full)
+                    run { val x = 4f; val y = 130f; val w = 120f; val h = 74f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFF0E4CE)); rc(x + 1, y + 16, w - 2, h - 17, c(0xFFC69A5E)); var s4 = y + 16; while (s4 < y + h) { rc(x + 1, s4, w - 2, 0.7f, c(0xFFA67C42)); s4 += 8f }
+                        ov(x + 34, y + 46, 32f, 20f, c(0xFF7FB6AE)); ov(x + 34, y + 46, 26f, 15f, c(0xFF8FC1B9))
+                        rc(x + 8, y + 26, 48f, 4f, c(0xFF5E8F7C)); bxf(x + 8, y + 28, 48f, 15f, c(0xFF6FA58F), c(0xFF4E7A68), c(0xFF83B6A2)); for (i in 0 until 3) bxf(x + 12 + i * 15f, y + 30, 13f, 10f, c(0xFF83B6A2), c(0xFF5E8F7C))
+                        bxf(x + 26, y + 50, 18f, 7f, c(0xFF7A4E2A), c(0xFF4E2E18), c(0xFF8A5A32)); dt(x + 33, y + 52, c(0xFFD0603A))
+                        bxf(x + 66, y + 6, 12f, 10f, c(0xFF20262B), c(0xFF10151A)); rc(x + 67, y + 7, 10f, 8f, c(0xFF4FC3D6))
+                        bxf(x + 84, y + 28, 26f, 40f, c(0xFF8A5A34), c(0xFF5A3A20)); for (i in 0 until 4) { val ry2 = y + 32 + i * 10f; rc(x + 85, ry2, 24f, 1f, c(0xFF6B4426)); val cols = listOf(c(0xFFC05B4A), c(0xFF5A9A5C), c(0xFF4E86B0), c(0xFFE0A24E), c(0xFF7FB6AE)); for (j in 0 until 5) rc(x + 86 + j * 4.5f, ry2 - 8, 3.4f, 8f, cols[(i + j) % 5]) }
+                        bxf(x + 64, y + 34, 14f, 24f, c(0xFFC05B4A), c(0xFF7A2E24), c(0xFFE24B4A)); rc(x + 66, y + 37, 10f, 8f, c(0xFFF3D9A0)); dt(x + 68, y + 39, c(0xFFE24B4A))
+                        rc(x + 56, y + 20, 4f, 7f, c(0xFFC1743E)); ov(x + 58, y + 16, 7f, 6f, c(0xFF5A9A5C)) }
+                }
+                // ── Workers at valid stations (rooms, hallway bench, common) ──
+                val stations = listOf(18f to 50f, 100f to 44f, 24f to 96f, 96f to 96f, 40f to 180f, 68f to 152f, 64f to 168f)
+                staff.forEachIndexed { i, e ->
+                    val st = stations[i % stations.size]
+                    val inf = rememberInfiniteTransition(label = "b$i")
+                    val bob by inf.animateFloat(-2.5f, 2.5f, infiniteRepeatable(tween(1300 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
+                    val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.offset(((st.first + bob) * u - 22).dp, (st.second * u - 30).dp).width(44.dp).clickable { detailEmp = e }) {
+                        if (talk != null) Text(talk.line.take(40), fontSize = 8.sp, maxLines = 2, lineHeight = 10.sp,
                             color = if (talk.needsInput) T.danger else T.ink,
-                            modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.18f) else T.bgElevated).padding(6.dp))
-                        else if (e.status == "needs_you") Text("!", fontSize = 13.sp, color = T.danger, fontWeight = FontWeight.Bold)
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.2f) else T.bgElevated).padding(5.dp))
+                        else if (e.status == "needs_you") Text("!", fontSize = 12.sp, color = T.danger, fontWeight = FontWeight.Bold)
+                        PixelPet(e.id, 30)
+                        Text(e.name.take(8), fontSize = 9.sp, color = Color(0xFF2C2620), fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
-                    PixelPet(e.id, (s * 1.15f).toInt().coerceIn(34, 52))
-                    Text(e.name, fontSize = 10.sp, color = Color(0xFFF2E9DC), maxLines = 1)
                 }
+                if (staff.isEmpty())
+                    Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("The office is open", fontSize = 18.sp, color = Color(0xFFF2E9DC), fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Tap + to hire your first employee. They'll move into a room and get to work.",
+                            fontSize = T.small, color = Color(0xFFE7D8C0), textAlign = TextAlign.Center, lineHeight = 20.sp)
+                    }
             }
-            if (staff.isEmpty())
-                Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("The office is ready", fontSize = 18.sp, color = Color(0xFFF2E9DC), fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tap + to hire your first employee. They'll take a desk and get to work.",
-                        fontSize = T.small, color = Color(0xFFD8C6B0), textAlign = TextAlign.Center, lineHeight = 20.sp)
-                }
         }
+        // back to Research
+        Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(40.dp).clip(CircleShape).background(T.bgElevated.copy(alpha = 0.9f))
+            .clickable { onExit() }, contentAlignment = Alignment.Center) { Text("←", fontSize = 20.sp, color = T.ink) }
         // + to hire
-        Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(58.dp).clip(CircleShape).background(T.accent)
+        Box(Modifier.align(Alignment.BottomEnd).padding(10.dp).size(58.dp).clip(CircleShape).background(T.accent)
             .clickable { hireOpen = true }, contentAlignment = Alignment.Center) {
             Text("+", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Bold)
         }
