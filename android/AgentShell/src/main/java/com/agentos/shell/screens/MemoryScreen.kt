@@ -327,6 +327,9 @@ private fun BrainBackupCard() {
                         scope.launch {
                             val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainBackup.backupNow(ctx) }
                             lastBk = com.agentos.shell.tools.BrainBackup.lastBackup(ctx)
+                            // Also push the whole brain to your account, so it's on every device — not just Drive.
+                            if (com.agentos.shell.tools.AccountStore.signedIn(ctx))
+                                withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainCloud.push(ctx) }
                             bkMsg = r; bkBusy = false
                         }
                     }.padding(horizontal = 18.dp, vertical = 9.dp))
@@ -346,6 +349,40 @@ private fun BrainBackupCard() {
                                     ctx.startActivity(i); Runtime.getRuntime().exit(0)
                                 } catch (e: Exception) {}
                             } else bkMsg = "Restore failed: ${r.error}"
+                        }
+                    }.padding(horizontal = 18.dp, vertical = 9.dp))
+        }
+        // Full brain → YOUR account (Supabase). Sign in on any device and pull it all back.
+        Spacer(Modifier.height(10.dp))
+        Text("Sync your whole brain to your account, so any device you sign in on gets everything.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Sync to my account", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (bkBusy) T.hairline else T.accent)
+                    .clickable(enabled = !bkBusy) {
+                        bkBusy = true; bkMsg = "Uploading your brain to your account…"
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainCloud.push(ctx) }
+                            bkMsg = r.message; bkBusy = false
+                        }
+                    }.padding(horizontal = 18.dp, vertical = 9.dp))
+            Spacer(Modifier.width(12.dp))
+            Text("Restore from account", fontSize = T.small, color = T.accent,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                    .clickable(enabled = !bkBusy) {
+                        bkBusy = true; bkMsg = "Pulling your brain from your account…"
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainCloud.pull(ctx) }
+                            bkBusy = false
+                            if (r.ok) {
+                                bkMsg = "Restored ✓ Reopening…"
+                                try {
+                                    val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+                                        ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    ctx.startActivity(i); Runtime.getRuntime().exit(0)
+                                } catch (e: Exception) {}
+                            } else bkMsg = r.message
                         }
                     }.padding(horizontal = 18.dp, vertical = 9.dp))
         }
