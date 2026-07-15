@@ -237,35 +237,69 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     w.add(Offset(tx, ty))
                     return w
                 }
+                // live positions (plain map — only the crossing-detector reads it, no recomposition needed)
+                val posMap = remember { HashMap<String, Offset>() }
+                // when two workers pass close, both pop a short line for a moment
+                val chat = remember { mutableStateMapOf<String, String>() }
+                LaunchedEffect(staff.map { it.id }) {
+                    if (staff.size < 2) return@LaunchedEffect
+                    val lines = listOf("nice work", "how's it going?", "on it", "good call", "let's sync later", "almost there", "need a hand?", "morning!", "got it", "one sec")
+                    while (true) {
+                        delay(380)
+                        val ids = staff.map { it.id }
+                        for (a in ids.indices) for (b in a + 1 until ids.size) {
+                            val pa = posMap[ids[a]] ?: continue; val pb = posMap[ids[b]] ?: continue
+                            if (hypot(pa.x - pb.x, pa.y - pb.y) < 12f && chat[ids[a]] == null && chat[ids[b]] == null) {
+                                chat[ids[a]] = lines.random(); chat[ids[b]] = lines.random()
+                                val ia = ids[a]; val ib = ids[b]
+                                launch { delay(2500); chat.remove(ia); chat.remove(ib) }
+                            }
+                        }
+                    }
+                }
                 staff.forEachIndexed { i, e ->
                     val st = stations[i % stations.size]
                     val homeRoom = roomOf(st.first, st.second)
                     val pos = remember(e.id) { Animatable(Offset(st.first, st.second), Offset.VectorConverter) }
                     var saying by remember(e.id) { mutableStateOf<String?>(null) }
                     LaunchedEffect(e.id) {
-                        delay(600L + i * 500L)
-                        val speed = 0.021f  // units per ms → steady, human pace
+                        val rnd = kotlin.random.Random(e.id.hashCode() * 31 + 7)
+                        val speed = 0.015f + rnd.nextInt(0, 8) * 0.0015f   // each worker moves at their own pace
+                        fun jit(o: Offset): Offset {
+                            val jx = (rnd.nextFloat() - 0.5f) * 7f; val jy = (rnd.nextFloat() - 0.5f) * 7f
+                            val nx = if (roomOf(o.x, o.y) == 5) (o.x + jx).coerceIn(54f, 74f) else o.x + jx
+                            return Offset(nx, o.y + jy)
+                        }
                         suspend fun walk(wps: List<Offset>) {
                             for (wp in wps) {
                                 val d = hypot(wp.x - pos.value.x, wp.y - pos.value.y)
-                                pos.animateTo(wp, tween((d / speed).toInt().coerceIn(350, 5000), easing = LinearEasing))
+                                pos.animateTo(wp, tween((d / speed).toInt().coerceIn(300, 6000), easing = LinearEasing)) { posMap[e.id] = value }
                             }
                         }
+                        delay(400L + i * 450L)
+                        posMap[e.id] = pos.value
                         while (true) {
-                            delay((3500L..9000L).random())
-                            val dest = hangouts.random()
-                            walk(route(pos.value.x, pos.value.y, roomOf(pos.value.x, pos.value.y), dest.x, dest.y, dest.room))
-                            saying = dest.line
-                            delay((2500L..4800L).random())
-                            saying = null
-                            walk(route(pos.value.x, pos.value.y, roomOf(pos.value.x, pos.value.y), st.first, st.second, homeRoom))
+                            delay((2400L..8000L).random())
+                            val hops = if (rnd.nextFloat() < 0.45f) 2 else 1   // sometimes a longer, meandering trip
+                            repeat(hops) {
+                                val dest = hangouts.random()
+                                val r = pos.value
+                                walk(route(r.x, r.y, roomOf(r.x, r.y), dest.x, dest.y, dest.room).map { jit(it) })
+                                saying = dest.line
+                                delay((1500L..3600L).random())
+                                saying = null
+                            }
+                            val r2 = pos.value
+                            walk(route(r2.x, r2.y, roomOf(r2.x, r2.y), st.first, st.second, homeRoom).map { jit(it) })
                         }
                     }
                     val inf = rememberInfiniteTransition(label = "b$i")
                     val bob by inf.animateFloat(-1.4f, 1.4f, infiniteRepeatable(tween(620 + (i % 4) * 120), RepeatMode.Reverse), label = "bx$i")
                     val ax = pos.value.x; val ay = pos.value.y
                     val talk: EmployeeStore.LogLine? = when {
-                        saying != null -> lastLines[e.id]?.takeIf { it.needsInput } ?: EmployeeStore.LogLine(0L, e.id, 0L, saying!!, false)
+                        chat[e.id] != null -> EmployeeStore.LogLine(0L, e.id, 0L, chat[e.id]!!, false)
+                        lastLines[e.id]?.needsInput == true -> lastLines[e.id]
+                        saying != null -> EmployeeStore.LogLine(0L, e.id, 0L, saying!!, false)
                         staff.isNotEmpty() && staff[talker % staff.size].id == e.id -> lastLines[e.id]
                         else -> null
                     }
