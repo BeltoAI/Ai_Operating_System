@@ -4,8 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -199,15 +201,32 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         bxf(x + 64, y + 34, 14f, 24f, c(0xFFC05B4A), c(0xFF7A2E24), c(0xFFE24B4A)); rc(x + 66, y + 37, 10f, 8f, c(0xFFF3D9A0)); dt(x + 68, y + 39, c(0xFFE24B4A))
                         rc(x + 56, y + 20, 4f, 7f, c(0xFFC1743E)); ov(x + 58, y + 16, 7f, 6f, c(0xFF5A9A5C)) }
                 }
-                // ── Workers at valid stations (rooms, hallway bench, common) ──
+                // ── Living workers: mostly at their stations, but now and then two step into the hallway to chat ──
                 val stations = listOf(18f to 50f, 100f to 44f, 24f to 96f, 96f to 96f, 40f to 180f, 68f to 152f, 64f to 168f)
+                var pairA by remember { mutableStateOf(-1) }; var pairB by remember { mutableStateOf(-1) }; var atMeet by remember { mutableStateOf(false) }
+                LaunchedEffect(staff.size) {
+                    if (staff.size >= 2) while (true) {
+                        delay(7000)
+                        val a = (0 until staff.size).random(); var b = (0 until staff.size).random(); var g = 0
+                        while (b == a && g < 6) { b = (0 until staff.size).random(); g++ }
+                        if (b != a) { pairA = a; pairB = b; delay(2500); atMeet = true; delay(4200); atMeet = false; delay(2500); pairA = -1; pairB = -1 }
+                    }
+                }
                 staff.forEachIndexed { i, e ->
                     val st = stations[i % stations.size]
+                    val inPair = i == pairA || i == pairB
+                    val hallX = if (st.first < 64f) 55f else 72f
+                    // path respects walls: step through the door into the hallway (same y), then meet by the cooler.
+                    val tx = if (!inPair) st.first else if (atMeet) (if (i == pairA) 56f else 63f) else hallX
+                    val ty = if (!inPair) st.second else if (atMeet) 129f else st.second
+                    val ax by animateFloatAsState(tx, tween(2200, easing = LinearOutSlowInEasing), label = "ax$i")
+                    val ay by animateFloatAsState(ty, tween(2200, easing = LinearOutSlowInEasing), label = "ay$i")
                     val inf = rememberInfiniteTransition(label = "b$i")
                     val bob by inf.animateFloat(-2.5f, 2.5f, infiniteRepeatable(tween(1300 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
-                    val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
+                    val talk = if (inPair && atMeet) (lastLines[e.id] ?: EmployeeStore.LogLine(0L, e.id, 0L, "catching up…", false))
+                               else if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.offset(((st.first + bob) * uxDp - 22).dp, (st.second * uyDp - 30).dp).width(44.dp).clickable { detailEmp = e }) {
+                        modifier = Modifier.offset(((ax + bob) * uxDp - 22).dp, (ay * uyDp - 30).dp).width(44.dp).clickable { detailEmp = e }) {
                         if (talk != null) Text(talk.line.take(40), fontSize = 8.sp, maxLines = 2, lineHeight = 10.sp,
                             color = if (talk.needsInput) T.danger else T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.2f) else T.bgElevated).padding(5.dp))
