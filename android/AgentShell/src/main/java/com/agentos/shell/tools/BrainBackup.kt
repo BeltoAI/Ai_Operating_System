@@ -64,6 +64,12 @@ object BrainBackup {
             if (cowork.isDirectory) cowork.listFiles()?.forEach { f ->
                 if (f.isFile) addEntry(zip, "files/cowork/${f.name}", f)
             }
+            // Sorted document photos (scanned/filed docs) live under files/documents/<category> — include them
+            // so a restored brain has the actual pictures, not just the index.
+            val docs = File(ctx.filesDir, "documents")
+            if (docs.isDirectory) docs.walkTopDown().filter { it.isFile }.forEach { f ->
+                try { addEntry(zip, "files/" + f.relativeTo(ctx.filesDir).path, f) } catch (e: Exception) {}
+            }
         }
         return out
     }

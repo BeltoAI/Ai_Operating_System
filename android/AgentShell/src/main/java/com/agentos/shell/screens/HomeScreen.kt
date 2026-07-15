@@ -138,6 +138,8 @@ fun HomeScreen(
     // Long-press a file → quick, content-aware options for it.
     var quickFile by remember { mutableStateOf<Uri?>(null) }
     var quickIsPdf by remember { mutableStateOf(false) }
+    // A long answer (e.g. a summary) opened in a full-screen, properly scrollable reader.
+    var readerText by remember { mutableStateOf("") }
     var vaultPinPrompt by remember { mutableStateOf(false) }
     var vaultPin by remember { mutableStateOf("") }
     var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
@@ -1066,7 +1068,9 @@ fun HomeScreen(
                 Modifier
                     .fillMaxWidth()
                     .offset { androidx.compose.ui.unit.IntOffset(replyDragX.toInt(), 0) }
-                    .let { m -> if (thinking) m else m.pointerInput(reply) {
+                    // Swipe-to-dismiss only for SHORT answers. On long ones the horizontal drag fought the
+                    // vertical scroll and you couldn't read the summary — so long answers scroll cleanly instead.
+                    .let { m -> if (thinking || reply.length > 480) m else m.pointerInput(reply) {
                         detectHorizontalDragGestures(
                             onDragEnd = {
                                 when {
@@ -1103,12 +1107,21 @@ fun HomeScreen(
                         MarkdownText(body)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text("Copy", fontSize = T.small, color = T.accent,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
-                            .clickable {
-                                (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                                    .setPrimaryClip(android.content.ClipData.newPlainText("reply", body))
-                            }.padding(horizontal = 12.dp, vertical = 6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Long answers get a full-screen reader that always scrolls — no more trapped summaries.
+                        if (body.length > 480) {
+                            Text("Read ⤢", fontSize = T.small, color = T.bgElevated,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                    .clickable { readerText = body }.padding(horizontal = 14.dp, vertical = 6.dp))
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        Text("Copy", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable {
+                                    (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                        .setPrimaryClip(android.content.ClipData.newPlainText("reply", body))
+                                }.padding(horizontal = 12.dp, vertical = 6.dp))
+                    }
                 }
             }
             // If the agent created something with a link (Google Doc/Sheet/Slides), offer to open it.
@@ -1299,6 +1312,34 @@ fun HomeScreen(
                 }
                 Text("Close", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { showAdd = false; showAddBtn = false }.padding(top = 8.dp))
+            }
+        }
+    }
+
+    // FULL READER — a long answer/summary in a proper full-screen scrollable page. Never trapped again.
+    if (readerText.isNotBlank()) {
+        Dialog(onDismissRequest = { readerText = "" },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(
+                Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.9f)
+                    .clip(RoundedCornerShape(22.dp)).background(T.bgElevated).padding(18.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("READING", fontSize = 9.sp, color = T.inkFaint, letterSpacing = 1.6.sp,
+                        fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    Text("Copy", fontSize = T.small, color = T.accent,
+                        modifier = Modifier.clickable {
+                            (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                                .setPrimaryClip(android.content.ClipData.newPlainText("reply", readerText))
+                        }.padding(8.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = T.inkFaint,
+                        modifier = Modifier.size(18.dp).clickable { readerText = "" })
+                }
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    MarkdownText(readerText)
+                }
             }
         }
     }

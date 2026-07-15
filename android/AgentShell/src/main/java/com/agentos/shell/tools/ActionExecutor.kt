@@ -147,11 +147,8 @@ object ActionExecutor {
 
     private fun move(ctx: Context, plan: AttachmentPlanner.Plan, files: List<Uri>): Result {
         if (files.isEmpty()) return Result("Attach the file you want filed.")
-        val cat = SlyFolder.CATEGORIES.firstOrNull { it.equals(plan.folder, true) || (plan.folder.isNotBlank() && it.contains(plan.folder, true)) } ?: ""
-        return Result(files.joinToString("\n") { file ->
-            val body = if (FileOps.isPdf(ctx, file)) FileOps.pdfText(ctx, file) else ""
-            SlyFolder.fileExisting(ctx, file, body, cat).second
-        })
+        // Blend into the SAME system as the camera & email: receipts→Expenses, docs→DocStore, all in the brain.
+        return Result(files.joinToString("\n") { AutoFile.file(ctx, it) })
     }
 
     private fun reply(ctx: Context, plan: AttachmentPlanner.Plan, files: List<Uri>): Result {
