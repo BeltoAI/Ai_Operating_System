@@ -14,6 +14,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -25,6 +28,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import com.agentos.shell.screens.*
 import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
@@ -220,14 +226,48 @@ class ShellActivity : ComponentActivity() {
                 }
             }
             Surface(Modifier.fillMaxSize(), color = T.bg) {
-              androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+              // Edge-swipe between the 5 main sections — swipe must START within ~24dp of the left/right
+              // edge (so it never fights content scrolling). Left→right = previous, right→left = next.
+              val navOrder = listOf(Screen.Home, Screen.Now, Screen.Memory, Screen.Research, Screen.Store)
+              val swipeMod = Modifier.pointerInput(screen) {
+                  val order = navOrder
+                  val idx = order.indexOf(screen)
+                  if (idx < 0) return@pointerInput
+                  val edge = 24.dp.toPx(); val threshold = 70.dp.toPx()
+                  awaitEachGesture {
+                      val down = awaitFirstDown(requireUnconsumed = false)
+                      val sx = down.position.x; val w = size.width.toFloat()
+                      val fromLeft = sx <= edge; val fromRight = sx >= w - edge
+                      if (!fromLeft && !fromRight) return@awaitEachGesture
+                      while (true) {
+                          val ev = awaitPointerEvent()
+                          val ch = ev.changes.firstOrNull() ?: break
+                          val dx = ch.position.x - sx; val dy = ch.position.y - down.position.y
+                          if (kotlin.math.abs(dx) > threshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f) {
+                              if (fromLeft && dx > 0 && idx > 0) screen = order[idx - 1]
+                              else if (fromRight && dx < 0 && idx < order.size - 1) screen = order[idx + 1]
+                              ch.consume(); break
+                          }
+                          if (!ch.pressed) break
+                      }
+                  }
+              }
+              androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().then(swipeMod)) {
               Column(Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
-                        // Every screen glides: a soft fade with a subtle upward settle. Feels smooth, not clicky.
-                        (fadeIn(tween(420)) + slideInVertically(tween(440, easing = FastOutSlowInEasing)) { it / 22 }) togetherWith
-                            fadeOut(tween(230))
+                        val a = navOrder.indexOf(initialState); val b = navOrder.indexOf(targetState)
+                        if (a >= 0 && b >= 0 && a != b) {
+                            // Moving between main sections → glide horizontally in the swipe's direction.
+                            val dir = if (b > a) 1 else -1
+                            (slideInHorizontally(tween(400, easing = EaseOutCubic)) { w -> dir * w } + fadeIn(tween(260))) togetherWith
+                                (slideOutHorizontally(tween(400, easing = EaseOutCubic)) { w -> -dir * w } + fadeOut(tween(260)))
+                        } else {
+                            // Into/out of a sub-screen → the calm vertical settle.
+                            (fadeIn(tween(420)) + slideInVertically(tween(440, easing = FastOutSlowInEasing)) { it / 22 }) togetherWith
+                                fadeOut(tween(230))
+                        }
                     },
                     label = "screen",
                     modifier = Modifier.weight(1f)

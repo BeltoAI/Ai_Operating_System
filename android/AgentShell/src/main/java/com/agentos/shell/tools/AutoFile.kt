@@ -38,9 +38,11 @@ object AutoFile {
         }
         // Otherwise a document → DocStore category folder.
         val j = AgentClient.extractFormText(text) ?: return "Kept it, but I couldn't tell what type it is."
-        val folder = DocStore.addText(ctx, j.optString("category", "other"), j.optString("title", "Document"),
+        val title = j.optString("title", "Document")
+        val folder = DocStore.addText(ctx, j.optString("category", "other"), title,
             j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), "attachment")
-        return "Sorted into $folder — ${j.optString("title", "Document")}."
+        try { DocText.add(ctx, title, "attachment", text) } catch (e: Exception) {}   // full PDF text → readable by agents
+        return "Sorted into $folder — $title."
     }
 
     private fun fileImage(ctx: Context, uri: Uri): String {

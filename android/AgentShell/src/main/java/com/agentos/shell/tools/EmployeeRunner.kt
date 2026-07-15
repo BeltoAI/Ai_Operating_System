@@ -45,7 +45,11 @@ object EmployeeRunner {
 
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's autonomous AI team. Standing goal: \"${emp.goal}\". " +
                 caps + " You run UNSUPERVISED — take the SINGLE most useful next step toward your goal right now, and when " +
-                "it genuinely helps, actually DO it with one executable action. Output ONLY compact JSON: " +
+                "it genuinely helps, actually DO it with one executable action. " +
+                "You HAVE live web search — for anything about news, people, companies, prices, or current events, actually SEARCH " +
+                "now and put CONCRETE findings in \"detail\": specific names, numbers, dates, and headlines, each with its source. " +
+                "Never return an empty result or say 'no updates' without having searched. If you genuinely cannot browse this " +
+                "shift, say that plainly in \"did\" rather than pretending. Output ONLY compact JSON: " +
                 "{\"did\":\"past-tense line, under 14 words\",\"detail\":\"a short note on what you did (NOT the post text), or empty\"," +
                 "\"needs\":\"what you need from $owner to go further, or empty\"," +
                 "\"action\":{\"type\":\"send_email|add_event|note|post|save_lead|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +

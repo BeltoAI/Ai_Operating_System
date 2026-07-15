@@ -104,6 +104,7 @@ object ToolRouter {
                 "add_event" -> addEvent(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
+                "send_photo" -> sendPhoto(ctx, arg)
                 "navigate" -> navigate(ctx, arg)
                 "share_location" -> shareLocation(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
@@ -152,7 +153,7 @@ object ToolRouter {
      */
     private val GATED = setOf(
         "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
-        "settings", "send_sms", "message", "send_email", "add_event", "share_location",
+        "settings", "send_sms", "message", "send_photo", "send_email", "add_event", "share_location",
         "create_doc", "create_sheet", "create_slides", "create_pdf", "trade"
     )
 
@@ -339,6 +340,33 @@ object ToolRouter {
 
     /** Send/draft a message on a SPECIFIC app. SMS sends directly; WhatsApp opens pre-filled (one tap);
      *  Telegram copies + opens (paste). All are recorded to the brain. */
+    /** Find a photo from the gallery/phone by description and optionally send it to a person. */
+    private fun sendPhoto(ctx: Context, arg: String): String {
+        return try {
+            val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("query", arg) }
+            val query = o.optString("query").ifBlank { o.optString("description") }.ifBlank { arg }
+            val name = o.optString("name").trim()
+            val app = o.optString("app").trim()
+            val message = o.optString("message").trim()
+            val found = FileResolver.find(ctx, query.ifBlank { "photo" })
+            val hit = found.firstOrNull()
+                ?: return "I couldn't find a photo matching “$query”. Make sure photo access is on, or describe it differently (e.g. “a full-body photo of me”)."
+            if (name.isBlank()) {
+                start(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(hit.uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                return "Found “${hit.name}” (${hit.where}) — opening it."
+            }
+            if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $name."
+            val c = when (val r = ContactsTool.resolve(ctx, name)) {
+                is ContactsTool.Resolution.Found -> r.contact
+                is ContactsTool.Resolution.Ambiguous ->
+                    return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one?"
+                ContactsTool.Resolution.None -> return "I couldn't find a contact called “$name”. What's their full name?"
+            }
+            FileOps.sendToPerson(ctx, listOf(hit.uri), app.ifBlank { "whatsapp" }, c.name, toNumber = c.number, message = message)
+                ?: "I found “${hit.name}” but couldn't open the share to ${c.name}."
+        } catch (e: Exception) { "I couldn't send that photo." }
+    }
+
     private fun sendMessage(ctx: Context, arg: String): String {
         return try {
             val o = JSONObject(arg)

@@ -376,8 +376,10 @@ object GmailClient {
                 val text = ("Subject: $subject\n" + sb.toString()).trim()
                 if (text.length < 40) continue
                 val j = AgentClient.extractFormText(text) ?: continue   // not a real document → skip
-                DocStore.addText(ctx, j.optString("category", "other"), j.optString("title", subject.ifBlank { "Document" }),
+                val title = j.optString("title", subject.ifBlank { "Document" })
+                DocStore.addText(ctx, j.optString("category", "other"), title,
                     j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), "email")
+                try { DocText.add(ctx, title, "email", text) } catch (e: Exception) {}   // full text → readable by agents
                 added++
             } catch (e: Exception) {}
         }
