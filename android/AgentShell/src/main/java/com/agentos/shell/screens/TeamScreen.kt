@@ -149,21 +149,21 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
 
     // ── THE OFFICE BUILDING — full-screen cutaway: rooms off a central hallway, doors, a shared lounge. ──
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            val u = maxWidth.value / 128f   // dp per building unit (building is 128 wide × 208 tall)
-            Box(Modifier.fillMaxWidth().height((208f * u).dp)) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val uxDp = maxWidth.value / 128f; val uyDp = uxDp   // uniform pixels (no stretch)
+            run {
                 Canvas(Modifier.fillMaxSize()) {
-                    val k = size.width / 128f
+                    val k = size.width / 128f; val bh = size.height / k   // building units tall so it fills the screen
                     fun c(v: Long) = Color(v)
                     fun rc(x: Float, y: Float, w: Float, h: Float, col: Color) = drawRect(col, Offset(x * k, y * k), Size(w * k, h * k))
                     fun ov(cx: Float, cy: Float, rx: Float, ry: Float, col: Color) = drawOval(col, Offset((cx - rx) * k, (cy - ry) * k), Size(rx * 2 * k, ry * 2 * k))
                     fun bxf(x: Float, y: Float, w: Float, h: Float, fill: Color, ol: Color, hi: Color? = null) { rc(x, y, w, h, ol); rc(x + 1, y + 1, w - 2, h - 2, fill); if (hi != null) rc(x + 1, y + 1, w - 2, 1f, hi) }
                     fun dt(x: Float, y: Float, col: Color) = rc(x, y, 1f, 1f, col)
                     val OUTc = c(0xFF211812); val DOORc = c(0xFF7A4E2A); val DOORF = c(0xFF3A2C1E); val HALL = c(0xFFB79CA6); val HALLC = c(0xFFC6AEB6)
-                    rc(0f, 0f, 128f, 208f, c(0xFF2A2016)); rc(3f, 3f, 122f, 202f, OUTc)
+                    rc(0f, 0f, 128f, bh, c(0xFF2A2016)); rc(3f, 3f, 122f, bh - 6f, OUTc)
                     // hallway
-                    rc(52f, 4f, 24f, 201f, HALL); rc(58f, 4f, 12f, 201f, HALLC)
-                    var yy = 8f; while (yy < 205f) { rc(53f, yy, 22f, 0.7f, c(0xFFA98C97)); yy += 10f }
+                    rc(52f, 4f, 24f, bh - 7f, HALL); rc(58f, 4f, 12f, bh - 7f, HALLC)
+                    var yy = 8f; while (yy < bh - 3f) { rc(53f, yy, 22f, 0.7f, c(0xFFA98C97)); yy += 10f }
                     for (i in 0 until 5) { rc(55f, 60f + i * 2.2f, 18f, 2.2f, if (i % 2 == 0) c(0xFFC6AEB6) else c(0xFFA98C97)); rc(55f, 60f + i * 2.2f, 18f, 0.6f, c(0xFF8A6E7A)) }
                     bxf(54f, 120f, 6f, 12f, c(0xFFDDEAF2), c(0xFF9FB4C0)); rc(55f, 122f, 4f, 5f, c(0xFF7FB4D6)); dt(56f, 131f, c(0xFF4E86B0))   // cooler
                     bxf(66f, 150f, 8f, 5f, c(0xFF8A5A34), c(0xFF5A3A20), c(0xFFA9713C))                                                        // bench
@@ -190,7 +190,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         bxf(x + 30, y + 20, 10f, 18f, c(0xFF7E8894), c(0xFF565E68)); for (i in 0 until 3) rc(x + 31, y + 23 + i * 5f, 8f, 3f, c(0xFF6B7581))
                         bxf(x + 5, y + 42, 22f, 9f, c(0xFFC05B4A), c(0xFF8A3A2E), c(0xFFD67A6C)); doorR(y + 38) }
                     // COMMON LOUNGE (F3 full)
-                    run { val x = 4f; val y = 130f; val w = 120f; val h = 74f; rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFF0E4CE)); rc(x + 1, y + 16, w - 2, h - 17, c(0xFFC69A5E)); var s4 = y + 16; while (s4 < y + h) { rc(x + 1, s4, w - 2, 0.7f, c(0xFFA67C42)); s4 += 8f }
+                    run { val x = 4f; val y = 130f; val w = 120f; val h = (bh - 132f).coerceAtLeast(74f); rc(x, y, w, h, c(0xFF3A2C1E)); rc(x + 1, y + 1, w - 2, h - 2, c(0xFFF0E4CE)); rc(x + 1, y + 16, w - 2, h - 17, c(0xFFC69A5E)); var s4 = y + 16; while (s4 < y + h) { rc(x + 1, s4, w - 2, 0.7f, c(0xFFA67C42)); s4 += 8f }
                         ov(x + 34, y + 46, 32f, 20f, c(0xFF7FB6AE)); ov(x + 34, y + 46, 26f, 15f, c(0xFF8FC1B9))
                         rc(x + 8, y + 26, 48f, 4f, c(0xFF5E8F7C)); bxf(x + 8, y + 28, 48f, 15f, c(0xFF6FA58F), c(0xFF4E7A68), c(0xFF83B6A2)); for (i in 0 until 3) bxf(x + 12 + i * 15f, y + 30, 13f, 10f, c(0xFF83B6A2), c(0xFF5E8F7C))
                         bxf(x + 26, y + 50, 18f, 7f, c(0xFF7A4E2A), c(0xFF4E2E18), c(0xFF8A5A32)); dt(x + 33, y + 52, c(0xFFD0603A))
@@ -207,7 +207,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     val bob by inf.animateFloat(-2.5f, 2.5f, infiniteRepeatable(tween(1300 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
                     val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.offset(((st.first + bob) * u - 22).dp, (st.second * u - 30).dp).width(44.dp).clickable { detailEmp = e }) {
+                        modifier = Modifier.offset(((st.first + bob) * uxDp - 22).dp, (st.second * uyDp - 30).dp).width(44.dp).clickable { detailEmp = e }) {
                         if (talk != null) Text(talk.line.take(40), fontSize = 8.sp, maxLines = 2, lineHeight = 10.sp,
                             color = if (talk.needsInput) T.danger else T.ink,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.2f) else T.bgElevated).padding(5.dp))
@@ -225,13 +225,13 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     }
             }
         }
-        // back to Research
-        Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(40.dp).clip(CircleShape).background(T.bgElevated.copy(alpha = 0.9f))
-            .clickable { onExit() }, contentAlignment = Alignment.Center) { Text("←", fontSize = 20.sp, color = T.ink) }
-        // + to hire
-        Box(Modifier.align(Alignment.BottomEnd).padding(10.dp).size(58.dp).clip(CircleShape).background(T.accent)
+        // back to Research — small and subtle, tucked in the corner
+        Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(30.dp).clip(CircleShape).background(Color(0x99000000))
+            .clickable { onExit() }, contentAlignment = Alignment.Center) { Text("←", fontSize = 15.sp, color = Color.White) }
+        // + to hire — tidy FAB
+        Box(Modifier.align(Alignment.BottomEnd).padding(14.dp).size(50.dp).clip(CircleShape).background(T.accent)
             .clickable { hireOpen = true }, contentAlignment = Alignment.Center) {
-            Text("+", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Text("+", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
         }
         if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 2,
             modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
