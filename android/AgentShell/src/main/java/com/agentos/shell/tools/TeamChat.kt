@@ -76,7 +76,7 @@ object TeamChat {
 
         // WHO answers: explicit @name → that agent. Else if a clear role fits → that agent. Else if we're mid-
         // conversation (an agent just replied) → keep it with THAT agent so "just me" reaches whoever asked.
-        val emp = named ?: bestFit(staff, text) ?: recentAgent(ctx, staff) ?: staff.first()
+        val emp = named ?: bestFit(ctx, staff, text) ?: recentAgent(ctx, staff) ?: staff.first()
         val instruction = if (named != null)
             text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text } else text
 
@@ -104,9 +104,17 @@ object TeamChat {
         return staff.firstOrNull { it.id == id }
     }
 
-    /** Pick the agent whose role/goal best matches the message (intent-aware), or null if nothing fits. */
-    private fun bestFit(staff: List<EmployeeStore.Employee>, text: String): EmployeeStore.Employee? {
+    /** Pick the agent that best fits the message (intent-aware + knowledge-aware), or null if nothing fits. */
+    private fun bestFit(ctx: Context, staff: List<EmployeeStore.Employee>, text: String): EmployeeStore.Employee? {
         val t = text.lowercase()
+        // A question about a DOCUMENT/paper/chapter → the agent that actually HAS documents fed to it (Bastardi).
+        val docQ = Regex("(?i)\\b(chapter|section|page \\d|figure \\d|the (paper|pdf|doc|document|report|whitepaper|white paper)|" +
+            "in (the|my|this|your) (paper|doc|pdf|report|document)|according to|what does .* say|summari|explain (the|this))\\b").containsMatchIn(t)
+        if (docQ) {
+            val withDocs = staff.map { it to (try { AgentKnowledge.count(ctx, it.id) } catch (e: Exception) { 0 }) }.filter { it.second > 0 }
+            withDocs.maxByOrNull { it.second }?.let { return it.first }
+            staff.firstOrNull { it.role.contains("expert", true) }?.let { return it }
+        }
         val words = t.split(Regex("[^a-z0-9]+")).filter { it.length > 3 }
         fun score(e: EmployeeStore.Employee): Int {
             val hay = "${e.role} ${e.goal}".lowercase()
@@ -117,6 +125,9 @@ object TeamChat {
             boost("research|news|competitor|market|trend|look up|find out", "research|analyst|intelligence|news")
             boost("expense|receipt|spend|budget|invoice|money|cost", "book|expense|financ|account")
             boost("reddit|post|comment|tweet|social|audience", "reddit|growth|social|market")
+            boost("explain|what is|how does|why|know|expert|technical|deep", "expert|deep")
+            // an agent that's been fed documents is the natural home for knowledge questions
+            if (try { AgentKnowledge.count(ctx, e.id) } catch (ex: Exception) { 0 } > 0) s += 1
             return s
         }
         val best = staff.maxByOrNull { score(it) } ?: return null
