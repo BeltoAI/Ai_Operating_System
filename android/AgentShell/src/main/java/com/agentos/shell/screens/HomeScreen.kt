@@ -50,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -100,6 +102,21 @@ private fun appIconBitmap(ctx: android.content.Context, pkg: String): androidx.c
  * Home = the heart. "what should happen?" goes to the real agent (AgentClient -> Claude),
  * which replies and decides an action that ToolRouter executes. Send button + tap-to-talk.
  */
+// Designer gradients for the generative prompt-buttons — picked deterministically per label so each one
+// has its own jewel-like identity, no dull grey squares.
+private val PROMPT_GRADIENTS = listOf(
+    androidx.compose.ui.graphics.Color(0xFFE8642C) to androidx.compose.ui.graphics.Color(0xFFB23A1E),
+    androidx.compose.ui.graphics.Color(0xFF7B5EA7) to androidx.compose.ui.graphics.Color(0xFF4A3570),
+    androidx.compose.ui.graphics.Color(0xFF4E86B0) to androidx.compose.ui.graphics.Color(0xFF2B5675),
+    androidx.compose.ui.graphics.Color(0xFF5E9A78) to androidx.compose.ui.graphics.Color(0xFF34614A),
+    androidx.compose.ui.graphics.Color(0xFFB0506A) to androidx.compose.ui.graphics.Color(0xFF7A2E45),
+    androidx.compose.ui.graphics.Color(0xFFC9863F) to androidx.compose.ui.graphics.Color(0xFF8A5A22)
+)
+private fun promptGrad(seed: String): List<androidx.compose.ui.graphics.Color> {
+    val p = PROMPT_GRADIENTS[((seed.hashCode() % PROMPT_GRADIENTS.size) + PROMPT_GRADIENTS.size) % PROMPT_GRADIENTS.size]
+    return listOf(p.first, p.second)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
@@ -350,20 +367,28 @@ fun HomeScreen(
             if (Regex("(?i)\\b(create|make|add|build|give me|pin)\\b[^.]{0,34}\\bbutton\\b").containsMatchIn(q)) {
                 val spec = withContext(Dispatchers.IO) {
                     AgentClient.complete(
-                        "The user wants a one-tap button on their phone Home screen that runs an AI action. From their " +
-                        "request, output ONLY compact JSON {\"label\":\"<max 12 chars>\",\"prompt\":\"the first-person " +
-                        "instruction the AI should run when the button is tapped\"}. No prose, no code fences.", q, 220)
+                        "The user wants a one-tap button that makes their on-phone AI DO a specific task and answer right " +
+                        "there in the chat. From their request, output ONLY compact JSON " +
+                        "{\"label\":\"<max 12 chars>\",\"prompt\":\"a concrete first-person task the AI performs and answers directly\"}. " +
+                        "The prompt MUST be a real task the AI fulfils BY RESPONDING (e.g. 'draft my morning standup update', " +
+                        "'write a witty reply to my last text', 'give me 3 dinner ideas from what's in my fridge'). " +
+                        "It must NEVER be a meta-instruction like 'use the X skill', must NEVER tell it to open or launch " +
+                        "another app, and must NEVER mention Claude, ChatGPT, or any app name. No prose, no code fences.", q, 220)
                 }
                 val (lab, pr) = try {
                     val js = spec.substring(spec.indexOf('{'), spec.lastIndexOf('}') + 1)
                     val o = org.json.JSONObject(js); o.optString("label").trim().take(14) to o.optString("prompt").trim()
                 } catch (e: Exception) { "" to "" }
-                if (pr.isNotBlank()) {
+                // Reject a meta/app-opening prompt so a button can never just launch Claude — it must be a real task.
+                val badPrompt = pr.isBlank() ||
+                    Regex("(?i)\\bopen\\b.{0,24}\\b(app|claude|chatgpt|gpt|gemini|browser)\\b").containsMatchIn(pr) ||
+                    Regex("(?i)\\buse (the )?[\\w -]{0,24}skill\\b").containsMatchIn(pr)
+                if (!badPrompt) {
                     withContext(Dispatchers.IO) { com.agentos.shell.tools.ShortcutStore.add(ctx, "prompt", lab.ifBlank { "Button" }, pr) }
                     refreshShortcuts()
-                    reply = "Made a button \"${lab.ifBlank { "Button" }}\" — tap it any time to: \"$pr\". Long-press Home to drag it where you want."
+                    reply = "Made a button \"${lab.ifBlank { "Button" }}\" — tap it any time and I'll do this right here: \"$pr\". Long-press Home to drag it where you want."
                     withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
-                } else reply = "Tell me what the button should do — e.g. \"make a button that drafts my morning update\"."
+                } else reply = "Tell me the actual task the button should do — e.g. \"make a button that writes my daily plan\" or \"a button that drafts a reply to my last text\"."
                 if (doSpeak) speak(reply)
                 thinking = false
                 return@launch
@@ -878,10 +903,17 @@ fun HomeScreen(
                     ) {
                         Box(contentAlignment = Alignment.TopEnd) {
                             val icon = if (s.kind == "app") remember(s.ref) { appIconBitmap(ctx, s.ref) } else null
+                            val isCustom = s.kind != "app"    // prompt-buttons + agent-app buttons get the jewel look
+                            val grad = remember(s.label) { promptGrad(s.label) }
                             Box(
-                                Modifier.size(52.dp).clip(RoundedCornerShape(16.dp))
-                                    .background(if (s.kind == "app" && icon == null) T.bgElevated
-                                                else if (s.kind != "app") T.accent else androidx.compose.ui.graphics.Color.Transparent)
+                                Modifier.size(56.dp)
+                                    .then(if (isCustom) Modifier.shadow(7.dp, RoundedCornerShape(18.dp)) else Modifier)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .then(
+                                        if (icon != null) Modifier
+                                        else if (isCustom) Modifier.background(Brush.linearGradient(grad))
+                                        else Modifier.background(T.bgElevated)
+                                    )
                                     .clickable {
                                         if (editMode) editMode = false
                                         else if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
@@ -892,10 +924,12 @@ fun HomeScreen(
                             ) {
                                 if (icon != null)
                                     Image(bitmap = icon, contentDescription = s.label, contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)))
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)))
+                                else if (isCustom)
+                                    Text(s.label.firstOrNull()?.uppercase() ?: "◆", fontSize = 24.sp,
+                                        color = androidx.compose.ui.graphics.Color(0xFFFBF3E9), fontWeight = FontWeight.Bold)
                                 else
-                                    Text(if (s.kind == "app" || s.kind == "prompt") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
-                                        fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated, fontWeight = FontWeight.Bold)
+                                    Text(s.label.firstOrNull()?.uppercase() ?: "•", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Bold)
                             }
                             // Remove badge: only while in edit mode (after a long-press), like a launcher.
                             if (editMode) {
