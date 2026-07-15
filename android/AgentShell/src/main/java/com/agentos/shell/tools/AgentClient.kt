@@ -354,6 +354,18 @@ object AgentClient {
         return if (code == 200) text.trim() else "Couldn't read the image ($code)."
     }
 
+    /** A short, searchable description of a photo, for the local photo RAG (PhotoIndex). */
+    fun captionImage(imageB64: String): String {
+        val content = JSONArray()
+        content.put(JSONObject().put("type", "image").put(
+            "source", JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
+        content.put(JSONObject().put("type", "text").put("text",
+            "Describe this photo in 12-25 words for later search. Note: whether it's a SELFIE or portrait, who/what is in it " +
+            "(people, pets, food, objects), the place/setting, and the mood (cute, funny, formal…). Description only, no preamble."))
+        val (code, text) = callContent("You write concise, literal image descriptions for a search index.", content, 90, MODEL)
+        return if (code == 200) text.trim() else "Couldn't"
+    }
+
     /** Universal form/document scan: extract the category + key fields from ANY document photo (receipt,
      *  invoice, ID, form, letter…). Returns parsed JSON {category,title,summary,fields{}} or null. */
     fun extractForm(imageB64: String): JSONObject? {

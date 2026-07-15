@@ -30,7 +30,9 @@ object Inbox {
         val isPdf: Boolean = false,
         val mail: GmailClient.MailAttachment? = null
     ) {
-        val key: String get() = mail?.let { "m:${it.msgId}:${it.attId}" } ?: "u:${uri.toString()}"
+        // STABLE across fetches: Gmail's attachmentId is regenerated per request, so keying on it made
+        // "dismissed" never stick (the same doc kept coming back). msgId + filename never change.
+        val key: String get() = mail?.let { "m:${it.msgId}:${it.name}" } ?: "u:${uri.toString()}"
     }
 
     /** Photos that arrived recently from anywhere (WhatsApp, Telegram, screenshots, camera). */

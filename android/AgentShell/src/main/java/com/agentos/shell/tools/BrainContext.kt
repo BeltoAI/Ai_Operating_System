@@ -105,8 +105,18 @@ object BrainContext {
             "[" + tf.format(java.util.Date(it.ts)) + "] " + (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body.trim()
         }.take(1700) else ""
 
+        // Photos in the brain: how many are described, and any that match this request by meaning. Lets the
+        // AI answer "what pictures do I have of…" and find images to send/edit — the brain grows with photos.
+        val photoCount = try { PhotoIndex.count(ctx) } catch (e: Exception) { 0 }
+        val photoHits = if (photoCount > 0) try {
+            PhotoIndex.search(ctx, q, 4).joinToString("\n") { "• ${it.name} (${it.where})" }
+        } catch (e: Exception) { "" } else ""
+
         return buildString {
             if (mem.isNotBlank()) append(mem)
+            if (photoCount > 0) append("\nYou have ").append(photoCount)
+                .append(" photos described in your brain; you can find pictures by describing them (e.g. \"a cute selfie\").")
+            if (photoHits.isNotBlank()) append("\nPhotos that match this request:\n").append(photoHits)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)

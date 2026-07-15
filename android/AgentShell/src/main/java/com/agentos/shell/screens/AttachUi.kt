@@ -3,6 +3,7 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,14 +52,15 @@ fun TypeTile(kind: String, size: Int = 34, accent: Boolean = false) {
     }
 }
 
-/** The attached-file chip that sits under the ask bar. Tap it to preview; ✕ to remove. */
+/** The attached-file chip that sits under the ask bar. Tap it to preview; long-press for quick options; ✕ to remove. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun AttachChip(kind: String, title: String, hint: String, onPreview: () -> Unit, onRemove: () -> Unit) {
+fun AttachChip(kind: String, title: String, hint: String, onPreview: () -> Unit, onRemove: () -> Unit, onLongPress: () -> Unit = {}) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, T.hairline, RoundedCornerShape(16.dp))
-            .clickable { onPreview() }
+            .combinedClickable(onClick = { onPreview() }, onLongClick = { onLongPress() })
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

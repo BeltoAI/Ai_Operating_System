@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -134,6 +135,9 @@ fun HomeScreen(
     // An image the AI just made/edited, awaiting a one-tap "Save to gallery".
     var producedImage by remember { mutableStateOf<ByteArray?>(null) }
     var producedName by remember { mutableStateOf("") }
+    // Long-press a file → quick, content-aware options for it.
+    var quickFile by remember { mutableStateOf<Uri?>(null) }
+    var quickIsPdf by remember { mutableStateOf(false) }
     var vaultPinPrompt by remember { mutableStateOf(false) }
     var vaultPin by remember { mutableStateOf("") }
     var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
@@ -246,8 +250,32 @@ fun HomeScreen(
             }
         }
     }
+    // Long-press → quick options for a file: open the sheet, noting whether it's a PDF (drives which options show).
+    val openQuick: (Uri) -> Unit = { uri ->
+        quickFile = uri
+        scope.launch { quickIsPdf = withContext(Dispatchers.IO) { com.agentos.shell.tools.FileOps.isPdf(ctx, uri) } }
+    }
+    // Long-press a "Sent to you" card → attach it AND open quick options in one gesture.
+    val quickFromIncoming: (com.agentos.shell.tools.Inbox.Item) -> Unit = { item ->
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, item) }
+            if (uri != null) {
+                if (com.agentos.shell.tools.FileOps.isImage(ctx, uri)) photos = photos + uri
+                else attachments = attachments + uri
+                com.agentos.shell.tools.Inbox.dismiss(ctx, item.key)
+                nudges = nudges.filterNot { it.key == item.key }
+                quickFile = uri
+                quickIsPdf = withContext(Dispatchers.IO) { com.agentos.shell.tools.FileOps.isPdf(ctx, uri) }
+            }
+        }
+    }
     // The SlyOS filing cabinet exists from first launch, so the user can see it in their file manager.
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.agentos.shell.tools.SlyFolder.ensure(ctx) } }
+    // Grow the photo RAG a little each launch: describe a handful of the newest un-described photos, so the
+    // brain steadily learns your gallery and you can ask for pictures by meaning. Bounded → never a cost spike.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { com.agentos.shell.tools.PhotoIndex.indexRecent(ctx, 6) }
+    }
     // Rehydrate the conversation so HomeAI actually remembers across restarts (feeds the model too).
     LaunchedEffect(Unit) {
         val past = withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.recentPairs(ctx, 12) }
@@ -953,9 +981,10 @@ fun HomeScreen(
             AttachChip(
                 kind = "IMG",
                 title = if (photos.size == 1) "1 photo" else "${photos.size} photos",
-                hint = "ask about it · remove the background · make a PDF",
+                hint = "tap to view · hold for options",
                 onPreview = { preview(photos.first()) },
-                onRemove = { photos = emptyList() }
+                onRemove = { photos = emptyList() },
+                onLongPress = { openQuick(photos.first()) }
             )
         }
         // SENT TO YOU — recent documents people emailed you. Clean, swipeable cards: swipe right to open
@@ -991,7 +1020,7 @@ fun HomeScreen(
                         }
                         .clip(RoundedCornerShape(15.dp))
                         .background(T.bgElevated)
-                        .clickable { attachIncoming(n) }
+                        .combinedClickable(onClick = { attachIncoming(n) }, onLongClick = { quickFromIncoming(n) })
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1015,12 +1044,13 @@ fun HomeScreen(
             AttachChip(
                 kind = if (isPdfFile) "PDF" else nm.substringAfterLast('.', "FILE").uppercase().take(4),
                 title = nm,
-                hint = if (isPdfFile) "read it · fill it in · send it · file it" else "read it · send it · file it",
+                hint = "tap to view · hold for options",
                 onPreview = { preview(file) },
                 onRemove = {
                     attachments = attachments.filterNot { it == file }
                     if (attachments.isEmpty()) com.agentos.shell.tools.AttachContext.clear(ctx)
-                }
+                },
+                onLongPress = { openQuick(file) }
             )
         }
 
@@ -1269,6 +1299,37 @@ fun HomeScreen(
                 }
                 Text("Close", fontSize = T.small, color = T.inkSoft,
                     modifier = Modifier.clickable { showAdd = false; showAddBtn = false }.padding(top = 8.dp))
+            }
+        }
+    }
+
+    // QUICK OPTIONS — long-press a file. A few content-aware actions; each just runs through the normal
+    // planner so behaviour stays consistent. "Read it" is first, so a hold = an instant summary.
+    quickFile?.let { qf ->
+        Dialog(onDismissRequest = { quickFile = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(T.bgElevated).padding(18.dp)) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.width(34.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(T.hairline))
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(com.agentos.shell.tools.FileOps.displayName(ctx, qf), fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(14.dp))
+                val actions: List<Pair<String, String>> = if (quickIsPdf)
+                    listOf("Summarize it" to "summarize this document", "Fill it in" to "fill this in",
+                        "Send it" to "send it", "File it away" to "file it")
+                else
+                    listOf("What's in it?" to "what's in this photo?", "Remove background" to "remove the background",
+                        "Send it" to "send it", "Edit it…" to "")
+                actions.forEach { (label, phrase) ->
+                    Text(label, fontSize = T.body, color = T.ink,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                quickFile = null
+                                if (phrase.isBlank()) { text = "edit this photo: " }   // let them type the edit
+                                else submit(phrase, false)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 13.dp))
+                }
             }
         }
     }
