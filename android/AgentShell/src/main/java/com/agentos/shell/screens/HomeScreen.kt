@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -1063,29 +1064,30 @@ fun HomeScreen(
 
         if (thinking || reply.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
-            // Tinder-style: swipe the answer card LEFT to dismiss, RIGHT to open its link / Google the question.
+            // Horizontal DRAGGABLE (not a raw drag detector) so swipe-left-to-dismiss / swipe-right-to-open
+            // coexist with the answer's VERTICAL scroll — you can both read a long summary AND swipe it away.
+            val replyDrag = androidx.compose.foundation.gestures.rememberDraggableState { delta ->
+                replyDragX = (replyDragX + delta).coerceIn(-360f, 360f)
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
                     .offset { androidx.compose.ui.unit.IntOffset(replyDragX.toInt(), 0) }
-                    // Swipe-to-dismiss only for SHORT answers. On long ones the horizontal drag fought the
-                    // vertical scroll and you couldn't read the summary — so long answers scroll cleanly instead.
-                    .let { m -> if (thinking || reply.length > 480) m else m.pointerInput(reply) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                when {
-                                    replyDragX < -130f -> { reply = ""; rememberSuggestion = ""; showChecklist = false }
-                                    replyDragX > 130f -> {
-                                        val url = Regex("https?://\\S+").find(reply)?.value?.trimEnd('.', ')', ',')
-                                            ?: "https://www.google.com/search?q=" + android.net.Uri.encode(lastQuery.ifBlank { reply.take(60) })
-                                        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
-                                    }
+                    .let { m -> if (thinking) m else m.draggable(
+                        state = replyDrag,
+                        orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
+                        onDragStopped = {
+                            when {
+                                replyDragX < -130f -> { reply = ""; rememberSuggestion = ""; showChecklist = false; producedImage = null }
+                                replyDragX > 130f -> {
+                                    val url = Regex("https?://\\S+").find(reply)?.value?.trimEnd('.', ')', ',')
+                                        ?: "https://www.google.com/search?q=" + android.net.Uri.encode(lastQuery.ifBlank { reply.take(60) })
+                                    try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                                 }
-                                replyDragX = 0f
-                            },
-                            onDragCancel = { replyDragX = 0f }
-                        ) { _, dx -> replyDragX = (replyDragX + dx).coerceIn(-320f, 320f) }
-                    } }
+                            }
+                            replyDragX = 0f
+                        }
+                    ) }
                     .clip(RoundedCornerShape(16.dp))
                     .background(T.bgElevated)
                     .padding(16.dp)

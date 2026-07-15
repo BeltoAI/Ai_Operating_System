@@ -117,16 +117,19 @@ object ActionExecutor {
     // ── Read / fill / convert / move / reply ────────────────────────────────────────────────────────
     private fun read(ctx: Context, plan: AttachmentPlanner.Plan, files: List<Uri>): Result {
         val f = files.firstOrNull() ?: return Result("Attach a file or photo and I'll read it.")
-        val question = plan.question.ifBlank { "Summarise this and tell me the key points." }
+        val question = plan.question.ifBlank { "Summarise this and give the key points." }
+        // Ask for CLEAN, skimmable markdown so the summary reads nicely in the card (not a wall of text).
+        val fmt = " Format the answer as clean markdown: a one-line **bold title**, then a few short bullet " +
+            "points for the key facts (dates, names, amounts, actions). Keep it tight — no preamble, no filler."
         return if (FileOps.isImage(ctx, f)) {
             val b64 = ImageUtil.encode(ctx, f) ?: return Result("I couldn't read that image.")
-            Result(AgentClient.askVision(question, listOf(b64), MemoryStore.fullProfile(ctx)))
+            Result(AgentClient.askVision(question + fmt, listOf(b64), MemoryStore.fullProfile(ctx)))
         } else if (FileOps.isPdf(ctx, f)) {
             val body = FileOps.pdfText(ctx, f)
             if (body.isBlank()) Result("I opened it but it's a scan with no text layer — add the OCR power and I'll read it.")
             else {
                 AttachContext.setText(ctx, body)
-                Result(AgentClient.ask("$question\n\n--- Document ---\n${body.take(12000)}", emptyList(), MemoryStore.fullProfile(ctx)).say)
+                Result(AgentClient.ask("$question$fmt\n\n--- Document ---\n${body.take(12000)}", emptyList(), MemoryStore.fullProfile(ctx)).say)
             }
         } else Result("I can read PDFs and images so far.")
     }
