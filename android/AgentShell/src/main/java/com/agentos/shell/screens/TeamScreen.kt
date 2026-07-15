@@ -153,9 +153,29 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
     LaunchedEffect(staff) { lastLines = withContext(Dispatchers.IO) { staff.associate { it.id to EmployeeStore.logFor(ctx, it.id, 1).firstOrNull() } } }
     LaunchedEffect(Unit) { while (true) { delay(3600); talker += 1 } }
 
+    var teamText by remember { mutableStateOf("") }
+    fun teamAsk() {
+        val ask = teamText.trim(); if (ask.isBlank() || busy) return
+        busy = true; teamText = ""; flash = "Asking the team…"
+        scope.launch {
+            val reply = withContext(Dispatchers.IO) {
+                val owner = com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "the owner" }
+                val roster = staff.joinToString("; ") { "${it.name} (${it.role}): ${it.goal}" }.ifBlank { "no employees yet" }
+                val caps = try { com.agentos.shell.tools.Capabilities.summary(ctx) } catch (e: Exception) { "" }
+                val sys = "You coordinate $owner's AI team. Roster: $roster. $caps " +
+                    "Reply to $owner in under 40 words: name which teammate takes this and their first concrete step. Plain text, no fluff."
+                val r = try { com.agentos.shell.tools.AgentClient.complete(sys, ask, 200) } catch (e: Exception) { "Couldn't reach the team right now." }
+                try { com.agentos.shell.tools.MemoryLog.add(ctx, "note", "Team ask", "You: $ask\nTeam: $r", "Team") } catch (e: Exception) {}
+                r
+            }
+            flash = reply.take(180); busy = false
+        }
+    }
+
     // ── THE OFFICE BUILDING — full-screen cutaway: rooms off a central hallway, doors, a shared lounge. ──
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
             val uxDp = maxWidth.value / 128f; val uyDp = uxDp   // uniform pixels (no stretch)
             run {
                 Canvas(Modifier.fillMaxSize()) {
@@ -321,17 +341,29 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             fontSize = T.small, color = Color(0xFFE7D8C0), textAlign = TextAlign.Center, lineHeight = 20.sp)
                     }
             }
+            // overlays scoped to the office area
+            Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(30.dp).clip(CircleShape).background(Color(0x99000000))
+                .clickable { onExit() }, contentAlignment = Alignment.Center) { Text("←", fontSize = 15.sp, color = Color.White) }
+            Box(Modifier.align(Alignment.BottomEnd).padding(14.dp).size(50.dp).clip(CircleShape).background(T.accent)
+                .clickable { hireOpen = true }, contentAlignment = Alignment.Center) {
+                Text("+", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 3,
+                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
         }
-        // back to Research — small and subtle, tucked in the corner
-        Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(30.dp).clip(CircleShape).background(Color(0x99000000))
-            .clickable { onExit() }, contentAlignment = Alignment.Center) { Text("←", fontSize = 15.sp, color = Color.White) }
-        // + to hire — tidy FAB
-        Box(Modifier.align(Alignment.BottomEnd).padding(14.dp).size(50.dp).clip(CircleShape).background(T.accent)
-            .clickable { hireOpen = true }, contentAlignment = Alignment.Center) {
-            Text("+", fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        // ── talk to your team — the office's line to you ──
+        Row(Modifier.fillMaxWidth().background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(T.bgElevated).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                if (teamText.isEmpty()) Text("Ask your team to do something…", fontSize = 14.sp, color = T.inkFaint)
+                BasicTextField(teamText, { teamText = it }, textStyle = TextStyle(color = T.ink, fontSize = 14.sp), modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.size(42.dp).clip(CircleShape).background(if (teamText.isBlank()) T.hairline else T.accent)
+                .clickable(enabled = !busy && teamText.isNotBlank()) { teamAsk() }, contentAlignment = Alignment.Center) {
+                Text("↑", fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            }
         }
-        if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 2,
-            modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
+        }
     }
 
     // ── Hire ──
