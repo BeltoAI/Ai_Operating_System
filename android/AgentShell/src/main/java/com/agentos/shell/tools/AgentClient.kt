@@ -133,6 +133,12 @@ object AgentClient {
     private fun call(system: String, userContent: String): Pair<Int, String> =
         callContent(system, userContent, 400)
 
+    /** Public text completion for structured planning (returns the raw model text, or "" on error). */
+    fun complete(system: String, user: String, maxTokens: Int = 500): String {
+        val (code, text) = callContent(system, user, maxTokens, MODEL)
+        return if (code == 200) text.trim() else ""
+    }
+
     /** Single-message call. content may be a String or JSONArray (for multimodal). */
     private fun callContent(system: String, content: Any, maxTokens: Int, model: String = MODEL): Pair<Int, String> =
         callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens, model)
@@ -1836,7 +1842,6 @@ object AgentClient {
     /** Draft a human-sounding email reply, grounded in a document if one is provided. */
     fun draftEmailReply(sender: String, snippet: String, doc: String = "", memory: String = ""): String {
         val sys = persona(memory) +
-            (appContext?.let { AttachContext.brief(it) } ?: "") +
             "Write a reply email from your own account. Sound genuinely human — warm, natural, " +
             "concise and professional; vary sentence length, no robotic filler. " +
             (if (doc.isNotBlank())
@@ -1981,7 +1986,6 @@ object AgentClient {
      */
     fun draftReplyDetailed(sender: String, message: String, threadContext: String = "", memory: String = ""): String {
         val sys = persona(memory) +
-            (appContext?.let { AttachContext.brief(it) } ?: "") +
             "Write a thoughtful, complete reply to $sender's message/comment below. Address every point " +
             "they actually raised, with real substance — but stay in your own natural human voice, warm " +
             "and specific, not corporate or essay-like. A few sentences up to a short paragraph. " +

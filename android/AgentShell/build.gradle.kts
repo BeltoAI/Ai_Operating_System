@@ -44,6 +44,10 @@ android {
         // Both come from apikey.properties (gitignored). See ACCOUNT_AND_SYNC.md for the DB contract.
         buildConfigField("String", "SUPABASE_URL", "\"${apiKeyProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${apiKeyProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
+        // Image model key (prompt-based generate + edit — Claude has no image model). Add ONE of these to
+        // apikey.properties: OPENAI_API_KEY (gpt-image-1) or GEMINI_API_KEY. Blank = native edits still work.
+        buildConfigField("String", "OPENAI_API_KEY", "\"${apiKeyProps.getProperty("OPENAI_API_KEY", "")}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${apiKeyProps.getProperty("GEMINI_API_KEY", "")}\"")
         // PERSONAL-ONLY features (e.g. Chess Coach) — only ON when ENABLE_CHESS=true is present in the local,
         // gitignored apikey.properties. CI / the public website build never has that line → defaults false →
         // the feature is compiled out of every release everyone else downloads.

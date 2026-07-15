@@ -432,6 +432,18 @@ object GmailClient {
         val isPdf: Boolean get() = mime.contains("pdf") || name.endsWith(".pdf", true)
     }
 
+    // A short-lived cache so the nudge, the attach sheet, and every email auto-reply share ONE fetch
+    // instead of each firing a dozen Gmail calls. 60s is plenty for a single screen session.
+    @Volatile private var attCache: List<MailAttachment> = emptyList()
+    @Volatile private var attCacheAt = 0L
+    fun recentAttachmentsCached(ctx: Context, max: Int = 10): List<MailAttachment> {
+        val now = System.currentTimeMillis()
+        if (attCache.isNotEmpty() && now - attCacheAt < 60_000L) return attCache.take(max)
+        val fresh = recentAttachments(ctx, maxOf(max, 12))
+        if (fresh.isNotEmpty()) { attCache = fresh; attCacheAt = now }
+        return fresh.take(max)
+    }
+
     /** The most recent attachments people emailed you. */
     fun recentAttachments(ctx: Context, max: Int = 10): List<MailAttachment> {
         val token = GoogleAuth.accessToken(ctx)
@@ -512,4 +524,18 @@ object GmailClient {
             androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", f)
         } catch (e: Exception) { Log.w(TAG, "downloadAttachment: ${e.message}"); null }
     }
+
+    /**
+     * The text of the most recent PDF a given person emailed you — so an auto-reply is grounded in the
+     * ACTUAL attachment, not a vague retrieval. Returns "" if there's none (then the reply just stays general).
+     */
+    fun attachmentTextFromSender(ctx: Context, sender: String): String = try {
+        if (sender.isBlank()) "" else {
+            recentAttachmentsCached(ctx, 12)
+                .filter { it.isPdf && (it.from.contains(sender, true) || it.sender.contains(sender, true)) }
+                .take(1)
+                .mapNotNull { att -> downloadAttachment(ctx, att)?.let { uri -> FileOps.pdfText(ctx, uri).takeIf { t -> t.isNotBlank() } } }
+                .joinToString("\n").take(8000)
+        }
+    } catch (e: Exception) { Log.w(TAG, "attachmentTextFromSender: ${e.message}"); "" }
 }

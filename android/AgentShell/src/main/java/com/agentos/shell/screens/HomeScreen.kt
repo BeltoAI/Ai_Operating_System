@@ -130,6 +130,9 @@ fun HomeScreen(
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    // An image the AI just made/edited, awaiting a one-tap "Save to gallery".
+    var producedImage by remember { mutableStateOf<ByteArray?>(null) }
+    var producedName by remember { mutableStateOf("") }
     var vaultPinPrompt by remember { mutableStateOf(false) }
     var vaultPin by remember { mutableStateOf("") }
     var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
@@ -254,9 +257,12 @@ fun HomeScreen(
         if (photos.isEmpty() && attachments.isEmpty())
             withContext(Dispatchers.IO) { com.agentos.shell.tools.AttachContext.clear(ctx) }
     }
-    // Recent documents people emailed you (up to 3) — shown once, then never nagged again.
+    // Recent documents people emailed you (up to 3) — shown once, then never nagged again. We mark them
+    // seen the MOMENT they're fetched, so no path (recomposition, tab switch, restart) can resurface them.
     LaunchedEffect(Unit) {
-        nudges = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudges(ctx, 3) }
+        val fetched = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudges(ctx, 3) }
+        nudges = fetched
+        withContext(Dispatchers.IO) { fetched.forEach { com.agentos.shell.tools.Inbox.dismiss(ctx, it.key) } }
     }
     val capture: () -> Unit = {
         val file = File(ctx.cacheDir, "home_${System.currentTimeMillis()}.jpg")
@@ -302,89 +308,48 @@ fun HomeScreen(
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
         }
-        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null
+        thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
         scope.launch {
-            // ── SEND / FILE anything attached (photos OR documents) ──────────────────────────────────
-            // This runs FIRST so "send this photo to Ana on WhatsApp" actually sends — images used to fall
-            // into the vision path and the model would just claim it sent. One place, works for both.
+            // ── ATTACHMENT / FILE ACTIONS via the PLANNER ────────────────────────────────────────────
+            // The model turns the request into ONE structured action (send / read / fill / edit / generate /
+            // convert / move / reply), then the executor runs it deterministically. This is the robust core:
+            // phrasing-proof intent (the LLM's job) + reliable execution (ours). Falls through if it's not
+            // about a file at all.
+            var plannerConsidered = false
             run {
-                val FO = com.agentos.shell.tools.FileOps
-                val FR = com.agentos.shell.tools.FileResolver
-                val sendIntent = Regex("(?i)\\b(send|share|forward|email|whats\\s?app|dm)\\b").containsMatchIn(q) ||
-                    Regex("(?i)\\btext (it|this|them|these)\\b").containsMatchIn(q)
-                val fileIntent = Regex("(?i)\\b(file it|file them|file these|move (it|them|this|these)|put (it|them|this|these)|save (it|them|this|these) (to|in|into))\\b").containsMatchIn(q)
+                val attachedList = photos + attachments
+                val wantsImageGen = Regex("(?i)\\b(generate|create|make|draw|design|imagine)\\b.{0,24}\\b(image|picture|photo|logo|illustration|art|artwork|wallpaper|icon|drawing|render)\\b").containsMatchIn(q)
+                val looksLikeFileAsk = attachedList.isNotEmpty() || wantsImageGen ||
+                    (com.agentos.shell.tools.FileResolver.describesAFile(q) &&
+                        Regex("(?i)\\b(send|share|email|forward|fill|edit|read|summari|convert|file it|attach)\\b").containsMatchIn(q))
+                if (!looksLikeFileAsk) return@run
+                plannerConsidered = true   // once we look at an attached file, the OLD file branches must not re-grab it
 
-                // Files to act on: what's attached now, OR — if nothing's attached — a file the user named
-                // ("send my white paper to Carlos"), looked up in the SlyOS folder / phone storage.
-                var files = photos + attachments
-                var foundNote = ""
-                if (files.isEmpty() && sendIntent && FR.describesAFile(q)) {
-                    val what = FR.extractWhat(q)
-                    val hits = if (!what.isNullOrBlank()) withContext(Dispatchers.IO) { FR.find(ctx, what) } else emptyList()
-                    if (hits.isNotEmpty()) {
-                        files = listOf(hits.first().uri)
-                        foundNote = "Found \"${hits.first().name}\" in ${hits.first().where}. "
-                    } else if (!what.isNullOrBlank()) {
-                        reply = "I couldn't find \"$what\" in your SlyOS folder or files. Attach it, or file it in SlyOS first, and I'll send it."
-                        withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
-                        if (doSpeak) speak(reply); thinking = false
-                        return@launch
-                    }
+                val names = attachedList.map { com.agentos.shell.tools.FileOps.displayName(ctx, it) }
+                val plan = withContext(Dispatchers.IO) { com.agentos.shell.tools.AttachmentPlanner.plan(ctx, q, names) }
+                if (plan.action == com.agentos.shell.tools.AttachmentPlanner.Action.NONE) return@run
+
+                val res = withContext(Dispatchers.IO) { com.agentos.shell.tools.ActionExecutor.run(ctx, plan, attachedList, q) }
+                // Keep the file attached for actions where you'd naturally do MORE with the same file
+                // (ask another question, fill then send). Clear it for actions that consume/replace it.
+                val A = com.agentos.shell.tools.AttachmentPlanner.Action
+                val keepAttached = plan.action == A.READ || plan.action == A.FILL || plan.action == A.REPLY
+                if (!keepAttached) { photos = emptyList(); attachments = emptyList() }
+                reply = res.message
+                producedImage = res.producedPng
+                producedName = res.producedName
+                withContext(Dispatchers.IO) {
+                    if (!keepAttached) com.agentos.shell.tools.AttachContext.clear(ctx)
+                    com.agentos.shell.tools.MemoryLog.add(ctx, "action", q.take(48), reply, "Files")
+                    com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply)
                 }
-                if (files.isNotEmpty() && (sendIntent || fileIntent)) {
-                    val many = files.size > 1
-                    photos = emptyList(); attachments = emptyList()
-                    reply = withContext(Dispatchers.IO) {
-                        if (fileIntent && !sendIntent) {
-                            val asked = Regex("(?i)(?:in|into|to|under)\\s+(?:my\\s+|the\\s+)?([\\w -]{2,30})").find(q)
-                                ?.groupValues?.get(1)?.trim()?.trimEnd('.', ' ') ?: ""
-                            val cat = com.agentos.shell.tools.SlyFolder.CATEGORIES
-                                .firstOrNull { it.equals(asked, true) || (asked.isNotBlank() && it.contains(asked, true)) } ?: ""
-                            files.joinToString("\n") { file ->
-                                val body = if (FO.isPdf(ctx, file)) FO.pdfText(ctx, file) else ""
-                                com.agentos.shell.tools.SlyFolder.fileExisting(ctx, file, body, cat).second
-                            }
-                        } else {
-                            val what = if (many) "${files.size} files" else "the file"
-                            val channel = FO.detectChannel(q)
-                            val rec = Regex("(?i)\\bto\\s+(.+?)(?:\\s+(?:on|via|through|over|using|by)\\b|\\s+(?:saying|say|tell|and\\s+say|with\\s+(?:the\\s+)?message)\\b|[.,]|$)")
-                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"', '.', ',')
-                                ?.takeUnless { FO.detectChannel(it).isNotBlank() }
-                            val msg = Regex("(?i)(?:saying|say|tell(?:\\s+(?:her|him|them))?|with\\s+(?:the\\s+)?message|and\\s+say)\\s+(.+)$")
-                                .find(q)?.groupValues?.get(1)?.trim()?.trim('"') ?: ""
-                            val emailInQ = Regex("[\\w.+-]+@[\\w.-]+\\.\\w+").find(q)?.value
-                            val CT = com.agentos.shell.tools.ContactsTool
-                            val r = when {
-                                rec.isNullOrBlank() && emailInQ == null ->
-                                    if (FO.send(ctx, files, channel)) "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached — pick who to send to."
-                                    else "I couldn't send ${if (many) "those" else "that one"}."
-                                FO.isEmailChannel(channel) || (channel.isBlank() && emailInQ != null) -> {
-                                    val email = emailInQ ?: (rec?.let { CT.findEmail(ctx, it) } ?: "")
-                                    FO.sendToPerson(ctx, files, channel.ifBlank { "mail" }, rec ?: email, toEmail = email, message = msg, subject = "For you") ?: "I couldn't open email."
-                                }
-                                else -> {
-                                    val c = rec?.let { CT.findContact(ctx, it) }
-                                    FO.sendToPerson(ctx, files, channel, rec ?: c?.name ?: "them", toNumber = c?.number ?: "", message = msg)
-                                        ?: run { FO.send(ctx, files, channel); "Opened ${if (channel.isBlank()) "your share sheet" else channel} with $what attached." }
-                                }
-                            }
-                            com.agentos.shell.tools.MemoryLog.add(ctx, "action", "Shared $what" + (if (channel.isNotBlank()) " over $channel" else ""), r, "Files")
-                            r
-                        }
-                    }
-                    if (foundNote.isNotBlank()) reply = foundNote + reply
-                    // The working set is done — clear the open-doc so it stops haunting later prompts.
-                    withContext(Dispatchers.IO) {
-                        com.agentos.shell.tools.AttachContext.clear(ctx)
-                        com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply)
-                    }
-                    if (doSpeak) speak(reply)
-                    thinking = false
-                    return@launch
-                }
+                if (doSpeak) speak(reply)
+                thinking = false
+                return@launch
             }
             // A non-image file is attached (PDF/doc): read it, fill it, send it, or move it — through the brain.
-            if (attachments.isNotEmpty()) {
+            // (Fallback only — skipped when the planner already handled/declined this attachment.)
+            if (!plannerConsidered && attachments.isNotEmpty()) {
                 val files = attachments; attachments = emptyList()
                 val f = files.first(); val lc = q.lowercase()
                 val FO = com.agentos.shell.tools.FileOps
@@ -459,7 +424,8 @@ fun HomeScreen(
                 return@launch
             }
             // If photos are attached, this is an image task (vision Q&A or PDF).
-            if (photos.isNotEmpty()) {
+            // (Fallback only — skipped when the planner already handled/declined this attachment.)
+            if (!plannerConsidered && photos.isNotEmpty()) {
                 val attached = photos
                 photos = emptyList()
                 // POWER: "remove the background" → native on-device first (zero setup), then a connected rembg.
@@ -990,12 +956,9 @@ fun HomeScreen(
                 onRemove = { photos = emptyList() }
             )
         }
-        // SENT TO YOU — the recent documents people emailed you. Shown once, each peekable / usable / dismissable.
+        // SENT TO YOU — the recent documents people emailed you. Already marked seen on fetch, so this
+        // batch never returns; each is peekable / usable / dismissable.
         if (nudges.isNotEmpty() && photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
-            // Mark them all seen the moment they surface, so the same PDFs never nag again.
-            LaunchedEffect(nudges.map { it.key }) {
-                withContext(Dispatchers.IO) { nudges.forEach { com.agentos.shell.tools.Inbox.dismiss(ctx, it.key) } }
-            }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth()) {
                 Box(Modifier.width(2.dp).height((26 * nudges.size + 8).dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
@@ -1116,6 +1079,55 @@ fun HomeScreen(
                         .clickable {
                             try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(replyUrl)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                         }.padding(horizontal = 16.dp, vertical = 9.dp))
+            }
+        }
+
+        // An image the AI just made/edited — preview it, then one tap to keep it in the gallery.
+        producedImage?.let { png ->
+            val bmp = remember(png) {
+                android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size)?.asImageBitmap()
+            }
+            Spacer(Modifier.height(12.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(12.dp)) {
+                if (bmp != null) Image(
+                    bitmap = bmp, contentDescription = "result",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Save to gallery", fontSize = T.small, color = T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable {
+                                val toSave = png
+                                scope.launch {
+                                    val uri = withContext(Dispatchers.IO) {
+                                        com.agentos.shell.tools.PowerDispatch.saveImage(ctx, toSave, producedName.ifBlank { "slyos_${System.currentTimeMillis()}.png" })
+                                    }
+                                    reply = if (uri != null) "Saved to your gallery." else "I couldn't save that."
+                                    withContext(Dispatchers.IO) { com.agentos.shell.tools.MemoryLog.add(ctx, "action", "Saved an image", producedName, "Files") }
+                                    producedImage = null
+                                }
+                            }.padding(horizontal = 16.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Tweak", fontSize = T.small, color = T.accent,
+                        modifier = Modifier.clickable {
+                            // Re-attach the result (to cache, NOT the gallery) so the next thing you type edits IT.
+                            scope.launch {
+                                val uri = withContext(Dispatchers.IO) {
+                                    try {
+                                        val f = java.io.File(ctx.cacheDir, "tweak_${System.currentTimeMillis()}.png")
+                                        f.writeBytes(png)
+                                        androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", f)
+                                    } catch (e: Exception) { null }
+                                }
+                                if (uri != null) { photos = listOf(uri); producedImage = null; reply = "" }
+                            }
+                        }.padding(horizontal = 10.dp, vertical = 9.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Discard", fontSize = T.small, color = T.inkFaint,
+                        modifier = Modifier.clickable { producedImage = null }.padding(horizontal = 10.dp, vertical = 9.dp))
+                }
             }
         }
 

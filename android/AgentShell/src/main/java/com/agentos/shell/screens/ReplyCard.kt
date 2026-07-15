@@ -103,7 +103,10 @@ fun ReplyCard(note: NotificationStore.Note) {
             busy = true
             val d = withContext(Dispatchers.IO) {
                 if (note.isEmail) {
-                    val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
+                    // Ground the reply in the ACTUAL attachment this person sent, plus related knowledge.
+                    val att = com.agentos.shell.tools.GmailClient.attachmentTextFromSender(ctx, note.title)
+                    val doc = (com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text) +
+                        (if (att.isNotBlank()) "\n\nTHEIR ATTACHMENT:\n$att" else "")).trim()
                     val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
                         .ifBlank { MemoryStore.about(ctx) }
                     AgentClient.draftEmailReply(note.title, note.text, doc, mem)
@@ -182,7 +185,9 @@ fun ReplyCard(note: NotificationStore.Note) {
                             val memory = MemoryStore.about(ctx)
                             val d = withContext(Dispatchers.IO) {
                                 if (note.isEmail) {
-                                    val doc = com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text)
+                                    val att = com.agentos.shell.tools.GmailClient.attachmentTextFromSender(ctx, note.title)
+                                    val doc = (com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, note.text) +
+                                        (if (att.isNotBlank()) "\n\nTHEIR ATTACHMENT:\n$att" else "")).trim()
                                     val emem = com.agentos.shell.tools.ReplyContext.forSender(ctx, note.app, note.title)
                                         .ifBlank { memory }
                                     AgentClient.draftEmailReply(note.title, note.text, doc, emem)

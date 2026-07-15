@@ -62,7 +62,7 @@ object Inbox {
 
     /** Attachments people emailed you (needs Google connected). */
     fun emailAttachments(ctx: Context, limit: Int = 8): List<Item> = try {
-        GmailClient.recentAttachments(ctx, limit).map {
+        GmailClient.recentAttachmentsCached(ctx, limit).map {
             Item(null, it.name, it.sender, "email", it.ts, it.isPdf, it)
         }
     } catch (e: Exception) { emptyList() }
