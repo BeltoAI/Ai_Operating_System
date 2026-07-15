@@ -164,13 +164,14 @@ object PhotoIndex {
         val toks = query.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 && it !in STOP }.distinct()
         if (toks.isEmpty()) return emptyList()
         return try {
-            val where = toks.joinToString(" OR ") { "caption LIKE ? OR name LIKE ?" }
-            val args = toks.flatMap { listOf("%$it%", "%$it%") }.toTypedArray()
+            val where = toks.joinToString(" OR ") { "caption LIKE ? OR name LIKE ? OR labels LIKE ?" }
+            val args = toks.flatMap { listOf("%$it%", "%$it%", "%$it%") }.toTypedArray()
             val hits = mutableListOf<FileResolver.Found>()
-            db(ctx).rawQuery("SELECT uri, name, caption FROM photos WHERE $where ORDER BY ts DESC LIMIT 60", args).use { c ->
+            db(ctx).rawQuery("SELECT uri, name, caption, labels FROM photos WHERE $where ORDER BY ts DESC LIMIT 60", args).use { c ->
                 while (c.moveToNext()) {
-                    val uri = c.getString(0); val name = c.getString(1) ?: "photo"; val cap = (c.getString(2) ?: "").lowercase()
-                    val hay = "$cap $name".lowercase()
+                    val uri = c.getString(0); val name = c.getString(1) ?: "photo"
+                    val cap = (c.getString(2) ?: "").lowercase(); val labels = (c.getString(3) ?: "").lowercase()
+                    val hay = "$cap $labels $name".lowercase()
                     val score = toks.count { hay.contains(it) } * 2
                     if (score > 0) hits.add(FileResolver.Found(Uri.parse(uri), name.ifBlank { "photo" }, "gallery", score))
                 }

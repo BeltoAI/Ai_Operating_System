@@ -378,18 +378,41 @@ object ToolRouter {
             }
             if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on in Settings."
 
+            // Exact identity: reuse the Faces feature. If the ask is about "me" or a known person, grab their
+            // reference face so the model matches the actual PERSON, not just "a full-body shot of someone".
+            val refB64: String? = try {
+                val people = com.agentos.shell.tools.PeopleStore.list(ctx)
+                val named = people.firstOrNull { it.name.isNotBlank() && ql.contains(it.name.lowercase()) }
+                when {
+                    Regex("\\b(me|myself|my|i)\\b").containsMatchIn(ql) -> {
+                        val hp = com.agentos.shell.tools.MemoryStore.headshotPath(ctx)
+                        if (hp.isNotBlank() && java.io.File(hp).exists())
+                            com.agentos.shell.tools.ImageUtil.encode(ctx, android.net.Uri.fromFile(java.io.File(hp)), 512) else null
+                    }
+                    named != null -> com.agentos.shell.tools.PeopleStore.photoB64(ctx, named.id)
+                    else -> null
+                }
+            } catch (e: Exception) { null }
+
             // LOOK at them, in batches, so it genuinely scans dozens of photos and picks only real matches.
             val chosen = ArrayList<FileResolver.Found>()
             try {
                 cands.chunked(12).forEach { batch ->
-                    val imgs = batch.mapNotNull { com.agentos.shell.tools.ImageUtil.encode(ctx, it.uri, 512) }
-                    if (imgs.isNotEmpty()) {
-                        val prompt = "The owner wants photos matching: \"$query\". Below are ${imgs.size} images, numbered 1 to ${imgs.size} in order. " +
-                            "Reply with ONLY the numbers that genuinely match, best first, comma-separated (e.g. 3,1,5). " +
-                            "Be strict — exclude screenshots, the wrong subject, and anything that isn't clearly a match. If none match, reply exactly NONE."
+                    val enc = batch.mapNotNull { f -> com.agentos.shell.tools.ImageUtil.encode(ctx, f.uri, 512)?.let { f to it } }
+                    if (enc.isNotEmpty()) {
+                        val off = if (refB64 != null) 1 else 0
+                        val imgs = (if (refB64 != null) listOf(refB64) else emptyList()) + enc.map { it.second }
+                        val prompt = if (refB64 != null)
+                            "Image 1 is a REFERENCE photo of the target person. Images 2 to ${imgs.size} are candidates. " +
+                            "Reply with ONLY the numbers (each from 2 to ${imgs.size}) of candidates that BOTH match \"$query\" AND clearly show the SAME person as image 1. " +
+                            "Best first, comma-separated. Be strict. If none, reply exactly NONE."
+                        else
+                            "The owner wants photos matching: \"$query\". Below are ${imgs.size} images, numbered 1 to ${imgs.size} in order. " +
+                            "Reply with ONLY the numbers that genuinely match, best first, comma-separated. Be strict — exclude screenshots and wrong subjects. If none, reply exactly NONE."
                         val out = AgentClient.askVision(prompt, imgs, "")
                         if (!out.contains("NONE", true))
-                            Regex("\\d+").findAll(out).map { it.value.toInt() }.filter { it in 1..batch.size }.distinct().forEach { chosen.add(batch[it - 1]) }
+                            Regex("\\d+").findAll(out).map { it.value.toInt() }.filter { it in (1 + off)..(enc.size + off) }.distinct()
+                                .forEach { chosen.add(enc[it - 1 - off].first) }
                     }
                 }
             } catch (e: Exception) {}
