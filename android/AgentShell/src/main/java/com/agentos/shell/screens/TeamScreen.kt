@@ -203,21 +203,27 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 }
                 // ── Living workers: mostly at their stations, but now and then two step into the hallway to chat ──
                 val stations = listOf(18f to 50f, 100f to 44f, 24f to 96f, 96f to 96f, 40f to 180f, 68f to 152f, 64f to 168f)
-                var pairA by remember { mutableStateOf(-1) }; var pairB by remember { mutableStateOf(-1) }; var atMeet by remember { mutableStateOf(false) }
+                var outSet by remember { mutableStateOf(setOf<Int>()) }; var atMeet by remember { mutableStateOf(false) }
                 LaunchedEffect(staff.size) {
-                    if (staff.size >= 2) while (true) {
-                        delay(7000)
-                        val a = (0 until staff.size).random(); var b = (0 until staff.size).random(); var g = 0
-                        while (b == a && g < 6) { b = (0 until staff.size).random(); g++ }
-                        if (b != a) { pairA = a; pairB = b; delay(2500); atMeet = true; delay(4200); atMeet = false; delay(2500); pairA = -1; pairB = -1 }
+                    if (staff.isNotEmpty()) while (true) {
+                        delay(4000)
+                        val n = staff.size
+                        val a = (0 until n).random()
+                        val picks = if (n >= 2) {
+                            var b = (0 until n).random(); var g = 0
+                            while (b == a && g < 6) { b = (0 until n).random(); g++ }
+                            if (b != a) setOf(a, b) else setOf(a)
+                        } else setOf(a)
+                        outSet = picks; delay(2400); atMeet = true; delay(4200); atMeet = false; delay(2400); outSet = emptySet()
                     }
                 }
+                val leadIdx = outSet.minOrNull()
                 staff.forEachIndexed { i, e ->
                     val st = stations[i % stations.size]
-                    val inPair = i == pairA || i == pairB
+                    val inPair = i in outSet
                     val hallX = if (st.first < 64f) 55f else 72f
                     // path respects walls: step through the door into the hallway (same y), then meet by the cooler.
-                    val tx = if (!inPair) st.first else if (atMeet) (if (i == pairA) 56f else 63f) else hallX
+                    val tx = if (!inPair) st.first else if (atMeet) (if (i == leadIdx) 56f else 63f) else hallX
                     val ty = if (!inPair) st.second else if (atMeet) 129f else st.second
                     val ax by animateFloatAsState(tx, tween(2200, easing = LinearOutSlowInEasing), label = "ax$i")
                     val ay by animateFloatAsState(ty, tween(2200, easing = LinearOutSlowInEasing), label = "ay$i")
