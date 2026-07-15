@@ -134,14 +134,15 @@ object TeamChat {
         return if (score(best) > 0) best else null
     }
 
-    /** Was the bot itself summoned — by its @handle or a distinctive word of its name (e.g. "bastard")? */
+    /** Was the bot itself summoned — by its @handle or the DISTINCTIVE last word of its name (e.g. "bastard")? */
     private fun mentionsBot(text: String): Boolean {
         val t = text.lowercase()
         val user = try { TelegramClient.botUsername() } catch (e: Exception) { "" }.lowercase()
         if (user.isNotBlank() && t.contains("@$user")) return true
         val name = try { TelegramClient.botName() } catch (e: Exception) { "" }.lowercase()
-        val words = name.split(Regex("[^a-z0-9]+")).filter { it.length > 3 }
-        return words.any { t.contains(it) }
+        // Only the last distinctive word (surname-like), so the owner's first name in the name doesn't over-trigger.
+        val last = name.split(Regex("[^a-z0-9]+")).filter { it.length > 4 }.lastOrNull() ?: return false
+        return Regex("(^|[^a-z0-9])@?" + Regex.escape(last) + "($|[^a-z0-9])").containsMatchIn(t)
     }
 
     /** Is this a question ABOUT the team itself (who's here, introductions, capabilities)? */

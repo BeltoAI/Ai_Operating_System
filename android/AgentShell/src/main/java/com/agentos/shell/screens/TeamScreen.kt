@@ -227,22 +227,10 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         if (q.isBlank() || busy) return
         busy = true; flash = "${e.name} is thinking…"
         scope.launch {
+            // Same full-capability engine as the Telegram chat: fed knowledge (PDFs) + brain + web + real actions.
             val reply = withContext(Dispatchers.IO) {
-                val owner = com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "the owner" }
-                val log = EmployeeStore.logFor(ctx, e.id, 8).joinToString("\n") { "• ${it.line}" }
-                val brain = try { com.agentos.shell.tools.BrainContext.build(ctx, q) } catch (ex: Exception) { "" }
-                val caps = try { com.agentos.shell.tools.Capabilities.summary(ctx) } catch (ex: Exception) { "" }
-                val sys = "You are ${e.name}, the ${e.role} on $owner's AI team. Standing goal: \"${e.goal}\". $caps " +
-                    "Answer $owner's question in clear, readable plain text (a few sentences or short paragraphs). " +
-                    "Reference your recent work when relevant. Speak as yourself. No JSON, no markdown headers, no fluff."
-                val user = "Your recent work:\n${log.ifBlank { "(nothing yet)" }}\n\nWhat you know about $owner:\n${brain.take(2500)}\n\n$owner says: $q"
-                val r = try { com.agentos.shell.tools.AgentClient.complete(sys, user, 450) } catch (ex: Exception) { "" }
-                // Persist the exchange so the agent's NEXT shift uses your guidance — and clear any block.
-                try {
-                    EmployeeStore.log(ctx, e.id, "You: $q", false)
-                    if (r.isNotBlank()) EmployeeStore.log(ctx, e.id, "${e.name}: ${r.take(220)}", false)
-                    if (e.status == "needs_you") EmployeeStore.setStatus(ctx, e.id, "idle")
-                } catch (ex: Exception) {}
+                val r = try { com.agentos.shell.tools.EmployeeRunner.answer(ctx, e, q) } catch (ex: Exception) { "" }
+                if (e.status == "needs_you") try { EmployeeStore.setStatus(ctx, e.id, "idle") } catch (ex: Exception) {}
                 r
             }
             teamReply = "${e.name}: " + reply.ifBlank { "Couldn't answer just now." }; flash = ""; refresh(); busy = false
