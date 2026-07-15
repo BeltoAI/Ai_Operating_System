@@ -350,17 +350,32 @@ object ToolRouter {
             val message = o.optString("message").trim()
             val count = o.optInt("count", 1).coerceIn(1, 6)
 
-            // Candidate POOL: keyword hits + a broad sweep of recent real photos, screenshots excluded, so the
-            // vision model has your actual gallery to look through — not just the 4 whose filename matched.
             val ss = Regex("(?i)screenshot")
-            val pool = LinkedHashMap<String, FileResolver.Found>()
-            FileResolver.find(ctx, query.ifBlank { "photo" })
-                .filter { !ss.containsMatchIn(it.where + it.name) && !it.name.contains(".pdf", true) }
-                .forEach { pool[it.uri.toString()] = it }
-            FileResolver.recentPhotos(ctx, 40)
-                .filter { !ss.containsMatchIn(it.where + it.name) }
-                .forEach { pool.putIfAbsent(it.uri.toString(), it) }
-            val cands = pool.values.toList().take(36)
+            val ql = query.lowercase()
+            // FREE on-device index first: it already knows which photos are full-body / selfie / portrait /
+            // have a person — so we narrow to the right KIND across the whole gallery at zero API cost, and
+            // only pay the vision model to confirm identity on a small shortlist.
+            val kinds = when {
+                Regex("full ?body|whole body|head to toe|standing").containsMatchIn(ql) -> listOf("fullbody", "portrait", "person")
+                Regex("selfie").containsMatchIn(ql) -> listOf("selfie", "portrait")
+                Regex("portrait|headshot|profile pic|face").containsMatchIn(ql) -> listOf("portrait", "selfie")
+                Regex("\\b(me|myself|us|him|her|them|people|person)\\b").containsMatchIn(ql) -> listOf("fullbody", "portrait", "selfie", "person", "group")
+                else -> emptyList()   // object/scene search runs on labels only
+            }
+            val stop = setOf("photo", "photos", "picture", "pictures", "image", "images", "pic", "pics", "send", "the", "and", "for", "via", "with", "full", "body", "find", "get")
+            val terms = ql.split(Regex("[^a-z0-9]+")).filter { it.length >= 3 && it !in stop }
+            val local = if (com.agentos.shell.tools.PhotoIndex.count(ctx) > 0) com.agentos.shell.tools.PhotoIndex.findLocal(ctx, kinds, terms, 30) else emptyList()
+
+            val cands = if (local.isNotEmpty()) local else {
+                // Index not built yet → live sweep of recent photos as a fallback.
+                val pool = LinkedHashMap<String, FileResolver.Found>()
+                FileResolver.find(ctx, query.ifBlank { "photo" })
+                    .filter { !ss.containsMatchIn(it.where + it.name) && !it.name.contains(".pdf", true) }
+                    .forEach { pool[it.uri.toString()] = it }
+                FileResolver.recentPhotos(ctx, 40).filter { !ss.containsMatchIn(it.where + it.name) }
+                    .forEach { pool.putIfAbsent(it.uri.toString(), it) }
+                pool.values.toList().take(36)
+            }
             if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on in Settings."
 
             // LOOK at them, in batches, so it genuinely scans dozens of photos and picks only real matches.

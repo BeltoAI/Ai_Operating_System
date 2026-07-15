@@ -23,12 +23,19 @@ object PhotoIndex {
 
     data class Entry(val uri: String, val name: String, val caption: String, val bucket: String, val ts: Long)
 
-    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_photos.db", null, 1) {
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_photos.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE IF NOT EXISTS photos(uri TEXT PRIMARY KEY, name TEXT, caption TEXT, bucket TEXT, ts INTEGER)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS photos(uri TEXT PRIMARY KEY, name TEXT, caption TEXT, bucket TEXT, ts INTEGER, " +
+                "labels TEXT DEFAULT '', kind TEXT DEFAULT '', faces INTEGER DEFAULT 0)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_ts ON photos(ts)")
         }
-        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {}
+        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+            if (o < 2) {
+                try { db.execSQL("ALTER TABLE photos ADD COLUMN labels TEXT DEFAULT ''") } catch (e: Exception) {}
+                try { db.execSQL("ALTER TABLE photos ADD COLUMN kind TEXT DEFAULT ''") } catch (e: Exception) {}
+                try { db.execSQL("ALTER TABLE photos ADD COLUMN faces INTEGER DEFAULT 0") } catch (e: Exception) {}
+            }
+        }
     }
 
     @Volatile private var helper: Helper? = null
@@ -57,6 +64,74 @@ object PhotoIndex {
     }
 
     fun clear(ctx: Context) = try { db(ctx).execSQL("DELETE FROM photos") } catch (e: Exception) {}
+
+    /** Store the FREE on-device analysis (labels + kind + faces). Upserts by uri; no caption needed. */
+    fun putVision(ctx: Context, uri: String, name: String, bucket: String, ts: Long, labels: List<String>, kind: String, faces: Int) {
+        try {
+            db(ctx).insertWithOnConflict("photos", null, ContentValues().apply {
+                put("uri", uri); put("name", name); put("bucket", bucket); put("ts", ts)
+                put("labels", labels.joinToString(",")); put("kind", kind); put("faces", faces)
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+            // If the row already existed (caption present), just add the vision fields without wiping the caption.
+            db(ctx).execSQL("UPDATE photos SET labels=?, kind=?, faces=? WHERE uri=?",
+                arrayOf(labels.joinToString(","), kind, faces, uri))
+        } catch (e: Exception) { Log.w(TAG, "putVision: ${e.message}") }
+    }
+
+    /** Uris that already have on-device analysis (a non-empty kind). */
+    fun analyzedUris(ctx: Context): Set<String> = try {
+        val out = HashSet<String>()
+        db(ctx).rawQuery("SELECT uri FROM photos WHERE kind IS NOT NULL AND kind != ''", null).use { while (it.moveToNext()) out.add(it.getString(0)) }
+        out
+    } catch (e: Exception) { emptySet() }
+
+    /**
+     * FREE local retrieval: photos matching any of [kinds] (selfie/portrait/fullbody/group/person/scene) and,
+     * if given, scored up by [terms] appearing in labels/caption. This is what makes "a full-body photo of me"
+     * answerable across a whole gallery with zero API cost — the cloud model only confirms identity afterwards.
+     */
+    fun findLocal(ctx: Context, kinds: List<String>, terms: List<String>, limit: Int = 30): List<FileResolver.Found> {
+        return try {
+            val out = mutableListOf<FileResolver.Found>()
+            val kindSet = kinds.toSet()
+            db(ctx).rawQuery("SELECT uri, name, kind, labels, caption FROM photos ORDER BY ts DESC LIMIT 400", null).use { c ->
+                while (c.moveToNext()) {
+                    val uri = c.getString(0); val name = c.getString(1) ?: "photo"
+                    val kind = c.getString(2) ?: ""; val labels = (c.getString(3) ?: "").lowercase()
+                    val cap = (c.getString(4) ?: "").lowercase()
+                    if (kindSet.isNotEmpty() && kind !in kindSet) continue
+                    val hay = "$labels $cap $name".lowercase()
+                    val termScore = terms.count { hay.contains(it) }
+                    // rank: exact-kind photos first, then term matches
+                    val score = (if (kind in kindSet) 3 else 0) + termScore
+                    out.add(FileResolver.Found(Uri.parse(uri), name, kind.ifBlank { "gallery" }, score))
+                }
+            }
+            out.sortedByDescending { it.score }.take(limit)
+        } catch (e: Exception) { Log.w(TAG, "findLocal: ${e.message}"); emptyList() }
+    }
+
+    /** Run the FREE on-device analyzer over the newest un-analyzed photos (bounded per call). */
+    fun analyzeRecent(ctx: Context, max: Int = 60): Int {
+        return try {
+            val done = analyzedUris(ctx)
+            val recents = FileResolver.recentPhotos(ctx, 500)
+            var added = 0
+            for (f in recents) {
+                if (added >= max) break
+                val key = f.uri.toString()
+                if (key in done) continue
+                if (f.where.contains("screenshot", true) || f.name.contains("screenshot", true)) {
+                    putVision(ctx, key, f.name, f.where, System.currentTimeMillis(), listOf("screenshot"), "screenshot", 0); added++; continue
+                }
+                val r = PhotoVision.analyze(ctx, f.uri) ?: continue
+                putVision(ctx, key, f.name, f.where, System.currentTimeMillis(), r.labels, r.kind, r.faces)
+                added++
+            }
+            if (added > 0) Log.i(TAG, "on-device analyzed $added photos")
+            added
+        } catch (e: Exception) { Log.w(TAG, "analyzeRecent: ${e.message}"); 0 }
+    }
 
     /**
      * Describe the newest un-indexed photos (bounded). Uses the vision model already available via the Claude
