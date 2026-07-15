@@ -123,6 +123,19 @@ object BrainContext {
             PhotoIndex.search(ctx, q, 4).joinToString("\n") { "• ${it.name} (${it.where})" }
         } catch (e: Exception) { "" } else ""
 
+        // Your AI team — surface the roster + recent activity when you ask "what did my employees do", "what's
+        // going on in my company", "team status", etc., so HomeAI can report on the whole operation.
+        val teamActivity = if (Regex("(?i)\\b(team|employ|agent|worker|staff|company|colleagu|what did .* do|what'?s (going on|happening)|going on|what happened|updates?|status|progress|my people|bastardi|kai|ravi|maya|leo|rana)\\b").containsMatchIn(q)) {
+            try {
+                val roster = EmployeeStore.all(ctx)
+                if (roster.isEmpty()) "" else {
+                    val who = roster.joinToString(", ") { "${it.name} (${it.role})" }
+                    val acts = EmployeeStore.recentActivity(ctx, 18).joinToString("\n") { "• ${it.line}" }
+                    "Your AI team: $who.\nRecent team activity (newest first):\n$acts"
+                }
+            } catch (e: Exception) { "" }
+        } else ""
+
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)
@@ -139,6 +152,7 @@ object BrainContext {
             if (docText.isNotBlank()) append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
             if (filedDocs.isNotBlank()) append("\nDocuments filed in your brain (from email attachments, scans, receipts — you CAN read and reference these when relevant):\n").append(filedDocs)
             try { LeadStore.brief(ctx, 12).takeIf { it.isNotBlank() }?.let { append("\nPeople in your CRM (contacts/leads your team saved — use when relevant, and add new ones you meet):\n").append(it) } } catch (e: Exception) {}
+            if (teamActivity.isNotBlank()) append("\n").append(teamActivity)
             try { DocText.retrieve(ctx, q, 1400).takeIf { it.isNotBlank() }?.let { append("\nActual passages from your documents (full text — quote/answer from these directly):\n").append(it) } } catch (e: Exception) {}
             if (tasks.isNotBlank()) append("\nYour checklist/tasks (use if relevant):\n").append(tasks)
             if (recall.isNotBlank()) append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)

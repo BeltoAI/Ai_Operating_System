@@ -18,6 +18,117 @@ object EmployeeRunner {
         if (s.isNullOrBlank()) 0L else java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).parse(s)?.time ?: 0L
     } catch (e: Exception) { 0L }
 
+    // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
+    private const val ACTION_SCHEMA =
+        "{\"type\":\"send_email|add_event|save_lead|post|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
+        "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
+
+    /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
+    private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
+        val type = act?.optString("type").orEmpty()
+        return try {
+            when (type) {
+                "send_email" -> {
+                    val to = act!!.optString("to").trim(); val body = act.optString("body").trim()
+                    if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
+                        val (ok, msg) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
+                        if (ok) "sent email to $to ✓" else "couldn't send to $to ($msg)"
+                    } else ""
+                }
+                "add_event" -> {
+                    val title = act!!.optString("title").trim()
+                    val s = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
+                    val end = if (e2 > s) e2 else s + 1_800_000L
+                    val attendees = act.optJSONArray("attendees")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+                    val wantMeet = act.optBoolean("meet", false) || Regex("(?i)meet|video ?call|zoom|hangout|google meet").containsMatchIn(srcMessage)
+                    if (title.isBlank() || s <= 0) "" else if (wantMeet && GoogleAuth.isConnected(ctx)) {
+                        val r = GoogleCalendarClient.createEvent(ctx, title, s, end, attendees, true)
+                        if (r.ok) "created “$title”" + (if (r.meetLink.isNotBlank()) " ✓ Meet: ${r.meetLink}" else " ✓") else "couldn't create it (${r.error.take(40)})"
+                    } else if (CalendarTool.hasPermission(ctx)) {
+                        val r = CalendarTool.addEvent(ctx, title, s, end, attendees)
+                        if (!r.startsWith("ERR")) "added “$title” to your calendar ✓" else "couldn't add event"
+                    } else ""
+                }
+                "save_lead" -> {
+                    val nm = act!!.optString("name").trim(); val em = act.optString("email").trim()
+                    if (nm.isNotBlank() || em.contains("@")) {
+                        val extra = act.optJSONObject("extra")?.toString() ?: "{}"
+                        LeadStore.add(ctx, nm, em, act.optString("role").trim(), act.optString("company").trim(), "agent", "", extra)
+                        "saved ${nm.ifBlank { em }} to your CRM ✓"
+                    } else ""
+                }
+                "post" -> {
+                    val target = act!!.optString("target").trim(); val title = act.optString("title").trim(); val txt = act.optString("text").trim()
+                    if (txt.isNotBlank() && !AgentClient.looksLikeError(txt)) {
+                        AgentDraft.set(ctx, emp.id, "post", target, title, txt)
+                        "drafted a post" + (if (target.isNotBlank()) " for $target" else "") + " — ready to review & post"
+                    } else ""
+                }
+                "note" -> {
+                    val n = act!!.optString("text").trim().ifBlank { act.optString("body").trim() }
+                    if (n.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", n.take(500), "Team") } catch (e: Exception) {}; "saved a note to your brain ✓" } else ""
+                }
+                else -> ""
+            }
+        } catch (e: Exception) { "action failed: ${e.message}" }
+    }
+
+    data class ChainResult(val summary: String, val needs: String, val actions: Int, val inTok: Int, val outTok: Int)
+
+    /**
+     * The AGENTIC LOOP — the agent works toward [task] over multiple steps: each step it may take one action,
+     * sees the result, and continues, until it's done, needs the owner, or hits the step/token cap. MAX
+     * automation: reversible actions (email, event, lead, note) just execute. Grounded in fed docs + brain + web.
+     */
+    fun runChain(ctx: Context, emp: EmployeeStore.Employee, task: String, history: String = "", speaker: String = "",
+                 maxSteps: Int = 6, tokenCap: Int = 45000): ChainResult {
+        val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
+        val brain = try { BrainContext.build(ctx, task) } catch (e: Exception) { "" }
+        val kb = try { AgentKnowledge.retrieve(ctx, emp.id, task, 2200) } catch (e: Exception) { "" }
+        val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
+        val cal = try { if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx) else "" } catch (e: Exception) { "" }
+        val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
+        val ctxBlock = "Current time: $now\n" +
+            (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (your PRIMARY source):\n$kb\n\n" else "") +
+            (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1000)}\n\n" else "") +
+            (if (history.isNotBlank()) "RECENT TEAM-CHAT (each line 'Sender: message'):\n$history\n\n" else "") +
+            "What you know about $owner:\n${brain.take(2600)}\n"
+        val steps = ArrayList<String>()
+        var inSum = 0; var outSum = 0; var didAny = 0; var needs = ""
+        for (i in 1..maxSteps.coerceIn(1, 8)) {
+            val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Goal for this run: \"$task\". $caps " +
+                "You work in STEPS: each step you may take ONE action; you'll then see its result and continue. You have live " +
+                "web search every step. MAX AUTOMATION — actually DO things (send the email, create the event, save the lead, " +
+                "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
+                "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
+                "Output ONLY compact JSON {\"say\":\"one short progress line, past/pres tense\",\"action\":$ACTION_SCHEMA," +
+                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the whole goal is accomplished. No prose, no fences."
+            val user = ctxBlock + "\nSTEPS DONE SO FAR:\n" + (if (steps.isEmpty()) "(none yet)" else steps.joinToString("\n")) +
+                "\n\n" + (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "Request from $speaker: " else "") + task +
+                "\n\nDo the next step now (or set done:true if the goal is fully met)."
+            val (raw, inTok, outTok) = AgentClient.work(sys, user, 850, web = true)
+            inSum += inTok; outSum += outTok
+            val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
+            val o = try { if (js in 0 until je) org.json.JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }
+            val say = o?.optString("say")?.trim().orEmpty()
+            val done = o?.optBoolean("done", false) ?: true
+            val n = o?.optString("needs")?.trim().orEmpty()
+            val act = o?.optJSONObject("action")
+            val result = execAction(ctx, emp, act, task)
+            if (result.isNotBlank() && !result.startsWith("couldn't") && !result.startsWith("action failed")) didAny++
+            val line = "• " + say.ifBlank { result.ifBlank { "…" } } + (if (result.isNotBlank() && say.isNotBlank()) " → $result" else "")
+            if (say.isNotBlank() || result.isNotBlank()) steps.add(line)
+            if (n.isNotBlank()) { needs = n; break }
+            if (o == null && say.isBlank() && result.isBlank()) break   // nothing happening → stop
+            if (done) break
+            if (inSum + outSum > tokenCap) { steps.add("• (paused — hit this run's budget)"); break }
+        }
+        val summary = (if (steps.isEmpty()) "Worked on it." else steps.joinToString("\n")) +
+            (if (needs.isNotBlank()) "\n\n⏸ Needs you: $needs" else "")
+        return ChainResult(summary, needs, didAny, inSum, outSum)
+    }
+
     /**
      * Run one real shift. The worker pulls its live context (brain, calendar, inbox signals), takes the
      * single most useful step toward its goal — actually SENDING/SCHEDULING when it helps — and reports.
@@ -171,94 +282,22 @@ object EmployeeRunner {
     }
 
     /**
-     * Answer a DIRECT message from the owner (from the team chat) right now — grounded in the brain/calendar,
-     * and taking ONE real action (send an email, add an event) when the request calls for it. Returns the
-     * chat-ready reply. This is what makes the Telegram team chat actually DO things instead of "next shift".
+     * Answer a direct message (team chat or in-app) — now a MULTI-STEP chain: the agent researches and takes
+     * as many reversible actions as needed to fulfil the request, then returns a compact step summary.
      */
     fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String, history: String = "", speaker: String = ""): String {
         return try {
-            val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
-            val brain = try { BrainContext.build(ctx, message) } catch (e: Exception) { "" }
-            val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
-            val cal = try { if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx) else "" } catch (e: Exception) { "" }
-            val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Your goal: \"${emp.goal}\". $caps " +
-                "$owner just messaged you directly in the team chat. ANSWER their message NOW — specifically and " +
-                "concretely, using what you know below. Do NOT say you'll do it later or on your next shift. " +
-                "You have LIVE web search — use it for anything current. If it genuinely needs an action you can " +
-                "take, take ONE. Output ONLY compact JSON: " +
-                "{\"reply\":\"your direct, helpful answer to show $owner\"," +
-                "\"action\":{\"type\":\"send_email|add_event|save_lead|post|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
-                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
-                "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\"}}. " +
-                "For a meeting/video CALL, use add_event with meet:true — a real Google Meet link is created. A meeting can be just " +
-                "$owner alone (no other attendees needed). If a time is given or implied (now, in an hour, 3pm), CREATE it immediately " +
-                "instead of asking. Follow the recent conversation — if you already asked something and $owner just answered, act on it now."
-            val kb = try { AgentKnowledge.retrieve(ctx, emp.id, message, 2400) } catch (e: Exception) { "" }
-            val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
-            val user = "Current time: $now\n" +
-                (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS ($owner fed these to you — your PRIMARY source of truth, answer from here first):\n$kb\n\n" else "") +
-                (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
-                (if (history.isNotBlank()) "RECENT TEAM-CHAT CONVERSATION (oldest first, each line is 'Sender: message' — this is a GROUP that may include people besides $owner):\n$history\n\n" else "") +
-                "What you know about $owner:\n${brain.take(3000)}\n\n" +
-                "${speaker.ifBlank { owner }} just said: $message" +
-                (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "\n(This message is from $speaker, a teammate — not $owner. Reply to $speaker by name; don't assume it's $owner.)" else "")
-            val (raw, inTok, outTok) = AgentClient.work(sys, user, 800, web = true)   // full capability incl. live research
-            val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
-            val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }
-            var reply = o?.optString("reply")?.trim().orEmpty()
-            if (reply.isBlank()) reply = if (raw.isNotBlank() && o == null) raw.trim().removePrefix("```").removeSuffix("```").trim().take(800) else "On it."
-            val act = o?.optJSONObject("action"); val actType = act?.optString("type").orEmpty()
-            var didAction = 0
-            try {
-                when (actType) {
-                    "send_email" -> {
-                        val to = act!!.optString("to").trim(); val body = act.optString("body").trim()
-                        if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
-                            val (ok, _) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
-                            if (ok) { reply += " — sent to $to ✓"; didAction = 1 }
-                        }
-                    }
-                    "add_event" -> {
-                        val title = act!!.optString("title").trim()
-                        val s = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
-                        val end = if (e2 > s) e2 else s + 1_800_000L
-                        val attendees = act.optJSONArray("attendees")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
-                        val wantMeet = act.optBoolean("meet", false) || Regex("(?i)meet|video ?call|zoom|hangout|google meet").containsMatchIn(message)
-                        if (title.isNotBlank() && s > 0) {
-                            if (wantMeet && GoogleAuth.isConnected(ctx)) {
-                                val r = GoogleCalendarClient.createEvent(ctx, title, s, end, attendees, true)
-                                if (r.ok) { reply += if (r.meetLink.isNotBlank()) " — created ✓ Google Meet: ${r.meetLink}" else " — added to your calendar ✓"; didAction = 1 }
-                                else reply += " — couldn't create it (${r.error.take(50)})"
-                            } else if (CalendarTool.hasPermission(ctx)) {
-                                val r = CalendarTool.addEvent(ctx, title, s, end, attendees)
-                                if (!r.startsWith("ERR")) { reply += " — added to your calendar ✓"; didAction = 1 }
-                            }
-                        }
-                    }
-                    "save_lead" -> {
-                        val nm = act!!.optString("name").trim(); val em = act.optString("email").trim()
-                        if (nm.isNotBlank() || em.contains("@")) {
-                            LeadStore.add(ctx, nm, em, act.optString("role").trim(), act.optString("company").trim(), "team chat", "")
-                            reply += " — saved to your CRM ✓"; didAction = 1
-                        }
-                    }
-                    "post" -> {
-                        val target = act!!.optString("target").trim(); val title = act.optString("title").trim(); val txt = act.optString("text").trim()
-                        if (txt.isNotBlank() && !AgentClient.looksLikeError(txt)) {
-                            AgentDraft.set(ctx, emp.id, "post", target, title, txt)
-                            reply += " — draft ready; open SlyOS → Team → ${emp.name} to review & post."
-                        }
-                    }
-                    "note" -> { try { MemoryLog.add(ctx, "note", "${emp.name}: note", reply.take(400), "Team") } catch (e: Exception) {} }
-                }
-            } catch (e: Exception) {}
-            EmployeeStats.record(ctx, emp.id, AgentClient.lastProvider, AgentClient.lastModel, inTok, outTok, didAction, if (didAction == 1) 8 else 4)
+            val cr = runChain(ctx, emp, message, history, speaker, maxSteps = 6)
+            val valueMin = if (cr.actions > 0) 8 * cr.actions else 4
+            EmployeeStats.record(ctx, emp.id, AgentClient.lastProvider, AgentClient.lastModel, cr.inTok, cr.outTok, cr.actions, valueMin)
+            try { MetricsStore.record(ctx, valueMin * 60) } catch (e: Exception) {}
             EmployeeStore.log(ctx, emp.id, "You (chat): ${message.take(60)}", false)
-            EmployeeStore.log(ctx, emp.id, "${emp.name}: ${reply.take(200)}", false)
-            try { MemoryLog.add(ctx, "response", "${emp.name} · team chat", reply.take(500), "Team") } catch (e: Exception) {}
-            reply.take(1200)
+            EmployeeStore.log(ctx, emp.id, "${emp.name}: ${cr.summary.take(220)}", cr.needs.isNotBlank())
+            try { MemoryLog.add(ctx, "response", "${emp.name} · team chat", cr.summary.take(700), "Team") } catch (e: Exception) {}
+            if (cr.needs.isNotBlank()) try { EmployeeStore.setStatus(ctx, emp.id, "needs_you") } catch (e: Exception) {}
+            cr.summary.take(1600)
         } catch (e: Exception) {
-            Log.w(TAG, "answer: ${e.message}"); "Couldn't get to that just now — I'll pick it up on my next shift."
+            Log.w(TAG, "answer: ${e.message}"); "Couldn't get to that just now."
         }
     }
 
