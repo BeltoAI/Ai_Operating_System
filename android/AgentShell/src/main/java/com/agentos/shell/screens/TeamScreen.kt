@@ -17,8 +17,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -122,97 +126,156 @@ fun TeamPanel(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(modifier.fillMaxSize()) {
-        // THE OFFICE — see your staff at their desks the moment you open Team.
-        if (staff.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF241D16), Color(0xFF1A1510)))).padding(16.dp)) {
-                Text("YOUR OFFICE", fontSize = 10.sp, color = Color(0xFFB79B7A), fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                Spacer(Modifier.height(4.dp))
-                Text("${staff.size} on the team · ${staff.count { it.status == "needs_you" }} need you", fontSize = T.caption, color = T.inkFaint)
-                Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.Bottom) {
-                    staff.forEachIndexed { i, e ->
-                        val deskCols = listOf(Color(0xFF4E86B0), Color(0xFF5E9A78), Color(0xFF7B5EA7), Color(0xFFC9863F), Color(0xFFB0506A))
-                        Column(horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(end = 18.dp).clickable { run(e) }) {
-                            if (e.status == "needs_you") Text("!", fontSize = 12.sp, color = T.danger, fontWeight = FontWeight.Bold)
-                            else if (e.status == "working") Text("•••", fontSize = 10.sp, color = T.accent)
-                            else Spacer(Modifier.height(14.dp))
-                            PixelPet(e.id, 44)
-                            Box(Modifier.width(52.dp).height(8.dp).clip(RoundedCornerShape(3.dp)).background(deskCols[i % deskCols.size]))
-                            Spacer(Modifier.height(5.dp))
-                            Text(e.name, fontSize = T.caption, color = T.inkSoft, maxLines = 1)
+    var hireOpen by remember { mutableStateOf(false) }
+    var detailEmp by remember { mutableStateOf<EmployeeStore.Employee?>(null) }
+    var connectEmp by remember { mutableStateOf<EmployeeStore.Employee?>(null) }
+    var talker by remember { mutableStateOf(0) }
+    var lastLines by remember { mutableStateOf<Map<String, EmployeeStore.LogLine?>>(emptyMap()) }
+    LaunchedEffect(staff) { lastLines = withContext(Dispatchers.IO) { staff.associate { it.id to EmployeeStore.logFor(ctx, it.id, 1).firstOrNull() } } }
+    LaunchedEffect(Unit) { while (true) { delay(3600); talker += 1 } }
+
+    // ── THE OFFICE — the whole screen. Staff mill about; tap one for details; + to hire. ──────────────
+    Box(modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF2A2118), Color(0xFF15110C))))) {
+            if (staff.isEmpty()) {
+                Column(Modifier.align(Alignment.Center).padding(30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Your office is empty", fontSize = 18.sp, color = T.inkSoft, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap the + to hire your first employee. They'll move in and get to work.",
+                        fontSize = T.small, color = T.inkFaint, textAlign = TextAlign.Center, lineHeight = 20.sp)
+                }
+            } else {
+                val cols = maxOf(1, ((maxWidth.value - 24) / 94).toInt())
+                staff.forEachIndexed { i, e ->
+                    val col = i % cols; val rowIdx = i / cols
+                    val inf = rememberInfiniteTransition(label = "drift$i")
+                    val drift by inf.animateFloat(-11f, 11f, infiniteRepeatable(tween(2000 + (i % 4) * 500), RepeatMode.Reverse), label = "d$i")
+                    val bx = 14 + col * 94 + drift
+                    val by = 28 + rowIdx * 112
+                    val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.offset(bx.dp, by.dp).width(84.dp).clickable { detailEmp = e }) {
+                        Box(Modifier.height(46.dp), contentAlignment = Alignment.BottomCenter) {
+                            if (talk != null) Text(talk.line.take(56), fontSize = 10.sp, maxLines = 3, lineHeight = 12.sp,
+                                color = if (talk.needsInput) T.danger else T.ink,
+                                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.16f) else T.bgElevated).padding(7.dp))
+                            else if (e.status == "needs_you") Text("!", fontSize = 13.sp, color = T.danger, fontWeight = FontWeight.Bold)
                         }
+                        PixelPet(e.id, 48)
+                        Text(e.name, fontSize = 11.sp, color = T.inkSoft, maxLines = 1)
                     }
                 }
+            }
+        }
+        // + to hire
+        Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(58.dp).clip(CircleShape).background(T.accent)
+            .clickable { hireOpen = true }, contentAlignment = Alignment.Center) {
+            Text("+", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 2,
+            modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
+    }
+
+    // ── Hire ──
+    if (hireOpen) Dialog(onDismissRequest = { hireOpen = false }) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
+            Text("BUILD ME AN EMPLOYEE THAT —", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(12.dp)) {
+                if (hireText.isEmpty()) Text("keeps my inbox triaged and drafts replies", fontSize = 15.sp, color = T.inkFaint)
+                BasicTextField(hireText, { hireText = it }, textStyle = TextStyle(color = T.ink, fontSize = 15.sp), modifier = Modifier.fillMaxWidth())
             }
             Spacer(Modifier.height(14.dp))
+            Text(if (busy) "Hiring…" else "Hire", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (hireText.isBlank()) T.hairline else T.accent)
+                    .clickable(enabled = !busy && hireText.isNotBlank()) { hire(); hireOpen = false }.padding(vertical = 13.dp))
         }
-        // Hire bar
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
-            Text("BUILD ME AN EMPLOYEE THAT —", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    if (hireText.isEmpty()) Text("keeps my inbox triaged and drafts replies", fontSize = 15.sp, color = T.inkFaint)
-                    BasicTextField(hireText, { hireText = it }, singleLine = true,
-                        textStyle = TextStyle(color = T.ink, fontSize = 15.sp), modifier = Modifier.fillMaxWidth())
-                }
-                Spacer(Modifier.width(10.dp))
-                Text(if (busy) "…" else "Hire", fontSize = T.small, color = if (busy) T.inkFaint else T.bgElevated, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (busy || hireText.isBlank()) T.hairline else T.accent)
-                        .clickable(enabled = !busy && hireText.isNotBlank()) { hire() }.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
-        }
-        if (flash.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(flash, fontSize = T.caption, color = T.accent, maxLines = 2) }
-        Spacer(Modifier.height(14.dp))
+    }
 
-        LazyColumn(Modifier.weight(1f)) {
-            if (staff.isEmpty()) item {
-                Text("No staff yet. Describe an employee above — e.g. \"sorts my expenses and flags weird charges\" — and I'll hire them.",
-                    fontSize = T.small, color = T.inkFaint, lineHeight = 21.sp)
-            }
-            items(staff, key = { it.id }) { e ->
-                val last = remember(e.id, activity) { EmployeeStore.logFor(ctx, e.id, 1).firstOrNull() }
-                val grad = remember(e.name) { staffGrad(e.name) }
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
-                    .combinedClickable(onClick = { run(e) }, onLongClick = { EmployeeStore.fire(ctx, e.id); refresh() })
-                    .padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(grad)),
-                            contentAlignment = Alignment.Center) {
-                            PixelPet(e.id, 38)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("${e.name} · ${e.role}", fontSize = 15.sp, color = T.ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            val statusTxt = when (e.status) { "working" -> "working…"; "needs_you" -> "needs you"; else -> if (e.intervalMin > 0) "every ${e.intervalMin} min" else "on demand" }
-                            val statusCol = when (e.status) { "needs_you" -> T.danger; "working" -> T.accent; else -> T.inkFaint }
-                            Text(statusTxt, fontSize = T.caption, color = statusCol)
-                        }
-                        Text("Run", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft.copy(alpha = 0.5f))
-                                .clickable { run(e) }.padding(horizontal = 14.dp, vertical = 7.dp))
-                    }
-                    if (last != null) {
-                        Spacer(Modifier.height(10.dp))
-                        Text(last.line, fontSize = T.small, color = if (last.needsInput) T.danger else T.inkSoft, lineHeight = 20.sp,
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                .background(if (last.needsInput) T.danger.copy(alpha = 0.10f) else T.bg).padding(10.dp))
+    // ── Employee detail ──
+    detailEmp?.let { e ->
+        val log = remember(e.id, staff) { EmployeeStore.logFor(ctx, e.id, 10) }
+        val needs = log.firstOrNull { it.needsInput }
+        Dialog(onDismissRequest = { detailEmp = null }) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(staffGrad(e.name))), contentAlignment = Alignment.Center) { PixelPet(e.id, 38) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${e.name} · ${e.role}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                        Text(if (e.intervalMin > 0) "runs every ${e.intervalMin} min" else "runs on demand", fontSize = T.caption, color = T.inkFaint)
                     }
                 }
-            }
-            if (activity.isNotEmpty()) {
-                item { Spacer(Modifier.height(16.dp)); Text("TEAM ACTIVITY", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp) }
-                items(activity, key = { "a" + it.id }) { a ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                        Text(agoLabel(a.ts), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(56.dp))
-                        Text(a.line, fontSize = T.caption, color = if (a.needsInput) T.danger else T.inkSoft, modifier = Modifier.weight(1f), maxLines = 2)
+                if (needs != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger.copy(alpha = 0.10f)).padding(12.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Let SlyOS set it up for me", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { connectEmp = e; detailEmp = null }.padding(vertical = 12.dp))
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                LazyColumn(Modifier.weight(1f, false).heightIn(max = 220.dp)) {
+                    items(log, key = { it.id }) { l ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Text(agoLabel(l.ts), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(52.dp))
+                            Text(l.line, fontSize = T.caption, color = if (l.needsInput) T.danger else T.inkSoft, modifier = Modifier.weight(1f))
+                        }
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Run a shift", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { run(e); detailEmp = null }.padding(vertical = 12.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Fire", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { EmployeeStore.fire(ctx, e.id); detailEmp = null; refresh() }.padding(horizontal = 18.dp, vertical = 12.dp))
+                }
             }
-            item { Spacer(Modifier.height(20.dp)) }
+        }
+    }
+
+    // ── Set up a connection (the employee drives your phone, or you paste credentials) ──
+    connectEmp?.let { e ->
+        var svc by remember { mutableStateOf("") }
+        var url by remember { mutableStateOf("") }
+        var key by remember { mutableStateOf("") }
+        Dialog(onDismissRequest = { connectEmp = null }) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
+                Text("Set up what ${e.name} needs", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text("Let SlyOS open the app or site and sign you in — or paste the details yourself.", fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
+                Spacer(Modifier.height(14.dp))
+                Text("Let SlyOS log me in / set it up  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable {
+                        com.agentos.shell.tools.ScreenAgent.start(ctx.applicationContext,
+                            "Set up the tool/connection ${e.name} (${e.role}) needs to do this goal: \"${e.goal}\". Open the right app or website, help me sign in or register step by step, and stop to ask me for any credentials or codes you need.")
+                        flash = "SlyOS is setting it up — follow along on your screen."; connectEmp = null
+                    }.padding(vertical = 13.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("OR PASTE IT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                Spacer(Modifier.height(8.dp))
+                @Composable fun field(hint: String, v: String, on: (String) -> Unit) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(11.dp)) {
+                        if (v.isEmpty()) Text(hint, fontSize = 14.sp, color = T.inkFaint)
+                        BasicTextField(v, on, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 14.sp), modifier = Modifier.fillMaxWidth())
+                    }
+                }
+                field("Service name (e.g. HubSpot)", svc) { svc = it }
+                field("Web address (optional)", url) { url = it }
+                field("API key / token (optional)", key) { key = it }
+                Spacer(Modifier.height(12.dp))
+                Text("Save connection", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (svc.isBlank()) T.hairline else T.accent)
+                        .clickable(enabled = svc.isNotBlank()) {
+                            com.agentos.shell.tools.IntegrationStore.add(ctx, svc, url, key, "Added for ${e.name}")
+                            EmployeeStore.log(ctx, e.id, "$svc is now connected — resuming.", false)
+                            EmployeeStore.setStatus(ctx, e.id, "idle")
+                            flash = "$svc connected ✓"; connectEmp = null; refresh()
+                        }.padding(vertical = 13.dp))
+            }
         }
     }
 }
