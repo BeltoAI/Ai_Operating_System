@@ -74,7 +74,7 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
-    var segment by remember { mutableStateOf(0) }          // 0=For you, 1=Skill, 2=Connect, 3=Tool
+    var category by remember { mutableStateOf("For you") }   // browse by what you want to DO, not tech type
     var selected by remember { mutableStateOf<Power?>(null) }
     var ghResults by remember { mutableStateOf<List<Power>>(emptyList()) }
     var loadingGh by remember { mutableStateOf(false) }
@@ -111,7 +111,7 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
             if (installedCount > 0) Text("reset", fontSize = T.caption, color = T.danger, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clickable { showReset = true }.padding(6.dp))
         }
-        if (installedCount > 0) Text("$installedCount active", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold)
+        if (installedCount > 0) Text("$installedCount added", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold)
         if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(16.dp))
 
@@ -131,15 +131,17 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
         }
         Spacer(Modifier.height(14.dp))
 
-        // ── Segmented view switch ────────────────────────────────────────────────────
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(T.bgElevated).padding(3.dp)) {
-            val labels = listOf("For you", "Skill", "Connect", "Tool")
-            labels.forEachIndexed { i, lbl ->
-                val sel = segment == i && query.isBlank()
-                Text(lbl, fontSize = T.small, color = if (sel) Color.White else T.inkSoft, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(if (sel) T.accent else Color.Transparent)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { segment = i; query = "" }.padding(vertical = 9.dp))
+        // ── Browse by what you want to DO — plain outcome categories, not tech types ─────────────────
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            val cats = listOf("For you") + PowerCatalog.CATEGORIES
+            cats.forEach { c ->
+                val sel = category == c && query.isBlank()
+                Text(c, fontSize = T.small, color = if (sel) Color.White else T.inkSoft,
+                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                        .background(if (sel) T.accent else T.bgElevated)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { category = c; query = "" }
+                        .padding(horizontal = 16.dp, vertical = 9.dp))
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -163,22 +165,24 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
                     items(ghResults, key = { it.id }) { p -> RankRow(0, p, PowerRegistry.isInstalled(ctx, p.id).also { tick }) { selected = p } }
                 }
                 // ── For you ──
-                segment == 0 -> {
-                    all.firstOrNull { it.featured }?.let { hero -> item(key = "hero") { FeaturedCard(hero, PowerRegistry.isInstalled(ctx, hero.id).also { tick }) { selected = hero } } }
-                    val rec = all.filter { it.featured || it.trending }
-                    if (rec.isNotEmpty()) {
-                        item { RailHeader("recommended for you") }
-                        item { LazyRow { items(rec, key = { "r_" + it.id }) { p -> RailCard(p) { selected = p } } } }
+                category == "For you" -> {
+                    val hero = all.firstOrNull { it.featured }
+                    hero?.let { item(key = "hero") { FeaturedCard(it, PowerRegistry.isInstalled(ctx, it.id).also { tick }) { selected = it } } }
+                    // "Works on your phone right now" — the wins Joe can use with one tap, no computer.
+                    val onPhone = all.filter { (it.onPhone || it.type == PowerType.SKILL) && it.id != hero?.id }
+                    if (onPhone.isNotEmpty()) {
+                        item { RailHeader("works on your phone now") }
+                        item { LazyRow { items(onPhone, key = { "r_" + it.id }) { p -> RailCard(p) { selected = p } } } }
                     }
-                    item { Spacer(Modifier.height(6.dp)); RailHeader("top powers") }
-                    val top = all.sortedByDescending { it.starCount }.take(10)
+                    item { Spacer(Modifier.height(6.dp)); RailHeader("most popular") }
+                    val top = all.filter { it.id != hero?.id }.sortedByDescending { it.starCount }.take(12)
                     itemsIndexedKeyed(top) { i, p -> RankRow(i + 1, p, PowerRegistry.isInstalled(ctx, p.id).also { tick }) { selected = p } }
                 }
-                // ── Facet by type ──
+                // ── Browse a category ──
                 else -> {
-                    val t = when (segment) { 1 -> PowerType.SKILL; 2 -> PowerType.CONNECT; else -> PowerType.TOOL }
-                    val list = all.filter { it.type == t }.sortedByDescending { it.starCount }
-                    item { RailHeader(t.label.lowercase() + " powers") }
+                    val list = all.filter { it.category.equals(category, true) }.sortedByDescending { it.starCount }
+                    item { RailHeader(category) }
+                    if (list.isEmpty()) item { Text("Nothing here yet — try the search above.", fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 12.dp)) }
                     itemsIndexedKeyed(list) { i, p -> RankRow(0, p, PowerRegistry.isInstalled(ctx, p.id).also { tick }) { selected = p } }
                 }
             }
@@ -233,9 +237,15 @@ private fun Crest(p: Power, size: Int) {
     }
 }
 
+/** Works with one tap on the phone? (native capability, or a Skill that upgrades the AI directly.) */
+private fun onPhoneNow(p: Power) = p.onPhone || p.type == PowerType.SKILL
+
 @Composable
-private fun RatingRow(p: Power) =
-    Text("★ ${"%.1f".format(p.rating)}   ·   ${p.stars}", fontSize = T.caption, color = T.inkFaint)
+private fun RatingRow(p: Power) {
+    val phone = onPhoneNow(p)
+    Text("★ ${"%.1f".format(p.rating)}   ·   ${if (phone) "works on your phone" else "needs a computer"}",
+        fontSize = T.caption, color = if (phone) T.accent else T.inkFaint, fontWeight = if (phone) FontWeight.Medium else FontWeight.Normal)
+}
 
 @Composable
 private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
@@ -251,9 +261,9 @@ private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
                 Text("power to ${p.tagline}", fontSize = 23.sp, color = Color.White, fontWeight = FontWeight.Bold, lineHeight = 27.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("★ ${"%.1f".format(p.rating)}  ·  ${p.stars}", fontSize = T.caption, color = Color(0xDDFFFFFF))
+                    Text("★ ${"%.1f".format(p.rating)}  ·  ${if (onPhoneNow(p)) "works on your phone" else "needs a computer"}", fontSize = T.caption, color = Color(0xDDFFFFFF))
                     Spacer(Modifier.weight(1f))
-                    Text(if (installed) "ACTIVE" else "GET", fontSize = T.caption, color = if (installed) Color.White else a, fontWeight = FontWeight.Bold,
+                    Text(if (installed) "ADDED" else "GET", fontSize = T.caption, color = if (installed) Color.White else a, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (installed) Color(0x33FFFFFF) else Color.White).padding(horizontal = 18.dp, vertical = 7.dp))
                 }
             }
@@ -284,7 +294,7 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
             RatingRow(p)
         }
         Spacer(Modifier.width(8.dp))
-        Text(if (installed) "ACTIVE" else "GET", fontSize = T.caption, color = if (installed) T.inkFaint else T.accent, fontWeight = FontWeight.Bold,
+        Text(if (installed) "ADDED" else "GET", fontSize = T.caption, color = if (installed) T.inkFaint else T.accent, fontWeight = FontWeight.Bold,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (installed) T.hairline else T.accentSoft.copy(alpha = 0.5f)).clickable { onClick() }.padding(horizontal = 16.dp, vertical = 7.dp))
     }
     Hairline()
@@ -334,8 +344,9 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                 Column(Modifier.weight(1f)) {
                     Text(p.name, fontSize = 24.sp, color = T.ink, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(3.dp))
-                    Text("★ ${"%.1f".format(p.rating)}    ${p.stars} stars    ·    ${p.type.label}", fontSize = T.caption, color = T.inkFaint)
-                    if (installed) { Spacer(Modifier.height(4.dp)); Text("active", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold) }
+                    Text("★ ${"%.1f".format(p.rating)}    ·    ${if (onPhoneNow(p)) "works on your phone" else "needs a computer"}",
+                        fontSize = T.caption, color = if (onPhoneNow(p)) T.accent else T.inkFaint)
+                    if (installed) { Spacer(Modifier.height(4.dp)); Text("added", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold) }
                 }
             }
             Spacer(Modifier.height(16.dp))
