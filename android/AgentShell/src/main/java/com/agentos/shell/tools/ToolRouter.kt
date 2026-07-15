@@ -350,28 +350,37 @@ object ToolRouter {
             val message = o.optString("message").trim()
             val count = o.optInt("count", 1).coerceIn(1, 6)
 
-            // Candidates: real gallery/indexed photos, screenshots excluded (they're never "a photo of me").
-            val cands = FileResolver.find(ctx, query.ifBlank { "photo" })
-                .filter { !it.where.contains("screenshot", true) && !it.name.contains("screenshot", true) && !it.name.contains(".pdf", true) }
-                .take(10)
-            if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on."
+            // Candidate POOL: keyword hits + a broad sweep of recent real photos, screenshots excluded, so the
+            // vision model has your actual gallery to look through — not just the 4 whose filename matched.
+            val ss = Regex("(?i)screenshot")
+            val pool = LinkedHashMap<String, FileResolver.Found>()
+            FileResolver.find(ctx, query.ifBlank { "photo" })
+                .filter { !ss.containsMatchIn(it.where + it.name) && !it.name.contains(".pdf", true) }
+                .forEach { pool[it.uri.toString()] = it }
+            FileResolver.recentPhotos(ctx, 40)
+                .filter { !ss.containsMatchIn(it.where + it.name) }
+                .forEach { pool.putIfAbsent(it.uri.toString(), it) }
+            val cands = pool.values.toList().take(36)
+            if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on in Settings."
 
-            // LOOK at them: ask the vision model which candidates genuinely match, best first — so we never
-            // send a random screenshot or the wrong person just because a filename matched.
-            val chosen = try {
-                val imgs = cands.mapNotNull { com.agentos.shell.tools.ImageUtil.encode(ctx, it.uri, 640) }
-                if (imgs.isNotEmpty()) {
-                    val prompt = "The owner wants photos matching: \"$query\". Below are ${imgs.size} images, numbered 1 to ${imgs.size} in order. " +
-                        "Reply with ONLY the numbers that genuinely match the request, best match first, comma-separated (e.g. 3,1,5). " +
-                        "Be strict — exclude screenshots, wrong subjects, and anything that isn't clearly a match. If none match, reply exactly NONE."
-                    val out = AgentClient.askVision(prompt, imgs, "")
-                    if (out.contains("NONE", true)) emptyList()
-                    else Regex("\\d+").findAll(out).map { it.value.toInt() }.filter { it in 1..cands.size }.distinct().map { cands[it - 1] }.toList()
-                } else emptyList()
-            } catch (e: Exception) { emptyList() }
+            // LOOK at them, in batches, so it genuinely scans dozens of photos and picks only real matches.
+            val chosen = ArrayList<FileResolver.Found>()
+            try {
+                cands.chunked(12).forEach { batch ->
+                    val imgs = batch.mapNotNull { com.agentos.shell.tools.ImageUtil.encode(ctx, it.uri, 512) }
+                    if (imgs.isNotEmpty()) {
+                        val prompt = "The owner wants photos matching: \"$query\". Below are ${imgs.size} images, numbered 1 to ${imgs.size} in order. " +
+                            "Reply with ONLY the numbers that genuinely match, best first, comma-separated (e.g. 3,1,5). " +
+                            "Be strict — exclude screenshots, the wrong subject, and anything that isn't clearly a match. If none match, reply exactly NONE."
+                        val out = AgentClient.askVision(prompt, imgs, "")
+                        if (!out.contains("NONE", true))
+                            Regex("\\d+").findAll(out).map { it.value.toInt() }.filter { it in 1..batch.size }.distinct().forEach { chosen.add(batch[it - 1]) }
+                    }
+                }
+            } catch (e: Exception) {}
 
             if (chosen.isEmpty())
-                return "I went through your gallery but couldn't find photos that clearly match “$query”, so I didn't send anything random. Want me to widen the search or send the closest ones anyway?"
+                return "I looked through ${cands.size} of your photos but none clearly matched “$query”, so I didn't send anything random. Want me to widen it, or send the closest ones anyway?"
 
             val pick = chosen.take(count)
             if (name.isBlank()) {
