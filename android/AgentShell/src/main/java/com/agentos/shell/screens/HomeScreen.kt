@@ -344,6 +344,30 @@ fun HomeScreen(
         }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
         scope.launch {
+            // ── GENERATIVE BUTTONS ───────────────────────────────────────────────────────────────────
+            // "Make me a button that ___" → SlyOS turns it into a one-tap prompt-button on Home. Tapping it
+            // runs that instruction through the brain/HomeAI (the non-negotiable path). Position it by drag.
+            if (Regex("(?i)\\b(create|make|add|build|give me|pin)\\b[^.]{0,34}\\bbutton\\b").containsMatchIn(q)) {
+                val spec = withContext(Dispatchers.IO) {
+                    AgentClient.complete(
+                        "The user wants a one-tap button on their phone Home screen that runs an AI action. From their " +
+                        "request, output ONLY compact JSON {\"label\":\"<max 12 chars>\",\"prompt\":\"the first-person " +
+                        "instruction the AI should run when the button is tapped\"}. No prose, no code fences.", q, 220)
+                }
+                val (lab, pr) = try {
+                    val js = spec.substring(spec.indexOf('{'), spec.lastIndexOf('}') + 1)
+                    val o = org.json.JSONObject(js); o.optString("label").trim().take(14) to o.optString("prompt").trim()
+                } catch (e: Exception) { "" to "" }
+                if (pr.isNotBlank()) {
+                    withContext(Dispatchers.IO) { com.agentos.shell.tools.ShortcutStore.add(ctx, "prompt", lab.ifBlank { "Button" }, pr) }
+                    refreshShortcuts()
+                    reply = "Made a button \"${lab.ifBlank { "Button" }}\" — tap it any time to: \"$pr\". Long-press Home to drag it where you want."
+                    withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
+                } else reply = "Tell me what the button should do — e.g. \"make a button that drafts my morning update\"."
+                if (doSpeak) speak(reply)
+                thinking = false
+                return@launch
+            }
             // ── ATTACHMENT / FILE ACTIONS via the PLANNER ────────────────────────────────────────────
             // The model turns the request into ONE structured action (send / read / fill / edit / generate /
             // convert / move / reply), then the executor runs it deterministically. This is the robust core:
@@ -861,6 +885,7 @@ fun HomeScreen(
                                     .clickable {
                                         if (editMode) editMode = false
                                         else if (s.kind == "app") ToolRouter.launchApp(ctx, s.ref)
+                                        else if (s.kind == "prompt") submit(s.ref, false)   // a prompt-button → runs through the brain/HomeAI
                                         else s.ref.toLongOrNull()?.let { onOpenApp(it) }
                                     },
                                 contentAlignment = Alignment.Center
@@ -869,8 +894,8 @@ fun HomeScreen(
                                     Image(bitmap = icon, contentDescription = s.label, contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)))
                                 else
-                                    Text(if (s.kind == "app") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
-                                        fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated)
+                                    Text(if (s.kind == "app" || s.kind == "prompt") (s.label.firstOrNull()?.uppercase() ?: "•") else "◆",
+                                        fontSize = T.body, color = if (s.kind == "app") T.ink else T.bgElevated, fontWeight = FontWeight.Bold)
                             }
                             // Remove badge: only while in edit mode (after a long-press), like a launcher.
                             if (editMode) {

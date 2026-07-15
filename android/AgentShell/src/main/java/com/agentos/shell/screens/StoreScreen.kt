@@ -447,6 +447,12 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
                                         .background(T.accentSoft.copy(alpha = 0.35f)).clickable { onTry(s) }.padding(horizontal = 14.dp, vertical = 12.dp)) {
                                     Text(s, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                    Text("pin", fontSize = T.caption, color = T.inkFaint, fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.clickable {
+                                            com.agentos.shell.tools.ShortcutStore.add(ctx, "prompt", p.name.take(12), s)
+                                            status = "Pinned \"${p.name.take(12)}\" to your Home screen ✓"
+                                        }.padding(horizontal = 8.dp))
+                                    Spacer(Modifier.width(4.dp))
                                     Text("→", fontSize = T.body, color = T.accent, fontWeight = FontWeight.Bold)
                                 }
                             }
