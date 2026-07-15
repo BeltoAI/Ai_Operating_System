@@ -197,7 +197,8 @@
     .agent{ position:absolute; width:56px; text-align:center; animation:float 5s ease-in-out infinite }
     .agent .pet{ width:54px; height:54px; margin:0 auto; image-rendering:pixelated }
     .agent .pet svg{ width:100%; height:100%; display:block }
-    .agent .nm{ font-size:11px; color:var(--faint); margin-top:4px }
+    .agent .nm{ font-size:11px; color:var(--faint); margin-top:4px; text-align:center }
+    .agent .role{ font-size:9px; letter-spacing:.4px; color:var(--soft); text-align:center; opacity:.8 }
     @keyframes float{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } }
     .bubble{ position:absolute; background:var(--bg); border:1px solid var(--line); color:var(--ink);
       font-size:13px; padding:8px 12px; border-radius:14px; max-width:230px; opacity:0; transform:translateY(6px);
@@ -216,18 +217,18 @@
   </style>
   <section id="team" class="teamsec">
     <p class="eyebrow">Your AI staff</p>
-    <h2>Hire a team that works while you don't</h2>
-    <p class="muted">Describe an employee — "keep my inbox triaged," "sort my expenses," "manage my tickets." They work shifts on their own, report what they did, and tap you on the shoulder when they need something. Every shift is remembered in your brain, and everything runs through your one AI.</p>
+    <h2>Hire as many agents as you want — all from your phone</h2>
+    <p class="muted">Tap a role or describe your own: an inbox triager, a research analyst, a bookkeeper, a Reddit growth strategist. They move into their own office and work 24/7 — reading your calendar, sending real email, browsing the web, positioning you as an expert — grounded in your brain. Every shift shows the receipt: tokens spent vs. minutes saved. Fully autonomous by default; they ping your lock screen when there's something to see.</p>
     <div class="office">
       <div class="officefloor" id="officefloor">
-        <div class="agent" style="left:8%; top:70px"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="nm">Piper</div></div>
-        <div class="agent" style="left:44%; top:96px; animation-delay:1.2s"><div class="pet" data-sp="1" data-col="#9A9085"></div><div class="nm">Dev</div></div>
-        <div class="agent" style="left:80%; top:64px; animation-delay:.6s"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="nm">Ada</div></div>
+        <div class="agent" style="left:8%; top:64px"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="nm">Maya</div><div class="role">Inbox</div></div>
+        <div class="agent" style="left:44%; top:92px; animation-delay:1.2s"><div class="pet" data-sp="1" data-col="#4E86B0"></div><div class="nm">Rana</div><div class="role">Research</div></div>
+        <div class="agent" style="left:80%; top:58px; animation-delay:.6s"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="nm">Ravi</div><div class="role">Reddit</div></div>
         <div class="bubble" id="bubble"></div>
       </div>
-      <div class="hirebar"><span class="lbl">BUILD ME AN EMPLOYEE THAT —</span><span class="typ" id="hiretyp"></span><span class="go">Hire</span></div>
+      <div class="hirebar"><span class="lbl">HIRE A TEAMMATE —</span><span class="typ" id="hiretyp"></span><span class="go">Hire</span></div>
       <div class="feed" id="teamfeed"></div>
-      <div class="brainnote">Every shift is logged to your brain · supervised until you trust them</div>
+      <div class="brainnote">Runs 24/7 · every shift logged to your brain · you see the receipts</div>
     </div>
   </section>
 
@@ -309,7 +310,7 @@
     setTimeout(function(){bubble.classList.remove('show')},2600);
     i++;
   }
-  var phrase='keeps my inbox triaged and drafts replies', hp=0;
+  var phrase='grows my Reddit presence and drafts human posts', hp=0;
   function type(){ if(hp<=phrase.length){ hiretyp.textContent=phrase.slice(0,hp)+'▏'; hp++; setTimeout(type,55);} else hiretyp.textContent=phrase; }
   type(); tick(); setInterval(tick,3400);
 })();

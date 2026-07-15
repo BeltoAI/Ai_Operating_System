@@ -389,7 +389,8 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.2f) else T.bgElevated).padding(5.dp))
                         else if (e.status == "needs_you") Text("!", fontSize = 12.sp, color = T.danger, fontWeight = FontWeight.Bold)
                         PixelPet(e.id, 30)
-                        Text(e.name.take(8), fontSize = 9.sp, color = Color(0xFF2C2620), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(e.name.take(9), fontSize = 9.sp, color = Color(0xFF2C2620), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(e.role.take(16), fontSize = 7.sp, color = Color(0xFF6E5F4C), maxLines = 1, lineHeight = 8.sp)
                     }
                 }
                 if (staff.isEmpty())
@@ -409,6 +410,16 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
             }
             if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 3,
                 modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
+        }
+        // ── ready-for-you strip: agents surface finished/blocked items here — tap to open & confirm ──
+        val pending = staff.filter { it.status == "needs_you" }
+        if (pending.isNotEmpty()) Row(Modifier.fillMaxWidth().background(T.accent.copy(alpha = 0.16f))
+            .clickable { detailEmp = pending.first() }.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(T.accent))
+            Spacer(Modifier.width(8.dp))
+            Text(if (pending.size == 1) "${pending.first().name} has something for you" else "${pending.size} agents need your eyes",
+                fontSize = 12.sp, color = T.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("Review →", fontSize = 12.sp, color = T.accent, fontWeight = FontWeight.SemiBold)
         }
         // ── talk to your team — the office's line to you ──
         Row(Modifier.fillMaxWidth().background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -474,6 +485,10 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Text("${e.name} · ${e.role}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
                         Text(if (e.intervalMin > 0) "runs every ${e.intervalMin} min" else "runs on demand", fontSize = T.caption, color = T.inkFaint)
                     }
+                }
+                if (e.goal.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(e.goal, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
                 }
                 // ── the receipt: what this worker cost vs. delivered ──
                 val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }

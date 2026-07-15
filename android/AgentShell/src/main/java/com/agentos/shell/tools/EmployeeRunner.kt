@@ -102,6 +102,11 @@ object EmployeeRunner {
             try { MemoryLog.add(ctx, "action", "${emp.name} (${emp.role})", (did + (if (outcome.isNotBlank()) "\n$outcome" else "") + (if (detail.isNotBlank()) "\n$detail" else "")).take(800), "Team") } catch (e: Exception) {}
 
             EmployeeStore.setStatus(ctx, emp.id, if (needs.isNotBlank()) "needs_you" else "idle", touchRun = true)
+            // Ping the lock screen when there's something to see — a result done, or a genuine ask.
+            try {
+                if (needs.isNotBlank()) EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needs, true)
+                else if (didAction == 1) EmployeeNotify.post(ctx, emp.id, "${emp.name} · ${emp.role}", outcome.ifBlank { did }, false)
+            } catch (e: Exception) {}
             did
         } catch (e: Exception) {
             Log.w(TAG, "runShift: ${e.message}")
