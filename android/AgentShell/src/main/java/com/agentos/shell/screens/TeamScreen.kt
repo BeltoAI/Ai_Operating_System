@@ -501,18 +501,24 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
             val draftObj = com.agentos.shell.tools.AgentDraft.get(ctx, e.id)
             fun copyAndOpenReddit() {
                 val text = draftObj?.text ?: (needs?.line ?: "")
+                val title = draftObj?.title ?: ""
                 try {
+                    // Body onto the clipboard as a safety net; title+body pre-filled via the submit URL params.
                     val cb = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cb.setPrimaryClip(android.content.ClipData.newPlainText("SlyOS post", text))
                     val sub = (draftObj?.target ?: "").let { Regex("r/([A-Za-z0-9_]+)").find(it)?.groupValues?.get(1) }
                         ?: Regex("r/([A-Za-z0-9_]+)").find(needs?.line ?: "")?.groupValues?.get(1)
-                    val url = if (sub != null) "https://www.reddit.com/r/$sub/submit" else "https://www.reddit.com"
+                    val enc = { s: String -> java.net.URLEncoder.encode(s, "UTF-8") }
+                    val url = if (sub != null) {
+                        val base = "https://www.reddit.com/r/$sub/submit"
+                        if (title.isNotBlank()) "$base?title=${enc(title)}&text=${enc(text)}" else base
+                    } else "https://www.reddit.com"
                     ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
                 } catch (ex: Exception) {}
                 com.agentos.shell.tools.AgentDraft.clear(ctx, e.id)
                 EmployeeStore.log(ctx, e.id, "Copied the post and opened Reddit.", false)
                 EmployeeStore.setStatus(ctx, e.id, "idle"); com.agentos.shell.tools.EmployeeStats.approve(ctx, e.id)
-                flash = "Copied — just paste it into Reddit"; detailEmp = null; refresh()
+                flash = if (title.isNotBlank()) "Opening Reddit with your title + post" else "Copied — paste it into Reddit"; detailEmp = null; refresh()
             }
             Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -559,6 +565,8 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             Spacer(Modifier.height(8.dp))
                             Text((if (draftObj.target.isNotBlank()) "READY TO POST · ${draftObj.target}" else "READY TO POST"), fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                             Spacer(Modifier.height(4.dp))
+                            if (draftObj.title.isNotBlank())
+                                Text(draftObj.title, fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp))
                             Text(draftObj.text, fontSize = T.small, color = T.ink, lineHeight = 19.sp,
                                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(12.dp))
                         }

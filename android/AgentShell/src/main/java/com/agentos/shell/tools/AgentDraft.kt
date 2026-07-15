@@ -12,18 +12,18 @@ object AgentDraft {
     private const val PREFS = "slyos_agent_draft"
     private fun p(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    data class Draft(val kind: String, val target: String, val text: String, val ts: Long)
+    data class Draft(val kind: String, val target: String, val title: String, val text: String, val ts: Long)
 
-    fun set(ctx: Context, empId: String, kind: String, target: String, text: String) {
+    fun set(ctx: Context, empId: String, kind: String, target: String, title: String, text: String) {
         if (text.isBlank()) return
-        val o = JSONObject().put("kind", kind).put("target", target).put("text", text).put("ts", System.currentTimeMillis())
+        val o = JSONObject().put("kind", kind).put("target", target).put("title", title).put("text", text).put("ts", System.currentTimeMillis())
         p(ctx).edit().putString(empId, o.toString()).apply()
     }
 
     fun get(ctx: Context, empId: String): Draft? = try {
         val s = p(ctx).getString(empId, null) ?: return null
         val o = JSONObject(s)
-        Draft(o.optString("kind"), o.optString("target"), o.optString("text"), o.optLong("ts"))
+        Draft(o.optString("kind"), o.optString("target"), o.optString("title"), o.optString("text"), o.optLong("ts"))
     } catch (e: Exception) { null }
 
     fun clear(ctx: Context, empId: String) = p(ctx).edit().remove(empId).apply()

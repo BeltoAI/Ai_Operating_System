@@ -42,6 +42,12 @@ object EmployeeRunner {
                 val atts = try { Inbox.emailAttachments(ctx, 6).joinToString("\n") { "• ${it.name} (from ${it.who})" } } catch (e: Exception) { "" }
                 if (atts.isNotBlank()) live.append("RECENT EMAIL ATTACHMENTS:\n").append(atts).append("\n\n")
             }
+            // Recent messages — INCLUDING replies the owner sent back to you. Use these to CONTINUE or WRAP UP
+            // a task you started (e.g. you emailed them a question and they answered).
+            run {
+                val msgs = try { MessageStore.recentLines(ctx, 12).joinToString("\n") } catch (e: Exception) { "" }
+                if (msgs.isNotBlank()) live.append("RECENT MESSAGES (newest last — if the owner replied to something YOU sent, act on their answer now):\n").append(msgs.take(1600)).append("\n\n")
+            }
 
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's autonomous AI team. Standing goal: \"${emp.goal}\". " +
                 caps + " You run UNSUPERVISED — take the SINGLE most useful next step toward your goal right now, and when " +
@@ -57,9 +63,12 @@ object EmployeeRunner {
                 "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}}. " +
                 "send_email only to a REAL address, body written in $owner's own voice. add_event uses local ISO times. " +
                 "note saves a finding to $owner's brain. " +
-                "post: for a Reddit comment/post or any social reply. Put the subreddit or platform in \"target\" (e.g. \"r/LocalLLaMA\"). " +
-                "CRITICAL — \"text\" must be ONLY the exact words $owner would paste into the box: no headline unless it's a real post title, " +
-                "NO meta like 'Subreddit:', 'Target thread', 'Exact comment', NO markdown headers, NO '---', NO quotes around it. Just the human message, ready to paste. " +
+                "post: for a Reddit comment/post or any social reply. Put the subreddit in \"target\" (e.g. \"r/LocalLLaMA\") — " +
+                "VARY the subreddit across shifts to reach different relevant communities, don't always pick the same one. " +
+                "If it's a standalone POST (a new thread), ALSO fill \"title\" with a real, specific post title (Reddit posts REQUIRE a title). " +
+                "For a reply/comment, leave \"title\" empty. " +
+                "CRITICAL — \"text\" is ONLY the body $owner would paste: NO meta like 'Subreddit:', 'Target thread', 'Exact comment', " +
+                "NO markdown headers, NO '---', NO quotes around it, and do NOT repeat the title inside the body. Just the human message, ready to paste. " +
                 "save_lead: whenever you find or correspond with a REAL person worth remembering — set name + email (+role, +company). It goes into $owner's CRM. " +
                 "none = you only researched/thought this shift. No prose, no fences."
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
@@ -107,9 +116,10 @@ object EmployeeRunner {
                     }
                     "post" -> {
                         val target = act!!.optString("target").trim()
+                        val title = act.optString("title").trim()
                         val text = act.optString("text").trim()
                         if (text.isNotBlank() && !AgentClient.looksLikeError(text)) {
-                            AgentDraft.set(ctx, emp.id, "post", target, text)   // clean, ready-to-paste — copied verbatim later
+                            AgentDraft.set(ctx, emp.id, "post", target, title, text)   // title + clean body, ready to post
                             outcome = "Drafted a post" + (if (target.isNotBlank()) " for $target" else "") + " — ready for your approval"
                             postNeed = "Approval to post" + (if (target.isNotBlank()) " to $target" else "") + " — open the card to review and post."
                         }
