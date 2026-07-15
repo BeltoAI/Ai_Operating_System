@@ -171,6 +171,7 @@ class ShellActivity : ComponentActivity() {
         val openReconnect = intent?.getBooleanExtra("open_reconnect", false) == true
         // The floating nav panel launches us with a target screen name.
         val navTarget = intent?.getStringExtra("nav")?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
+        intent?.getStringExtra("emp")?.let { com.agentos.shell.tools.TeamInbox.openEmpId = it }   // tapped a team notification
         setContent {
             var screen by remember {
                 mutableStateOf(when {

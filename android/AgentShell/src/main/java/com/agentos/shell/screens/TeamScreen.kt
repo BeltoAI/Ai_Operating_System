@@ -192,6 +192,13 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
     var lastLines by remember { mutableStateOf<Map<String, EmployeeStore.LogLine?>>(emptyMap()) }
     LaunchedEffect(staff) { lastLines = withContext(Dispatchers.IO) { staff.associate { it.id to EmployeeStore.logFor(ctx, it.id, 1).firstOrNull() } } }
     LaunchedEffect(Unit) { while (true) { delay(3600); talker += 1 } }
+    // Opened from a team notification → jump straight to that agent's card.
+    LaunchedEffect(Unit) {
+        com.agentos.shell.tools.TeamInbox.openEmpId?.let { id ->
+            EmployeeStore.get(ctx, id)?.let { detailEmp = it }
+            com.agentos.shell.tools.TeamInbox.openEmpId = null
+        }
+    }
 
     var teamText by remember { mutableStateOf("") }
     var teamReply by remember { mutableStateOf<String?>(null) }
@@ -477,7 +484,27 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         val log = remember(e.id, staff) { EmployeeStore.logFor(ctx, e.id, 10) }
         val needs = log.firstOrNull { it.needsInput }
         Dialog(onDismissRequest = { detailEmp = null }) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
+            var askText by remember(e.id) { mutableStateOf("") }
+            fun approveDone() {
+                EmployeeStore.log(ctx, e.id, "You approved — marked done.", false)
+                EmployeeStore.setStatus(ctx, e.id, "idle")
+                com.agentos.shell.tools.EmployeeStats.approve(ctx, e.id)
+                flash = "Approved ✓"; detailEmp = null; refresh()
+            }
+            fun copyAndOpenReddit() {
+                val draft = log.filter { !it.needsInput }.maxByOrNull { it.line.length }?.line ?: (needs?.line ?: "")
+                try {
+                    val cb = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cb.setPrimaryClip(android.content.ClipData.newPlainText("SlyOS post", draft))
+                    val sub = Regex("r/([A-Za-z0-9_]+)").find(needs?.line ?: "")?.groupValues?.get(1)
+                    val url = if (sub != null) "https://www.reddit.com/r/$sub/submit" else "https://www.reddit.com"
+                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (ex: Exception) {}
+                EmployeeStore.log(ctx, e.id, "Copied the post and opened Reddit.", false)
+                EmployeeStore.setStatus(ctx, e.id, "idle"); com.agentos.shell.tools.EmployeeStats.approve(ctx, e.id)
+                flash = "Copied — paste it into Reddit"; detailEmp = null; refresh()
+            }
+            Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(staffGrad(e.name))), contentAlignment = Alignment.Center) { PixelPet(e.id, 38) }
                     Spacer(Modifier.width(12.dp))
@@ -486,51 +513,59 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Text(if (e.intervalMin > 0) "runs every ${e.intervalMin} min" else "runs on demand", fontSize = T.caption, color = T.inkFaint)
                     }
                 }
-                if (e.goal.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(e.goal, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
-                }
-                // ── the receipt: what this worker cost vs. delivered ──
-                val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }
-                val tokLabel = if (stat.tokens >= 1000) String.format("%.1fk", stat.tokens / 1000.0) else stat.tokens.toString()
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(vertical = 10.dp)) {
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("SPENT", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text(tokLabel, fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
-                        Text("~$" + String.format("%.2f", stat.costUsd), fontSize = 9.sp, color = T.inkFaint)
+                // ── scrollable middle so the action bar below is ALWAYS reachable ──
+                Column(Modifier.weight(1f, true).verticalScroll(rememberScrollState())) {
+                    if (e.goal.isNotBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(e.goal, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
                     }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("DID", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("${stat.actions}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
-                        Text("${stat.approved} approved", fontSize = 9.sp, color = T.inkFaint)
-                    }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("SAVED", fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("~${stat.valueMin}m", fontSize = 16.sp, color = T.good, fontWeight = FontWeight.SemiBold)
-                        Text("${stat.shifts} shifts", fontSize = 9.sp, color = T.inkFaint)
-                    }
-                }
-                if (needs != null) {
+                    val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }
+                    val tokLabel = if (stat.tokens >= 1000) String.format("%.1fk", stat.tokens / 1000.0) else stat.tokens.toString()
                     Spacer(Modifier.height(12.dp))
-                    Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger.copy(alpha = 0.10f)).padding(12.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text("Let SlyOS set it up for me", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { connectEmp = e; detailEmp = null }.padding(vertical = 12.dp))
-                }
-                Spacer(Modifier.height(14.dp))
-                Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-                LazyColumn(Modifier.weight(1f, false).heightIn(max = 220.dp)) {
-                    items(log, key = { it.id }) { l ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(vertical = 10.dp)) {
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("SPENT", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(tokLabel, fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                            Text("~$" + String.format("%.2f", stat.costUsd), fontSize = 9.sp, color = T.inkFaint)
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("DID", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text("${stat.actions}", fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                            Text("${stat.approved} approved", fontSize = 9.sp, color = T.inkFaint)
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("SAVED", fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text("~${stat.valueMin}m", fontSize = 16.sp, color = T.good, fontWeight = FontWeight.SemiBold)
+                            Text("${stat.shifts} shifts", fontSize = 9.sp, color = T.inkFaint)
+                        }
+                    }
+                    if (needs != null) {
+                        val isPost = Regex("(?i)post|comment|r/|reddit|paste this|publish|tweet").containsMatchIn(needs.line)
+                        val isConn = Regex("(?i)connect|hubspot|api key|set ?up|integrat|sign ?in|log ?in|credential").containsMatchIn(needs.line)
+                        Spacer(Modifier.height(12.dp))
+                        Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger.copy(alpha = 0.10f)).padding(12.dp))
+                        Spacer(Modifier.height(8.dp))
+                        if (isPost) Text("Copy the post & open Reddit  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { copyAndOpenReddit() }.padding(vertical = 12.dp))
+                        else if (isConn) Text("Connect what it needs  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { connectEmp = e; detailEmp = null }.padding(vertical = 12.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Approve & mark done", fontSize = T.small, color = T.good, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.good.copy(alpha = 0.14f)).clickable { approveDone() }.padding(vertical = 12.dp))
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    log.forEach { l ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                             Text(agoLabel(l.ts), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(52.dp))
                             Text(l.line, fontSize = T.caption, color = if (l.needsInput) T.danger else T.inkSoft, modifier = Modifier.weight(1f))
                         }
                     }
+                    Spacer(Modifier.height(6.dp))
                 }
+                // ── pinned action bar (always visible) ──
                 Spacer(Modifier.height(10.dp))
-                var askText by remember(e.id) { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
                         if (askText.isEmpty()) Text("Ask ${e.name} a question…", fontSize = 13.sp, color = T.inkFaint)

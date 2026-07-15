@@ -26,7 +26,7 @@ object EmployeeNotify {
             }
             val intent = Intent(ctx, com.agentos.shell.ShellActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra("open", "team").putExtra("emp", empId)
+                .putExtra("nav", "Research").putExtra("emp", empId)
             val pi = PendingIntent.getActivity(ctx, empId.hashCode(), intent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val n = Notification.Builder(ctx, CH)

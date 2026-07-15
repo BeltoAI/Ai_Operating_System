@@ -121,7 +121,7 @@ private fun ensureStyle(html: String): String {
 fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onWorkspace: () -> Unit = {}, onChat: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var mode by remember { mutableStateOf(if (initialTopic.isNotBlank()) "compose" else "library") }
+    var mode by remember { mutableStateOf(if (com.agentos.shell.tools.TeamInbox.openEmpId != null) "team" else if (initialTopic.isNotBlank()) "compose" else "library") }
     var papers by remember { mutableStateOf(PaperStore.list(ctx)) }
     var paperSearch by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf(0L) }

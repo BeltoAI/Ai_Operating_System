@@ -72,6 +72,17 @@ object BrainContext {
         val paperList = if (Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi", RegexOption.IGNORE_CASE).containsMatchIn(q))
             PaperStore.list(ctx).joinToString("\n") { "- “${it.title}” (${it.docType})" } else ""
         val docText = if (KnowledgeStore.hasDoc(ctx)) KnowledgeStore.retrieve(ctx, q, 1000) else ""
+        // Filed documents — email attachments (PDFs), scans, receipts, invoices, contracts. These were
+        // extracted into DocStore but never reached the brain, so agents/HomeAI couldn't "see" them. Now they can.
+        val filedDocs = try {
+            DocStore.list(ctx).sortedByDescending { it.ts }.take(10).joinToString("\n") { d ->
+                val f = try {
+                    val o = org.json.JSONObject(d.fieldsJson)
+                    o.keys().asSequence().take(6).joinToString(", ") { k -> "$k: ${o.optString(k)}" }
+                } catch (e: Exception) { "" }
+                "• ${d.title} [${d.category}]" + (if (d.summary.isNotBlank()) " — ${d.summary}" else "") + (if (f.isNotBlank()) " ($f)" else "")
+            }
+        } catch (e: Exception) { "" }
         // Checklist: pull tasks in whenever the question is about them, or matches task text.
         val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
         val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|outstanding|pending", RegexOption.IGNORE_CASE).containsMatchIn(q)
@@ -126,6 +137,7 @@ object BrainContext {
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)
             if (papers.isNotBlank()) append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
             if (docText.isNotBlank()) append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)
+            if (filedDocs.isNotBlank()) append("\nDocuments filed in your brain (from email attachments, scans, receipts — you CAN read and reference these when relevant):\n").append(filedDocs)
             if (tasks.isNotBlank()) append("\nYour checklist/tasks (use if relevant):\n").append(tasks)
             if (recall.isNotBlank()) append("\nFrom what I've seen on your screen (use ONLY if relevant to the request):\n").append(recall)
             MissionStore.mission(ctx).takeIf { it.isNotBlank() }?.let {
