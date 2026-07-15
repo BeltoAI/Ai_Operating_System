@@ -153,6 +153,13 @@ object EmployeeRunner {
                 if (needsEff.isNotBlank()) EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needsEff, true)
                 else if (didAction == 1) EmployeeNotify.post(ctx, emp.id, "${emp.name} · ${emp.role}", outcome.ifBlank { did }, false)
             } catch (e: Exception) {}
+            // Post to the Telegram team chat too (if connected) so you + teammates see it live and can reply.
+            try {
+                if (TeamChat.isConnected(ctx)) {
+                    val line = if (needsEff.isNotBlank()) "needs you: $needsEff" else outcome.ifBlank { did }
+                    TeamChat.post(ctx, emp.name, line)
+                }
+            } catch (e: Exception) {}
             did
         } catch (e: Exception) {
             Log.w(TAG, "runShift: ${e.message}")

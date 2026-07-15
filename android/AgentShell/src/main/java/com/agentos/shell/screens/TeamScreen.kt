@@ -425,6 +425,21 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
             if (flash.isNotBlank()) Text(flash, fontSize = T.caption, color = T.accent, maxLines = 3,
                 modifier = Modifier.align(Alignment.TopCenter).padding(8.dp).clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 8.dp))
         }
+        // ── Telegram team chat toggle: you + agents + humans in one group ──
+        var tgOn by remember { mutableStateOf(com.agentos.shell.tools.TeamChat.enabled(ctx)) }
+        Row(Modifier.fillMaxWidth().background(T.bg).clickable {
+            if (!tgOn) {
+                if (!com.agentos.shell.tools.TelegramClient.configured()) flash = "Add a Telegram bot token in Settings first."
+                else { com.agentos.shell.tools.TeamChat.setEnabled(ctx, true); tgOn = true; try { com.agentos.shell.TelegramService.start(ctx.applicationContext) } catch (e: Exception) {}; flash = "Team chat on — add your SlyOS bot to a Telegram group and send a message there to link it." }
+            } else { com.agentos.shell.tools.TeamChat.setEnabled(ctx, false); tgOn = false; flash = "Telegram team chat off." }
+        }.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (!tgOn) "Connect a Telegram team chat"
+                else if (com.agentos.shell.tools.TeamChat.isConnected(ctx)) "Telegram team chat · linked"
+                else "Telegram team chat · add the bot to a group",
+                fontSize = 11.sp, color = if (tgOn) T.good else T.inkFaint, modifier = Modifier.weight(1f), maxLines = 1)
+            Text(if (tgOn) "on" else "off", fontSize = 11.sp, color = if (tgOn) T.good else T.inkFaint, fontWeight = FontWeight.Bold)
+        }
         // ── ready-for-you strip: agents surface finished/blocked items here — tap to open & confirm ──
         val pending = staff.filter { it.status == "needs_you" }
         if (pending.isNotEmpty()) Row(Modifier.fillMaxWidth().background(T.accent.copy(alpha = 0.16f))
