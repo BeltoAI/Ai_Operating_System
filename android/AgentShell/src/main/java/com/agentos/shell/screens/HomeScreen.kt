@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -957,44 +958,53 @@ fun HomeScreen(
                 onRemove = { photos = emptyList() }
             )
         }
-        // SENT TO YOU — the recent documents people emailed you. Already marked seen on fetch, so this
-        // batch never returns; each is peekable / usable / dismissable.
+        // SENT TO YOU — recent documents people emailed you. Clean, swipeable cards: swipe right to open
+        // (preview), left to dismiss, tap to attach. Marked seen on fetch, so they never nag twice.
         if (nudges.isNotEmpty() && photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Box(Modifier.width(2.dp).height((26 * nudges.size + 8).dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("SENT TO YOU", fontSize = 9.sp, color = T.inkFaint,
-                        letterSpacing = 1.6.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(4.dp))
-                    nudges.forEach { n ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(com.agentos.shell.tools.Inbox.nudgeLine(n),
-                                    fontSize = T.caption, color = T.ink, maxLines = 2)
-                                Spacer(Modifier.height(4.dp))
-                                Row {
-                                    Text("Preview", fontSize = 12.sp, color = T.accent,
-                                        modifier = Modifier.clickable {
-                                            scope.launch {
-                                                val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, n) }
-                                                if (u != null) preview(u)
-                                            }
-                                        })
-                                    Spacer(Modifier.width(18.dp))
-                                    Text("Use it", fontSize = 12.sp, color = T.accent,
-                                        modifier = Modifier.clickable { attachIncoming(n) })
-                                }
-                            }
-                            Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = T.inkFaint,
-                                modifier = Modifier.size(15.dp).clickable {
-                                    com.agentos.shell.tools.Inbox.dismiss(ctx, n.key)
-                                    nudges = nudges.filterNot { it.key == n.key }
-                                })
+            Spacer(Modifier.height(16.dp))
+            SectionLabel("SENT TO YOU")
+            Spacer(Modifier.height(8.dp))
+            nudges.forEach { n ->
+                val dragX = remember(n.key) { mutableStateOf(0f) }
+                val kind = if (n.isPdf) "PDF" else n.name.substringAfterLast('.', "FILE").uppercase().take(4)
+                val nice = n.name.substringBeforeLast('.').replace('_', ' ').replace('-', ' ').trim().take(34)
+                Row(
+                    Modifier.fillMaxWidth()
+                        .offset { androidx.compose.ui.unit.IntOffset(dragX.value.toInt(), 0) }
+                        .pointerInput(n.key) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when {
+                                        dragX.value < -130f -> {
+                                            com.agentos.shell.tools.Inbox.dismiss(ctx, n.key)
+                                            nudges = nudges.filterNot { it.key == n.key }
+                                        }
+                                        dragX.value > 130f -> scope.launch {
+                                            val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, n) }
+                                            if (u != null) preview(u)
+                                        }
+                                    }
+                                    dragX.value = 0f
+                                },
+                                onDragCancel = { dragX.value = 0f }
+                            ) { _, dx -> dragX.value = (dragX.value + dx).coerceIn(-320f, 320f) }
                         }
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(T.bgElevated)
+                        .clickable { attachIncoming(n) }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TypeTile(kind, accent = true)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(n.who, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(2.dp))
+                        Text(nice, fontSize = 11.sp, color = T.inkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Text("›", fontSize = T.body, color = T.inkFaint)
                 }
+                Spacer(Modifier.height(8.dp))
             }
         }
 
