@@ -49,9 +49,13 @@ object TeamChat {
         // Someone joined → the whole team introduces itself.
         if (u.newMembers.isNotEmpty()) { introduceAll(ctx, u.newMembers.first()); return true }
 
+        val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
+
+        // A PDF/photo dropped in the group → read it and feed it to the right agent (or the brain).
+        if (u.isPdf || u.photoFileId != null) { ingestAttachment(ctx, gid, u, staff); return true }
+
         val text = u.text.trim()
         if (text.isBlank()) return true
-        val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
         if (staff.isEmpty()) { safeSend(gid, "You haven't hired any agents yet — open SlyOS → Team to add one."); return true }
 
         // In a real group with humans, stay QUIET unless summoned: the bot (@handle / its name) or an agent
@@ -150,4 +154,33 @@ object TeamChat {
     }
 
     private fun safeSend(gid: Long, text: String) { try { TelegramClient.sendMessage(gid, text) } catch (e: Exception) {} }
+
+    /** Read a PDF/photo dropped in the group and feed it to the named agent (or the deep-expert), + the brain. */
+    private fun ingestAttachment(ctx: Context, gid: Long, u: TelegramClient.Update, staff: List<EmployeeStore.Employee>) {
+        val caption = u.caption.trim()
+        // Which agent should learn it? The one named in the caption, else a "deep expert" (Bastardi), else none.
+        val target = staff.firstOrNull { it.name.isNotBlank() && caption.contains(it.name, true) }
+            ?: staff.firstOrNull { it.role.contains("expert", true) || it.name.equals("Bastardi", true) }
+        try {
+            if (u.isPdf) {
+                val bytes = u.docFileId?.let { TelegramClient.downloadFile(it) }
+                if (bytes == null) { safeSend(gid, "Couldn't download that PDF (Telegram caps bot downloads at 20 MB)."); return }
+                val name = u.docName.ifBlank { "document.pdf" }
+                val tmp = java.io.File(ctx.cacheDir, "tg_${System.currentTimeMillis()}.pdf")
+                val text = try { tmp.writeBytes(bytes); FileOps.pdfText(ctx, android.net.Uri.fromFile(tmp)) } catch (e: Exception) { "" } finally { try { tmp.delete() } catch (e: Exception) {} }
+                if (text.length < 40) { safeSend(gid, "Got “$name” but couldn't read text from it (scanned/image PDF)."); return }
+                try { DocText.add(ctx, name, "telegram", text) } catch (e: Exception) {}   // into the brain for everyone
+                if (target != null) { AgentKnowledge.add(ctx, target.id, name, text); safeSend(gid, "${target.name} learned “$name” ✓ — it's now part of what they know.") }
+                else safeSend(gid, "Read “$name” and saved it to your brain ✓.")
+            } else if (u.photoFileId != null) {
+                val bytes = TelegramClient.downloadFile(u.photoFileId)
+                val b64 = bytes?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+                val desc = if (b64 != null) AgentClient.askVision(caption.ifBlank { "Describe this image in detail for later search and knowledge." }, listOf(b64), "") else ""
+                if (desc.isBlank() || desc.startsWith("Couldn't")) { safeSend(gid, "Couldn't read that image."); return }
+                try { MemoryLog.add(ctx, "note", "Team chat image", desc.take(500), "Team") } catch (e: Exception) {}
+                if (target != null) { AgentKnowledge.add(ctx, target.id, "shared image", desc); safeSend(gid, "${target.name} took a look ✓ — noted it.") }
+                else safeSend(gid, "Had a look — noted what's in it ✓.")
+            }
+        } catch (e: Exception) { safeSend(gid, "Couldn't process that attachment.") }
+    }
 }

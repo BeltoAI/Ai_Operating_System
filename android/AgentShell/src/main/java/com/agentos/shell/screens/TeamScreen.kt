@@ -47,6 +47,8 @@ import com.agentos.shell.tools.EmployeeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.withContext
 
 private val STAFF_GRADS = listOf(
@@ -73,6 +75,8 @@ val TEAM_PRESETS = listOf(
         "Review my receipts and expenses, categorize them, and flag anything unusual.", "expenses", 1440),
     Preset("Calendar keeper", "Guards + preps your day", "Kai", "Calendar Manager",
         "Keep my calendar clean, catch conflicts, and prep a short agenda before meetings.", "calendar", 30),
+    Preset("Deep expert", "Feed him PDFs; he masters them", "Bastardi", "Deep Expert",
+        "You are the owner's deep expert. The documents the owner feeds you are your PRIMARY source of truth — master them and answer from them first, then the owner's brain, then live web search (including their published papers). Be precise, technical, and concrete; cite what you found and never fabricate. If the documents don't cover something, say so before reasoning from the web.", "knowledge,web,brain", 0),
     Preset("Reddit growth", "Grows your Reddit rep", "Ravi", "Reddit Growth Strategist",
         "Grow my Reddit presence authentically. Study the subreddits where my expertise fits, and on each shift propose ONE genuinely human comment or post — never spammy, never ad-like — that adds real value to the thread and quietly positions me as an expert, grounded in what you actually know about me from my brain. Name the subreddit, give the exact text I'd post, and flag it for my approval. Never fabricate credentials.", "web", 60))
 
@@ -549,6 +553,32 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     if (e.goal.isNotBlank()) {
                         Spacer(Modifier.height(10.dp))
                         Text(e.goal, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
+                    }
+                    // ── Feed this agent PDFs — they become its PRIMARY knowledge (on top of brain + web) ──
+                    var kbCount by remember(e.id) { mutableStateOf(com.agentos.shell.tools.AgentKnowledge.count(ctx, e.id)) }
+                    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                        if (uri != null) {
+                            flash = "Reading the PDF for ${e.name}…"
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) {
+                                    try {
+                                        val name = com.agentos.shell.tools.FileOps.displayName(ctx, uri)
+                                        val txt = com.agentos.shell.tools.FileOps.pdfText(ctx, uri)
+                                        if (txt.length > 40) { com.agentos.shell.tools.AgentKnowledge.add(ctx, e.id, name, txt); true } else false
+                                    } catch (ex: Exception) { false }
+                                }
+                                kbCount = com.agentos.shell.tools.AgentKnowledge.count(ctx, e.id)
+                                flash = if (ok) "${e.name} learned it ✓ ($kbCount docs)" else "Couldn't read that PDF (a scan with no text?)."
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (kbCount > 0) "Knowledge · $kbCount doc${if (kbCount == 1) "" else "s"} fed" else "No docs fed yet",
+                            fontSize = 11.sp, color = if (kbCount > 0) T.good else T.inkFaint, modifier = Modifier.weight(1f))
+                        Text("Feed a PDF  →", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(T.accent.copy(alpha = 0.12f))
+                                .clickable { try { pdfPicker.launch(arrayOf("application/pdf")) } catch (ex: Exception) { flash = "No file picker available." } }.padding(horizontal = 12.dp, vertical = 7.dp))
                     }
                     val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }
                     val tokLabel = if (stat.tokens >= 1000) String.format("%.1fk", stat.tokens / 1000.0) else stat.tokens.toString()

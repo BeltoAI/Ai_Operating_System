@@ -71,8 +71,10 @@ object EmployeeRunner {
                 "NO markdown headers, NO '---', NO quotes around it, and do NOT repeat the title inside the body. Just the human message, ready to paste. " +
                 "save_lead: whenever you find or correspond with a REAL person worth remembering — set name + email (+role, +company). It goes into $owner's CRM. " +
                 "none = you only researched/thought this shift. No prose, no fences."
+            val kb = try { AgentKnowledge.retrieve(ctx, emp.id, emp.goal, 2000) } catch (e: Exception) { "" }
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val user = "Current time: $now\n\n" + (if (live.isNotEmpty()) live.toString() else "") +
+                (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (fed to you — your PRIMARY source, use these first):\n$kb\n\n" else "") +
                 "Your recent log:\n${recent.ifBlank { "(nothing yet)" }}\n\n" +
                 "What you know about $owner:\n${brain.take(3500)}\n\nDo your next step now."
 
@@ -191,8 +193,11 @@ object EmployeeRunner {
                 "For a meeting/video CALL, use add_event with meet:true — a real Google Meet link is created. A meeting can be just " +
                 "$owner alone (no other attendees needed). If a time is given or implied (now, in an hour, 3pm), CREATE it immediately " +
                 "instead of asking. Follow the recent conversation — if you already asked something and $owner just answered, act on it now."
+            val kb = try { AgentKnowledge.retrieve(ctx, emp.id, message, 2400) } catch (e: Exception) { "" }
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
-            val user = "Current time: $now\n" + (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
+            val user = "Current time: $now\n" +
+                (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS ($owner fed these to you — your PRIMARY source of truth, answer from here first):\n$kb\n\n" else "") +
+                (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
                 (if (history.isNotBlank()) "RECENT TEAM-CHAT CONVERSATION (oldest first — this is the thread you're in):\n$history\n\n" else "") +
                 "What you know about $owner:\n${brain.take(3000)}\n\n$owner just said: $message"
             val (raw, inTok, outTok) = AgentClient.work(sys, user, 800, web = true)   // full capability incl. live research
