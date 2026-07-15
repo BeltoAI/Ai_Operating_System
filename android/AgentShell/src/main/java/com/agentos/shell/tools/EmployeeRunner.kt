@@ -173,8 +173,8 @@ object EmployeeRunner {
      * and taking ONE real action (send an email, add an event) when the request calls for it. Returns the
      * chat-ready reply. This is what makes the Telegram team chat actually DO things instead of "next shift".
      */
-    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String): String = synchronized(lock) {
-        try {
+    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String): String {
+        return try {
             val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
             val brain = try { BrainContext.build(ctx, message) } catch (e: Exception) { "" }
             val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
@@ -189,7 +189,7 @@ object EmployeeRunner {
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val user = "Current time: $now\n" + (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
                 "What you know about $owner:\n${brain.take(3000)}\n\n$owner: $message"
-            val (raw, inTok, outTok) = AgentClient.work(sys, user, 700, web = true)
+            val (raw, inTok, outTok) = AgentClient.work(sys, user, 700, web = false)   // fast + reliable; brain already has the context
             val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
             val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }
             var reply = o?.optString("reply")?.trim().orEmpty()

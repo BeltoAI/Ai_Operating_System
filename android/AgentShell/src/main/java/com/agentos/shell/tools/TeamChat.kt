@@ -62,8 +62,17 @@ object TeamChat {
         val instruction = if (named != null)
             text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text } else text
 
+        // Remember what was asked, in the brain (so it's searchable and every AI in SlyOS sees it).
+        val fromWho = u.senderName.ifBlank { "You" }
+        try {
+            MemoryLog.add(ctx, "note", "Team chat → ${emp.name}", "$fromWho: $instruction", "Team")
+            ConversationStore.add(ctx, "Team", gid.toString(), "them", "$fromWho: $instruction")
+        } catch (e: Exception) {}
+
         // Actually answer/act NOW (grounded in the brain) and reply with the real result — not "next shift".
+        safeSend(gid, "${emp.name} is on it…")
         val reply = try { EmployeeRunner.answer(ctx, emp, instruction) } catch (e: Exception) { "Couldn't get to that just now." }
+        try { ConversationStore.add(ctx, "Team", gid.toString(), "me", "${emp.name}: $reply") } catch (e: Exception) {}
         safeSend(gid, "${emp.name} · $reply")
         return true
     }

@@ -177,7 +177,7 @@ class ShellActivity : ComponentActivity() {
                 try { com.agentos.shell.tools.GmailClient.syncToBrain(applicationContext) } catch (e: Exception) {}
                 try { com.agentos.shell.tools.GmailClient.syncReceipts(applicationContext) } catch (e: Exception) {}   // expense receipts
             }.start()
-        if (com.agentos.shell.tools.MemoryStore.telegramBot(this) && com.agentos.shell.tools.TelegramClient.configured())
+        if ((com.agentos.shell.tools.MemoryStore.telegramBot(this) || com.agentos.shell.tools.TeamChat.enabled(this)) && com.agentos.shell.tools.TelegramClient.configured())
             TelegramService.start(this)
         if (com.agentos.shell.tools.MemoryStore.lockVoice(this))
             com.agentos.shell.tools.VoiceShortcut.post(this)
