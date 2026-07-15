@@ -96,7 +96,7 @@ object PhotoIndex {
                 while (c.moveToNext()) {
                     val uri = c.getString(0); val name = c.getString(1) ?: "photo"; val cap = (c.getString(2) ?: "").lowercase()
                     val hay = "$cap $name".lowercase()
-                    val score = toks.sumOf { t -> if (hay.contains(t)) 2 else 0 }
+                    val score = toks.count { hay.contains(it) } * 2
                     if (score > 0) hits.add(FileResolver.Found(Uri.parse(uri), name.ifBlank { "photo" }, "gallery", score))
                 }
             }
