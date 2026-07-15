@@ -258,11 +258,15 @@ class ShellActivity : ComponentActivity() {
                     targetState = screen,
                     transitionSpec = {
                         val a = navOrder.indexOf(initialState); val b = navOrder.indexOf(targetState)
-                        if (a >= 0 && b >= 0 && a != b) {
+                        val heavy = initialState == Screen.Memory || targetState == Screen.Memory
+                        if (a >= 0 && b >= 0 && a != b && heavy) {
+                            // The Brain graph is expensive to compose — sliding it janks. Cross-fade instead: smooth.
+                            fadeIn(tween(260)) togetherWith fadeOut(tween(200))
+                        } else if (a >= 0 && b >= 0 && a != b) {
                             // Moving between main sections → glide horizontally in the swipe's direction.
                             val dir = if (b > a) 1 else -1
-                            (slideInHorizontally(tween(400, easing = EaseOutCubic)) { w -> dir * w } + fadeIn(tween(260))) togetherWith
-                                (slideOutHorizontally(tween(400, easing = EaseOutCubic)) { w -> -dir * w } + fadeOut(tween(260)))
+                            (slideInHorizontally(tween(360, easing = EaseOutCubic)) { w -> dir * w } + fadeIn(tween(240))) togetherWith
+                                (slideOutHorizontally(tween(360, easing = EaseOutCubic)) { w -> -dir * w } + fadeOut(tween(240)))
                         } else {
                             // Into/out of a sub-screen → the calm vertical settle.
                             (fadeIn(tween(420)) + slideInVertically(tween(440, easing = FastOutSlowInEasing)) { it / 22 }) togetherWith

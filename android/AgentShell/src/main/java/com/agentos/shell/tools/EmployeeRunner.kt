@@ -68,10 +68,18 @@ object EmployeeRunner {
                 "What you know about $owner:\n${brain.take(3500)}\n\nDo your next step now."
 
             val (raw, inTok, outTok) = AgentClient.work(sys, user, 900, web = true)
-            val o = try { JSONObject(raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) } catch (e: Exception) { null }
-            val did = o?.optString("did")?.trim().orEmpty().ifBlank { "Worked on: ${emp.goal.take(40)}" }
-            val detail = o?.optString("detail")?.trim().orEmpty()
+            val jstart = raw.indexOf('{'); val jend = raw.lastIndexOf('}')
+            val o = try { if (jstart in 0 until jend) JSONObject(raw.substring(jstart, jend + 1)) else null } catch (e: Exception) { null }
+            var did = o?.optString("did")?.trim().orEmpty()
+            var detail = o?.optString("detail")?.trim().orEmpty()
             val needs = o?.optString("needs")?.trim().orEmpty()
+            // After web-searching the model often replies in PROSE, not JSON — keep that as the real finding
+            // instead of discarding it and showing an empty "Worked on…". This is the fix for empty research.
+            if (detail.isBlank() && o == null && raw.isNotBlank()) {
+                detail = raw.trim().removePrefix("```").removeSuffix("```").trim().take(1600)
+                if (did.isBlank()) did = "Put together a brief on ${emp.goal.take(30)}"
+            }
+            did = did.ifBlank { if (raw.isBlank()) "Couldn't finish — check your model key allows web search (Anthropic or Gemini)." else "Worked on: ${emp.goal.take(40)}" }
             val act = o?.optJSONObject("action")
             val actType = act?.optString("type").orEmpty()
 

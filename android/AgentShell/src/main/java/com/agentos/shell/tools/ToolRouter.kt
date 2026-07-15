@@ -340,7 +340,7 @@ object ToolRouter {
 
     /** Send/draft a message on a SPECIFIC app. SMS sends directly; WhatsApp opens pre-filled (one tap);
      *  Telegram copies + opens (paste). All are recorded to the brain. */
-    /** Find a photo from the gallery/phone by description and optionally send it to a person. */
+    /** Find photo(s) from the gallery by description — VERIFIED with vision so it's accurate — and send them. */
     private fun sendPhoto(ctx: Context, arg: String): String {
         return try {
             val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("query", arg) }
@@ -348,12 +348,35 @@ object ToolRouter {
             val name = o.optString("name").trim()
             val app = o.optString("app").trim()
             val message = o.optString("message").trim()
-            val found = FileResolver.find(ctx, query.ifBlank { "photo" })
-            val hit = found.firstOrNull()
-                ?: return "I couldn't find a photo matching “$query”. Make sure photo access is on, or describe it differently (e.g. “a full-body photo of me”)."
+            val count = o.optInt("count", 1).coerceIn(1, 6)
+
+            // Candidates: real gallery/indexed photos, screenshots excluded (they're never "a photo of me").
+            val cands = FileResolver.find(ctx, query.ifBlank { "photo" })
+                .filter { !it.where.contains("screenshot", true) && !it.name.contains("screenshot", true) && !it.name.contains(".pdf", true) }
+                .take(10)
+            if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on."
+
+            // LOOK at them: ask the vision model which candidates genuinely match, best first — so we never
+            // send a random screenshot or the wrong person just because a filename matched.
+            val chosen = try {
+                val imgs = cands.mapNotNull { com.agentos.shell.tools.ImageUtil.encode(ctx, it.uri, 640) }
+                if (imgs.isNotEmpty()) {
+                    val prompt = "The owner wants photos matching: \"$query\". Below are ${imgs.size} images, numbered 1 to ${imgs.size} in order. " +
+                        "Reply with ONLY the numbers that genuinely match the request, best match first, comma-separated (e.g. 3,1,5). " +
+                        "Be strict — exclude screenshots, wrong subjects, and anything that isn't clearly a match. If none match, reply exactly NONE."
+                    val out = AgentClient.askVision(prompt, imgs, "")
+                    if (out.contains("NONE", true)) emptyList()
+                    else Regex("\\d+").findAll(out).map { it.value.toInt() }.filter { it in 1..cands.size }.distinct().map { cands[it - 1] }.toList()
+                } else emptyList()
+            } catch (e: Exception) { emptyList() }
+
+            if (chosen.isEmpty())
+                return "I went through your gallery but couldn't find photos that clearly match “$query”, so I didn't send anything random. Want me to widen the search or send the closest ones anyway?"
+
+            val pick = chosen.take(count)
             if (name.isBlank()) {
-                start(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(hit.uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
-                return "Found “${hit.name}” (${hit.where}) — opening it."
+                start(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(pick.first().uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                return "Found ${pick.size} match${if (pick.size == 1) "" else "es"} — opening ${pick.first().name}."
             }
             if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $name."
             val c = when (val r = ContactsTool.resolve(ctx, name)) {
@@ -362,8 +385,8 @@ object ToolRouter {
                     return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one?"
                 ContactsTool.Resolution.None -> return "I couldn't find a contact called “$name”. What's their full name?"
             }
-            FileOps.sendToPerson(ctx, listOf(hit.uri), app.ifBlank { "whatsapp" }, c.name, toNumber = c.number, message = message)
-                ?: "I found “${hit.name}” but couldn't open the share to ${c.name}."
+            FileOps.sendToPerson(ctx, pick.map { it.uri }, app.ifBlank { "whatsapp" }, c.name, toNumber = c.number, message = message)
+                ?: "I found ${pick.size} photo(s) but couldn't open the share to ${c.name}."
         } catch (e: Exception) { "I couldn't send that photo." }
     }
 
