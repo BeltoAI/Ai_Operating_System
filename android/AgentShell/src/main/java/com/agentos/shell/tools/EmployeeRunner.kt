@@ -20,8 +20,9 @@ object EmployeeRunner {
             val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
             val recent = EmployeeStore.logFor(ctx, emp.id, 10).joinToString("\n") { "• ${it.line}" }
             val brain = try { BrainContext.build(ctx, emp.goal) } catch (e: Exception) { "" }
+            val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's personal AI team. Your standing goal: " +
-                "\"${emp.goal}\". Tools you may use: ${emp.tools.ifBlank { "your general knowledge" }}. " +
+                "\"${emp.goal}\". $caps " +
                 "You are doing a short work shift. Pick the SINGLE most useful next step toward your goal, do the " +
                 "thinking/drafting for it now, and report. Output ONLY compact JSON: " +
                 "{\"did\":\"one short past-tense line of what you did, under 14 words\"," +

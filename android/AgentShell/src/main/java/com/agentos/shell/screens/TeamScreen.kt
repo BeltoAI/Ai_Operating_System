@@ -1,6 +1,8 @@
 package com.agentos.shell.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -121,6 +123,32 @@ fun TeamPanel(modifier: Modifier = Modifier) {
     }
 
     Column(modifier.fillMaxSize()) {
+        // THE OFFICE — see your staff at their desks the moment you open Team.
+        if (staff.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF241D16), Color(0xFF1A1510)))).padding(16.dp)) {
+                Text("YOUR OFFICE", fontSize = 10.sp, color = Color(0xFFB79B7A), fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("${staff.size} on the team · ${staff.count { it.status == "needs_you" }} need you", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.Bottom) {
+                    staff.forEachIndexed { i, e ->
+                        val deskCols = listOf(Color(0xFF4E86B0), Color(0xFF5E9A78), Color(0xFF7B5EA7), Color(0xFFC9863F), Color(0xFFB0506A))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(end = 18.dp).clickable { run(e) }) {
+                            if (e.status == "needs_you") Text("!", fontSize = 12.sp, color = T.danger, fontWeight = FontWeight.Bold)
+                            else if (e.status == "working") Text("•••", fontSize = 10.sp, color = T.accent)
+                            else Spacer(Modifier.height(14.dp))
+                            PixelPet(e.id, 44)
+                            Box(Modifier.width(52.dp).height(8.dp).clip(RoundedCornerShape(3.dp)).background(deskCols[i % deskCols.size]))
+                            Spacer(Modifier.height(5.dp))
+                            Text(e.name, fontSize = T.caption, color = T.inkSoft, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
         // Hire bar
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
             Text("BUILD ME AN EMPLOYEE THAT —", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
