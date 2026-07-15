@@ -175,7 +175,7 @@ object EmployeeRunner {
      * and taking ONE real action (send an email, add an event) when the request calls for it. Returns the
      * chat-ready reply. This is what makes the Telegram team chat actually DO things instead of "next shift".
      */
-    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String, history: String = ""): String {
+    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String, history: String = "", speaker: String = ""): String {
         return try {
             val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
             val brain = try { BrainContext.build(ctx, message) } catch (e: Exception) { "" }
@@ -198,8 +198,10 @@ object EmployeeRunner {
             val user = "Current time: $now\n" +
                 (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS ($owner fed these to you — your PRIMARY source of truth, answer from here first):\n$kb\n\n" else "") +
                 (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
-                (if (history.isNotBlank()) "RECENT TEAM-CHAT CONVERSATION (oldest first — this is the thread you're in):\n$history\n\n" else "") +
-                "What you know about $owner:\n${brain.take(3000)}\n\n$owner just said: $message"
+                (if (history.isNotBlank()) "RECENT TEAM-CHAT CONVERSATION (oldest first, each line is 'Sender: message' — this is a GROUP that may include people besides $owner):\n$history\n\n" else "") +
+                "What you know about $owner:\n${brain.take(3000)}\n\n" +
+                "${speaker.ifBlank { owner }} just said: $message" +
+                (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "\n(This message is from $speaker, a teammate — not $owner. Reply to $speaker by name; don't assume it's $owner.)" else "")
             val (raw, inTok, outTok) = AgentClient.work(sys, user, 800, web = true)   // full capability incl. live research
             val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
             val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }

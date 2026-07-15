@@ -88,7 +88,7 @@ object TeamChat {
 
         // Actually answer/act NOW (grounded in the brain + the thread) and reply with the real result.
         try { TelegramClient.sendTyping(gid) } catch (e: Exception) {}
-        val reply = try { EmployeeRunner.answer(ctx, emp, instruction, history) } catch (e: Exception) { "Couldn't get to that just now." }
+        val reply = try { EmployeeRunner.answer(ctx, emp, instruction, history, fromWho) } catch (e: Exception) { "Couldn't get to that just now." }
         try { ConversationStore.add(ctx, "Team", gid.toString(), "me", "${emp.name}: $reply") } catch (e: Exception) {}
         setLastAgent(ctx, emp.id)
         safeSend(gid, "${emp.name} · $reply")
