@@ -60,6 +60,22 @@ private fun staffGrad(seed: String): List<Color> {
 }
 private fun initials(name: String) = name.trim().split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("").ifBlank { "•" }
 
+/** Ready-to-hire roles shown under the "+", so hiring is one tap and every preset is genuinely useful. */
+data class Preset(val label: String, val desc: String, val name: String, val role: String, val goal: String, val tools: String, val interval: Int)
+val TEAM_PRESETS = listOf(
+    Preset("Inbox triager", "Sorts mail, drafts replies", "Maya", "Inbox Manager",
+        "Keep my inbox triaged: surface what's urgent and draft replies I can approve.", "email", 30),
+    Preset("Research analyst", "Daily brief on my field", "Rana", "Research Analyst",
+        "Track news about my field and competitors and give me a short, specific daily brief.", "web", 720),
+    Preset("Chief of staff", "Your top 3 each morning", "Leo", "Chief of Staff",
+        "Read my notes and every morning tell me my top 3 priorities for the day.", "brain", 720),
+    Preset("Bookkeeper", "Files + flags expenses", "Nia", "Bookkeeper",
+        "Review my receipts and expenses, categorize them, and flag anything unusual.", "expenses", 1440),
+    Preset("Calendar keeper", "Guards + preps your day", "Kai", "Calendar Manager",
+        "Keep my calendar clean, catch conflicts, and prep a short agenda before meetings.", "calendar", 30),
+    Preset("Reddit growth", "Grows your Reddit rep", "Ravi", "Reddit Growth Strategist",
+        "Grow my Reddit presence authentically. Study the subreddits where my expertise fits, and on each shift propose ONE genuinely human comment or post — never spammy, never ad-like — that adds real value to the thread and quietly positions me as an expert, grounded in what you actually know about me from my brain. Name the subreddit, give the exact text I'd post, and flag it for my approval. Never fabricate credentials.", "web", 60))
+
 private val NAME_POOL = listOf(
     "Maya", "Leo", "Nova", "Kai", "Ivy", "Rex", "Zoe", "Milo", "Luna", "Finn",
     "Ada", "Sol", "Remy", "Juno", "Wren", "Cleo", "Ash", "Nia", "Theo", "Iris",
@@ -142,13 +158,22 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         busy = true; flash = "Hiring…"; hireText = ""
         scope.launch {
             val cfg = withContext(Dispatchers.IO) { EmployeeRunner.draftFromRequest(req) }
-            val name = uniqueName(cfg.optString("name"), staff.map { it.name })
+            val name = uniqueName(cfg.optString("name").ifBlank { "Sam" }, staff.map { it.name })
             withContext(Dispatchers.IO) {
                 EmployeeStore.hire(ctx, name, cfg.optString("role").ifBlank { "assistant" },
                     cfg.optString("goal").ifBlank { req }, cfg.optString("tools"),
                     cfg.optInt("interval_min", 0), false)
             }
             refresh(); flash = "Hired $name ✓"; busy = false
+        }
+    }
+    fun hirePreset(p: Preset) {
+        if (busy) return
+        busy = true; flash = "Hiring ${p.name}…"
+        scope.launch {
+            val nm = uniqueName(p.name, staff.map { it.name })
+            withContext(Dispatchers.IO) { EmployeeStore.hire(ctx, nm, p.role, p.goal, p.tools, p.interval, true) }
+            refresh(); flash = "Hired $nm — ${p.role} ✓"; busy = false
         }
     }
     fun run(emp: EmployeeStore.Employee) {
@@ -400,13 +425,33 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         }
     }
 
-    // ── Hire ──
+    // ── Hire — ready-made roles up top, or describe your own ──
     if (hireOpen) Dialog(onDismissRequest = { hireOpen = false }) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
-            Text("BUILD ME AN EMPLOYEE THAT —", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+        Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp).verticalScroll(rememberScrollState())) {
+            Text("HIRE A TEAMMATE", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(4.dp))
+            Text("Tap a role to hire instantly — or describe your own below.", fontSize = T.caption, color = T.inkFaint)
             Spacer(Modifier.height(12.dp))
+            TEAM_PRESETS.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { p ->
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(T.bg)
+                            .clickable(enabled = !busy) { hireOpen = false; hirePreset(p) }.padding(11.dp)) {
+                            Text(p.label, fontSize = 13.sp, color = T.ink, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(3.dp))
+                            Text(p.desc, fontSize = 11.sp, color = T.inkFaint, lineHeight = 14.sp)
+                            Spacer(Modifier.height(6.dp))
+                            Text(if (p.interval >= 1440) "daily" else "every ${p.interval}m", fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("OR DESCRIBE YOUR OWN", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(8.dp))
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(12.dp)) {
-                if (hireText.isEmpty()) Text("keeps my inbox triaged and drafts replies", fontSize = 15.sp, color = T.inkFaint)
+                if (hireText.isEmpty()) Text("grows my Reddit presence and drafts human posts", fontSize = 15.sp, color = T.inkFaint)
                 BasicTextField(hireText, { hireText = it }, textStyle = TextStyle(color = T.ink, fontSize = 15.sp), modifier = Modifier.fillMaxWidth())
             }
             Spacer(Modifier.height(14.dp))
