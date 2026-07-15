@@ -38,6 +38,7 @@
       <a href="/">Home</a>
       <a href="/features.html">Features</a>
       <a href="/store.html">Powers</a>
+      <a href="/#team">Team</a>
       <a href="/setup.html">Setup</a>
       <a href="/docs.html">Docs</a>
       <a href="/vision.html">Vision</a>
@@ -186,6 +187,50 @@
       <p class="fbnote">Rate it 5★ and your note joins the rotating wall above — anyone can read it, so keep it kind.</p>
     </div>
   </section>
+
+  <!-- TEAM -->
+  <style>
+    .teamsec .muted{ max-width:640px }
+    .office{ position:relative; margin:26px auto 0; max-width:720px; background:var(--card); border:1px solid var(--line);
+      border-radius:22px; padding:22px; overflow:hidden }
+    .officefloor{ position:relative; height:190px }
+    .agent{ position:absolute; width:56px; text-align:center; animation:float 5s ease-in-out infinite }
+    .agent .pet{ width:54px; height:54px; margin:0 auto; image-rendering:pixelated }
+    .agent .pet svg{ width:100%; height:100%; display:block }
+    .agent .nm{ font-size:11px; color:var(--faint); margin-top:4px }
+    @keyframes float{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } }
+    .bubble{ position:absolute; background:var(--bg); border:1px solid var(--line); color:var(--ink);
+      font-size:13px; padding:8px 12px; border-radius:14px; max-width:230px; opacity:0; transform:translateY(6px);
+      transition:opacity .4s, transform .4s; pointer-events:none; z-index:5; line-height:1.4 }
+    .bubble.show{ opacity:1; transform:translateY(0) }
+    .bubble.need{ border-color:var(--accent); color:var(--accent) }
+    .hirebar{ display:flex; align-items:center; gap:10px; margin-top:20px; background:var(--bg); border:1px solid var(--line);
+      border-radius:14px; padding:12px 14px }
+    .hirebar .lbl{ font-size:11px; letter-spacing:1.4px; color:var(--accent); font-weight:700 }
+    .hirebar .typ{ font-size:15px; color:var(--soft) } .hirebar .go{ margin-left:auto; background:var(--accent); color:#1A1714;
+      font-weight:700; font-size:13px; padding:7px 16px; border-radius:999px }
+    .feed{ margin-top:16px; border-top:1px solid var(--line); padding-top:14px }
+    .feed .fl{ font-size:13px; color:var(--soft); line-height:2 } .feed .fl .t{ color:var(--faint); margin-right:10px }
+    .feed .fl.need{ color:var(--accent) }
+    .brainnote{ text-align:center; font-size:13px; color:var(--faint); margin-top:16px }
+  </style>
+  <section id="team" class="teamsec">
+    <p class="eyebrow">Your AI staff</p>
+    <h2>Hire a team that works while you don't</h2>
+    <p class="muted">Describe an employee — "keep my inbox triaged," "sort my expenses," "manage my tickets." They work shifts on their own, report what they did, and tap you on the shoulder when they need something. Every shift is remembered in your brain, and everything runs through your one AI.</p>
+    <div class="office">
+      <div class="officefloor" id="officefloor">
+        <div class="agent" style="left:8%; top:70px"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="nm">Piper</div></div>
+        <div class="agent" style="left:44%; top:96px; animation-delay:1.2s"><div class="pet" data-sp="1" data-col="#9A9085"></div><div class="nm">Dev</div></div>
+        <div class="agent" style="left:80%; top:64px; animation-delay:.6s"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="nm">Ada</div></div>
+        <div class="bubble" id="bubble"></div>
+      </div>
+      <div class="hirebar"><span class="lbl">BUILD ME AN EMPLOYEE THAT —</span><span class="typ" id="hiretyp"></span><span class="go">Hire</span></div>
+      <div class="feed" id="teamfeed"></div>
+      <div class="brainnote">Every shift is logged to your brain · supervised until you trust them</div>
+    </div>
+  </section>
+
   <!-- GET IT -->
   <section id="get">
     <p class="eyebrow">Get it</p>
@@ -226,5 +271,48 @@
 
 </div>
 <script src="/app.js"></script>
+<script>
+(function(){
+  var floor=document.getElementById('officefloor'), bubble=document.getElementById('bubble'),
+      feed=document.getElementById('teamfeed'), hiretyp=document.getElementById('hiretyp');
+  if(!floor||!bubble) return;
+  var DARK='#2C2620';
+  function pet(sp,col){
+    var body=[[2,4],[3,4],[4,4],[5,4],[6,4],[2,5],[3,5],[4,5],[5,5],[6,5],[3,6],[4,6],[5,6],[3,3],[4,3],[5,3]];
+    var ears = sp===0?[[3,2],[5,2]] : sp===3?[[3,1],[3,2],[5,1],[5,2]] : [[2,2],[3,3],[6,2],[5,3]];
+    var dark=[[3,4],[5,4],[4,5]], feet=[[2,7],[6,7]], tail = sp===2?[[7,5]]:[];
+    function r(list,c){ return list.map(function(q){return '<rect x="'+q[0]*5+'" y="'+q[1]*5+'" width="5.4" height="5.4" fill="'+c+'"/>';}).join(''); }
+    return '<svg viewBox="0 0 45 45" shape-rendering="crispEdges">'+r(body,col)+r(ears,col)+r(feet,col)+r(tail,col)+r(dark,DARK)+'</svg>';
+  }
+  [].forEach.call(document.querySelectorAll('#officefloor .pet'),function(el){ el.innerHTML=pet(+el.dataset.sp, el.dataset.col); });
+  var xs={PM:'12%',DV:'46%',AD:'80%'};
+  var script=[
+    {who:'PM',x:'10%',y:'34px',t:'Triaged 6 tickets',need:false,feed:'Piper triaged 6 tickets'},
+    {who:'PM',x:'26%',y:'54px',t:'Handing 2 to Dev →',need:false,feed:'Piper assigned 2 to Dev'},
+    {who:'DV',x:'40%',y:'60px',t:'Drafted a fix for #214 — awaiting your ok',need:false,feed:'Dev drafted a fix for #214 · awaiting approval'},
+    {who:'AD',x:'56%',y:'30px',t:'Gathered 4 sources for the brief',need:false,feed:'Ada gathered 4 sources'},
+    {who:'AD',x:'52%',y:'30px',t:'Need your Gmail to finish',need:true,feed:'Ada paused — needs your Gmail'},
+    {who:'PM',x:'10%',y:'34px',t:'Booked your 3pm and sent invites',need:false,feed:'Piper booked your 3pm'}
+  ];
+  function pad(n){return n<10?'0'+n:''+n}
+  var base=8*60+2, i=0;
+  function tick(){
+    var s=script[i%script.length];
+    bubble.style.left=s.x; bubble.style.top=s.y;
+    bubble.textContent=s.t; bubble.className='bubble'+(s.need?' need':'');
+    void bubble.offsetWidth; bubble.classList.add('show');
+    var mins=base+i*3, hh=Math.floor(mins/60), mm=mins%60;
+    var row=document.createElement('div'); row.className='fl'+(s.need?' need':'');
+    row.innerHTML='<span class="t">'+pad(hh)+':'+pad(mm)+'</span>'+s.feed;
+    feed.insertBefore(row,feed.firstChild);
+    while(feed.children.length>4) feed.removeChild(feed.lastChild);
+    setTimeout(function(){bubble.classList.remove('show')},2600);
+    i++;
+  }
+  var phrase='keeps my inbox triaged and drafts replies', hp=0;
+  function type(){ if(hp<=phrase.length){ hiretyp.textContent=phrase.slice(0,hp)+'▏'; hp++; setTimeout(type,55);} else hiretyp.textContent=phrase; }
+  type(); tick(); setInterval(tick,3400);
+})();
+</script>
 </body>
 </html>

@@ -538,6 +538,9 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                     Text("Cowork", fontSize = T.small, color = T.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(T.hairline)
                             .clickable { onWorkspace() }.padding(vertical = 10.dp))
+                    Text("Team", fontSize = T.small, color = T.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable { mode = "team" }.padding(vertical = 10.dp))
                 }
                 Spacer(Modifier.height(14.dp))
                 BasicTextField(value = paperSearch, onValueChange = { paperSearch = it }, singleLine = true,
@@ -614,6 +617,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
                         .clickable(enabled = !busy && prompt.isNotBlank()) { generate() }
                         .padding(horizontal = 20.dp, vertical = 11.dp))
             }
+            "team" -> TeamPanel()
             "editor" -> {
                 // Top bar: switch between the conversational writing flow and the full paper view.
                 Row(verticalAlignment = Alignment.CenterVertically) {
