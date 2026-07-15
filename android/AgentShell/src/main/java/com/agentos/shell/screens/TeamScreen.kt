@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -51,6 +52,17 @@ private fun staffGrad(seed: String): List<Color> {
     return listOf(p.first, p.second)
 }
 private fun initials(name: String) = name.trim().split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("").ifBlank { "•" }
+
+// Office palette.
+private val FLOOR_A = Color(0xFF6B4E2E); private val FLOOR_B = Color(0xFF614426)
+private val WALL = Color(0xFF3A2C1E); private val BASEBOARD = Color(0xFF2A2016)
+private val WINDOW_SKY = Color(0xFF7FB4D6); private val WINDOW_FR = Color(0xFF241A11)
+private val DESK = Color(0xFF8A5A2E); private val MONITOR = Color(0xFF15140F); private val SCREEN = Color(0xFF4FC3D6)
+private val MUG = Color(0xFFD0603A)
+private val COUNTER = Color(0xFFB7BCC1); private val SINK = Color(0xFF5E6266); private val FRIDGE = Color(0xFFCBD0D4)
+private val FRIDGE_H = Color(0xFF8A8E92); private val COFFEE = Color(0xFF241F19); private val COFFEE_RED = Color(0xFFE24B4A)
+private val COUCH = Color(0xFF4E86B0); private val COUCH_BK = Color(0xFF37627F); private val TABLE = Color(0xFF7A4E2A)
+private val RUG = Color(0xFF9C5566); private val POT = Color(0xFFB0623A); private val LEAF = Color(0xFF57955A)
 
 // Cute blocky pixel critters — one per employee, in the same drawRect pixel spirit as the running dog.
 private val PET_BODY = listOf(Color(0xFFC9863F), Color(0xFF9A9085), Color(0xFFE8642C), Color(0xFFF4EFE6), Color(0xFF7B9E6B))
@@ -136,37 +148,63 @@ fun TeamPanel(modifier: Modifier = Modifier) {
 
     // ── THE OFFICE — the whole screen. Staff mill about; tap one for details; + to hire. ──────────────
     Box(modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF2A2118), Color(0xFF15110C))))) {
-            if (staff.isEmpty()) {
-                Column(Modifier.align(Alignment.Center).padding(30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Your office is empty", fontSize = 18.sp, color = T.inkSoft, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tap the + to hire your first employee. They'll move in and get to work.",
-                        fontSize = T.small, color = T.inkFaint, textAlign = TextAlign.Center, lineHeight = 20.sp)
-                }
-            } else {
-                val cols = maxOf(1, ((maxWidth.value - 24) / 94).toInt())
-                staff.forEachIndexed { i, e ->
-                    val col = i % cols; val rowIdx = i / cols
-                    val inf = rememberInfiniteTransition(label = "drift$i")
-                    val drift by inf.animateFloat(-11f, 11f, infiniteRepeatable(tween(2000 + (i % 4) * 500), RepeatMode.Reverse), label = "d$i")
-                    val bx = 14 + col * 94 + drift
-                    val by = 28 + rowIdx * 112
-                    val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
-                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.offset(bx.dp, by.dp).width(84.dp).clickable { detailEmp = e }) {
-                        Box(Modifier.height(46.dp), contentAlignment = Alignment.BottomCenter) {
-                            if (talk != null) Text(talk.line.take(56), fontSize = 10.sp, maxLines = 3, lineHeight = 12.sp,
-                                color = if (talk.needsInput) T.danger else T.ink,
-                                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.16f) else T.bgElevated).padding(7.dp))
-                            else if (e.status == "needs_you") Text("!", fontSize = 13.sp, color = T.danger, fontWeight = FontWeight.Bold)
-                        }
-                        PixelPet(e.id, 48)
-                        Text(e.name, fontSize = 11.sp, color = T.inkSoft, maxLines = 1)
+        BoxWithConstraints(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(FLOOR_A)) {
+            val s = maxWidth.value / 10f   // tile side (dp); the whole office is a 10-wide grid
+            // ── Draw the room: floor, walls, window, desks, kitchen, meeting table, lounge ──
+            Canvas(Modifier.fillMaxSize()) {
+                val t = size.width / 10f
+                val rows = (size.height / t).toInt() + 2
+                fun rect(c: Float, r: Float, w: Float, h: Float, col: Color) = drawRect(col, Offset(c * t, r * t), Size(w * t, h * t))
+                fun rr(c: Float, r: Float, w: Float, h: Float, col: Color, rad: Float = 0.3f) =
+                    drawRoundRect(col, Offset(c * t, r * t), Size(w * t, h * t), CornerRadius(rad * t, rad * t))
+                for (rr2 in 0 until rows) for (cc in 0 until 10)
+                    rect(cc.toFloat(), rr2.toFloat(), 1f, 1f, if ((cc + rr2) % 2 == 0) FLOOR_A else FLOOR_B)
+                for (cc in 0 until 10) { rect(cc.toFloat(), 0f, 1f, 1f, WALL); rect(cc.toFloat(), (rows - 1).toFloat(), 1f, 1f, WALL) }
+                for (rr2 in 0 until rows) { rect(0f, rr2.toFloat(), 1f, 1f, WALL); rect(9f, rr2.toFloat(), 1f, 1f, WALL) }
+                rect(0f, 1f, 10f, 0.18f, BASEBOARD)                                   // baseboard shadow
+                rect(2f, 0.15f, 3f, 0.7f, WINDOW_SKY); rect(3.45f, 0.15f, 0.1f, 0.7f, WINDOW_FR)   // window + mullion
+                // Desks (work zone).
+                fun desk(c: Float) { rect(c, 2f, 1.7f, 0.75f, DESK); rect(c + 0.35f, 1.45f, 1f, 0.6f, MONITOR)
+                    rect(c + 0.45f, 1.55f, 0.8f, 0.38f, SCREEN); rect(c + 1.4f, 2.15f, 0.28f, 0.32f, MUG) }
+                desk(1f); desk(3.2f); desk(5.4f)
+                // Kitchen (top-right).
+                rect(6.5f, 2f, 1.6f, 0.75f, COUNTER); rect(6.8f, 2.15f, 0.55f, 0.45f, SINK)
+                rect(8.05f, 1.4f, 0.85f, 1.35f, FRIDGE); rect(8.12f, 2.2f, 0.12f, 0.5f, FRIDGE_H); rect(8.05f, 1.95f, 0.85f, 0.06f, FRIDGE_H)
+                rect(6.55f, 1.65f, 0.42f, 0.4f, COFFEE); rect(6.63f, 1.7f, 0.1f, 0.1f, COFFEE_RED)
+                // Meeting table (centre).
+                rr(3.3f, 5.6f, 3.4f, 1.5f, TABLE, 0.5f)
+                // Lounge (bottom).
+                rr(0.8f, 9.2f, 5.2f, 3f, RUG, 0.6f)
+                rect(1.2f, 9.55f, 3.6f, 0.28f, COUCH_BK); rr(1.2f, 9.8f, 3.6f, 1.2f, COUCH, 0.35f)
+                rr(2.1f, 11.2f, 1.5f, 0.6f, TABLE, 0.3f)
+                rect(6.5f, 10f, 0.8f, 0.7f, POT); rect(6.35f, 9.1f, 1.1f, 1f, LEAF)
+            }
+            // ── Workers at valid stations (desks, meeting seats, lounge) — never on furniture ──
+            val stations = listOf(1.55f to 2.95f, 3.75f to 2.95f, 5.95f to 2.95f, 6.6f to 5.7f, 3.1f to 5.7f, 2.2f to 10.3f, 4.1f to 10.3f)
+            staff.forEachIndexed { i, e ->
+                val st = stations[i % stations.size]
+                val inf = rememberInfiniteTransition(label = "b$i")
+                val bx by inf.animateFloat(-3f, 3f, infiniteRepeatable(tween(1400 + (i % 4) * 350), RepeatMode.Reverse), label = "bx$i")
+                val talk = if (staff.isNotEmpty() && staff[talker % staff.size].id == e.id) lastLines[e.id] else null
+                Column(horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.offset((st.first * s + bx).dp, (st.second * s).dp).width((s * 1.6f).dp).clickable { detailEmp = e }) {
+                    Box(Modifier.height((s * 1.1f).dp), contentAlignment = Alignment.BottomCenter) {
+                        if (talk != null) Text(talk.line.take(48), fontSize = 9.sp, maxLines = 3, lineHeight = 11.sp,
+                            color = if (talk.needsInput) T.danger else T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (talk.needsInput) T.danger.copy(alpha = 0.18f) else T.bgElevated).padding(6.dp))
+                        else if (e.status == "needs_you") Text("!", fontSize = 13.sp, color = T.danger, fontWeight = FontWeight.Bold)
                     }
+                    PixelPet(e.id, (s * 1.15f).toInt().coerceIn(34, 52))
+                    Text(e.name, fontSize = 10.sp, color = Color(0xFFF2E9DC), maxLines = 1)
                 }
             }
+            if (staff.isEmpty())
+                Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("The office is ready", fontSize = 18.sp, color = Color(0xFFF2E9DC), fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap + to hire your first employee. They'll take a desk and get to work.",
+                        fontSize = T.small, color = Color(0xFFD8C6B0), textAlign = TextAlign.Center, lineHeight = 20.sp)
+                }
         }
         // + to hire
         Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(58.dp).clip(CircleShape).background(T.accent)
