@@ -105,6 +105,18 @@ dependencies {
     // (no per-image API cost) to find "a full-body photo of me" without captioning the whole library.
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("com.google.mlkit:face-detection:16.1.7")
+    // On-device pose detection (BlazePose) — confirms a FULL body (ankles in frame), not a phone-killer like
+    // OpenPose. Free, offline. Runs only on the person photos where the face is small enough to be unsure.
+    implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
+    // On-device OCR — reads the TEXT inside every photo/screenshot (whiteboards, receipts, book pages) so it
+    // becomes searchable in the brain. And barcodes/QR. Both free, offline.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Text intelligence — all on-device, free, offline:
+    implementation("com.google.mlkit:translate:17.0.3")                 // translate any message/doc
+    implementation("com.google.mlkit:language-id:17.0.6")               // detect language
+    implementation("com.google.mlkit:entity-extraction:16.0.0-beta6")  // pull phones/emails/addresses/dates
+    implementation("com.google.mlkit:smart-reply:17.0.4")              // suggested replies
     // On-device LLM inference (free, offline endpoint). Called by reflection in LocalLlm, so the app still
     // compiles if this line is removed; present here it powers the local model.
     implementation("com.google.mediapipe:tasks-genai:0.10.24")

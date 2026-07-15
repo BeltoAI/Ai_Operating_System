@@ -14,6 +14,7 @@ class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         return try {
             PhotoIndex.analyzeRecent(applicationContext, 80)
+            PhotoIndex.analyzeVideosRecent(applicationContext, 20)
             Result.success()
         } catch (e: Exception) {
             Result.success()

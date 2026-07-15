@@ -105,6 +105,13 @@ object ToolRouter {
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
                 "send_photo" -> sendPhoto(ctx, arg)
+                "translate" -> {
+                    val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("text", arg) }
+                    val text = o.optString("text").ifBlank { arg }
+                    val to = o.optString("to").ifBlank { "en" }
+                    val out = com.agentos.shell.tools.Translate.translate(text, to)
+                    if (out == text) "That's already in the target language (or I couldn't translate offline)." else out
+                }
                 "navigate" -> navigate(ctx, arg)
                 "share_location" -> shareLocation(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
@@ -377,6 +384,25 @@ object ToolRouter {
                 pool.values.toList().take(36)
             }
             if (cands.isEmpty()) return "I couldn't find any photos to match “$query”. Make sure photo access is on in Settings."
+
+            // PRIVACY: intimate photos must never be uploaded to a cloud model (which would also just refuse
+            // them). Everything upstream is on-device, so for these we match locally and skip the cloud confirm.
+            val privateReq = Regex("(?i)nude|naked|nsfw|intimate|lingerie|underwear|\\bprivate\\b|spicy|sexy|explicit|onlyfans").containsMatchIn(ql)
+            if (privateReq) {
+                val picks = cands.take(count.coerceIn(1, 6))
+                if (name.isBlank()) {
+                    start(ctx, Intent(Intent.ACTION_VIEW).setDataAndType(picks.first().uri, "image/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                    return "Kept this fully on your device (never sent to any AI) — opening ${picks.first().name}."
+                }
+                if (!ContactsTool.canRead(ctx)) return "Turn on Contacts access so I can find $name."
+                val c2 = when (val r = ContactsTool.resolve(ctx, name)) {
+                    is ContactsTool.Resolution.Found -> r.contact
+                    is ContactsTool.Resolution.Ambiguous -> return "A few people match “$name”: ${r.options.joinToString(", ") { it.name }}. Which one?"
+                    ContactsTool.Resolution.None -> return "I couldn't find a contact called “$name”."
+                }
+                return FileOps.sendToPerson(ctx, picks.map { it.uri }, app.ifBlank { "whatsapp" }, c2.name, toNumber = c2.number, message = message)
+                    ?: "Found ${picks.size} — matched privately on-device — but couldn't open the share to ${c2.name}."
+            }
 
             // Exact identity: reuse the Faces feature. If the ask is about "me" or a known person, grab their
             // reference face so the model matches the actual PERSON, not just "a full-body shot of someone".

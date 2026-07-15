@@ -23,10 +23,10 @@ object PhotoIndex {
 
     data class Entry(val uri: String, val name: String, val caption: String, val bucket: String, val ts: Long)
 
-    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_photos.db", null, 2) {
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_photos.db", null, 3) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS photos(uri TEXT PRIMARY KEY, name TEXT, caption TEXT, bucket TEXT, ts INTEGER, " +
-                "labels TEXT DEFAULT '', kind TEXT DEFAULT '', faces INTEGER DEFAULT 0)")
+                "labels TEXT DEFAULT '', kind TEXT DEFAULT '', faces INTEGER DEFAULT 0, ocr TEXT DEFAULT '')")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_ts ON photos(ts)")
         }
         override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
@@ -35,6 +35,7 @@ object PhotoIndex {
                 try { db.execSQL("ALTER TABLE photos ADD COLUMN kind TEXT DEFAULT ''") } catch (e: Exception) {}
                 try { db.execSQL("ALTER TABLE photos ADD COLUMN faces INTEGER DEFAULT 0") } catch (e: Exception) {}
             }
+            if (o < 3) try { db.execSQL("ALTER TABLE photos ADD COLUMN ocr TEXT DEFAULT ''") } catch (e: Exception) {}
         }
     }
 
@@ -65,16 +66,17 @@ object PhotoIndex {
 
     fun clear(ctx: Context) = try { db(ctx).execSQL("DELETE FROM photos") } catch (e: Exception) {}
 
-    /** Store the FREE on-device analysis (labels + kind + faces). Upserts by uri; no caption needed. */
-    fun putVision(ctx: Context, uri: String, name: String, bucket: String, ts: Long, labels: List<String>, kind: String, faces: Int) {
+    /** Store the FREE on-device analysis (labels + kind + faces + OCR text + barcodes). Upserts by uri. */
+    fun putVision(ctx: Context, uri: String, name: String, bucket: String, ts: Long, labels: List<String>, kind: String, faces: Int, ocr: String = "", barcodes: List<String> = emptyList()) {
         try {
+            val allLabels = (labels + barcodes.map { "code:$it" }).joinToString(",")
             db(ctx).insertWithOnConflict("photos", null, ContentValues().apply {
                 put("uri", uri); put("name", name); put("bucket", bucket); put("ts", ts)
-                put("labels", labels.joinToString(",")); put("kind", kind); put("faces", faces)
+                put("labels", allLabels); put("kind", kind); put("faces", faces); put("ocr", ocr)
             }, SQLiteDatabase.CONFLICT_IGNORE)
-            // If the row already existed (caption present), just add the vision fields without wiping the caption.
-            db(ctx).execSQL("UPDATE photos SET labels=?, kind=?, faces=? WHERE uri=?",
-                arrayOf(labels.joinToString(","), kind, faces, uri))
+            // If the row already existed (caption present), add the vision fields without wiping the caption.
+            db(ctx).execSQL("UPDATE photos SET labels=?, kind=?, faces=?, ocr=? WHERE uri=?",
+                arrayOf(allLabels, kind, faces, ocr, uri))
         } catch (e: Exception) { Log.w(TAG, "putVision: ${e.message}") }
     }
 
@@ -125,12 +127,49 @@ object PhotoIndex {
                     putVision(ctx, key, f.name, f.where, System.currentTimeMillis(), listOf("screenshot"), "screenshot", 0); added++; continue
                 }
                 val r = PhotoVision.analyze(ctx, f.uri) ?: continue
-                putVision(ctx, key, f.name, f.where, System.currentTimeMillis(), r.labels, r.kind, r.faces)
+                putVision(ctx, key, f.name, f.where, System.currentTimeMillis(), r.labels, r.kind, r.faces, r.text, r.barcodes)
                 added++
             }
             if (added > 0) Log.i(TAG, "on-device analyzed $added photos")
             added
         } catch (e: Exception) { Log.w(TAG, "analyzeRecent: ${e.message}"); 0 }
+    }
+
+    /** Index recent VIDEOS by analyzing a representative frame (middle of the clip), on-device + free. */
+    fun analyzeVideosRecent(ctx: Context, max: Int = 20): Int {
+        return try {
+            val done = analyzedUris(ctx)
+            var added = 0
+            val proj = arrayOf(
+                android.provider.MediaStore.Video.Media._ID,
+                android.provider.MediaStore.Video.Media.DISPLAY_NAME,
+                android.provider.MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+                android.provider.MediaStore.Video.Media.DATE_ADDED)
+            ctx.contentResolver.query(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, proj, null, null,
+                "${android.provider.MediaStore.Video.Media.DATE_ADDED} DESC LIMIT 200")?.use { c ->
+                while (c.moveToNext()) {
+                    if (added >= max) break
+                    val id = c.getLong(0)
+                    val uri = Uri.withAppendedPath(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    val key = uri.toString()
+                    if (key in done) continue
+                    val name = c.getString(1) ?: "video"; val bucket = c.getString(2) ?: "Videos"
+                    val frame = try {
+                        val mmr = android.media.MediaMetadataRetriever()
+                        try {
+                            mmr.setDataSource(ctx, uri)
+                            val durMs = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                            mmr.getFrameAtTime((durMs / 2) * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        } finally { try { mmr.release() } catch (e: Exception) {} }
+                    } catch (e: Exception) { null } ?: continue
+                    val r = PhotoVision.analyzeBitmap(frame) ?: continue
+                    putVision(ctx, key, name, "video", System.currentTimeMillis(), r.labels + "video", r.kind, r.faces, r.text, r.barcodes)
+                    added++
+                }
+            }
+            if (added > 0) Log.i(TAG, "on-device analyzed $added videos")
+            added
+        } catch (e: Exception) { Log.w(TAG, "analyzeVideosRecent: ${e.message}"); 0 }
     }
 
     /**
@@ -164,14 +203,15 @@ object PhotoIndex {
         val toks = query.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 3 && it !in STOP }.distinct()
         if (toks.isEmpty()) return emptyList()
         return try {
-            val where = toks.joinToString(" OR ") { "caption LIKE ? OR name LIKE ? OR labels LIKE ?" }
-            val args = toks.flatMap { listOf("%$it%", "%$it%", "%$it%") }.toTypedArray()
+            val where = toks.joinToString(" OR ") { "caption LIKE ? OR name LIKE ? OR labels LIKE ? OR ocr LIKE ?" }
+            val args = toks.flatMap { listOf("%$it%", "%$it%", "%$it%", "%$it%") }.toTypedArray()
             val hits = mutableListOf<FileResolver.Found>()
-            db(ctx).rawQuery("SELECT uri, name, caption, labels FROM photos WHERE $where ORDER BY ts DESC LIMIT 60", args).use { c ->
+            db(ctx).rawQuery("SELECT uri, name, caption, labels, ocr FROM photos WHERE $where ORDER BY ts DESC LIMIT 60", args).use { c ->
                 while (c.moveToNext()) {
                     val uri = c.getString(0); val name = c.getString(1) ?: "photo"
                     val cap = (c.getString(2) ?: "").lowercase(); val labels = (c.getString(3) ?: "").lowercase()
-                    val hay = "$cap $labels $name".lowercase()
+                    val ocr = (c.getString(4) ?: "").lowercase()
+                    val hay = "$cap $labels $ocr $name".lowercase()
                     val score = toks.count { hay.contains(it) } * 2
                     if (score > 0) hits.add(FileResolver.Found(Uri.parse(uri), name.ifBlank { "photo" }, "gallery", score))
                 }

@@ -380,6 +380,17 @@ object GmailClient {
                 DocStore.addText(ctx, j.optString("category", "other"), title,
                     j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), "email")
                 try { DocText.add(ctx, title, "email", text) } catch (e: Exception) {}   // full text → readable by agents
+                // On-device entity extraction → auto-build the CRM from your inbox (sender + any emails/phones).
+                try {
+                    val from = header(payload, "From")
+                    val fromEmail = Regex("[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}").find(from)?.value ?: ""
+                    val fromName = from.substringBefore("<").trim().trim('"').ifBlank { fromEmail.substringBefore("@") }
+                    if (fromEmail.isNotBlank()) LeadStore.add(ctx, fromName, fromEmail, "", "", "email", "")
+                    val ent = Entities.extract(text.take(4000))
+                    ent.emails.filter { it != fromEmail }.forEach { LeadStore.add(ctx, "", it, "", "", "email", "") }
+                    if (ent.phones.isNotEmpty() && fromEmail.isNotBlank())
+                        LeadStore.add(ctx, fromName, fromEmail, "", "", "email", "", org.json.JSONObject().put("phone", ent.phones.first()).toString())
+                } catch (e: Exception) {}
                 added++
             } catch (e: Exception) {}
         }

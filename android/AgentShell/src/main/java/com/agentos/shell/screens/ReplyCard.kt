@@ -92,6 +92,20 @@ fun ReplyCard(note: NotificationStore.Note) {
     var copied by remember { mutableStateOf(false) }
     var eventBusy by remember { mutableStateOf(false) }
     var eventStatus by remember { mutableStateOf("") }
+    // Instant, free, on-device quick-reply suggestions (ML Kit Smart Reply) for conversational messages.
+    var quick by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(note.key) {
+        if (note.isConversational && !note.isEmail && note.text.isNotBlank()) {
+            val s = withContext(Dispatchers.IO) {
+                try {
+                    val thread = com.agentos.shell.tools.ConversationStore.thread(ctx, note.app, note.title).map { (it.role == "me") to it.text }
+                    val hist = if (thread.isNotEmpty()) thread else listOf(false to note.text)
+                    com.agentos.shell.tools.SmartReply.suggest(hist)
+                } catch (e: Exception) { emptyList() }
+            }
+            quick = s
+        }
+    }
 
     // Auto-propose a reply (never auto-sent) the moment the card appears, for things you'd reply to
     // by hand: human emails, and comments/DMs with no inline reply box (LinkedIn, IG, X, Reddit…).
@@ -157,6 +171,16 @@ fun ReplyCard(note: NotificationStore.Note) {
             )
         }
 
+        // One-tap on-device suggestions — tap to load it into the editable draft (never auto-sent).
+        if (quick.isNotEmpty() && sent.isEmpty() && !approving) {
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                quick.take(3).forEach { s ->
+                    Text(s, fontSize = T.small, color = T.accent, maxLines = 1,
+                        modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(T.accent.copy(alpha = 0.12f))
+                            .clickable { draft = s; approving = true }.padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            }
+        }
         val autoPending = NotificationStore.pendingAuto.contains(note.key)
         when {
             sent.isNotEmpty() -> {
