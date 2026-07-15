@@ -202,7 +202,7 @@ fun HomeScreen(
     var attachSheet by remember { mutableStateOf(false) }
     var incoming by remember { mutableStateOf<List<com.agentos.shell.tools.Inbox.Item>>(emptyList()) }
     var loadingIncoming by remember { mutableStateOf(false) }
-    var nudge by remember { mutableStateOf<com.agentos.shell.tools.Inbox.Item?>(null) }
+    var nudges by remember { mutableStateOf<List<com.agentos.shell.tools.Inbox.Item>>(emptyList()) }
 
     val mediaPerm = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -238,7 +238,7 @@ fun HomeScreen(
                     )
                 }
                 com.agentos.shell.tools.Inbox.dismiss(ctx, item.key)
-                nudge = null
+                nudges = nudges.filterNot { it.key == item.key }
             }
         }
     }
@@ -249,9 +249,14 @@ fun HomeScreen(
         val past = withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.recentPairs(ctx, 12) }
         if (past.isNotEmpty() && history.isEmpty()) history = past
     }
-    // The rare nudge: only a document someone emailed you in the last few days, never anything else.
+    // A fresh session starts with NO open document, so a stale attachment never gets re-detected.
     LaunchedEffect(Unit) {
-        nudge = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudge(ctx) }
+        if (photos.isEmpty() && attachments.isEmpty())
+            withContext(Dispatchers.IO) { com.agentos.shell.tools.AttachContext.clear(ctx) }
+    }
+    // Recent documents people emailed you (up to 3) — shown once, then never nagged again.
+    LaunchedEffect(Unit) {
+        nudges = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.nudges(ctx, 3) }
     }
     val capture: () -> Unit = {
         val file = File(ctx.cacheDir, "home_${System.currentTimeMillis()}.jpg")
@@ -304,12 +309,30 @@ fun HomeScreen(
             // into the vision path and the model would just claim it sent. One place, works for both.
             run {
                 val FO = com.agentos.shell.tools.FileOps
-                val attachedNow = photos + attachments
+                val FR = com.agentos.shell.tools.FileResolver
                 val sendIntent = Regex("(?i)\\b(send|share|forward|email|whats\\s?app|dm)\\b").containsMatchIn(q) ||
                     Regex("(?i)\\btext (it|this|them|these)\\b").containsMatchIn(q)
                 val fileIntent = Regex("(?i)\\b(file it|file them|file these|move (it|them|this|these)|put (it|them|this|these)|save (it|them|this|these) (to|in|into))\\b").containsMatchIn(q)
-                if (attachedNow.isNotEmpty() && (sendIntent || fileIntent)) {
-                    val files = attachedNow; val many = files.size > 1
+
+                // Files to act on: what's attached now, OR — if nothing's attached — a file the user named
+                // ("send my white paper to Carlos"), looked up in the SlyOS folder / phone storage.
+                var files = photos + attachments
+                var foundNote = ""
+                if (files.isEmpty() && sendIntent && FR.describesAFile(q)) {
+                    val what = FR.extractWhat(q)
+                    val hits = if (!what.isNullOrBlank()) withContext(Dispatchers.IO) { FR.find(ctx, what) } else emptyList()
+                    if (hits.isNotEmpty()) {
+                        files = listOf(hits.first().uri)
+                        foundNote = "Found \"${hits.first().name}\" in ${hits.first().where}. "
+                    } else if (!what.isNullOrBlank()) {
+                        reply = "I couldn't find \"$what\" in your SlyOS folder or files. Attach it, or file it in SlyOS first, and I'll send it."
+                        withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
+                        if (doSpeak) speak(reply); thinking = false
+                        return@launch
+                    }
+                }
+                if (files.isNotEmpty() && (sendIntent || fileIntent)) {
+                    val many = files.size > 1
                     photos = emptyList(); attachments = emptyList()
                     reply = withContext(Dispatchers.IO) {
                         if (fileIntent && !sendIntent) {
@@ -349,7 +372,12 @@ fun HomeScreen(
                             r
                         }
                     }
-                    withContext(Dispatchers.IO) { com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply) }
+                    if (foundNote.isNotBlank()) reply = foundNote + reply
+                    // The working set is done — clear the open-doc so it stops haunting later prompts.
+                    withContext(Dispatchers.IO) {
+                        com.agentos.shell.tools.AttachContext.clear(ctx)
+                        com.agentos.shell.tools.HomeChatStore.add(ctx, q, reply)
+                    }
                     if (doSpeak) speak(reply)
                     thinking = false
                     return@launch
@@ -962,48 +990,46 @@ fun HomeScreen(
                 onRemove = { photos = emptyList() }
             )
         }
-        // THE QUIET NUDGE — one document someone emailed you, with a way to peek, use, or dismiss it.
-        nudge?.let { n ->
-            // Show it AT MOST once: mark it seen as soon as it surfaces, so the same PDF never nags again.
-            LaunchedEffect(n.key) { withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.dismiss(ctx, n.key) } }
-            if (photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // A quiet editorial mark: a hairline rule in the accent, not a badge.
-                    Box(Modifier.width(2.dp).height(38.dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "SENT TO YOU", fontSize = 9.sp, color = T.inkFaint,
-                            letterSpacing = 1.6.sp, fontWeight = FontWeight.Medium
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            com.agentos.shell.tools.Inbox.nudgeLine(n),
-                            fontSize = T.caption, color = T.ink, maxLines = 2
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row {
-                            Text("Preview", fontSize = 12.sp, color = T.accent,
-                                modifier = Modifier.clickable {
-                                    scope.launch {
-                                        val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, n) }
-                                        if (u != null) preview(u)
-                                    }
+        // SENT TO YOU — the recent documents people emailed you. Shown once, each peekable / usable / dismissable.
+        if (nudges.isNotEmpty() && photos.isEmpty() && attachments.isEmpty() && reply.isBlank() && !thinking) {
+            // Mark them all seen the moment they surface, so the same PDFs never nag again.
+            LaunchedEffect(nudges.map { it.key }) {
+                withContext(Dispatchers.IO) { nudges.forEach { com.agentos.shell.tools.Inbox.dismiss(ctx, it.key) } }
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Box(Modifier.width(2.dp).height((26 * nudges.size + 8).dp).clip(RoundedCornerShape(1.dp)).background(T.accent))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("SENT TO YOU", fontSize = 9.sp, color = T.inkFaint,
+                        letterSpacing = 1.6.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(4.dp))
+                    nudges.forEach { n ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(com.agentos.shell.tools.Inbox.nudgeLine(n),
+                                    fontSize = T.caption, color = T.ink, maxLines = 2)
+                                Spacer(Modifier.height(4.dp))
+                                Row {
+                                    Text("Preview", fontSize = 12.sp, color = T.accent,
+                                        modifier = Modifier.clickable {
+                                            scope.launch {
+                                                val u = withContext(Dispatchers.IO) { com.agentos.shell.tools.Inbox.resolve(ctx, n) }
+                                                if (u != null) preview(u)
+                                            }
+                                        })
+                                    Spacer(Modifier.width(18.dp))
+                                    Text("Use it", fontSize = 12.sp, color = T.accent,
+                                        modifier = Modifier.clickable { attachIncoming(n) })
+                                }
+                            }
+                            Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = T.inkFaint,
+                                modifier = Modifier.size(15.dp).clickable {
+                                    com.agentos.shell.tools.Inbox.dismiss(ctx, n.key)
+                                    nudges = nudges.filterNot { it.key == n.key }
                                 })
-                            Spacer(Modifier.width(18.dp))
-                            Text("Use it", fontSize = 12.sp, color = T.accent,
-                                modifier = Modifier.clickable { attachIncoming(n) })
                         }
                     }
-                    Icon(
-                        Icons.Filled.Close, contentDescription = "Dismiss", tint = T.inkFaint,
-                        modifier = Modifier.size(16.dp)
-                            .clickable { com.agentos.shell.tools.Inbox.dismiss(ctx, n.key); nudge = null }
-                    )
                 }
             }
         }

@@ -88,11 +88,15 @@ object Inbox {
     private fun seen(ctx: Context, key: String) = prefs(ctx).getBoolean("seen_$key", false)
 
     /** The one thing worth mentioning right now — or null, which is the normal case. */
-    fun nudge(ctx: Context): Item? = try {
-        val cutoff = System.currentTimeMillis() - 3L * 24 * 3600 * 1000
-        emailAttachments(ctx, 6)
-            .firstOrNull { it.isPdf && it.ts > cutoff && !seen(ctx, it.key) }
-    } catch (e: Exception) { null }
+    fun nudge(ctx: Context): Item? = nudges(ctx, 1).firstOrNull()
+
+    /** Recent documents people emailed you that you haven't dealt with — up to [max], newest first. */
+    fun nudges(ctx: Context, max: Int = 3): List<Item> = try {
+        val cutoff = System.currentTimeMillis() - 7L * 24 * 3600 * 1000
+        emailAttachments(ctx, 12)
+            .filter { it.ts > cutoff && !seen(ctx, it.key) }
+            .take(max)
+    } catch (e: Exception) { emptyList() }
 
     /** Plain-language line for the nudge — no jargon, no nagging. */
     fun nudgeLine(item: Item): String {

@@ -1836,6 +1836,7 @@ object AgentClient {
     /** Draft a human-sounding email reply, grounded in a document if one is provided. */
     fun draftEmailReply(sender: String, snippet: String, doc: String = "", memory: String = ""): String {
         val sys = persona(memory) +
+            (appContext?.let { AttachContext.brief(it) } ?: "") +
             "Write a reply email from your own account. Sound genuinely human — warm, natural, " +
             "concise and professional; vary sentence length, no robotic filler. " +
             (if (doc.isNotBlank())
@@ -1980,6 +1981,7 @@ object AgentClient {
      */
     fun draftReplyDetailed(sender: String, message: String, threadContext: String = "", memory: String = ""): String {
         val sys = persona(memory) +
+            (appContext?.let { AttachContext.brief(it) } ?: "") +
             "Write a thoughtful, complete reply to $sender's message/comment below. Address every point " +
             "they actually raised, with real substance — but stay in your own natural human voice, warm " +
             "and specific, not corporate or essay-like. A few sentences up to a short paragraph. " +

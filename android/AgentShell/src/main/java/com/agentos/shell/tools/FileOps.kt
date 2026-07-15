@@ -141,7 +141,16 @@ object FileOps {
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (multi) i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, staged)
                 else i.putExtra(Intent.EXTRA_STREAM, staged.first())
-                if (message.isNotBlank()) i.putExtra(Intent.EXTRA_TEXT, message)
+                if (message.isNotBlank()) {
+                    i.putExtra(Intent.EXTRA_TEXT, message)
+                    i.putExtra(Intent.EXTRA_SUBJECT, message)   // some apps read subject as the caption
+                    // WhatsApp/Instagram often drop the caption on a media share — so ALSO copy it to the
+                    // clipboard. Worst case the user long-presses and pastes; the text is never lost.
+                    try {
+                        val cb = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cb.setPrimaryClip(android.content.ClipData.newPlainText("SlyOS message", message))
+                    } catch (e: Exception) {}
+                }
 
                 var targeted = false   // did we land straight in the person's chat / pre-fill the recipient?
                 when {
@@ -163,8 +172,10 @@ object FileOps {
                         "Opened your share sheet — $what attached. Pick where to send."
                     } else {
                         ctx.startActivity(i)
-                        if (targeted) "Opened $app with $personName — $what attached${if (message.isNotBlank()) " with your message" else ""}. Just hit send."
-                        else "Opened $app with $what attached${if (message.isNotBlank()) " and your message" else ""} — pick $personName and send. ($app doesn't let apps pick the person for you.)"
+                        // WhatsApp/IG may not show the caption even though we pass it — the clipboard copy is the safety net.
+                        val msgNote = if (message.isBlank()) "" else if (isEmailChannel(hint)) " with your message" else " — your message is copied, paste it if it doesn't show"
+                        if (targeted) "Opened $app with $personName — $what attached$msgNote. Just hit send."
+                        else "Opened $app with $what attached$msgNote — pick $personName and send."
                     }
                 } catch (e: Exception) {
                     ctx.startActivity(Intent.createChooser(i.setPackage(null), "Send").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
