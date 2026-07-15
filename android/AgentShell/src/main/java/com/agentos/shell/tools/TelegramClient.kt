@@ -15,7 +15,8 @@ object TelegramClient {
     data class Update(
         val updateId: Long, val chatId: Long, val text: String, val caption: String,
         val photoFileId: String?, val docFileId: String?, val docName: String,
-        val docMime: String, val voiceFileId: String?, val senderName: String = ""
+        val docMime: String, val voiceFileId: String?, val senderName: String = "",
+        val newMembers: List<String> = emptyList()
     ) {
         val isPdf: Boolean get() = docFileId != null &&
             (docName.endsWith(".pdf", true) || docMime.equals("application/pdf", true))
@@ -48,12 +49,21 @@ object TelegramClient {
                         from?.optString("username")?.takeIf { it.isNotBlank() }
                             ?: chat.optString("title").takeIf { it.isNotBlank() } ?: ""
                     }
+                val joined = msg.optJSONArray("new_chat_members")?.let { arr ->
+                    (0 until arr.length()).mapNotNull { j ->
+                        val m2 = arr.optJSONObject(j) ?: return@mapNotNull null
+                        if (m2.optBoolean("is_bot", false)) null   // ignore the bot itself joining
+                        else listOfNotNull(m2.optString("first_name").takeIf { it.isNotBlank() },
+                            m2.optString("last_name").takeIf { it.isNotBlank() }).joinToString(" ")
+                            .ifBlank { m2.optString("username") }.takeIf { it.isNotBlank() }
+                    }
+                } ?: emptyList()
                 Update(
                     u.getLong("update_id"), chat.getLong("id"),
                     msg.optString("text"), msg.optString("caption"),
                     photo, doc?.optString("file_id"), doc?.optString("file_name").orEmpty(),
                     doc?.optString("mime_type").orEmpty(),
-                    msg.optJSONObject("voice")?.optString("file_id"), name
+                    msg.optJSONObject("voice")?.optString("file_id"), name, joined
                 )
             }
         } catch (e: Exception) { emptyList() }

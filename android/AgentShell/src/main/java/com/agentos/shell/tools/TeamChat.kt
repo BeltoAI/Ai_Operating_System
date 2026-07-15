@@ -46,27 +46,56 @@ object TeamChat {
         }
         if (u.chatId != gid) return false   // some other chat → not ours
 
+        // Someone joined → the whole team introduces itself.
+        if (u.newMembers.isNotEmpty()) { introduceAll(ctx, u.newMembers.first()); return true }
+
         val text = u.text.trim()
         if (text.isBlank()) return true
         val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
         if (staff.isEmpty()) { safeSend(gid, "You haven't hired any agents yet — open SlyOS → Team to add one."); return true }
 
-        val emp = staff.firstOrNull { e ->
+        // Figure out WHO should answer — by explicit @name if given, else whoever fits the message best.
+        val named = staff.firstOrNull { e ->
             e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
         }
-        if (emp == null) {
-            safeSend(gid, "Address an agent by name to give them something. You have: ${staff.joinToString(", ") { it.name }}.")
-            return true
-        }
-        val instruction = text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text }
-        val fromWho = u.senderName.ifBlank { "A teammate" }
-        try {
-            EmployeeStore.log(ctx, emp.id, "$fromWho (team chat): $instruction", false)
-            EmployeeStore.setStatus(ctx, emp.id, "idle")
-            MemoryLog.add(ctx, "note", "Team chat → ${emp.name}", "$fromWho: $instruction", "Team")
-        } catch (e: Exception) {}
-        safeSend(gid, "${emp.name} · got it 👍 — I'll handle \"${instruction.take(70)}\" on my next shift.")
+        val emp = named ?: bestFit(staff, text) ?: staff.first()
+        val instruction = if (named != null)
+            text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text } else text
+
+        // Actually answer/act NOW (grounded in the brain) and reply with the real result — not "next shift".
+        val reply = try { EmployeeRunner.answer(ctx, emp, instruction) } catch (e: Exception) { "Couldn't get to that just now." }
+        safeSend(gid, "${emp.name} · $reply")
         return true
+    }
+
+    /** Pick the agent whose role/goal best matches the message (intent-aware), or null if nothing fits. */
+    private fun bestFit(staff: List<EmployeeStore.Employee>, text: String): EmployeeStore.Employee? {
+        val t = text.lowercase()
+        val words = t.split(Regex("[^a-z0-9]+")).filter { it.length > 3 }
+        fun score(e: EmployeeStore.Employee): Int {
+            val hay = "${e.role} ${e.goal}".lowercase()
+            var s = words.count { hay.contains(it) }
+            fun boost(intent: String, role: String) { if (Regex(intent).containsMatchIn(t) && Regex(role).containsMatchIn(hay)) s += 4 }
+            boost("calendar|schedul|plan|meeting|appointment|agenda|today|tomorrow|free time", "calendar|schedul")
+            boost("email|inbox|reply|mail|draft", "inbox|email|mail")
+            boost("research|news|competitor|market|trend|look up|find out", "research|analyst|intelligence|news")
+            boost("expense|receipt|spend|budget|invoice|money|cost", "book|expense|financ|account")
+            boost("reddit|post|comment|tweet|social|audience", "reddit|growth|social|market")
+            return s
+        }
+        val best = staff.maxByOrNull { score(it) } ?: return null
+        return if (score(best) > 0) best else null
+    }
+
+    /** When someone joins the group, have every agent introduce itself in one quick message. */
+    fun introduceAll(ctx: Context, newcomer: String) {
+        if (!isConnected(ctx)) return
+        val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
+        if (staff.isEmpty()) return
+        val gid = groupId(ctx)
+        val hi = if (newcomer.isNotBlank()) "Welcome, $newcomer! " else "Welcome! "
+        val intros = staff.joinToString("\n") { "• ${it.name} — ${it.role}. ${it.goal.take(90)}" }
+        safeSend(gid, hi + "Here's the team — just talk to us naturally, no need to tag anyone:\n$intros")
     }
 
     private fun safeSend(gid: Long, text: String) { try { TelegramClient.sendMessage(gid, text) } catch (e: Exception) {} }

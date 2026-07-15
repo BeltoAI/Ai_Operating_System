@@ -168,6 +168,64 @@ object EmployeeRunner {
         }
     }
 
+    /**
+     * Answer a DIRECT message from the owner (from the team chat) right now — grounded in the brain/calendar,
+     * and taking ONE real action (send an email, add an event) when the request calls for it. Returns the
+     * chat-ready reply. This is what makes the Telegram team chat actually DO things instead of "next shift".
+     */
+    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String): String = synchronized(lock) {
+        try {
+            val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
+            val brain = try { BrainContext.build(ctx, message) } catch (e: Exception) { "" }
+            val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
+            val cal = try { if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx) else "" } catch (e: Exception) { "" }
+            val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Your goal: \"${emp.goal}\". $caps " +
+                "$owner just messaged you directly in the team chat. ANSWER their message NOW — specifically and " +
+                "concretely, using what you know below. Do NOT say you'll do it later or on your next shift. " +
+                "If it genuinely needs an action you can take, take ONE. Output ONLY compact JSON: " +
+                "{\"reply\":\"your short, direct, human answer to show $owner\"," +
+                "\"action\":{\"type\":\"send_email|add_event|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"}}. No prose, no fences."
+            val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
+            val user = "Current time: $now\n" + (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
+                "What you know about $owner:\n${brain.take(3000)}\n\n$owner: $message"
+            val (raw, inTok, outTok) = AgentClient.work(sys, user, 700, web = true)
+            val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
+            val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }
+            var reply = o?.optString("reply")?.trim().orEmpty()
+            if (reply.isBlank()) reply = if (raw.isNotBlank() && o == null) raw.trim().removePrefix("```").removeSuffix("```").trim().take(700) else "On it."
+            val act = o?.optJSONObject("action"); val actType = act?.optString("type").orEmpty()
+            var didAction = 0
+            try {
+                when (actType) {
+                    "send_email" -> {
+                        val to = act!!.optString("to").trim(); val body = act.optString("body").trim()
+                        if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
+                            val (ok, _) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
+                            if (ok) { reply += " — sent to $to ✓"; didAction = 1 }
+                        }
+                    }
+                    "add_event" -> {
+                        val title = act!!.optString("title").trim()
+                        val s = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
+                        if (title.isNotBlank() && s > 0 && CalendarTool.hasPermission(ctx)) {
+                            val r = CalendarTool.addEvent(ctx, title, s, if (e2 > s) e2 else s + 1_800_000L)
+                            if (!r.startsWith("ERR")) { reply += " — added to your calendar ✓"; didAction = 1 }
+                        }
+                    }
+                    "note" -> { try { MemoryLog.add(ctx, "note", "${emp.name}: note", reply.take(400), "Team") } catch (e: Exception) {} }
+                }
+            } catch (e: Exception) {}
+            EmployeeStats.record(ctx, emp.id, AgentClient.lastProvider, AgentClient.lastModel, inTok, outTok, didAction, if (didAction == 1) 8 else 4)
+            EmployeeStore.log(ctx, emp.id, "You (chat): ${message.take(60)}", false)
+            EmployeeStore.log(ctx, emp.id, "${emp.name}: ${reply.take(200)}", false)
+            try { MemoryLog.add(ctx, "response", "${emp.name} · team chat", reply.take(500), "Team") } catch (e: Exception) {}
+            reply.take(1200)
+        } catch (e: Exception) {
+            Log.w(TAG, "answer: ${e.message}"); "Couldn't get to that just now — I'll pick it up on my next shift."
+        }
+    }
+
     /** Draft an employee config from a plain "build me an employee that…" request. Returns name/role/goal/tools. */
     fun draftFromRequest(request: String): JSONObject {
         val sys = "Turn a request to hire an AI employee into a config. Output ONLY compact JSON " +
