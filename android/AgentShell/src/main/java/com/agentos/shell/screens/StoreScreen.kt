@@ -81,6 +81,9 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
     var tick by remember { mutableStateOf(0) }
     var showReset by remember { mutableStateOf(false) }
     var flash by remember { mutableStateOf("") }
+    // A live, ranked feed of popular phone-native skills pulled from GitHub — so the store feels vast, not thin.
+    var discover by remember { mutableStateOf<List<Power>>(emptyList()) }
+    LaunchedEffect(Unit) { discover = withContext(Dispatchers.IO) { GitHubSearch.discover(30) } }
 
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
@@ -177,6 +180,11 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
                     item { Spacer(Modifier.height(6.dp)); RailHeader("most popular") }
                     val top = all.filter { it.id != hero?.id }.sortedByDescending { it.starCount }.take(12)
                     itemsIndexedKeyed(top) { i, p -> RankRow(i + 1, p, PowerRegistry.isInstalled(ctx, p.id).also { tick }) { selected = p } }
+                    // The infinite tail — popular skills from all of GitHub, ranked, each one addable in a tap.
+                    if (discover.isNotEmpty()) {
+                        item { Spacer(Modifier.height(6.dp)); RailHeader("trending on github") }
+                        items(discover, key = { it.id }) { p -> RankRow(0, p, PowerRegistry.isInstalled(ctx, p.id).also { tick }) { selected = p } }
+                    }
                 }
                 // ── Browse a category ──
                 else -> {
@@ -192,7 +200,28 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
 
     selected?.let { p ->
         PowerSheet(p, PowerRegistry.isInstalled(ctx, p.id),
-            onInstall = { ep -> PowerRegistry.install(ctx, p, ep); tick++; selected = null },
+            onInstall = { ep ->
+                val power = p
+                selected = null
+                // A skill with no baked instructions (i.e. from GitHub) → fetch its docs and distill them
+                // into real brain guidance, so adding it genuinely reprograms the AI. Curated skills already
+                // carry instructions and install instantly.
+                if (power.type == PowerType.SKILL && power.instructions.isBlank() && power.repo.contains("/")) {
+                    flash = "Teaching your AI \"${power.name}\"…"
+                    scope.launch {
+                        val docs = withContext(Dispatchers.IO) { GitHubSearch.fetchDocs(power.repo) }
+                        val instr = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.distillSkill(power.name, docs) }
+                        val toInstall = if (instr.isNotBlank()) power.copy(instructions = instr) else power
+                        withContext(Dispatchers.IO) { PowerRegistry.install(ctx, toInstall, ep) }
+                        tick++
+                        flash = if (instr.isNotBlank()) "Added \"${power.name}\" ✓ — your AI can do this now."
+                                else "Added \"${power.name}\" ✓"
+                    }
+                } else {
+                    PowerRegistry.install(ctx, power, ep); tick++
+                    flash = "Added \"${power.name}\" ✓"
+                }
+            },
             onRemove = { PowerRegistry.remove(ctx, p.id); tick++; selected = null },
             onRepo = { openRepo(p) }) { selected = null }
     }

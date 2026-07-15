@@ -65,4 +65,66 @@ object GitHubSearch {
         n >= 1000 -> "%.0fk".format(n / 1000.0)
         else -> n.toString()
     }
+
+    /** Popular phone-native abilities to fill the store on open — skill/agent/prompt repos, most-starred first. */
+    fun discover(limit: Int = 30): List<Power> {
+        // A skills-biased query so the shelf is full of things that actually reprogram the brain, not servers.
+        val queries = listOf(
+            "topic:ai-agent stars:>200",
+            "awesome prompts stars:>500",
+            "claude skills stars:>50",
+            "system prompt stars:>300"
+        )
+        val out = LinkedHashMap<String, Power>()
+        for (raw in queries) {
+            try {
+                val q = URLEncoder.encode(raw, "UTF-8")
+                val url = "https://api.github.com/search/repositories?q=$q&sort=stars&order=desc&per_page=15"
+                val c = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"; connectTimeout = 12000; readTimeout = 20000
+                    setRequestProperty("Accept", "application/vnd.github+json"); setRequestProperty("User-Agent", "SlyOS-PowerStore")
+                }
+                if (c.responseCode in 200..299) {
+                    val txt = c.inputStream.bufferedReader().use { it.readText() }
+                    JSONObject(txt).optJSONArray("items")?.let { items ->
+                        for (i in 0 until items.length()) items.optJSONObject(i)?.let { r ->
+                            // Everything discovered here is treated as a phone SKILL — adding it distills its
+                            // docs into brain guidance, so it genuinely integrates with no computer.
+                            val p = fromRepo(r).copy(type = PowerType.SKILL)
+                            out.putIfAbsent(p.id, p)
+                        }
+                    }
+                }
+                c.disconnect()
+            } catch (e: Exception) { Log.w(TAG, "discover: ${e.message}") }
+        }
+        return out.values.sortedByDescending { it.starCount }.take(limit)
+    }
+
+    /**
+     * Fetch a repo's actual guidance (SKILL.md or README) so "Add" can inject the REAL skill into the brain,
+     * not a one-line description. Returns raw docs text (capped), or "".
+     */
+    fun fetchDocs(repo: String): String {
+        for (path in listOf("contents/SKILL.md", "contents/skill.md", "readme")) {
+            try {
+                val url = "https://api.github.com/repos/$repo/$path"
+                val c = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"; connectTimeout = 12000; readTimeout = 20000
+                    setRequestProperty("Accept", "application/vnd.github+json"); setRequestProperty("User-Agent", "SlyOS-PowerStore")
+                }
+                val code = c.responseCode
+                if (code in 200..299) {
+                    val txt = c.inputStream.bufferedReader().use { it.readText() }
+                    c.disconnect()
+                    val b64 = JSONObject(txt).optString("content")
+                    if (b64.isNotBlank()) {
+                        val bytes = android.util.Base64.decode(b64.replace("\n", ""), android.util.Base64.DEFAULT)
+                        return String(bytes).take(9000)
+                    }
+                } else c.disconnect()
+            } catch (e: Exception) { Log.w(TAG, "fetchDocs $path: ${e.message}") }
+        }
+        return ""
+    }
 }

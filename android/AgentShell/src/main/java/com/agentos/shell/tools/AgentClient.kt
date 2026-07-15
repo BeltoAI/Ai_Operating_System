@@ -139,6 +139,21 @@ object AgentClient {
         return if (code == 200) text.trim() else ""
     }
 
+    /**
+     * Distill a GitHub project's docs into clean, injectable SKILL instructions for the brain — imperative
+     * guidance on HOW to behave / what to do, stripped of install steps, badges and repo fluff. This is what
+     * makes "Add" from GitHub genuinely reprogram the AI rather than store a one-liner.
+     */
+    fun distillSkill(name: String, docs: String): String {
+        if (docs.isBlank()) return ""
+        val sys = "You convert an open-source project's documentation into a concise SKILL for a phone AI " +
+            "assistant. Output 3-6 imperative sentences telling the AI HOW to behave and WHAT to do when this " +
+            "skill is relevant (the approach, method, tone, steps). NO install instructions, NO setup, NO code, " +
+            "NO markdown, NO headings, NO mention of servers/repos/GitHub. Just the behavioural guidance."
+        val user = "Project: $name\n\nDocs:\n${docs.take(8000)}\n\nWrite the skill instructions:"
+        return complete(sys, user, 320)
+    }
+
     /** Single-message call. content may be a String or JSONArray (for multimodal). */
     private fun callContent(system: String, content: Any, maxTokens: Int, model: String = MODEL): Pair<Int, String> =
         callMessages(system, JSONArray().put(JSONObject().put("role", "user").put("content", content)), maxTokens, model)
