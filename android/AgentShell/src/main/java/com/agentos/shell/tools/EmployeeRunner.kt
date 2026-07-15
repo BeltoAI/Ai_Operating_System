@@ -173,7 +173,7 @@ object EmployeeRunner {
      * and taking ONE real action (send an email, add an event) when the request calls for it. Returns the
      * chat-ready reply. This is what makes the Telegram team chat actually DO things instead of "next shift".
      */
-    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String): String {
+    fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String, history: String = ""): String {
         return try {
             val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
             val brain = try { BrainContext.build(ctx, message) } catch (e: Exception) { "" }
@@ -188,10 +188,13 @@ object EmployeeRunner {
                 "\"action\":{\"type\":\"send_email|add_event|save_lead|post|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
                 "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
                 "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\"}}. " +
-                "For a meeting/video CALL, use add_event with meet:true and attendees (their emails) — a real Google Meet link is created. No prose, no fences."
+                "For a meeting/video CALL, use add_event with meet:true — a real Google Meet link is created. A meeting can be just " +
+                "$owner alone (no other attendees needed). If a time is given or implied (now, in an hour, 3pm), CREATE it immediately " +
+                "instead of asking. Follow the recent conversation — if you already asked something and $owner just answered, act on it now."
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val user = "Current time: $now\n" + (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
-                "What you know about $owner:\n${brain.take(3000)}\n\n$owner: $message"
+                (if (history.isNotBlank()) "RECENT TEAM-CHAT CONVERSATION (oldest first — this is the thread you're in):\n$history\n\n" else "") +
+                "What you know about $owner:\n${brain.take(3000)}\n\n$owner just said: $message"
             val (raw, inTok, outTok) = AgentClient.work(sys, user, 800, web = true)   // full capability incl. live research
             val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
             val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }

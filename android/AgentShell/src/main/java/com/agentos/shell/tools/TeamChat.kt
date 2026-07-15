@@ -64,23 +64,40 @@ object TeamChat {
 
         // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
         if (named == null && isTeamQuestion(text)) { safeSend(gid, rosterText(staff)); return true }
-        val emp = named ?: bestFit(staff, text) ?: staff.first()
+
+        // The prior conversation (before this message) — so follow-ups have context and stay coherent.
+        val history = try {
+            ConversationStore.thread(ctx, "Team", gid.toString()).takeLast(8).joinToString("\n") { it.text }
+        } catch (e: Exception) { "" }
+
+        // WHO answers: explicit @name → that agent. Else if a clear role fits → that agent. Else if we're mid-
+        // conversation (an agent just replied) → keep it with THAT agent so "just me" reaches whoever asked.
+        val emp = named ?: bestFit(staff, text) ?: recentAgent(ctx, staff) ?: staff.first()
         val instruction = if (named != null)
             text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text } else text
 
-        // Remember what was asked, in the brain (so it's searchable and every AI in SlyOS sees it).
         val fromWho = u.senderName.ifBlank { "You" }
         try {
             MemoryLog.add(ctx, "note", "Team chat → ${emp.name}", "$fromWho: $instruction", "Team")
             ConversationStore.add(ctx, "Team", gid.toString(), "them", "$fromWho: $instruction")
         } catch (e: Exception) {}
 
-        // Actually answer/act NOW (grounded in the brain) and reply with the real result — not "next shift".
+        // Actually answer/act NOW (grounded in the brain + the thread) and reply with the real result.
         try { TelegramClient.sendTyping(gid) } catch (e: Exception) {}
-        val reply = try { EmployeeRunner.answer(ctx, emp, instruction) } catch (e: Exception) { "Couldn't get to that just now." }
+        val reply = try { EmployeeRunner.answer(ctx, emp, instruction, history) } catch (e: Exception) { "Couldn't get to that just now." }
         try { ConversationStore.add(ctx, "Team", gid.toString(), "me", "${emp.name}: $reply") } catch (e: Exception) {}
+        setLastAgent(ctx, emp.id)
         safeSend(gid, "${emp.name} · $reply")
         return true
+    }
+
+    // The agent who last replied — used to keep a back-and-forth coherent instead of hopping agents.
+    private fun setLastAgent(ctx: Context, id: String) = p(ctx).edit().putString("last_agent", id).putLong("last_agent_ts", System.currentTimeMillis()).apply()
+    private fun recentAgent(ctx: Context, staff: List<EmployeeStore.Employee>): EmployeeStore.Employee? {
+        val ts = p(ctx).getLong("last_agent_ts", 0L)
+        if (System.currentTimeMillis() - ts > 12 * 60 * 1000L) return null   // stale → new topic
+        val id = p(ctx).getString("last_agent", null) ?: return null
+        return staff.firstOrNull { it.id == id }
     }
 
     /** Pick the agent whose role/goal best matches the message (intent-aware), or null if nothing fits. */
