@@ -54,10 +54,16 @@ object TeamChat {
         val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
         if (staff.isEmpty()) { safeSend(gid, "You haven't hired any agents yet — open SlyOS → Team to add one."); return true }
 
-        // Figure out WHO should answer — by explicit @name if given, else whoever fits the message best.
+        // In a real group with humans, stay QUIET unless summoned: the bot (@handle / its name) or an agent
+        // by name, or a team question. Humans chatting to each other never trigger a response.
         val named = staff.firstOrNull { e ->
             e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
         }
+        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text)
+        if (!summoned) return true   // consumed, but we don't butt into human conversation
+
+        // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
+        if (named == null && isTeamQuestion(text)) { safeSend(gid, rosterText(staff)); return true }
         val emp = named ?: bestFit(staff, text) ?: staff.first()
         val instruction = if (named != null)
             text.replaceFirst(Regex("(?i)@?" + Regex.escape(emp.name) + "\\s*[,:]?\\s*"), "").trim().ifBlank { text } else text
@@ -70,7 +76,7 @@ object TeamChat {
         } catch (e: Exception) {}
 
         // Actually answer/act NOW (grounded in the brain) and reply with the real result — not "next shift".
-        safeSend(gid, "${emp.name} is on it…")
+        try { TelegramClient.sendTyping(gid) } catch (e: Exception) {}
         val reply = try { EmployeeRunner.answer(ctx, emp, instruction) } catch (e: Exception) { "Couldn't get to that just now." }
         try { ConversationStore.add(ctx, "Team", gid.toString(), "me", "${emp.name}: $reply") } catch (e: Exception) {}
         safeSend(gid, "${emp.name} · $reply")
@@ -96,15 +102,34 @@ object TeamChat {
         return if (score(best) > 0) best else null
     }
 
-    /** When someone joins the group, have every agent introduce itself in one quick message. */
+    /** Was the bot itself summoned — by its @handle or a distinctive word of its name (e.g. "bastard")? */
+    private fun mentionsBot(text: String): Boolean {
+        val t = text.lowercase()
+        val user = try { TelegramClient.botUsername() } catch (e: Exception) { "" }.lowercase()
+        if (user.isNotBlank() && t.contains("@$user")) return true
+        val name = try { TelegramClient.botName() } catch (e: Exception) { "" }.lowercase()
+        val words = name.split(Regex("[^a-z0-9]+")).filter { it.length > 3 }
+        return words.any { t.contains(it) }
+    }
+
+    /** Is this a question ABOUT the team itself (who's here, introductions, capabilities)? */
+    private fun isTeamQuestion(text: String): Boolean = Regex(
+        "(?i)\\b(who('?s| is| are)?\\s+(here|else|this|you|on the team|in (this|the) (chat|group))|" +
+        "introduce (yoursel(f|ves)|the team)|meet the team|the (whole )?team\\??$|list (the )?(team|agents|bots)|" +
+        "what can (you|the team|they) do|who do i have|everyone here)\\b").containsMatchIn(text.trim())
+
+    /** The one clean roster message — who's on the team and what each does. */
+    private fun rosterText(staff: List<EmployeeStore.Employee>): String =
+        "Your team — just talk to us naturally, no need to tag anyone:\n" +
+        staff.joinToString("\n") { "• ${it.name} — ${it.role}: ${it.goal.take(80)}" }
+
+    /** When someone joins the group, introduce the whole team in one quick message. */
     fun introduceAll(ctx: Context, newcomer: String) {
         if (!isConnected(ctx)) return
         val staff = try { EmployeeStore.all(ctx) } catch (e: Exception) { emptyList() }
         if (staff.isEmpty()) return
-        val gid = groupId(ctx)
         val hi = if (newcomer.isNotBlank()) "Welcome, $newcomer! " else "Welcome! "
-        val intros = staff.joinToString("\n") { "• ${it.name} — ${it.role}. ${it.goal.take(90)}" }
-        safeSend(gid, hi + "Here's the team — just talk to us naturally, no need to tag anyone:\n$intros")
+        safeSend(groupId(ctx), hi + rosterText(staff))
     }
 
     private fun safeSend(gid: Long, text: String) { try { TelegramClient.sendMessage(gid, text) } catch (e: Exception) {} }

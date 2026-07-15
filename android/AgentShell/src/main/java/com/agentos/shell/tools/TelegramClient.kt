@@ -74,6 +74,23 @@ object TelegramClient {
         get(api("sendMessage") + "?chat_id=$chatId&text=$t", 20000)
     }
 
+    /** Show the native "typing…" indicator (clears itself after ~5s) — cleaner than a placeholder message. */
+    fun sendTyping(chatId: Long) { try { get(api("sendChatAction") + "?chat_id=$chatId&action=typing", 10000) } catch (e: Exception) {} }
+
+    // The bot's own @username + display name (for detecting when it's summoned in a group). Cached.
+    @Volatile private var meUser: String? = null
+    @Volatile private var meName: String? = null
+    private fun ensureMe() {
+        if (meUser != null) return
+        try {
+            val raw = get(api("getMe"), 15000) ?: return
+            val r = JSONObject(raw).optJSONObject("result") ?: return
+            meUser = r.optString("username"); meName = r.optString("first_name")
+        } catch (e: Exception) {}
+    }
+    fun botUsername(): String { ensureMe(); return meUser.orEmpty() }
+    fun botName(): String { ensureMe(); return meName.orEmpty() }
+
     /** Download a file by file_id; returns its bytes or null. */
     fun downloadFile(fileId: String): ByteArray? {
         val info = get(api("getFile") + "?file_id=$fileId", 20000) ?: return null

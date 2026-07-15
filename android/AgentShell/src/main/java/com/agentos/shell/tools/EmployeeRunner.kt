@@ -182,18 +182,21 @@ object EmployeeRunner {
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Your goal: \"${emp.goal}\". $caps " +
                 "$owner just messaged you directly in the team chat. ANSWER their message NOW — specifically and " +
                 "concretely, using what you know below. Do NOT say you'll do it later or on your next shift. " +
-                "If it genuinely needs an action you can take, take ONE. Output ONLY compact JSON: " +
-                "{\"reply\":\"your short, direct, human answer to show $owner\"," +
-                "\"action\":{\"type\":\"send_email|add_event|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
-                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"}}. No prose, no fences."
+                "You have LIVE web search — use it for anything current. If it genuinely needs an action you can " +
+                "take, take ONE. Output ONLY compact JSON: " +
+                "{\"reply\":\"your direct, helpful answer to show $owner\"," +
+                "\"action\":{\"type\":\"send_email|add_event|save_lead|post|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+                "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
+                "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\"}}. " +
+                "For a meeting/video CALL, use add_event with meet:true and attendees (their emails) — a real Google Meet link is created. No prose, no fences."
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val user = "Current time: $now\n" + (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1200)}\n\n" else "") +
                 "What you know about $owner:\n${brain.take(3000)}\n\n$owner: $message"
-            val (raw, inTok, outTok) = AgentClient.work(sys, user, 700, web = false)   // fast + reliable; brain already has the context
+            val (raw, inTok, outTok) = AgentClient.work(sys, user, 800, web = true)   // full capability incl. live research
             val js = raw.indexOf('{'); val je = raw.lastIndexOf('}')
             val o = try { if (js in 0 until je) JSONObject(raw.substring(js, je + 1)) else null } catch (e: Exception) { null }
             var reply = o?.optString("reply")?.trim().orEmpty()
-            if (reply.isBlank()) reply = if (raw.isNotBlank() && o == null) raw.trim().removePrefix("```").removeSuffix("```").trim().take(700) else "On it."
+            if (reply.isBlank()) reply = if (raw.isNotBlank() && o == null) raw.trim().removePrefix("```").removeSuffix("```").trim().take(800) else "On it."
             val act = o?.optJSONObject("action"); val actType = act?.optString("type").orEmpty()
             var didAction = 0
             try {
@@ -208,9 +211,32 @@ object EmployeeRunner {
                     "add_event" -> {
                         val title = act!!.optString("title").trim()
                         val s = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
-                        if (title.isNotBlank() && s > 0 && CalendarTool.hasPermission(ctx)) {
-                            val r = CalendarTool.addEvent(ctx, title, s, if (e2 > s) e2 else s + 1_800_000L)
-                            if (!r.startsWith("ERR")) { reply += " — added to your calendar ✓"; didAction = 1 }
+                        val end = if (e2 > s) e2 else s + 1_800_000L
+                        val attendees = act.optJSONArray("attendees")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+                        val wantMeet = act.optBoolean("meet", false) || Regex("(?i)meet|video ?call|zoom|hangout|google meet").containsMatchIn(message)
+                        if (title.isNotBlank() && s > 0) {
+                            if (wantMeet && GoogleAuth.isConnected(ctx)) {
+                                val r = GoogleCalendarClient.createEvent(ctx, title, s, end, attendees, true)
+                                if (r.ok) { reply += if (r.meetLink.isNotBlank()) " — created ✓ Google Meet: ${r.meetLink}" else " — added to your calendar ✓"; didAction = 1 }
+                                else reply += " — couldn't create it (${r.error.take(50)})"
+                            } else if (CalendarTool.hasPermission(ctx)) {
+                                val r = CalendarTool.addEvent(ctx, title, s, end, attendees)
+                                if (!r.startsWith("ERR")) { reply += " — added to your calendar ✓"; didAction = 1 }
+                            }
+                        }
+                    }
+                    "save_lead" -> {
+                        val nm = act!!.optString("name").trim(); val em = act.optString("email").trim()
+                        if (nm.isNotBlank() || em.contains("@")) {
+                            LeadStore.add(ctx, nm, em, act.optString("role").trim(), act.optString("company").trim(), "team chat", "")
+                            reply += " — saved to your CRM ✓"; didAction = 1
+                        }
+                    }
+                    "post" -> {
+                        val target = act!!.optString("target").trim(); val title = act.optString("title").trim(); val txt = act.optString("text").trim()
+                        if (txt.isNotBlank() && !AgentClient.looksLikeError(txt)) {
+                            AgentDraft.set(ctx, emp.id, "post", target, title, txt)
+                            reply += " — draft ready; open SlyOS → Team → ${emp.name} to review & post."
                         }
                     }
                     "note" -> { try { MemoryLog.add(ctx, "note", "${emp.name}: note", reply.take(400), "Team") } catch (e: Exception) {} }
