@@ -59,8 +59,10 @@ object EmployeeRunner {
                     } else ""
                 }
                 "post" -> {
+                    // Only a social/reddit/growth agent drafts posts — an inbox manager shouldn't.
+                    val isSocial = Regex("(?i)reddit|growth|social|market|content|community").containsMatchIn(emp.role + " " + emp.goal + " " + emp.tools)
                     val target = act!!.optString("target").trim(); val title = act.optString("title").trim(); val txt = act.optString("text").trim()
-                    if (txt.isNotBlank() && !AgentClient.looksLikeError(txt)) {
+                    if (isSocial && txt.isNotBlank() && !AgentClient.looksLikeError(txt)) {
                         AgentDraft.set(ctx, emp.id, "post", target, title, txt)
                         "drafted a post" + (if (target.isNotBlank()) " for $target" else "") + " — ready to review & post"
                     } else ""
@@ -98,6 +100,9 @@ object EmployeeRunner {
         var inSum = 0; var outSum = 0; var didAny = 0; var needs = ""
         for (i in 1..maxSteps.coerceIn(1, 8)) {
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Goal for this run: \"$task\". $caps " +
+                "STAY STRICTLY IN YOUR LANE: only do work that fits YOUR role (${emp.role}) — for example an inbox manager triages " +
+                "email and drafts replies, it does NOT post to Reddit or research LinkedIn profiles. If the most useful step is " +
+                "outside your job, say so briefly ('that's for the research/reddit teammate') and take action 'none' instead of doing it. " +
                 "You work in STEPS: each step you may take ONE action; you'll then see its result and continue. You have live " +
                 "web search every step. MAX AUTOMATION — actually DO things (send the email, create the event, save the lead, " +
                 "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
@@ -161,7 +166,9 @@ object EmployeeRunner {
             }
 
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's autonomous AI team. Standing goal: \"${emp.goal}\". " +
-                caps + " You run UNSUPERVISED — take the SINGLE most useful next step toward your goal right now, and when " +
+                caps + " STAY STRICTLY IN YOUR LANE — only do work that fits YOUR role (${emp.role}); do NOT drift into another " +
+                "teammate's job (an inbox manager triages email, it does NOT post to Reddit or research LinkedIn people). " +
+                "You run UNSUPERVISED — take the SINGLE most useful next step toward YOUR goal right now, and when " +
                 "it genuinely helps, actually DO it with one executable action. " +
                 "You HAVE live web search — for anything about news, people, companies, prices, or current events, actually SEARCH " +
                 "now and put CONCRETE findings in \"detail\": specific names, numbers, dates, and headlines, each with its source. " +
