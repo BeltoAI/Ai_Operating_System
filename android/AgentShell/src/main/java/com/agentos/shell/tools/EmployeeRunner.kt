@@ -108,7 +108,8 @@ object EmployeeRunner {
 
     /** Render the HTML to PDF, store it (SlyOS folder + brain + editable source), and share it into the chat. */
     private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String, verb: String): String {
-        val pdf = try { HtmlPdf.render(ctx, html, title) } catch (e: Exception) { null }
+        val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
+        val pdf = try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null }
         DesignStore.set(ctx, emp.id, title, kind, html, pdf?.absolutePath ?: "")
         try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
         try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(4000)) } catch (e: Exception) {}

@@ -77,8 +77,8 @@ val TEAM_PRESETS = listOf(
         "Keep my calendar clean, catch conflicts, and prep a short agenda before meetings.", "calendar", 30),
     Preset("Deep expert", "Feed him PDFs; he masters them", "Bastardi", "Deep Expert",
         "You are the owner's deep expert. The documents the owner feeds you are your PRIMARY source of truth — master them and answer from them first, then the owner's brain, then live web search (including their published papers). Be precise, technical, and concrete; cite what you found and never fabricate. If the documents don't cover something, say so before reasoning from the web.", "knowledge,web,brain", 0),
-    Preset("Designer", "Stunning decks & one-pagers", "Vera", "Design Lead",
-        "Create extremely high-end, professional decks, one-pagers, and documents on request. When asked for a deck/doc for a person or topic, research them (web + my brain + my CRM + any example templates I've fed you), then design a beautiful PDF, save it to my SlyOS folder, and send it into our chat for review — then iterate on my edits until it's perfect. Match my company's voice and any template style I've given you; never invent facts.", "web,files,brain", 0))
+    Preset("Designer", "VC-grade decks & one-pagers", "Vera", "Design Lead",
+        "You are a genius founder-CEO with world-class design taste. Everything you make is minimal, sharp, and on-point: active voice, zero filler, no fluff words — every line earns its place. You judge and build exactly the way a top VC or a demanding customer would want, so they're genuinely impressed. When asked for a deck/one-pager/document, research the person or topic first (web + my brain + my CRM + any example templates I've fed you), then design a stunning PDF, save it to my SlyOS folder, send it into our chat for review, and iterate on my edits until it's flawless. Match my company's voice and any template style I've given you; never invent facts.", "web,files,brain", 0))
 
 private val NAME_POOL = listOf(
     "Maya", "Leo", "Nova", "Kai", "Ivy", "Rex", "Zoe", "Milo", "Luna", "Finn",
@@ -538,9 +538,31 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 }
                 // ── scrollable middle so the action bar below is ALWAYS reachable ──
                 Column(Modifier.weight(1f, true).verticalScroll(rememberScrollState())) {
-                    if (e.goal.isNotBlank()) {
-                        Spacer(Modifier.height(10.dp))
-                        Text(e.goal, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
+                    var editing by remember(e.id) { mutableStateOf(false) }
+                    var goalText by remember(e.id) { mutableStateOf(e.goal) }
+                    Spacer(Modifier.height(10.dp))
+                    if (!editing) {
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(e.goal.ifBlank { "No persona set." }, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                            Text("Edit", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable { goalText = e.goal; editing = true }.padding(start = 10.dp, top = 1.dp))
+                        }
+                    } else {
+                        Text("PERSONA / INSTRUCTIONS", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
+                            if (goalText.isEmpty()) Text("e.g. You are a genius CEO with world-class design taste — minimal, active voice, no filler…", fontSize = 12.sp, color = T.inkFaint, lineHeight = 16.sp)
+                            BasicTextField(goalText, { goalText = it }, textStyle = TextStyle(color = T.ink, fontSize = 13.sp, lineHeight = 18.sp), modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (goalText.isBlank()) T.hairline else T.accent)
+                                    .clickable(enabled = goalText.isNotBlank()) { com.agentos.shell.tools.EmployeeStore.edit(ctx, e.id, goalText); editing = false; flash = "${e.name}'s persona updated ✓"; refresh(); detailEmp = com.agentos.shell.tools.EmployeeStore.get(ctx, e.id) }.padding(vertical = 9.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Cancel", fontSize = T.small, color = T.inkSoft, textAlign = TextAlign.Center,
+                                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(T.hairline).clickable { editing = false }.padding(horizontal = 16.dp, vertical = 9.dp))
+                        }
                     }
                     // ── Feed this agent PDFs — they become its PRIMARY knowledge (on top of brain + web) ──
                     var kbCount by remember(e.id) { mutableStateOf(com.agentos.shell.tools.AgentKnowledge.count(ctx, e.id)) }

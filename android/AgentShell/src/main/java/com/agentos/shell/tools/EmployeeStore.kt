@@ -85,6 +85,15 @@ object EmployeeStore {
         }, "id=?", arrayOf(id)); Unit
     } catch (e: Exception) { Unit }
 
+    /** Edit an agent's persona/instructions, and optionally its display name + role, after hiring. */
+    fun edit(ctx: Context, id: String, goal: String, name: String = "", role: String = "") = try {
+        db(ctx).update("employees", ContentValues().apply {
+            put("goal", goal.trim())
+            if (name.isNotBlank()) put("name", name.trim())
+            if (role.isNotBlank()) put("role", role.trim())
+        }, "id=?", arrayOf(id)); Unit
+    } catch (e: Exception) { Unit }
+
     fun log(ctx: Context, empId: String, line: String, needsInput: Boolean) = try {
         db(ctx).insert("employee_log", null, ContentValues().apply {
             put("emp_id", empId); put("ts", System.currentTimeMillis()); put("line", line); put("needs_input", if (needsInput) 1 else 0)

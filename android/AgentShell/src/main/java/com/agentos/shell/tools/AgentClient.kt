@@ -171,10 +171,12 @@ object AgentClient {
      */
     fun designHtml(kind: String, title: String, brief: String, templates: String = "", brainSnippet: String = ""): String {
         val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
-        val sys = "You are a world-class presentation + document designer. Produce ONE complete, self-contained HTML5 document " +
-            "with ALL styling in an inline <style> block — NO external assets, NO scripts required. It must look EXTREMELY " +
-            "high-end and professional: confident typography (system fonts), a strong cover, generous whitespace, a refined " +
-            "color palette, clear hierarchy, subtle rules/accents. Print target is A4. " +
+        val sys = "You are a genius founder-CEO with world-class design taste, building this document. Produce ONE complete, " +
+            "self-contained HTML5 document with ALL styling in an inline <style> block — NO external assets, NO scripts required. " +
+            "DESIGN PHILOSOPHY: minimal, sharp, on-point. Ruthless clarity — ACTIVE voice, ZERO filler words, no marketing fluff, " +
+            "one idea per slide/section, every line earns its place. Build it exactly the way a top VC or a demanding customer " +
+            "would be genuinely impressed by. It must look EXTREMELY high-end: confident typography (system fonts), a strong cover, " +
+            "generous whitespace, a refined restrained color palette (1 accent, mostly ink + white), crisp hierarchy, subtle rules/accents. Print target is A4. " +
             (if (isDeck)
                 "This is a SLIDE DECK: use `@page { size: A4 landscape; margin: 0 }` and make each `.slide` a full page with " +
                 "`page-break-after: always`, padded ~6-8%, content vertically centered, big readable headings. First slide is a " +
