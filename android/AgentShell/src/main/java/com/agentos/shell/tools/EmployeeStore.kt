@@ -85,6 +85,14 @@ object EmployeeStore {
         }, "id=?", arrayOf(id)); Unit
     } catch (e: Exception) { Unit }
 
+    // Remember the last "needs you" an agent already surfaced, so it doesn't re-ask the SAME thing every shift.
+    private fun needsPrefs(ctx: Context) = ctx.getSharedPreferences("slyos_needs", Context.MODE_PRIVATE)
+    private fun normNeeds(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim().take(90)
+    fun alreadyAsked(ctx: Context, id: String, needs: String): Boolean =
+        needsPrefs(ctx).getString(id, "").orEmpty() == normNeeds(needs) && normNeeds(needs).isNotBlank()
+    fun rememberAsked(ctx: Context, id: String, needs: String) = needsPrefs(ctx).edit().putString(id, normNeeds(needs)).apply()
+    fun clearAsked(ctx: Context, id: String) = needsPrefs(ctx).edit().remove(id).apply()
+
     /** Edit an agent's persona/instructions, and optionally its display name + role, after hiring. */
     fun edit(ctx: Context, id: String, goal: String, name: String = "", role: String = "") = try {
         db(ctx).update("employees", ContentValues().apply {

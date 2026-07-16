@@ -548,6 +548,22 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                                 modifier = Modifier.clickable { goalText = e.goal; editing = true }.padding(start = 10.dp, top = 1.dp))
                         }
                     } else {
+                        var nameText by remember(e.id) { mutableStateOf(e.name) }
+                        var roleText by remember(e.id) { mutableStateOf(e.role) }
+                        Text("NAME", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
+                            if (nameText.isEmpty()) Text("Agent name", fontSize = 13.sp, color = T.inkFaint)
+                            BasicTextField(nameText, { nameText = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 14.sp), modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text("ROLE", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
+                            if (roleText.isEmpty()) Text("e.g. Design Lead", fontSize = 13.sp, color = T.inkFaint)
+                            BasicTextField(roleText, { roleText = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = 14.sp), modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(6.dp))
                         Text("PERSONA / INSTRUCTIONS", fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Spacer(Modifier.height(4.dp))
                         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
@@ -558,7 +574,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Row {
                             Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (goalText.isBlank()) T.hairline else T.accent)
-                                    .clickable(enabled = goalText.isNotBlank()) { com.agentos.shell.tools.EmployeeStore.edit(ctx, e.id, goalText); editing = false; flash = "${e.name}'s persona updated ✓"; refresh(); detailEmp = com.agentos.shell.tools.EmployeeStore.get(ctx, e.id) }.padding(vertical = 9.dp))
+                                    .clickable(enabled = goalText.isNotBlank()) { com.agentos.shell.tools.EmployeeStore.edit(ctx, e.id, goalText, nameText, roleText); editing = false; flash = "${nameText.ifBlank { e.name }} updated ✓"; refresh(); detailEmp = com.agentos.shell.tools.EmployeeStore.get(ctx, e.id) }.padding(vertical = 9.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Cancel", fontSize = T.small, color = T.inkSoft, textAlign = TextAlign.Center,
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(T.hairline).clickable { editing = false }.padding(horizontal = 16.dp, vertical = 9.dp))

@@ -94,6 +94,7 @@ object TeamChat {
 
         val fromWho = u.senderName.ifBlank { "You" }
         try {
+            EmployeeStore.clearAsked(ctx, emp.id)   // you replied → let this agent surface a fresh ask later
             MemoryLog.add(ctx, "note", "Team chat → ${emp.name}", "$fromWho: $instruction", "Team")
             ConversationStore.add(ctx, "Team", gid.toString(), "them", "$fromWho: $instruction")
         } catch (e: Exception) {}

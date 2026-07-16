@@ -29,6 +29,8 @@ object EmployeeRunner {
         " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put the FULL " +
         "content/outline into \"text\" (research the person/topic first in earlier steps, then hand it all here; never invent facts). " +
         "It's designed as a beautiful PDF, saved to the SlyOS folder + brain, and sent into the chat for review. " +
+        "CRITICAL: if the owner asked for a deck/one-pager/document, your job is NOT done until you have actually run make_doc and the " +
+        "file is produced — do NOT stop after only researching or saving a note. Gather what you need, then call make_doc this run. " +
         "edit_doc: revise the CURRENT document — put the requested change in \"text\" (e.g. 'make the cover bolder, add a pricing slide'); it re-renders and re-sends."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
@@ -213,6 +215,9 @@ object EmployeeRunner {
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's autonomous AI team. Standing goal: \"${emp.goal}\". " +
                 caps + " STAY STRICTLY IN YOUR LANE — only do work that fits YOUR role (${emp.role}); do NOT drift into another " +
                 "teammate's job (an inbox manager triages email, it does NOT post to Reddit or research LinkedIn people). " +
+                "IMPORTANT — DON'T NAG: if your recent log shows you ALREADY asked $owner something that's still unanswered, do NOT " +
+                "ask it again, re-email it, or re-flag it. Either make progress on a DIFFERENT part of your goal, or if everything is " +
+                "blocked on that pending answer, use action 'none' with needs empty and say you're waiting. " +
                 "You run UNSUPERVISED — take the SINGLE most useful next step toward YOUR goal right now, and when " +
                 "it genuinely helps, actually DO it with one executable action. " +
                 "You HAVE live web search — for anything about news, people, companies, prices, or current events, actually SEARCH " +
@@ -313,16 +318,22 @@ object EmployeeRunner {
             try { MemoryLog.add(ctx, "action", "${emp.name} (${emp.role})", (did + (if (outcome.isNotBlank()) "\n$outcome" else "") + (if (detail.isNotBlank()) "\n$detail" else "")).take(800), "Team") } catch (e: Exception) {}
 
             EmployeeStore.setStatus(ctx, emp.id, if (needsEff.isNotBlank()) "needs_you" else "idle", touchRun = true)
-            // Ping the lock screen when there's something to see — a result done, or a genuine ask.
+            // Don't SPAM the same ask every shift: only ping/post a "needs you" the FIRST time (or when it
+            // genuinely changes). If nothing's blocked, clear the memory so a future ask can surface again.
+            val repeatAsk = needsEff.isNotBlank() && EmployeeStore.alreadyAsked(ctx, emp.id, needsEff)
+            if (needsEff.isBlank()) EmployeeStore.clearAsked(ctx, emp.id)
             try {
-                if (needsEff.isNotBlank()) EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needsEff, true)
-                else if (didAction == 1) EmployeeNotify.post(ctx, emp.id, "${emp.name} · ${emp.role}", outcome.ifBlank { did }, false)
+                when {
+                    needsEff.isNotBlank() && !repeatAsk -> { EmployeeNotify.post(ctx, emp.id, "${emp.name} needs you", needsEff, true); EmployeeStore.rememberAsked(ctx, emp.id, needsEff) }
+                    needsEff.isBlank() && didAction == 1 -> EmployeeNotify.post(ctx, emp.id, "${emp.name} · ${emp.role}", outcome.ifBlank { did }, false)
+                }
             } catch (e: Exception) {}
-            // Post to the Telegram team chat too (if connected) so you + teammates see it live and can reply.
             try {
                 if (TeamChat.isConnected(ctx)) {
-                    val line = if (needsEff.isNotBlank()) "needs you: $needsEff" else outcome.ifBlank { did }
-                    TeamChat.post(ctx, emp.name, line)
+                    when {
+                        needsEff.isNotBlank() && !repeatAsk -> TeamChat.post(ctx, emp.name, "needs you: $needsEff")
+                        needsEff.isBlank() && didAction == 1 -> TeamChat.post(ctx, emp.name, outcome.ifBlank { did })
+                    }
                 }
             } catch (e: Exception) {}
             did

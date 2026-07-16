@@ -36,6 +36,9 @@ object HtmlPdf {
                 wv.settings.loadWithOverviewMode = true
                 wv.settings.useWideViewPort = true
                 wv.setInitialScale(100)
+                // CRITICAL: an offscreen WebView draws BLANK to a canvas under hardware acceleration — force
+                // software rendering so view.draw() actually captures the page content into the PDF.
+                wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 wv.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
                         view.postDelayed({
