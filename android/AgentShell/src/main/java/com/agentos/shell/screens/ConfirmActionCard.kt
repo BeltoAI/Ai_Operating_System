@@ -53,6 +53,14 @@ object ActionConfirm {
         else -> type
     }
 
+    /** "2026-07-18T14:00" → "Sat, Jul 18 · 2:00 PM" for a human-readable label (the field stays ISO-editable). */
+    fun prettyWhen(iso: String): String = try {
+        val m = Regex("(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})").find(iso) ?: return iso
+        val (y, mo, d, h, mi) = m.destructured
+        val cal = java.util.Calendar.getInstance().apply { set(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt()) }
+        java.text.SimpleDateFormat("EEE, MMM d · h:mm a", java.util.Locale.getDefault()).format(cal.time)
+    } catch (e: Exception) { iso }
+
     /** Parse an action's arg into an editable JSON object, wrapping plain-string args sensibly. */
     fun parse(a: AgentAction): JSONObject = try { JSONObject(a.arg) } catch (e: Exception) {
         when (a.type) {
@@ -87,18 +95,18 @@ fun ConfirmActionCard(
             val o = objs[idx]
             val map = edits[idx]
             if (idx > 0) { Spacer(Modifier.height(12.dp)); Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline)); Spacer(Modifier.height(12.dp)) }
-            val icon = when (a.type) {
-                "remind" -> "⏰  "; "add_event" -> "📅  "; "send_email" -> "✉️  "
-                "message", "send_sms" -> "💬  "; else -> "✦  "
-            }
-            Text(icon + ActionConfirm.titleFor(a.type, o), fontSize = T.body, color = T.accent)
+            Text(ActionConfirm.titleFor(a.type, o), fontSize = T.body, color = T.accent)
             Spacer(Modifier.height(8.dp))
             // Show each known field that has a value, or the primary (first) field so there's always something to edit.
             val fields = ActionConfirm.fieldsFor(a.type).ifEmpty { listOf(ActionConfirm.Field("body", "")) }
             fields.forEachIndexed { fi, f ->
                 val cur = map[f.key] ?: ""
                 if (cur.isNotBlank() || fi == 0) {
-                    if (f.label.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(f.label, fontSize = T.caption, color = T.inkFaint) }
+                    if (f.label.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        val isWhen = (f.key == "start" || f.key == "end" || f.key == "at") && cur.contains("T")
+                        Text(if (isWhen) f.label + " · " + ActionConfirm.prettyWhen(cur) else f.label, fontSize = T.caption, color = if (isWhen) T.accent else T.inkFaint)
+                    }
                     BasicTextField(
                         value = cur,
                         onValueChange = { map[f.key] = it },

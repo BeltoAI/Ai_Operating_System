@@ -54,7 +54,9 @@ class TelegramService : Service() {
             val updates = TelegramClient.getUpdates(offset)
             for (u in updates) {
                 offset = u.updateId + 1
-                try { handle(u) } catch (e: Exception) { Log.e("SlyOS", "tg handle failed", e) }
+                // Process each message CONCURRENTLY — the agent chain can take 30-60s, and doing it inline here
+                // would block the long-poll so nothing else gets fetched or answered. Launch and keep polling.
+                scope.launch { try { handle(u) } catch (e: Exception) { Log.e("SlyOS", "tg handle failed", e) } }
             }
         }
     }
