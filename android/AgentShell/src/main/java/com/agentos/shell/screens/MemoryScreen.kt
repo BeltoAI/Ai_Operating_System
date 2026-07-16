@@ -812,6 +812,24 @@ private fun ApiKeysCard() {
     }
 }
 
+/** Intent that fixes a given wiring problem, or null if it can't be fixed by opening a screen. */
+private fun fixIntentFor(ctx: android.content.Context, label: String): android.content.Intent? {
+    val S = android.provider.Settings
+    val pkgUri = android.net.Uri.parse("package:${ctx.packageName}")
+    val i = when (label) {
+        "Battery unrestricted" -> android.content.Intent(S.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri)
+        "Accessibility service" -> android.content.Intent(S.ACTION_ACCESSIBILITY_SETTINGS)
+        "Notification access" -> android.content.Intent(S.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        "Draw-over-apps" -> android.content.Intent(S.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
+        "Default launcher" -> android.content.Intent(S.ACTION_HOME_SETTINGS)
+        "Notifications allowed" -> android.content.Intent(S.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(S.EXTRA_APP_PACKAGE, ctx.packageName)
+        "Contacts access", "Photos/media access", "Mic access", "Location access", "Calendar access" ->
+            android.content.Intent(S.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
+        else -> null
+    }
+    return i?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+}
+
 /** Live brain diagnostics: every metric with a trend sparkline + full wiring health. Expandable, for debugging. */
 @Composable
 private fun BrainDiagnosticsCard() {
@@ -820,41 +838,48 @@ private fun BrainDiagnosticsCard() {
     val counts = remember(tick) { com.agentos.shell.tools.BrainStats.lines(ctx) }
     val wiring = remember(tick) { com.agentos.shell.tools.BrainStats.health(ctx) }
     val days = remember(tick) { com.agentos.shell.tools.StatsHistory.days(ctx) }
-    Collapsible("Brain diagnostics", "$days-day history · counts, trends & wiring") {
+    val issues = wiring.count { it.value != "connected" && !(it.label == "Embeddings" && !it.value.startsWith("off")) }
+    Collapsible("Brain diagnostics", "$days-day history" + (if (issues > 0) " · $issues to fix" else " · all wired")) {
+        Spacer(Modifier.height(4.dp))
+        Text("WHAT'S IN THE BRAIN", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)
         Spacer(Modifier.height(6.dp))
-        counts.forEach { l ->
+        counts.forEachIndexed { idx, l ->
             val series = remember(tick, l.label) { com.agentos.shell.tools.StatsHistory.series(ctx, l.label).map { it.second } }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text(l.label, fontSize = T.small, color = T.ink)
-                    Text(l.hint, fontSize = T.caption, color = T.inkFaint, maxLines = 1)
-                }
-                if (series.size >= 2) Sparkline(series, Modifier.width(60.dp).height(22.dp).padding(horizontal = 8.dp))
+            if (idx > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline.copy(alpha = 0.5f)))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(l.label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                if (series.size >= 2) Sparkline(series, Modifier.width(56.dp).height(20.dp).padding(end = 10.dp))
                 Text(l.value, fontSize = T.small, color = T.ink)
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text("WIRING", fontSize = T.caption, color = T.inkFaint)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("WIRING", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)
+        Spacer(Modifier.height(6.dp))
         wiring.forEach { w ->
             val good = w.value == "connected" || (w.label == "Embeddings" && !w.value.startsWith("off"))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (good) androidx.compose.ui.graphics.Color(0xFF3BA55D) else T.inkFaint))
-                Spacer(Modifier.width(10.dp))
+            val fix = if (!good) fixIntentFor(ctx, w.label) else null
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+                    .then(if (fix != null) Modifier.clickable { try { ctx.startActivity(fix) } catch (e: Exception) {} } else Modifier)
+                    .padding(vertical = 7.dp)) {
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (good) androidx.compose.ui.graphics.Color(0xFF3BA55D) else androidx.compose.ui.graphics.Color(0xFFE0A03C)))
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(w.label, fontSize = T.small, color = T.ink)
                     Text(w.hint, fontSize = T.caption, color = T.inkFaint, maxLines = 1)
                 }
-                Text(w.value, fontSize = T.caption, color = if (good) T.ink else T.accent, maxLines = 1)
+                if (good) Text(w.value, fontSize = T.caption, color = T.inkFaint)
+                else if (fix != null) Text("Fix ›", fontSize = T.small, color = T.accent)
+                else Text(w.value, fontSize = T.caption, color = T.accent, maxLines = 1, modifier = Modifier.widthIn(max = 130.dp))
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Capture now", fontSize = T.small, color = T.bgElevated,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                     .clickable { com.agentos.shell.tools.StatsHistory.captureNow(ctx); tick++ }
                     .padding(horizontal = 16.dp, vertical = 8.dp))
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(14.dp))
             Text("Copy report", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable {
                 try {
                     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -867,19 +892,23 @@ private fun BrainDiagnosticsCard() {
 
 @Composable
 private fun Sparkline(values: List<Int>, modifier: Modifier) {
-    val accent = T.accent
+    val accent = T.accent; val base = T.hairline
     androidx.compose.foundation.Canvas(modifier) {
         if (values.size < 2) return@Canvas
         val mn = (values.minOrNull() ?: 0).toFloat()
         val mx = (values.maxOrNull() ?: 1).toFloat()
         val range = (mx - mn).takeIf { it > 0f } ?: 1f
         val stepX = size.width / (values.size - 1)
+        // faint baseline
+        drawLine(base, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1f)
         var prevX = 0f; var prevY = size.height - (values[0] - mn) / range * size.height
         for (i in 1 until values.size) {
             val x = stepX * i; val y = size.height - (values[i] - mn) / range * size.height
-            drawLine(accent, androidx.compose.ui.geometry.Offset(prevX, prevY), androidx.compose.ui.geometry.Offset(x, y), strokeWidth = 2.5f)
+            drawLine(accent, androidx.compose.ui.geometry.Offset(prevX, prevY), androidx.compose.ui.geometry.Offset(x, y), strokeWidth = 2.5f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
             prevX = x; prevY = y
         }
+        // dot on the latest point
+        drawCircle(accent, radius = 2.5f, center = androidx.compose.ui.geometry.Offset(prevX, prevY))
     }
 }
 

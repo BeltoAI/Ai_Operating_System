@@ -373,6 +373,12 @@ fun HomeScreen(
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
         }
+        // Nightly alarm-planner config in plain language ("remind me at 10pm to set my alarm", "wake me 90 min
+        // before", "turn off alarm suggestions"). Handled deterministically so preferences actually stick.
+        if (Regex("(?i)(alarm|wake).{0,25}(suggest|remind|before|nightly|each night|every night|plan)|(suggest|remind).{0,20}alarm").containsMatchIn(q)) {
+            val r = try { com.agentos.shell.tools.AlarmPlanner.configure(ctx, q) } catch (e: Exception) { null }
+            if (r != null) { text = ""; reply = r; lastQuery = q; if (doSpeak) speak(r); return@submit }
+        }
         // Brain diagnostics on request — a real readout from every store, not the model guessing.
         if (Regex("(?i)\\b(brain (status|stats|health|check|diagnostic)|health check|is my brain (growing|working|filling))\\b").containsMatchIn(q.lowercase())) {
             text = ""; thinking = true; reply = ""; lastQuery = q
@@ -1764,27 +1770,13 @@ private fun TorchWidget(ctx: Context) {
 /** If an early commitment is coming up, offer a one-tap wake-up alarm ~1h before it. */
 @Composable
 private fun WakeUpSuggestion(ctx: Context) {
-    val cal = com.agentos.shell.tools.CalendarTool
     var sug by remember { mutableStateOf<Pair<String, String>?>(null) }   // (alarm arg with am/pm, event label)
     var dismissed by remember { mutableStateOf(false) }
     var setDone by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (!cal.hasPermission(ctx)) return@LaunchedEffect
         try {
-            val now = System.currentTimeMillis()
-            val evs = cal.eventsBetween(ctx, now, now + 30L * 60 * 60 * 1000, 20)
-            val c = java.util.Calendar.getInstance()
-            val target = evs.filter { it.begin > now + 60 * 60 * 1000 }.firstOrNull {
-                c.timeInMillis = it.begin
-                val h = c.get(java.util.Calendar.HOUR_OF_DAY); val mn = c.get(java.util.Calendar.MINUTE)
-                h in 5..11 && !(h == 11 && mn > 30)
-            } ?: return@LaunchedEffect
-            val wake = target.begin - 60 * 60 * 1000
-            if (wake <= now + 60 * 1000) return@LaunchedEffect
-            c.timeInMillis = wake
-            val hh = c.get(java.util.Calendar.HOUR_OF_DAY); val mm = c.get(java.util.Calendar.MINUTE)
-            val ap = if (hh < 12) "am" else "pm"; val h12 = when { hh == 0 -> 12; hh > 12 -> hh - 12; else -> hh }
-            sug = "%d:%02d %s".format(h12, mm, ap) to target.title.take(30)
+            val s = com.agentos.shell.tools.AlarmPlanner.suggestion(ctx) ?: return@LaunchedEffect
+            sug = s.arg to s.label
         } catch (e: Exception) {}
     }
     if (dismissed) return

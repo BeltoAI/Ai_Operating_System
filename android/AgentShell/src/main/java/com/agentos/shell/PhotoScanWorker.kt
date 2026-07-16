@@ -21,6 +21,8 @@ class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
             try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 500) } catch (e: Exception) {}
             // Daily brain-stats snapshot so we can track growth over time, not just a moment.
             try { com.agentos.shell.tools.StatsHistory.snapshotIfDue(applicationContext) } catch (e: Exception) {}
+            // Nightly wake-up planner: at the user's chosen hour, suggest tomorrow's alarm.
+            try { com.agentos.shell.tools.AlarmPlanner.tick(applicationContext) } catch (e: Exception) {}
             Result.success()
         } catch (e: Exception) {
             Result.success()

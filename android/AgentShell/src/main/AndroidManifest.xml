@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <!-- Floating nav panel that draws over other apps (user-granted "Display over other apps"). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <!-- Triage notifications for the Now / People layers (user grants in Settings). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Live "Look" camera (point-and-identify). -->

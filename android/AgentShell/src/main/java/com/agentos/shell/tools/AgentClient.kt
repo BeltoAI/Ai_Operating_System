@@ -296,7 +296,18 @@ object AgentClient {
                 // Web search: Anthropic uses webTool(); Gemini uses Google Search grounding. OpenAI has no
                 // built-in browse tool, so drop tools there.
                 val effTools = if (choice.provider == "openai") null else tools
-                val r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+                // Transient overload (Anthropic 529 / 5xx / "overloaded") is NOT a reason to fail — especially
+                // for users with only one provider (no fallback). Retry the SAME provider with backoff a few
+                // times before moving on. This is the fix for voice/brain replies dying on a 529.
+                var r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+                var attempt = 0
+                while (r.code != 200 && attempt < 3 &&
+                       (r.code == 529 || r.code == 503 || r.code == 502 || r.code == 500 || r.text.contains("overloaded", true))) {
+                    attempt++
+                    try { Thread.sleep(600L * attempt) } catch (e: Exception) {}
+                    Log.w("SlyOS", "llm ${choice.provider}/${choice.model} ${r.code} overloaded — retry $attempt")
+                    r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+                }
                 if (r.code == 200) {
                     if (ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
                     lastInTok = r.inTokens; lastOutTok = r.outTokens; lastProvider = choice.provider; lastModel = choice.model
