@@ -47,8 +47,12 @@ object ToolRouter {
     }
 
     private fun start(ctx: Context, intent: Intent) {
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        ctx.startActivity(intent)
+        // NEVER let a missing handler crash the app (e.g. a device with no clock app for ACTION_SET_ALARM, or a
+        // blocked background activity launch). Fail quietly instead.
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+        } catch (e: Exception) { Log.w("SlyOS", "start intent failed: ${e.message}") }
     }
 
     private fun webSearch(ctx: Context, q: String) =

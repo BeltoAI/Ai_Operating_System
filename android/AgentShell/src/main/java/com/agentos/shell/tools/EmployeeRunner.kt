@@ -91,7 +91,13 @@ object EmployeeRunner {
                 }
                 "note" -> {
                     val n = act!!.optString("text").trim().ifBlank { act.optString("body").trim() }
-                    if (n.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", n.take(500), "Team") } catch (e: Exception) {}; "saved a note to your brain ✓" } else ""
+                    if (n.isNotBlank()) {
+                        try { MemoryLog.add(ctx, "note", "${emp.name}: note", n.take(500), "Team") } catch (e: Exception) {}
+                        // Write to the SEARCHABLE brain too (MessageStore), else Home AI can't recall it — the
+                        // "note isn't real" bug. Now "what did Riri note?" finds it.
+                        try { MessageStore.insertOne(ctx, emp.name, "Note", emp.name, "me", "${emp.name} noted: ${n.take(500)}") } catch (e: Exception) {}
+                        "saved a note to your brain ✓"
+                    } else ""
                 }
                 "make_doc" -> {
                     val kind = act!!.optString("kind").ifBlank { act.optString("target") }.ifBlank { "deck" }
@@ -400,7 +406,11 @@ object EmployeeRunner {
                         }
                     }
                     "note" -> {
-                        if (detail.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", detail.take(600), "Team") } catch (e: Exception) {}; outcome = "Saved a note to your brain"; didAction = 1 }
+                        if (detail.isNotBlank()) {
+                            try { MemoryLog.add(ctx, "note", "${emp.name}: note", detail.take(600), "Team") } catch (e: Exception) {}
+                            try { MessageStore.insertOne(ctx, emp.name, "Note", emp.name, "me", "${emp.name} noted: ${detail.take(600)}") } catch (e: Exception) {}
+                            outcome = "Saved a note to your brain"; didAction = 1
+                        }
                     }
                     "post" -> {
                         val target = act!!.optString("target").trim()

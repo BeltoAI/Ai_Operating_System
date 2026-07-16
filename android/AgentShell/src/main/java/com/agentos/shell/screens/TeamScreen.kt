@@ -742,7 +742,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
             Column(Modifier.fillMaxWidth().heightIn(max = 540.dp).clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
                 Text("YOUR TEAM", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
                 Spacer(Modifier.height(10.dp))
-                Text(msg, fontSize = 15.sp, color = T.ink, lineHeight = 22.sp,
+                Text(com.agentos.shell.tools.TeamChat.stripMd(msg), fontSize = 15.sp, color = T.ink, lineHeight = 22.sp,
                     modifier = Modifier.weight(1f, false).verticalScroll(rememberScrollState()))
                 Spacer(Modifier.height(14.dp))
                 Text("Close", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,

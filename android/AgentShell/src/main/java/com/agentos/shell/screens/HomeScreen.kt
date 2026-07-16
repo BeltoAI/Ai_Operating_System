@@ -1026,22 +1026,20 @@ fun HomeScreen(
         // Now-playing mini-player — appears ONLY while audio is actually playing (polls the active media
         // session). Reactive accent frame + swipe gestures. Vanishes the moment music stops.
         var np by remember { mutableStateOf<com.agentos.shell.tools.MediaControls.NowPlaying?>(null) }
-        var mediaHidden by remember { mutableStateOf<String?>(null) }   // track title the user swiped away
         LaunchedEffect(Unit) {
             while (true) {
-                val cur = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
-                np = when {
-                    cur == null -> { mediaHidden = null; null }                 // nothing playing → clear dismissal
-                    cur.title == mediaHidden -> null                             // user dismissed this track → keep hidden
-                    else -> { if (cur.playing) mediaHidden = null; cur }
-                }
+                np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
                 kotlinx.coroutines.delay(1000)
             }
         }
         np?.let { m ->
             MediaCard(ctx, m,
                 refresh = { np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null } },
-                onDismiss = { com.agentos.shell.tools.MediaControls.stop(ctx); mediaHidden = m.title; np = null })
+                onDismiss = {   // stop + suppress in the singleton so it stays gone across navigation
+                    com.agentos.shell.tools.MediaControls.stop(ctx)
+                    com.agentos.shell.tools.MediaControls.suppress(m.title)
+                    np = null
+                })
             Spacer(Modifier.height(12.dp))
         }
 
@@ -1792,9 +1790,12 @@ private fun WakeUpSuggestion(ctx: Context) {
             }
             if (!setDone) {
                 Text("Set", fontSize = T.small, color = T.accent,
-                    modifier = Modifier.clickable { com.agentos.shell.tools.ToolRouter.quickAlarm(ctx, arg); setDone = true }.padding(8.dp))
+                    modifier = Modifier.clickable {
+                        try { com.agentos.shell.tools.ToolRouter.quickAlarm(ctx, arg) } catch (e: Exception) {}
+                        com.agentos.shell.tools.AlarmPlanner.dismissChipToday(ctx); setDone = true
+                    }.padding(8.dp))
                 Text("✕", fontSize = T.small, color = T.inkFaint,
-                    modifier = Modifier.clickable { dismissed = true }.padding(8.dp))
+                    modifier = Modifier.clickable { com.agentos.shell.tools.AlarmPlanner.dismissChipToday(ctx); dismissed = true }.padding(8.dp))
             }
         }
         Spacer(Modifier.height(12.dp))

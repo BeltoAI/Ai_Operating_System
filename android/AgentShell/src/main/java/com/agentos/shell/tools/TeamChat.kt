@@ -25,7 +25,7 @@ object TeamChat {
     fun post(ctx: Context, agentName: String, text: String) {
         if (!enabled(ctx)) return
         val gid = groupId(ctx); if (gid == 0L || text.isBlank()) return
-        try { TelegramClient.sendMessage(gid, "$agentName · $text") } catch (e: Exception) {}
+        try { TelegramClient.sendMessage(gid, stripMd("$agentName · $text")) } catch (e: Exception) {}
         // Mark this agent as the one you're "with", so your reply reaches them WITHOUT an @mention.
         try { EmployeeStore.all(ctx).firstOrNull { it.name.equals(agentName, true) }?.let { setLastAgent(ctx, it.id) } } catch (e: Exception) {}
     }
@@ -56,8 +56,11 @@ object TeamChat {
         if (groupId(ctx) != gid) setGroupId(ctx, gid)
         if (!greeted(ctx, gid)) {
             markGreeted(ctx, gid)
+            val botH = try { TelegramClient.botUsername() } catch (e: Exception) { "" }
             try { TelegramClient.sendMessage(gid,
-                "SlyOS team chat connected ✓ — your agents will post here. Address one by name, e.g. \"Kai, reschedule my 3pm\".") } catch (e: Exception) {}
+                "SlyOS team chat connected ✓ — your agents will post here. Address one by name, e.g. \"Kai, reschedule my 3pm\".\n\n" +
+                "Tip: so I hear team names in THIS group, either make me an admin, or turn off my privacy mode (BotFather → /setprivacy → Disable). Otherwise Telegram only forwards me messages that @mention " +
+                (if (botH.isNotBlank()) "@$botH" else "my bot handle") + " or reply to me.") } catch (e: Exception) {}
         }
 
         // Someone joined → the whole team introduces itself.
@@ -74,8 +77,12 @@ object TeamChat {
 
         // In a real group with humans, stay QUIET unless summoned: the bot (@handle / its name) or an agent
         // by name, or a team question. Humans chatting to each other never trigger a response.
+        // Lenient name match: "@bastard" should reach "Bastardi", "riri" reach "Riri". Match any 3+ letter word
+        // in the message against an agent's first name by exact / prefix (either direction).
+        val words = Regex("@?([\\p{L}]{3,})").findAll(text.lowercase()).map { it.groupValues[1] }.toList()
         val named = staff.firstOrNull { e ->
-            e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
+            val fn = e.name.trim().split(" ").firstOrNull()?.lowercase().orEmpty()
+            fn.length >= 3 && words.any { w -> w == fn || (w.length >= 4 && fn.startsWith(w)) || (fn.length >= 4 && w.startsWith(fn)) }
         }
         // Summoned if: an agent named, a team question, the bot @mentioned, or you replied to an agent's message.
         // ALSO auto-listen (no @ needed) ONLY while an agent is actually waiting on you — so answering a "needs
@@ -219,7 +226,18 @@ object TeamChat {
         safeSend(groupId(ctx), hi + rosterText(staff))
     }
 
-    private fun safeSend(gid: Long, text: String) { try { TelegramClient.sendMessage(gid, text) } catch (e: Exception) {} }
+    private fun safeSend(gid: Long, text: String) { try { TelegramClient.sendMessage(gid, stripMd(text)) } catch (e: Exception) {} }
+
+    /** Agents sometimes emit markdown (**bold**, *italic*, # headers). Telegram + our popup show it raw and ugly,
+     *  so flatten to clean plain text before display. */
+    fun stripMd(s: String): String = s
+        .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+        .replace(Regex("__(.+?)__"), "$1")
+        .replace(Regex("(?<![*\\w])\\*(?!\\*)([^*\\n]+?)\\*(?![*\\w])"), "$1")
+        .replace(Regex("`([^`]+)`"), "$1")
+        .replace(Regex("(?m)^\\s{0,3}#{1,6}\\s*"), "")
+        .replace(Regex("(?m)^\\s*[-*]\\s+"), "• ")
+        .trim()
 
     /** Read a PDF/photo dropped in the group and feed it to the named agent (or the deep-expert), + the brain. */
     private fun ingestAttachment(ctx: Context, gid: Long, u: TelegramClient.Update, staff: List<EmployeeStore.Employee>) {

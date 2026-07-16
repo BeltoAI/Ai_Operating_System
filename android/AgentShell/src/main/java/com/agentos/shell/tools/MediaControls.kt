@@ -59,12 +59,19 @@ object MediaControls {
                 ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
                 ?: md?.getString(MediaMetadata.METADATA_KEY_ALBUM))?.trim().orEmpty()
             if (title.isBlank() && !playing) return null
+            // Respect a swipe-away: keep this track hidden until a different one starts.
+            val t = title.ifBlank { "Playing" }
+            if (suppressed != null) { if (t == suppressed) return null else suppressed = null }
             val art = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: md?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             NowPlaying(title.ifBlank { "Playing" }, artist, appLabel(ctx, c.packageName), c.packageName, playing, art)
         } catch (e: Exception) { null }
     }
+
+    // A track the user swiped away — stays hidden (across screen navigation) until a different track plays.
+    @Volatile private var suppressed: String? = null
+    fun suppress(title: String) { suppressed = title }
 
     fun isActive(ctx: Context): Boolean = nowPlaying(ctx) != null
 

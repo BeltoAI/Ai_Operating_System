@@ -30,8 +30,13 @@ object AlarmPlanner {
     /** wake alarm arg (e.g. "6:30 am"), the event it's for, and that event's start. Null = nothing to suggest. */
     data class Suggestion(val arg: String, val label: String, val eventBegin: Long)
 
+    /** Once the user sets or dismisses today's chip, don't resurface it (across navigation) until tomorrow. */
+    fun dismissChipToday(ctx: Context) = p(ctx).edit().putString("chipDismissed", ymd()).apply()
+    private fun chipDismissedToday(ctx: Context) = p(ctx).getString("chipDismissed", "") == ymd()
+
     fun suggestion(ctx: Context): Suggestion? {
         if (!CalendarTool.hasPermission(ctx)) return null
+        if (chipDismissedToday(ctx)) return null
         val now = System.currentTimeMillis()
         val c = Calendar.getInstance().apply {
             add(Calendar.DAY_OF_YEAR, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
