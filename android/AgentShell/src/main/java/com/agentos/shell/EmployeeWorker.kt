@@ -16,6 +16,13 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val ctx = applicationContext
         return try {
+            // Spam-safe outreach drip: send at most ONE queued email per cadence window, independent of API keys.
+            try {
+                com.agentos.shell.tools.OutreachQueue.drainOne(ctx)?.let { line ->
+                    com.agentos.shell.tools.MemoryLog.add(ctx, "note", "Outreach", line, "Outreach")
+                    try { com.agentos.shell.tools.TeamChat.post(ctx, "Outreach", line) } catch (e: Exception) {}
+                }
+            } catch (e: Exception) {}
             if (!com.agentos.shell.tools.AgentClient.hasKey()) return Result.success()   // nothing to spend, skip
             val now = System.currentTimeMillis()
             val due = EmployeeStore.all(ctx).filter { e ->

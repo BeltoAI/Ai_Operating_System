@@ -1,0 +1,40 @@
+name: Deploy website (GitHub Pages)
+
+# Every push to main re-publishes the website from docs/. No path filter on purpose: the site ALWAYS
+# reflects the latest main, so a release never ships without the site catching up. Manual runs too.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+# Standard Pages permissions.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy mid-flight; let the newest one queue after the current.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs/ as the site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -35,7 +35,11 @@ object EmployeeRunner {
         "NEVER keep asking for missing details on a doc request: if the owner gives any go-ahead — or says 'just create it', 'agnostic', " +
         "'it's fine', 'go ahead' — call make_doc IMMEDIATELY and use tasteful placeholders like [Client] for anything unknown. A solid " +
         "draft they can edit always beats questions. Do NOT set 'needs' for a doc unless you genuinely cannot render at all. " +
-        "edit_doc: revise the CURRENT document — put the requested change in \"text\" (e.g. 'make the cover bolder, add a pricing slide'); it re-renders and re-sends."
+        "edit_doc: revise the CURRENT document — put the requested change in \"text\" (e.g. 'make the cover bolder, add a pricing slide'); it re-renders and re-sends." +
+        " outreach: send an email to MANY relevant people from the CRM as a spam-safe drip (one every ~hour, not a blast). Put the audience in " +
+        "\"target\" (e.g. 'vcs', 'investors', 'all leads', 'design agencies' — whatever the context demands), a \"subject\", and a warm personalized \"body\" " +
+        "(use [Name] and it's filled per-recipient). If a document is in progress it's attached automatically. Optionally set \"extra\":{\"everyMin\":60}. " +
+        "Only use outreach when the owner clearly asks to reach out to a group; confirm the audience makes sense first."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -106,6 +110,24 @@ object EmployeeRunner {
                         if (html.length < 100) "couldn't apply that edit" else finalizeDoc(ctx, emp, cur.title, cur.kind, html, "edited")
                     }
                 }
+                "outreach" -> {
+                    val audience = act!!.optString("target").trim().ifBlank { "leads" }
+                    val subject = act.optString("subject").trim().ifBlank { "Quick hello from ${MemoryStore.ownerName(ctx).ifBlank { "us" }}" }
+                    val bodyT = act.optString("body").trim()
+                    if (bodyT.isBlank()) "" else {
+                        val recips = resolveAudience(ctx, audience)
+                        if (recips.isEmpty()) "no one in your CRM matches “$audience” — save some contacts first (or widen the audience)" else {
+                            val everyMin = act.optJSONObject("extra")?.optInt("everyMin", 60)?.takeIf { it > 0 } ?: 60
+                            val attach = DesignStore.get(ctx, emp.id)?.pdfPath?.takeIf { it.isNotBlank() && java.io.File(it).exists() } ?: ""
+                            // Personalize per-recipient at send time via [Name]; enqueue once each.
+                            val queued = recips.map { OutreachQueue.Recipient(it.name, it.email) }
+                            val n = OutreachQueue.enqueue(ctx, queued, subject, bodyT, attach, everyMin, campaign = audience)
+                            if (n > 0) "queued outreach to $n ${if (n == 1) "person" else "people"} matching “$audience” — sending ~1 every ${everyMin}m so we stay out of spam ✓" +
+                                (if (attach.isNotBlank()) " (your document attached)" else "")
+                            else "those contacts are already queued"
+                        }
+                    }
+                }
                 else -> ""
             }
         } catch (e: Exception) { "action failed: ${e.message}" }
@@ -136,7 +158,14 @@ object EmployeeRunner {
         val htmlFile = try { java.io.File(dir, "$safe.html").apply { writeText(html) } } catch (e: Exception) { null }
         val file = pdf ?: htmlFile
         DesignStore.set(ctx, emp.id, title, kind, html, file?.absolutePath ?: "")
-        try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
+        try {
+            val fields = org.json.JSONObject()
+                .put("file", file?.absolutePath ?: "")
+                .put("format", if (pdf != null) "PDF" else "HTML (open in any browser)")
+            DocStore.addText(ctx, kind, title,
+                "A $kind ${emp.name} designed — saved as a file in your SlyOS folder (NOT Google Docs). Open the file path shown, or ask ${emp.name} to resend it to your chat.",
+                fields, "designer")
+        } catch (e: Exception) {}
         try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(40000)) } catch (e: Exception) {}
         val cap = if (finalize && pdf != null)
             "$title — final PDF, ready to send. Nice working with you on this one."
@@ -160,6 +189,27 @@ object EmployeeRunner {
     private fun exportPdf(ctx: Context, emp: EmployeeStore.Employee): String {
         val cur = DesignStore.get(ctx, emp.id) ?: return ""
         return finalizeDoc(ctx, emp, cur.title, cur.kind, cur.html, "finalized", finalize = true)
+    }
+
+    /** Resolve a plain-language audience ("vcs", "all leads", "design agencies") to real CRM contacts with emails. */
+    private fun resolveAudience(ctx: Context, audience: String): List<LeadStore.Lead> {
+        val all = try { LeadStore.all(ctx) } catch (e: Exception) { emptyList() }.filter { it.email.contains("@") }
+        val a = audience.lowercase().trim()
+        val everyone = Regex("(?i)\\b(all|every(one|body)?|leads?|contacts?|my crm|the crm|whole list)\\b").containsMatchIn(a)
+        if (everyone) return all
+        // Map common audiences to keyword sets matched against role/company/notes/extra.
+        val kw: List<String> = when {
+            Regex("(?i)vc|investor|capital|fund|angel|partner|ventures?").containsMatchIn(a) ->
+                listOf("vc", "investor", "capital", "fund", "angel", "partner", "venture")
+            else -> a.split(Regex("[^a-z0-9]+")).filter { it.length > 2 }
+        }
+        if (kw.isEmpty()) return all
+        val hits = all.filter { l ->
+            val hay = (l.role + " " + l.company + " " + l.notes + " " + l.extra + " " + l.source).lowercase()
+            kw.any { hay.contains(it) }
+        }
+        // Fall back to a name/company text search if keyword-matching found nothing.
+        return if (hits.isNotEmpty()) hits else try { LeadStore.search(ctx, audience, 50).filter { it.email.contains("@") } } catch (e: Exception) { emptyList() }
     }
 
     data class ChainResult(val summary: String, val needs: String, val actions: Int, val inTok: Int, val outTok: Int)

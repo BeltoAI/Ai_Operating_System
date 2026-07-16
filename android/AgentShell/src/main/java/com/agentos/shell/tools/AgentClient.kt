@@ -180,7 +180,9 @@ object AgentClient {
             (if (isDeck)
                 "This is a SLIDE DECK: use `@page { size: A4 landscape; margin: 0 }` and make each `.slide` a full page with " +
                 "`page-break-after: always`, padded ~6-8%, content vertically centered, big readable headings. First slide is a " +
-                "cover (title + subtitle + date). 6-12 slides, one idea each."
+                "cover (title + subtitle + date). 6-12 slides, one idea each. If it's a PITCH deck, follow the proven investor arc — " +
+                "cover, problem, solution, how it works/product, why now, market size, traction, business model, competition/moat, team, the ask — " +
+                "but ONLY include slides the brief actually supports; never pad with empty slides."
              else
                 "This is a ONE-PAGER: a single beautiful A4 portrait page — `@page { size: A4; margin: 0 }` — with a header band, " +
                 "well-structured sections, and a clean footer. Dense but elegant.") +
@@ -195,12 +197,28 @@ object AgentClient {
     }
 
     /** Apply a plain-language edit to an existing HTML document and return the full updated HTML. */
-    fun editHtml(currentHtml: String, instruction: String): String {
-        val sys = "You edit an existing HTML document (a designed one-pager or slide deck). Apply the owner's requested change " +
-            "precisely while KEEPING the overall premium design, structure, and all unrelated content intact. Return the ENTIRE " +
-            "updated HTML document (starting with <!DOCTYPE html>) — not a diff, no markdown, no commentary."
-        val user = "REQUESTED CHANGE: $instruction\n\nCURRENT DOCUMENT:\n${currentHtml.take(60000)}"
-        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 14000, OPUS, 240000)
+    fun editHtml(currentHtml: String, instruction: String, imageUrl: String = ""): String {
+        val sys = "You are a world-class designer revising an existing HTML document (a designed one-pager or slide deck). " +
+            "The owner is giving feedback in plain, sometimes vague language — your job is to DIAGNOSE what's wrong and FIX it " +
+            "like a pro, not just literally. Handle all of these well:\n" +
+            "• 'ugly / cheap / off / boring' → elevate it: refine typography scale & weight, tighten spacing rhythm, improve the " +
+            "color palette (keep it restrained — one accent), add subtle hierarchy. Make a real visual improvement.\n" +
+            "• 'overlapping / cut off / cramped / text runs off / broken layout' → fix the actual CSS: correct positioning, box " +
+            "sizing, overflow, flex/grid alignment, line-height, padding, and font sizes so NOTHING overlaps or clips on an A4 page.\n" +
+            "• 'change the color / make it <X>' → apply it consistently across accents, headings and rules — not one stray element.\n" +
+            "• 'add / insert a <section|slide|pricing|team|contact>' → build it fully, matching the existing style, placed sensibly.\n" +
+            "• 'remove / cut / merge <slide|section>' → do it and re-flow so numbering/pagination stays clean.\n" +
+            "• 'reorder / move X before Y' → reorder cleanly.\n" +
+            "• an image is referenced: " + (if (imageUrl.isNotBlank())
+                "insert THIS image (<img src=\"$imageUrl\" style=\"max-width:100%;height:auto;border-radius:8px\">) where it fits best." else
+                "if no real image is available, insert a tasteful captioned placeholder box (aspect-correct, muted background, a short label) exactly where the image should go — never leave a broken <img>.") + "\n" +
+            "ALWAYS: keep every UNRELATED part of the document intact, keep the premium look, keep it print-perfect on A4 " +
+            "(decks = A4 landscape slides with page-break-after; one-pagers = A4 portrait). Self-contained: all CSS inline, no external assets, no scripts. " +
+            "Return the ENTIRE updated HTML document (starting with <!DOCTYPE html>) — not a diff, no markdown, no commentary."
+        val user = "OWNER FEEDBACK: $instruction\n\n" +
+            (if (imageUrl.isNotBlank()) "IMAGE TO USE: $imageUrl\n\n" else "") +
+            "CURRENT DOCUMENT:\n${currentHtml.take(60000)}"
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 16000, OPUS, 240000)
         return if (code == 200) stripHtmlFences(text) else ""
     }
 
