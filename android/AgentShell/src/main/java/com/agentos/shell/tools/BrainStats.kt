@@ -39,23 +39,44 @@ object BrainStats {
             Line("Network / connections", n { ConnectionStore.count(ctx) }, "your relationship graph"),
             Line("Powers installed", n { PowerRegistry.count(ctx) }, "skills added to the brain"),
             Line("AI teammates", agents.size.toString(), "agents on your team"),
-            Line("Docs fed to agents", if (agentDocs < 0) "—" else "$agentDocs", "PDFs/knowledge per agent (e.g. Bastardi)")
+            Line("Docs fed to agents", if (agentDocs < 0) "—" else "$agentDocs", "PDFs/knowledge per agent (e.g. Bastardi)"),
+            Line("Interactions logged", n { InteractionStore.count(ctx) }, "app/usage signals the AI learns from"),
+            Line("Outreach queued", n { OutreachQueue.pendingCount(ctx) }, "emails waiting in the drip"),
+            Line("Upcoming events (7d)", n { try { CalendarTool.eventsBetween(ctx, System.currentTimeMillis(), System.currentTimeMillis() + 7L*86_400_000, 200).size } catch (e: Exception) { 0 } }, "calendar reach")
         )
     }
 
     /** Wiring/health checks — which capabilities are actually connected right now (not counts). */
     fun health(ctx: Context): List<Line> {
         fun ok(b: Boolean) = if (b) "connected" else "not set up"
-        val notif = try {
-            (android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners") ?: "").contains(ctx.packageName)
+        fun granted(p: String) = try { androidx.core.content.ContextCompat.checkSelfPermission(ctx, p) == android.content.pm.PackageManager.PERMISSION_GRANTED } catch (e: Exception) { false }
+        fun secure(key: String) = try { (android.provider.Settings.Secure.getString(ctx.contentResolver, key) ?: "").contains(ctx.packageName) } catch (e: Exception) { false }
+        val sdk = android.os.Build.VERSION.SDK_INT
+        val isDefaultHome = try {
+            val ri = ctx.packageManager.resolveActivity(android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME), android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+            ri?.activityInfo?.packageName == ctx.packageName
         } catch (e: Exception) { false }
+        val batteryFree = try {
+            (ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
+        } catch (e: Exception) { false }
+        val overlay = try { sdk < 23 || android.provider.Settings.canDrawOverlays(ctx) } catch (e: Exception) { false }
+        val photosPerm = if (sdk >= 33) granted("android.permission.READ_MEDIA_IMAGES") else granted(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        val notifsPost = if (sdk >= 33) granted("android.permission.POST_NOTIFICATIONS") else true
         return listOf(
             Line("Model key", ok(try { AgentClient.hasKey() } catch (e: Exception) { false }), "the brain's LLM"),
             Line("Embeddings", try { EmbeddingClient.provider(ctx) ?: "off — add Gemini/OpenAI key" } catch (e: Exception) { "—" }, "semantic memory needs this"),
             Line("Google / Gmail", ok(try { GoogleAuth.isConnected(ctx) } catch (e: Exception) { false }), "inbox + calendar + contacts"),
             Line("Calendar access", ok(try { CalendarTool.hasPermission(ctx) } catch (e: Exception) { false }), "events + wake-up planner"),
-            Line("Mic access", ok(try { SongId.hasMic(ctx) } catch (e: Exception) { false }), "song ID"),
-            Line("Notification access", ok(notif), "media widget + notif reading"),
+            Line("Contacts access", ok(granted(android.Manifest.permission.READ_CONTACTS)), "people lookups"),
+            Line("Photos/media access", ok(photosPerm), "gallery indexing"),
+            Line("Mic access", ok(try { SongId.hasMic(ctx) } catch (e: Exception) { false }), "song ID + voice"),
+            Line("Location access", ok(granted(android.Manifest.permission.ACCESS_FINE_LOCATION)), "live location + nav"),
+            Line("Notification access", ok(secure("enabled_notification_listeners")), "media widget + notif reading"),
+            Line("Notifications allowed", ok(notifsPost), "the app can alert you"),
+            Line("Accessibility service", ok(secure("enabled_accessibility_services")), "WhatsApp auto-answer + on-screen actions"),
+            Line("Draw-over-apps", ok(overlay), "PDF render + overlay nav"),
+            Line("Battery unrestricted", ok(batteryFree), "lets 24/7 workers actually run"),
+            Line("Default launcher", ok(isDefaultHome), "SlyOS is your Home app"),
             Line("Telegram", ok(try { TelegramClient.configured() } catch (e: Exception) { false }), "team chat + bot"),
             Line("Account sync", ok(try { AccountStore.signedIn(ctx) } catch (e: Exception) { false }), "cross-device brain")
         )

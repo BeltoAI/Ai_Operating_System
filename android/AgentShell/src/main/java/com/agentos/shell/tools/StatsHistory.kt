@@ -50,4 +50,27 @@ object StatsHistory {
 
     /** How many daily snapshots we have (for "tracking since N days"). */
     fun days(ctx: Context): Int = load(ctx).length()
+
+    /** Chronological (date, value) pairs for [label] — for drawing a sparkline. Oldest first. */
+    fun series(ctx: Context, label: String): List<Pair<String, Int>> {
+        val all = load(ctx)
+        return all.keys().asSequence().toList().sorted().mapNotNull { day ->
+            val v = all.optJSONObject(day)?.optInt(label, Int.MIN_VALUE) ?: Int.MIN_VALUE
+            if (v == Int.MIN_VALUE) null else day to v
+        }
+    }
+
+    /** Force a snapshot now under a timestamped key (for a manual "capture" button), without waiting for the day. */
+    fun captureNow(ctx: Context) {
+        val all = load(ctx)
+        val snap = JSONObject()
+        try {
+            BrainStats.lines(ctx).forEach { l ->
+                val v = l.value.trim()
+                if (v.matches(Regex("[0-9,]+"))) v.replace(",", "").toIntOrNull()?.let { snap.put(l.label, it) }
+            }
+        } catch (e: Exception) {}
+        all.put(today(), snap)   // overwrites today's point with the latest
+        save(ctx, all)
+    }
 }

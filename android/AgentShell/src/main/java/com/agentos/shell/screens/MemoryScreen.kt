@@ -812,6 +812,77 @@ private fun ApiKeysCard() {
     }
 }
 
+/** Live brain diagnostics: every metric with a trend sparkline + full wiring health. Expandable, for debugging. */
+@Composable
+private fun BrainDiagnosticsCard() {
+    val ctx = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    val counts = remember(tick) { com.agentos.shell.tools.BrainStats.lines(ctx) }
+    val wiring = remember(tick) { com.agentos.shell.tools.BrainStats.health(ctx) }
+    val days = remember(tick) { com.agentos.shell.tools.StatsHistory.days(ctx) }
+    Collapsible("Brain diagnostics", "$days-day history · counts, trends & wiring") {
+        Spacer(Modifier.height(6.dp))
+        counts.forEach { l ->
+            val series = remember(tick, l.label) { com.agentos.shell.tools.StatsHistory.series(ctx, l.label).map { it.second } }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(l.label, fontSize = T.small, color = T.ink)
+                    Text(l.hint, fontSize = T.caption, color = T.inkFaint, maxLines = 1)
+                }
+                if (series.size >= 2) Sparkline(series, Modifier.width(60.dp).height(22.dp).padding(horizontal = 8.dp))
+                Text(l.value, fontSize = T.small, color = T.ink)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("WIRING", fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(4.dp))
+        wiring.forEach { w ->
+            val good = w.value == "connected" || (w.label == "Embeddings" && !w.value.startsWith("off"))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (good) androidx.compose.ui.graphics.Color(0xFF3BA55D) else T.inkFaint))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(w.label, fontSize = T.small, color = T.ink)
+                    Text(w.hint, fontSize = T.caption, color = T.inkFaint, maxLines = 1)
+                }
+                Text(w.value, fontSize = T.caption, color = if (good) T.ink else T.accent, maxLines = 1)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Capture now", fontSize = T.small, color = T.bgElevated,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                    .clickable { com.agentos.shell.tools.StatsHistory.captureNow(ctx); tick++ }
+                    .padding(horizontal = 16.dp, vertical = 8.dp))
+            Spacer(Modifier.width(12.dp))
+            Text("Copy report", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable {
+                try {
+                    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("brain", com.agentos.shell.tools.BrainStats.report(ctx)))
+                } catch (e: Exception) {}
+            }.padding(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun Sparkline(values: List<Int>, modifier: Modifier) {
+    val accent = T.accent
+    androidx.compose.foundation.Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val mn = (values.minOrNull() ?: 0).toFloat()
+        val mx = (values.maxOrNull() ?: 1).toFloat()
+        val range = (mx - mn).takeIf { it > 0f } ?: 1f
+        val stepX = size.width / (values.size - 1)
+        var prevX = 0f; var prevY = size.height - (values[0] - mn) / range * size.height
+        for (i in 1 until values.size) {
+            val x = stepX * i; val y = size.height - (values[i] - mn) / range * size.height
+            drawLine(accent, androidx.compose.ui.geometry.Offset(prevX, prevY), androidx.compose.ui.geometry.Offset(x, y), strokeWidth = 2.5f)
+            prevX = x; prevY = y
+        }
+    }
+}
+
 /**
  * Memory = what the agent knows about you. You write it; the agent uses it to personalize
  * every answer and every reply it drafts. Stored locally on the phone.
@@ -999,6 +1070,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Efficiency as its own top-level card (promoted out of "Your writing voice").
         EfficiencyCard()
+
+        // Brain diagnostics — live counts with trend sparklines + wiring health, for debugging.
+        BrainDiagnosticsCard()
 
         // On-device model — free/offline endpoint that plugs into the same router as the cloud keys.
         OnDeviceModelCard()
