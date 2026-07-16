@@ -31,10 +31,20 @@ object TelegramClient {
     } catch (e: Exception) { null }
 
     /** Long-poll for updates starting at [offset]. Blocks up to ~50s. */
+    /** Clears any webhook so long-poll getUpdates works. A stray webhook is the #1 reason polling goes dead while
+     *  sendMessage still works. Harmless if none is set. */
+    fun deleteWebhook() {
+        try { val r = get(api("deleteWebhook") + "?drop_pending_updates=false"); Log.i("SlyOS-Team", "deleteWebhook: ${r?.take(80)}") } catch (e: Exception) {}
+    }
+
     fun getUpdates(offset: Long): List<Update> {
-        val raw = get(api("getUpdates") + "?timeout=50&offset=$offset") ?: return emptyList()
+        val raw = get(api("getUpdates") + "?timeout=50&offset=$offset")
+        if (raw == null) { Log.w("SlyOS-Team", "getUpdates: null (network/timeout)"); return emptyList() }
+        val root = try { JSONObject(raw) } catch (e: Exception) { Log.w("SlyOS-Team", "getUpdates bad json: ${raw.take(120)}"); return emptyList() }
+        if (!root.optBoolean("ok", false)) { Log.w("SlyOS-Team", "getUpdates NOT ok: ${raw.take(180)}"); return emptyList() }
         return try {
-            val arr = JSONObject(raw).optJSONArray("result") ?: return emptyList()
+            val arr = root.optJSONArray("result") ?: return emptyList()
+            if (arr.length() > 0) Log.i("SlyOS-Team", "getUpdates: ${arr.length()} update(s)")
             (0 until arr.length()).mapNotNull { i ->
                 val u = arr.getJSONObject(i)
                 val msg = u.optJSONObject("message") ?: return@mapNotNull null

@@ -48,10 +48,14 @@ class TelegramService : Service() {
     private suspend fun loop() {
         // Warm getMe so the bot's @username + name are cached before any group message arrives — otherwise the
         // "@bastard" summon can't be matched on the very first messages.
+        try { TelegramClient.deleteWebhook() } catch (e: Exception) {}   // ensure long-poll works (kills stray webhook)
         try { TelegramClient.botUsername(); Log.i("SlyOS-Team", "bot identity: @${TelegramClient.botUsername()} / ${TelegramClient.botName()}") } catch (e: Exception) {}
         var offset = 0L
+        Log.i("SlyOS-Team", "poll loop started")
         while (running && scope.isActive) {
-            val updates = TelegramClient.getUpdates(offset)
+            val updates = try { TelegramClient.getUpdates(offset) } catch (e: Exception) {
+                Log.w("SlyOS-Team", "getUpdates threw: ${e.message}"); kotlinx.coroutines.delay(3000); emptyList()
+            }
             for (u in updates) {
                 offset = u.updateId + 1
                 // Process each message CONCURRENTLY — the agent chain can take 30-60s, and doing it inline here
@@ -59,6 +63,7 @@ class TelegramService : Service() {
                 scope.launch { try { handle(u) } catch (e: Exception) { Log.e("SlyOS", "tg handle failed", e) } }
             }
         }
+        Log.w("SlyOS-Team", "poll loop ENDED (running=$running active=${scope.isActive})")
     }
 
     // Chats we've already told "you're not authorized" — so a stranger/spammer gets ONE line, not a storm.
