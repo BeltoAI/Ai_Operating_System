@@ -208,9 +208,9 @@ object TeamChat {
         // first name so "@Emil" to a human doesn't wake the bot. Prefix match both ways so "@bastard" hits it.
         val distinctive = name.split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }.lastOrNull()
         if (distinctive != null && mentions.any { m -> m == distinctive || distinctive.startsWith(m) || m.startsWith(distinctive) }) return true
-        // Fallback: if we couldn't positively identify the bot's name (getMe not cached / offline), treat a leading
-        // @mention as a summon so "@bastard …" still works instead of silently failing.
-        if (distinctive == null && Regex("^\\s*@[a-z0-9_]{2,}").containsMatchIn(t)) return true
+        // BULLETPROOF: in a team group you address the bot with a leading @mention ("@bastard", "@EmilsBastard_bot").
+        // Treat ANY leading @mention as a summon — never depend on getMe, which is what left it silent before.
+        if (Regex("^\\s*@[a-z0-9_]{2,}").containsMatchIn(t)) return true
         return false
     }
 
