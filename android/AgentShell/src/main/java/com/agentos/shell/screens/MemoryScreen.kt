@@ -794,6 +794,7 @@ private fun ApiKeysCard() {
                 decorationBox = { inner -> if (vid.isEmpty()) Text("ElevenLabs voice ID (optional)", fontSize = T.small, color = T.inkFaint); inner() })
         }
         KeyEntry("GitHub token (Cowork push)", "ghp_…", "github", MemoryStore.githubToken(ctx)) { MemoryStore.setGithubToken(ctx, it) }
+        KeyEntry("AudD (name songs you hear)", "token…", "audd", MemoryStore.musicIdToken(ctx)) { MemoryStore.setMusicIdToken(ctx, it) }
         Spacer(Modifier.height(8.dp))
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)

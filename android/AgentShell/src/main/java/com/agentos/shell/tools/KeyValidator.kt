@@ -23,6 +23,7 @@ object KeyValidator {
             "finnhub" -> finnhub(key)
             "github" -> github(key)
             "elevenlabs" -> elevenlabs(key)
+            "audd" -> State.VALID   // no cheap validation endpoint (needs an audio sample) — accept any non-blank token
             else -> State.ERROR
         }
     }

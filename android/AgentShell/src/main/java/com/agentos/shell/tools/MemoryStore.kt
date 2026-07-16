@@ -144,6 +144,8 @@ object MemoryStore {
     /** Zenodo personal access token — for one-tap publishing of papers. Stored ONLY on this device. */
     fun zenodoToken(ctx: Context): String = prefs(ctx).getString("zenodo_token", "") ?: ""
     fun setZenodoToken(ctx: Context, value: String) = prefs(ctx).edit().putString("zenodo_token", value.trim()).apply()
+    fun musicIdToken(ctx: Context): String = prefs(ctx).getString("audd_token", "") ?: ""
+    fun setMusicIdToken(ctx: Context, value: String) = prefs(ctx).edit().putString("audd_token", value.trim()).apply()
 
     /** Your Anthropic API key (the brain). Stored ONLY on this device; lets a prebuilt APK run with no
      *  key compiled in — each person pastes their own. */

@@ -103,9 +103,11 @@ object ToolRouter {
                 "settings" -> { start(ctx, Intent(Settings.ACTION_SETTINGS)); "" }
                 "torch", "flashlight" -> {
                     val a = arg.trim().lowercase()
+                    // NOTE: don't match bare "light" as ON — the word "flash-LIGHT" contains it, which would
+                    // force ON when the user says "flashlight" to toggle OFF. Require explicit on/off words.
                     val want: Boolean? = when {
-                        Regex("off|out|kill|stop|disable|0|false").containsMatchIn(a) -> false
-                        Regex("on|light|enable|1|true").containsMatchIn(a) -> true
+                        Regex("\\b(off|out|kill|stop|disable|dark|0|false)\\b").containsMatchIn(a) -> false
+                        Regex("\\b(on|enable|bright|1|true)\\b").containsMatchIn(a) -> true
                         else -> null   // toggle
                     }
                     val r = Torch.set(ctx, want)
@@ -124,6 +126,7 @@ object ToolRouter {
                     try { MemoryLog.add(ctx, "action", "Media", r, "SlyOS") } catch (e: Exception) {}
                     r
                 }
+                "identify_song", "song", "shazam" -> SongId.identify(ctx)
                 "add_event" -> addEvent(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)

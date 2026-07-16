@@ -994,6 +994,9 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        // Flashlight control — visible only while the torch is on; tap or swipe-left to turn it off.
+        TorchWidget(ctx)
+
         // Wake-up suggestion: if there's an early commitment coming up, offer a one-tap alarm ~1h before it.
         WakeUpSuggestion(ctx)
 
@@ -1604,9 +1607,8 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
     var dragX by remember { mutableStateOf(0f) }
     val dragAnim by animateFloatAsState(dragX, tween(150), label = "mdrag")
     val inf = rememberInfiniteTransition(label = "eq")
-    val t1 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(900, easing = LinearEasing)), label = "t1")
-    val t2 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(1700, easing = LinearEasing)), label = "t2")
-    val hint = when { dragX < -40f -> "release to pause"; dragX > 40f -> "release to open"; else -> "swipe ◂ pause   ▸ open" }
+    val t1 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(1400, easing = LinearEasing)), label = "t1")
+    val t2 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "t2")
 
     Box(
         Modifier
@@ -1636,8 +1638,8 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
                     val r = CornerRadius(16.dp.toPx(), 16.dp.toPx())
                     val tl = Offset(inset, inset)
                     val sz = Size(size.width - inset * 2, size.height - inset * 2)
-                    drawRoundRect(accent.copy(alpha = 0.10f + 0.22f * env), tl, sz, r, style = Stroke(width = 6.dp.toPx() + 10.dp.toPx() * env))
-                    drawRoundRect(accent.copy(alpha = 0.55f + 0.45f * env), tl, sz, r, style = Stroke(width = 1.6.dp.toPx() + 1.8.dp.toPx() * env))
+                    drawRoundRect(accent.copy(alpha = 0.04f + 0.07f * env), tl, sz, r, style = Stroke(width = 3.dp.toPx() + 3.dp.toPx() * env))
+                    drawRoundRect(accent.copy(alpha = 0.30f + 0.16f * env), tl, sz, r, style = Stroke(width = 1.dp.toPx() + 0.5.dp.toPx() * env))
                 }
                 .padding(framePad)
                 .clip(RoundedCornerShape(15.dp))
@@ -1667,8 +1669,38 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
             }
         }
     }
-    Spacer(Modifier.height(3.dp))
-    Text(hint, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(start = 14.dp))
+}
+
+/** Shows only while the flashlight is on — a guaranteed OFF control (tap or swipe left), independent of the AI. */
+@Composable
+private fun TorchWidget(ctx: Context) {
+    var on by remember { mutableStateOf(com.agentos.shell.tools.Torch.isOn()) }
+    LaunchedEffect(Unit) {
+        while (true) { on = com.agentos.shell.tools.Torch.isOn(); kotlinx.coroutines.delay(700) }
+    }
+    var dragX by remember { mutableStateOf(0f) }
+    val dragAnim by animateFloatAsState(dragX, tween(150), label = "tdrag")
+    if (!on) return
+    fun off() { com.agentos.shell.tools.Torch.set(ctx, false); on = false
+        try { com.agentos.shell.tools.MemoryLog.add(ctx, "action", "Flashlight", "Flashlight off.", "SlyOS") } catch (e: Exception) {} }
+    Row(verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().graphicsLayer { translationX = dragAnim }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { if (dragX < -110f) off(); dragX = 0f },
+                    onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-200f, 40f) })
+            }
+            .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+            .clickable { off() }.padding(horizontal = 12.dp, vertical = 11.dp)) {
+        Text("🔦", fontSize = T.body)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Flashlight on", fontSize = T.small, color = T.ink)
+            Text("tap or swipe ◂ to turn off", fontSize = T.caption, color = T.inkSoft)
+        }
+        Text("OFF", fontSize = T.small, color = T.accent)
+    }
+    Spacer(Modifier.height(12.dp))
 }
 
 /** If an early commitment is coming up, offer a one-tap wake-up alarm ~1h before it. */

@@ -57,6 +57,7 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     var about by remember { mutableStateOf(MemoryStore.about(ctx)) }
     var booking by remember { mutableStateOf(MemoryStore.bookingLink(ctx)) }
     var zenodo by remember { mutableStateOf(MemoryStore.zenodoToken(ctx)) }
+    var musicId by remember { mutableStateOf(MemoryStore.musicIdToken(ctx)) }
     var importStatus by remember { mutableStateOf("") }
     // On-device model pick (optional). Selecting one enables it; the actual download + one-tap safety test
     // happen later in Brain → Settings → On-device model, so onboarding never blocks on a big download.
@@ -228,6 +229,10 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Text("Zenodo token — optional, for publishing papers", fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(4.dp))
                 field(zenodo, { zenodo = it }, "Zenodo personal access token", secret = true)
+                Spacer(Modifier.height(14.dp))
+                Text("AudD token — optional, to name songs playing around you (audd.io)", fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(4.dp))
+                field(musicId, { musicId = it }, "AudD API token", secret = true)
             }
             3 -> {
                 Text("Bring in your data", fontSize = T.body, color = T.ink)
@@ -307,6 +312,7 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                             MemoryStore.setBookingLink(ctx, booking.trim())
                             AgentClient.bookingLink = MemoryStore.effectiveBookingLink(ctx)
                             if (zenodo.isNotBlank()) MemoryStore.setZenodoToken(ctx, zenodo.trim())
+                            if (musicId.isNotBlank()) MemoryStore.setMusicIdToken(ctx, musicId.trim())
                         }
                         if (step < 4) step++ else onDone()
                     }.padding(horizontal = 22.dp, vertical = 11.dp))
