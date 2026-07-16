@@ -137,7 +137,7 @@ object EmployeeRunner {
         val file = pdf ?: htmlFile
         DesignStore.set(ctx, emp.id, title, kind, html, file?.absolutePath ?: "")
         try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
-        try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(4000)) } catch (e: Exception) {}
+        try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(40000)) } catch (e: Exception) {}
         val cap = if (finalize && pdf != null)
             "$title — final PDF, ready to send. Nice working with you on this one."
         else if (finalize)

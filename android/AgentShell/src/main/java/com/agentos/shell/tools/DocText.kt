@@ -44,7 +44,7 @@ object DocText {
     } catch (e: Exception) { 0 }
 
     /** Pull the most relevant passages for [query] across all stored documents, up to [maxChars]. */
-    fun retrieve(ctx: Context, query: String, maxChars: Int = 1400): String {
+    fun retrieve(ctx: Context, query: String, maxChars: Int = 2600): String {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
         if (terms.isEmpty()) return ""
         data class Hit(val title: String, val snippet: String, val score: Int)
@@ -59,8 +59,8 @@ object DocText {
                     if (score > 0) {
                         val firstTerm = terms.firstOrNull { low.contains(it) }
                         val at = if (firstTerm != null) low.indexOf(firstTerm).coerceAtLeast(0) else 0
-                        val start = (at - 120).coerceAtLeast(0)
-                        val snippet = body.substring(start, (start + 500).coerceAtMost(body.length)).trim()
+                        val start = (at - 160).coerceAtLeast(0)
+                        val snippet = body.substring(start, (start + 1100).coerceAtMost(body.length)).trim()
                         hits.add(Hit(title, snippet, score))
                     }
                 }
