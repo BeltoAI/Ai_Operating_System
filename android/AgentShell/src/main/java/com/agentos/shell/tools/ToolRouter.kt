@@ -266,6 +266,9 @@ object ToolRouter {
         return "Timer set for ${secs / 60} min."
     }
 
+    /** Public entry so UI (e.g. the wake-up suggestion chip) can set an alarm directly. */
+    fun quickAlarm(ctx: Context, timeArg: String): String = setAlarm(ctx, timeArg)
+
     private fun setAlarm(ctx: Context, arg: String): String {
         val hm = parseClockTime(arg) ?: return "What time should the alarm go off? (e.g. “7am”, “18:30”, “in 20 minutes”)"
         val (h, m) = hm

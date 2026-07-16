@@ -61,6 +61,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.sin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -973,39 +980,21 @@ fun HomeScreen(
         Spacer(Modifier.height(14.dp))
 
         // Now-playing mini-player — appears ONLY while audio is actually playing (polls the active media
-        // session); classic controls + tap-to-open the player. Vanishes the moment music stops.
+        // session). Reactive accent frame + swipe gestures. Vanishes the moment music stops.
         var np by remember { mutableStateOf<com.agentos.shell.tools.MediaControls.NowPlaying?>(null) }
         LaunchedEffect(Unit) {
             while (true) {
                 np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
-                kotlinx.coroutines.delay(1500)
+                kotlinx.coroutines.delay(1200)
             }
         }
         np?.let { m ->
-            Row(verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
-                    .clickable { com.agentos.shell.tools.MediaControls.open(ctx) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp)) {
-                val art = remember(m.title, m.art) { m.art?.asImageBitmap() }
-                Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).background(T.bg), contentAlignment = Alignment.Center) {
-                    if (art != null) Image(bitmap = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    else Text("♪", fontSize = T.body, color = T.inkSoft)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(m.title, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (m.artist.isNotBlank())
-                        Text(m.artist, fontSize = T.caption, color = T.inkSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text("⏮", fontSize = T.body, color = T.ink, modifier = Modifier
-                    .clickable { com.agentos.shell.tools.MediaControls.previous(ctx) }.padding(8.dp))
-                Text(if (m.playing) "⏸" else "▶", fontSize = T.body, color = T.accent, modifier = Modifier
-                    .clickable { com.agentos.shell.tools.MediaControls.playPause(ctx); np = com.agentos.shell.tools.MediaControls.nowPlaying(ctx) }.padding(8.dp))
-                Text("⏭", fontSize = T.body, color = T.ink, modifier = Modifier
-                    .clickable { com.agentos.shell.tools.MediaControls.next(ctx) }.padding(8.dp))
-            }
+            MediaCard(ctx, m) { np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null } }
             Spacer(Modifier.height(12.dp))
         }
+
+        // Wake-up suggestion: if there's an early commitment coming up, offer a one-tap alarm ~1h before it.
+        WakeUpSuggestion(ctx)
 
         // App-name autocomplete: as you type, surface matching installed apps to open instantly.
         val appMatches = remember(text, allApps) {
@@ -1037,7 +1026,8 @@ fun HomeScreen(
             BasicTextField(
                 value = text,
                 onValueChange = { text = it },
-                singleLine = true,
+                singleLine = false,
+                maxLines = 6,   // wraps and grows with the prompt instead of scrolling sideways; caps then scrolls
                 textStyle = TextStyle(color = T.ink, fontSize = T.body),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { submit(text, false) }),
@@ -1599,3 +1589,131 @@ private fun NavIcon(icon: ImageVector, label: String, onClick: () -> Unit) =
         tint = T.inkSoft,
         modifier = Modifier.size(26.dp).clickable { onClick() }
     )
+
+/**
+ * Now-playing card: a clean tile with an accent frame that pulses to a lively (simulated) audio envelope —
+ * Android forbids reading another app's audio stream, so the "beat" is two layered sines that only animate
+ * while playing; the frame's width/glow is the "altitude." Swipe LEFT to pause, RIGHT to open the player.
+ */
+@Composable
+private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.NowPlaying, refresh: () -> Unit) {
+    val M = com.agentos.shell.tools.MediaControls
+    val accent = T.accent
+    var playing by remember(m.title) { mutableStateOf(m.playing) }
+    var dragX by remember { mutableStateOf(0f) }
+    val dragAnim by animateFloatAsState(dragX, tween(150), label = "mdrag")
+    val inf = rememberInfiniteTransition(label = "eq")
+    val t1 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(900, easing = LinearEasing)), label = "t1")
+    val t2 by inf.animateFloat(0f, (2f * Math.PI).toFloat(), infiniteRepeatable(tween(1700, easing = LinearEasing)), label = "t2")
+    val hint = when { dragX < -40f -> "release to pause"; dragX > 40f -> "release to open"; else -> "swipe ◂ pause   ▸ open" }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { translationX = dragAnim }
+            .pointerInput(m.title) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            dragX < -120f -> { M.playPause(ctx); playing = false; refresh() }
+                            dragX > 120f -> { M.open(ctx) }
+                        }
+                        dragX = 0f
+                    },
+                    onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-220f, 220f) }
+                )
+            }
+    ) {
+        val framePad = 8.dp
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    if (!playing) return@drawBehind
+                    val env = ((0.5f + 0.5f * sin(t2)) * (0.55f + 0.45f * sin(t1 * 1.3f))).coerceIn(0f, 1f)
+                    val inset = framePad.toPx()
+                    val r = CornerRadius(16.dp.toPx(), 16.dp.toPx())
+                    val tl = Offset(inset, inset)
+                    val sz = Size(size.width - inset * 2, size.height - inset * 2)
+                    drawRoundRect(accent.copy(alpha = 0.10f + 0.22f * env), tl, sz, r, style = Stroke(width = 6.dp.toPx() + 10.dp.toPx() * env))
+                    drawRoundRect(accent.copy(alpha = 0.55f + 0.45f * env), tl, sz, r, style = Stroke(width = 1.6.dp.toPx() + 1.8.dp.toPx() * env))
+                }
+                .padding(framePad)
+                .clip(RoundedCornerShape(15.dp))
+                .background(T.bgElevated)
+                .clickable { M.open(ctx) }
+                .padding(horizontal = 12.dp, vertical = 11.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val art = remember(m.title, m.art) { m.art?.asImageBitmap() }
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(11.dp)).background(T.bg), contentAlignment = Alignment.Center) {
+                    if (art != null) Image(bitmap = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    else Row(verticalAlignment = Alignment.Bottom) {
+                        listOf(t1, t2, t1 * 1.6f, t2 * 0.8f).forEachIndexed { i, p ->
+                            val hgt = if (playing) (6f + 12f * (0.5f + 0.5f * sin(p + i))) else 6f
+                            Box(Modifier.padding(horizontal = 1.5.dp).width(3.dp).height(hgt.dp).clip(RoundedCornerShape(2.dp)).background(accent))
+                        }
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(m.title, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(m.artist.ifBlank { m.app }, fontSize = T.caption, color = T.inkSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("⏮", fontSize = T.body, color = T.ink, modifier = Modifier.clickable { M.previous(ctx); refresh() }.padding(7.dp))
+                Text(if (playing) "❚❚" else "▶", fontSize = T.small, color = accent, modifier = Modifier.clickable { M.playPause(ctx); playing = !playing; refresh() }.padding(7.dp))
+                Text("⏭", fontSize = T.body, color = T.ink, modifier = Modifier.clickable { M.next(ctx); refresh() }.padding(7.dp))
+            }
+        }
+    }
+    Spacer(Modifier.height(3.dp))
+    Text(hint, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(start = 14.dp))
+}
+
+/** If an early commitment is coming up, offer a one-tap wake-up alarm ~1h before it. */
+@Composable
+private fun WakeUpSuggestion(ctx: Context) {
+    val cal = com.agentos.shell.tools.CalendarTool
+    var sug by remember { mutableStateOf<Pair<String, String>?>(null) }   // (alarm arg with am/pm, event label)
+    var dismissed by remember { mutableStateOf(false) }
+    var setDone by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!cal.hasPermission(ctx)) return@LaunchedEffect
+        try {
+            val now = System.currentTimeMillis()
+            val evs = cal.eventsBetween(ctx, now, now + 30L * 60 * 60 * 1000, 20)
+            val c = java.util.Calendar.getInstance()
+            val target = evs.filter { it.begin > now + 60 * 60 * 1000 }.firstOrNull {
+                c.timeInMillis = it.begin
+                val h = c.get(java.util.Calendar.HOUR_OF_DAY); val mn = c.get(java.util.Calendar.MINUTE)
+                h in 5..11 && !(h == 11 && mn > 30)
+            } ?: return@LaunchedEffect
+            val wake = target.begin - 60 * 60 * 1000
+            if (wake <= now + 60 * 1000) return@LaunchedEffect
+            c.timeInMillis = wake
+            val hh = c.get(java.util.Calendar.HOUR_OF_DAY); val mm = c.get(java.util.Calendar.MINUTE)
+            val ap = if (hh < 12) "am" else "pm"; val h12 = when { hh == 0 -> 12; hh > 12 -> hh - 12; else -> hh }
+            sug = "%d:%02d %s".format(h12, mm, ap) to target.title.take(30)
+        } catch (e: Exception) {}
+    }
+    if (dismissed) return
+    sug?.let { (arg, label) ->
+        Row(verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text("⏰", fontSize = T.body)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (setDone) "Alarm set for ${arg.uppercase()}" else "Wake at ${arg.uppercase()} for “$label”?",
+                    fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!setDone) Text("1 hour before — tap to set", fontSize = T.caption, color = T.inkSoft)
+            }
+            if (!setDone) {
+                Text("Set", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable { com.agentos.shell.tools.ToolRouter.quickAlarm(ctx, arg); setDone = true }.padding(8.dp))
+                Text("✕", fontSize = T.small, color = T.inkFaint,
+                    modifier = Modifier.clickable { dismissed = true }.padding(8.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
