@@ -28,7 +28,8 @@ object EmployeeRunner {
     private const val DOC_HELP =
         " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put a CONCISE outline " +
         "into \"text\" (a handful of short lines — the designer expands each into polished copy; keep it brief so the JSON stays valid). " +
-        "It's designed as a beautiful PDF, saved to the SlyOS folder + brain, and sent into the chat for review. " +
+        "It's designed as a beautiful LIVE DRAFT (HTML that opens in any browser), saved to the SlyOS folder + brain, and sent into the " +
+        "chat for review — the owner iterates on it, then says 'make it a PDF' when happy and it's converted once. Don't claim you made a PDF; call it a draft. " +
         "CRITICAL: if the owner asked for a deck/one-pager/document, your job is NOT done until you have actually run make_doc and the " +
         "file is produced — do NOT stop after only researching or saving a note. Do at most ONE quick research step, then call make_doc. " +
         "NEVER keep asking for missing details on a doc request: if the owner gives any go-ahead — or says 'just create it', 'agnostic', " +
@@ -120,24 +121,45 @@ object EmployeeRunner {
     }
 
     /** Render the HTML to PDF, store it (SlyOS folder + brain + editable source), and share it into the chat. */
-    private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String, verb: String): String {
+    /**
+     * Deliver the working document. During iteration [finalize]=false → we send the live HTML (instant, always
+     * renders, edit it as many times as you want). When you say you're happy ([finalize]=true) we do the ONE
+     * heavy HTML→PDF conversion and send the polished PDF. Cheaper, faster, and no per-edit render failures.
+     */
+    private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String,
+                            verb: String, finalize: Boolean = false): String {
         val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
         val safe = title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().take(50).ifBlank { "document" }
         val dir = java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "SlyOS").apply { mkdirs() }
-        val pdf = try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null }
-        // GUARANTEE a deliverable: if the PDF render fails on this device, send the designed HTML — it opens in
-        // any browser looking exactly like the design, and it's still fully editable via chat.
-        val file = pdf ?: try { java.io.File(dir, "$safe.html").apply { writeText(html) } } catch (e: Exception) { null }
+        val pdf = if (finalize) try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null } else null
+        // Always keep an HTML copy on disk (that's what we iterate on and what we send while drafting).
+        val htmlFile = try { java.io.File(dir, "$safe.html").apply { writeText(html) } } catch (e: Exception) { null }
+        val file = pdf ?: htmlFile
         DesignStore.set(ctx, emp.id, title, kind, html, file?.absolutePath ?: "")
         try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
         try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(4000)) } catch (e: Exception) {}
-        val fmt = if (pdf != null) "PDF" else "an editable web page (open it in any browser)"
-        val sent = if (file != null) try { TeamChat.postDocument(ctx, file, "$title — $fmt. Reply with any edits and I'll update it.") } catch (e: Exception) { false } else false
-        return when {
-            sent -> "$verb “$title” and sent it to your chat ✓"
-            file != null -> "$verb “$title” ✓ — saved to your SlyOS folder (turn on the team chat to get it sent here)"
-            else -> "$verb “$title”, but couldn't produce a file"
+        val cap = if (finalize && pdf != null)
+            "$title — final PDF, ready to send. Nice working with you on this one."
+        else if (finalize)
+            "$title — couldn't render the PDF on-device, so here's the final HTML (opens in any browser, looks identical). You can print-to-PDF from there."
+        else {
+            val ask = if (isDeck) "What do you think — tighten the cover, cut a slide, shift the color?"
+                      else "What do you think — punchier, shorter, different accent color?"
+            "$title — here's the live draft (open it in any browser). $ask When you're happy, just say “make it a PDF” and I'll finalize it."
         }
+        val sent = if (file != null) try { TeamChat.postDocument(ctx, file, cap) } catch (e: Exception) { false } else false
+        val what = if (finalize && pdf != null) "finalized" else verb
+        return when {
+            sent -> "$what “$title” and sent it to your chat ✓"
+            file != null -> "$what “$title” ✓ — saved to your SlyOS folder (turn on the team chat to get it sent here)"
+            else -> "$what “$title”, but couldn't produce a file"
+        }
+    }
+
+    /** User said they're happy / wants the PDF → convert the current working doc once and send it. */
+    private fun exportPdf(ctx: Context, emp: EmployeeStore.Employee): String {
+        val cur = DesignStore.get(ctx, emp.id) ?: return ""
+        return finalizeDoc(ctx, emp, cur.title, cur.kind, cur.html, "finalized", finalize = true)
     }
 
     data class ChainResult(val summary: String, val needs: String, val actions: Int, val inTok: Int, val outTok: Int)
@@ -149,6 +171,13 @@ object EmployeeRunner {
      */
     fun runChain(ctx: Context, emp: EmployeeStore.Employee, task: String, history: String = "", speaker: String = "",
                  maxSteps: Int = 6, tokenCap: Int = 45000): ChainResult {
+        // FAST PATH: "make it a PDF" / "finalize" / "export it" / "I'm happy, convert it" on a doc that's already
+        // in progress → skip the model entirely and do the single HTML→PDF conversion. Reliable + instant.
+        val wantsPdf = Regex("(?i)\\b(make (it|this).*(pdf|final)|to pdf|as (a )?pdf|export|finali[sz]e|convert.*pdf|i'?m happy|we'?re done|looks good.*(send|final|pdf)|lock it in|ship it)\\b").containsMatchIn(task)
+        if (wantsPdf && DesignStore.get(ctx, emp.id) != null) {
+            val r = try { exportPdf(ctx, emp) } catch (e: Exception) { "couldn't render the PDF" }
+            if (r.isNotBlank()) return ChainResult(r, "", if (r.startsWith("couldn't")) 0 else 1, 0, 0)
+        }
         val owner = MemoryStore.ownerName(ctx).ifBlank { "the owner" }
         val brain = try { BrainContext.build(ctx, task) } catch (e: Exception) { "" }
         val kb = try { AgentKnowledge.retrieve(ctx, emp.id, task, 2200) } catch (e: Exception) { "" }

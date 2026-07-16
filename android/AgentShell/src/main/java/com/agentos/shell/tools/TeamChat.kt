@@ -105,6 +105,21 @@ object TeamChat {
             ConversationStore.add(ctx, "Team", gid.toString(), "them", "$fromWho: $instruction")
         } catch (e: Exception) {}
 
+        // Feel human, not like a spinner: if this is a job that takes real time (design / build / research /
+        // refine), acknowledge INSTANTLY with a rough ETA so you know it landed and when to follow up — instead
+        // of silent typing dots and hoping. Quick questions skip the ack and just get answered.
+        val heavy = Regex("(?i)\\b(deck|one.?pager|one pager|pitch|slides?|presentation|design|refine|revis|rework|redo|rebuild|iterat|draft|write|research|analy|report|proposal|mock ?up|build|put together)\\b")
+            .containsMatchIn(instruction)
+        if (heavy) {
+            val isDesign = Regex("(?i)deck|slides?|presentation|pitch|one.?pager|design|mock").containsMatchIn(instruction)
+            val eta = if (isDesign) "~2–3 min" else "a couple minutes"
+            val acks = listOf(
+                "On it — give me $eta and I'll send it right here.",
+                "Yeah, np. Working on it now — about $eta.",
+                "Got it. Give me $eta and it'll be in this chat.")
+            safeSend(gid, "${emp.name} · " + acks[(System.currentTimeMillis() / 1000 % acks.size).toInt()])
+        }
+
         // Actually answer/act NOW (grounded in the brain + the thread) and reply with the real result.
         try { TelegramClient.sendTyping(gid) } catch (e: Exception) {}
         val reply = try { EmployeeRunner.answer(ctx, emp, instruction, history, fromWho) } catch (e: Exception) { "Couldn't get to that just now." }
