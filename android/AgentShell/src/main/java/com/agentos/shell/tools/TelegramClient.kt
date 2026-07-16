@@ -1,5 +1,6 @@
 package com.agentos.shell.tools
 
+import android.util.Log
 import com.agentos.shell.BuildConfig
 import org.json.JSONObject
 import java.net.HttpURLConnection
