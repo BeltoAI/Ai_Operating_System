@@ -814,17 +814,17 @@ private fun ApiKeysCard() {
 
 /** Intent that fixes a given wiring problem, or null if it can't be fixed by opening a screen. */
 private fun fixIntentFor(ctx: android.content.Context, label: String): android.content.Intent? {
-    val S = android.provider.Settings
     val pkgUri = android.net.Uri.parse("package:${ctx.packageName}")
     val i = when (label) {
-        "Battery unrestricted" -> android.content.Intent(S.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri)
-        "Accessibility service" -> android.content.Intent(S.ACTION_ACCESSIBILITY_SETTINGS)
-        "Notification access" -> android.content.Intent(S.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-        "Draw-over-apps" -> android.content.Intent(S.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
-        "Default launcher" -> android.content.Intent(S.ACTION_HOME_SETTINGS)
-        "Notifications allowed" -> android.content.Intent(S.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(S.EXTRA_APP_PACKAGE, ctx.packageName)
+        "Battery unrestricted" -> android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkgUri)
+        "Accessibility service" -> android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        "Notification access" -> android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        "Draw-over-apps" -> android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
+        "Default launcher" -> android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS)
+        "Notifications allowed" -> android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
         "Contacts access", "Photos/media access", "Mic access", "Location access", "Calendar access" ->
-            android.content.Intent(S.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
+            android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
         else -> null
     }
     return i?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)

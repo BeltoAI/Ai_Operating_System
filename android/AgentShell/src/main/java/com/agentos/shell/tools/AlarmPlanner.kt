@@ -22,7 +22,7 @@ object AlarmPlanner {
 
     fun enabled(ctx: Context) = p(ctx).getBoolean("enabled", true)
     fun setEnabled(ctx: Context, b: Boolean) = p(ctx).edit().putBoolean("enabled", b).apply()
-    fun askHmm(ctx: Context): String = p(ctx).getString("ask", "21:00") ?: "21:00"
+    fun askHmm(ctx: Context): String = p(ctx).getString("ask", "20:00") ?: "20:00"
     fun setAskHmm(ctx: Context, s: String) = p(ctx).edit().putString("ask", s).apply()
     fun bufferMin(ctx: Context) = p(ctx).getInt("buffer", 60)
     fun setBufferMin(ctx: Context, m: Int) = p(ctx).edit().putInt("buffer", m.coerceIn(5, 600)).apply()
@@ -54,7 +54,7 @@ object AlarmPlanner {
         if (!enabled(ctx)) return false
         if (p(ctx).getString("lastPrompt", "") == ymd()) return false
         val parts = askHmm(ctx).split(":")
-        val askMin = (parts.getOrNull(0)?.toIntOrNull() ?: 21) * 60 + (parts.getOrNull(1)?.toIntOrNull() ?: 0)
+        val askMin = (parts.getOrNull(0)?.toIntOrNull() ?: 20) * 60 + (parts.getOrNull(1)?.toIntOrNull() ?: 0)
         if (nowMinutes() < askMin) return false
         return suggestion(ctx) != null
     }
