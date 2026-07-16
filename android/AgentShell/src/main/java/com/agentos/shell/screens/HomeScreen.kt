@@ -38,6 +38,12 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayCircle
@@ -67,7 +73,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.Path
 import android.content.Context
 import kotlin.math.sin
 import androidx.compose.ui.input.pointer.pointerInput
@@ -367,6 +372,28 @@ fun HomeScreen(
         // Bank/vault questions are answered LOCALLY behind the PIN — never sent to any model.
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
+        }
+        // DETERMINISTIC DEVICE COMMANDS — hardware toggles must actually run, not be narrated by the model
+        // (it will happily *say* "flashlight's on" without doing anything). Match tightly so chat isn't hijacked.
+        run {
+            val ql = q.lowercase()
+            val dev: Pair<String, String>? = when {
+                Regex("\\b(flashlight|torch|flash light)\\b").containsMatchIn(ql) &&
+                    Regex("\\b(on|off|toggle|enable|disable|turn|kill)\\b").containsMatchIn(ql) -> "torch" to ql
+                Regex("\\bwhat('?s| is)?( this)? song\\b|name (this|the) song|shazam|identif\\w* (this |the )?song").containsMatchIn(ql) -> "identify_song" to ""
+                Regex("^(pause|resume|play|skip|next track|previous track|next song|previous song|skip( the)? song)\\b").containsMatchIn(ql) &&
+                    !ql.contains("player") -> "media" to ql
+                else -> null
+            }
+            if (dev != null) {
+                text = ""; thinking = true; reply = ""; lastQuery = q
+                scope.launch {
+                    val r = try { withContext(Dispatchers.IO) { ToolRouter.executeAction(ctx, dev.first, dev.second) } }
+                            catch (e: Exception) { "Couldn't do that just now." }
+                    reply = r; thinking = false; if (doSpeak) speak(r)
+                }
+                return@submit
+            }
         }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
         scope.launch {
@@ -1680,27 +1707,17 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
     }
 }
 
-/** Clean vector transport control (no emoji): play / pause / prev / next, drawn to match the UI. */
+/** Clean Material transport control (no emoji): play / pause / prev / next. */
 @Composable
 private fun CtrlIcon(kind: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
-    androidx.compose.foundation.Canvas(Modifier.size(34.dp).clip(RoundedCornerShape(50)).clickable { onClick() }.padding(9.dp)) {
-        val w = size.width; val h = size.height; val bar = w * 0.17f
-        when (kind) {
-            "play" -> drawPath(Path().apply { moveTo(w * 0.12f, 0f); lineTo(w, h / 2f); lineTo(w * 0.12f, h); close() }, tint)
-            "pause" -> {
-                drawRect(tint, Offset(w * 0.16f, 0f), Size(bar * 1.4f, h))
-                drawRect(tint, Offset(w * 0.62f, 0f), Size(bar * 1.4f, h))
-            }
-            "prev" -> {
-                drawRect(tint, Offset(0f, 0f), Size(bar, h))
-                drawPath(Path().apply { moveTo(w, 0f); lineTo(w * 0.30f, h / 2f); lineTo(w, h); close() }, tint)
-            }
-            "next" -> {
-                drawRect(tint, Offset(w - bar, 0f), Size(bar, h))
-                drawPath(Path().apply { moveTo(0f, 0f); lineTo(w * 0.70f, h / 2f); lineTo(0f, h); close() }, tint)
-            }
-        }
+    val iv = when (kind) {
+        "play" -> Icons.Filled.PlayArrow
+        "pause" -> Icons.Filled.Pause
+        "prev" -> Icons.Filled.SkipPrevious
+        else -> Icons.Filled.SkipNext
     }
+    Icon(iv, contentDescription = kind, tint = tint,
+        modifier = Modifier.size(34.dp).clip(RoundedCornerShape(50)).clickable { onClick() }.padding(4.dp))
 }
 
 /** Shows only while the flashlight is on — a guaranteed OFF control (tap or swipe left), independent of the AI. */
@@ -1724,7 +1741,7 @@ private fun TorchWidget(ctx: Context) {
             }
             .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
             .clickable { off() }.padding(horizontal = 14.dp, vertical = 12.dp)) {
-        Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(T.accent))
+        Icon(Icons.Filled.FlashlightOn, contentDescription = null, tint = T.accent, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("Flashlight on", fontSize = T.small, color = T.ink)
@@ -1765,7 +1782,7 @@ private fun WakeUpSuggestion(ctx: Context) {
     sug?.let { (arg, label) ->
         Row(verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(horizontal = 14.dp, vertical = 11.dp)) {
-            Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(T.accent))
+            Icon(Icons.Filled.Alarm, contentDescription = null, tint = T.accent, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (setDone) "Alarm set for ${arg.uppercase()}" else "Wake at ${arg.uppercase()} for “$label”?",
