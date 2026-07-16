@@ -77,18 +77,18 @@ object TeamChat {
 
         // In a real group with humans, stay QUIET unless summoned: the bot (@handle / its name) or an agent
         // by name, or a team question. Humans chatting to each other never trigger a response.
-        // Lenient name match: "@bastard" should reach "Bastardi", "riri" reach "Riri". Match any 3+ letter word
-        // in the message against an agent's first name by exact / prefix (either direction).
-        val words = Regex("@?([\\p{L}]{3,})").findAll(text.lowercase()).map { it.groupValues[1] }.toList()
-        val named = staff.firstOrNull { e ->
-            val fn = e.name.trim().split(" ").firstOrNull()?.lowercase().orEmpty()
-            fn.length >= 3 && words.any { w -> w == fn || (w.length >= 4 && fn.startsWith(w)) || (fn.length >= 4 && w.startsWith(fn)) }
+        // EXPLICIT agent naming = an EXACT match to a hire's name ("Bastardi, …", "Riri …", "Kai …"). The generic
+        // "@bastard" bot summon deliberately does NOT match the agent "Bastardi" (missing the 'i'), so a plain
+        // "@bastard" falls through to content-based routing — one handle, best-fitting agent answers.
+        val botSummon = mentionsBot(text) || u.replyToBot
+        val named = if (botSummon) null else staff.firstOrNull { e ->
+            e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
         }
         // Summoned if: an agent named, a team question, the bot @mentioned, or you replied to an agent's message.
         // ALSO auto-listen (no @ needed) ONLY while an agent is actually waiting on you — so answering a "needs
         // you" needs no tag, but the bot otherwise stays out of normal human conversation.
         val waiting = staff.any { it.status == "needs_you" } && System.currentTimeMillis() - p(ctx).getLong("last_agent_ts", 0L) < 10 * 60 * 1000L
-        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text) || u.replyToBot || waiting
+        val summoned = named != null || isTeamQuestion(text) || botSummon || waiting
         if (!summoned) return true   // consumed, but we don't butt into human conversation
 
         // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
