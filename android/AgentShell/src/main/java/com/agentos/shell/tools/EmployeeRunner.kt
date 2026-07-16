@@ -117,15 +117,21 @@ object EmployeeRunner {
     /** Render the HTML to PDF, store it (SlyOS folder + brain + editable source), and share it into the chat. */
     private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String, verb: String): String {
         val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
+        val safe = title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().take(50).ifBlank { "document" }
+        val dir = java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "SlyOS").apply { mkdirs() }
         val pdf = try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null }
-        DesignStore.set(ctx, emp.id, title, kind, html, pdf?.absolutePath ?: "")
+        // GUARANTEE a deliverable: if the PDF render fails on this device, send the designed HTML — it opens in
+        // any browser looking exactly like the design, and it's still fully editable via chat.
+        val file = pdf ?: try { java.io.File(dir, "$safe.html").apply { writeText(html) } } catch (e: Exception) { null }
+        DesignStore.set(ctx, emp.id, title, kind, html, file?.absolutePath ?: "")
         try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
         try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(4000)) } catch (e: Exception) {}
-        val sent = if (pdf != null) try { TeamChat.postDocument(ctx, pdf, "$title — reply with any edits and I'll update it.") } catch (e: Exception) { false } else false
+        val fmt = if (pdf != null) "PDF" else "an editable web page (open it in any browser)"
+        val sent = if (file != null) try { TeamChat.postDocument(ctx, file, "$title — $fmt. Reply with any edits and I'll update it.") } catch (e: Exception) { false } else false
         return when {
             sent -> "$verb “$title” and sent it to your chat ✓"
-            pdf != null -> "$verb “$title” ✓ — saved to your SlyOS folder (connect the team chat to get it sent to you)"
-            else -> "$verb “$title”, but the PDF render didn't complete on this device"
+            file != null -> "$verb “$title” ✓ — saved to your SlyOS folder (turn on the team chat to get it sent here)"
+            else -> "$verb “$title”, but couldn't produce a file"
         }
     }
 

@@ -47,6 +47,7 @@ object HtmlPdf {
                                     View.MeasureSpec.makeMeasureSpec(pageW, View.MeasureSpec.EXACTLY),
                                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                                 view.layout(0, 0, pageW, view.measuredHeight)
+                                if (view.measuredHeight < 40) { Log.w(TAG, "webview rendered empty"); latch.countDown(); return@postDelayed }
                                 val totalH = view.measuredHeight.coerceAtLeast(pageH)
                                 val pages = Math.ceil(totalH.toDouble() / pageH).toInt().coerceIn(1, 80)
                                 val doc = PdfDocument()
@@ -63,7 +64,7 @@ object HtmlPdf {
                                 result[0] = if (file.exists() && file.length() > 0) file else null
                             } catch (e: Exception) { Log.w(TAG, "draw: ${e.message}") }
                             finally { latch.countDown() }
-                        }, 450)
+                        }, 900)
                     }
                 }
                 wv.loadDataWithBaseURL("https://slyos.local/", html, "text/html", "UTF-8", null)
