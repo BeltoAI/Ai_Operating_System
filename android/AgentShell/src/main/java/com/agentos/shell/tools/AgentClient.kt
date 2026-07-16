@@ -301,10 +301,10 @@ object AgentClient {
                 // times before moving on. This is the fix for voice/brain replies dying on a 529.
                 var r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
                 var attempt = 0
-                while (r.code != 200 && attempt < 3 &&
+                while (r.code != 200 && attempt < 4 &&
                        (r.code == 529 || r.code == 503 || r.code == 502 || r.code == 500 || r.text.contains("overloaded", true))) {
                     attempt++
-                    try { Thread.sleep(600L * attempt) } catch (e: Exception) {}
+                    try { Thread.sleep(700L * attempt) } catch (e: Exception) {}   // 0.7s,1.4s,2.1s,2.8s
                     Log.w("SlyOS", "llm ${choice.provider}/${choice.model} ${r.code} overloaded — retry $attempt")
                     r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
                 }
@@ -322,6 +322,19 @@ object AgentClient {
                 // A 400 is a malformed request (image too large, bad body) — every provider would reject it,
                 // so don't burn the others; anything else (auth/quota/5xx/network) is worth a fallback.
                 if (r.code == 400) break
+            }
+            // LAST-RESORT LOCAL FALLBACK: if every cloud provider failed (overload, quota, or you're offline) and
+            // there's a downloaded on-device model, answer locally instead of failing — even if it wasn't the
+            // preferred/verified pick. This is what keeps voice/brain replies alive during an Anthropic 529 storm.
+            if (last.first != 200 && ctx != null && !needVision) {
+                try {
+                    val lm = LocalLlm.selectedModel(ctx)
+                    if (lm != null && LocalLlm.isDownloaded(ctx, lm)) {
+                        Log.w("SlyOS", "all cloud providers failed (${last.first}) — falling back to on-device model")
+                        val lp = LocalLlm.generate(ctx, system, messages, maxTokens)
+                        if (lp.first == 200) return 200 to lp.second
+                    }
+                } catch (e: Exception) {}
             }
             last
         } catch (e: Exception) {
