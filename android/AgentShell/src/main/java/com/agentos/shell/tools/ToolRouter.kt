@@ -101,6 +101,29 @@ object ToolRouter {
                 }
                 "camera" -> { start(ctx, Intent(MediaStore.ACTION_IMAGE_CAPTURE)); "" }
                 "settings" -> { start(ctx, Intent(Settings.ACTION_SETTINGS)); "" }
+                "torch", "flashlight" -> {
+                    val a = arg.trim().lowercase()
+                    val want: Boolean? = when {
+                        Regex("off|out|kill|stop|disable|0|false").containsMatchIn(a) -> false
+                        Regex("on|light|enable|1|true").containsMatchIn(a) -> true
+                        else -> null   // toggle
+                    }
+                    val r = Torch.set(ctx, want)
+                    try { MemoryLog.add(ctx, "action", "Flashlight", r, "SlyOS") } catch (e: Exception) {}
+                    r
+                }
+                "media", "music_control" -> {
+                    val a = arg.trim().lowercase()
+                    val r = when {
+                        Regex("pause|stop|play|resume|toggle").containsMatchIn(a) -> MediaControls.playPause(ctx)
+                        Regex("next|skip|forward|ahead").containsMatchIn(a) -> MediaControls.next(ctx)
+                        Regex("prev|previous|back|last|restart").containsMatchIn(a) -> MediaControls.previous(ctx)
+                        Regex("open|launch|show").containsMatchIn(a) -> MediaControls.open(ctx)
+                        else -> MediaControls.playPause(ctx)
+                    }
+                    try { MemoryLog.add(ctx, "action", "Media", r, "SlyOS") } catch (e: Exception) {}
+                    r
+                }
                 "add_event" -> addEvent(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
@@ -244,15 +267,69 @@ object ToolRouter {
     }
 
     private fun setAlarm(ctx: Context, arg: String): String {
-        val parts = arg.trim().split(":")
-        val h = parts.getOrNull(0)?.filter { it.isDigit() }?.toIntOrNull() ?: return "What time?"
-        val m = parts.getOrNull(1)?.filter { it.isDigit() }?.toIntOrNull() ?: 0
+        val hm = parseClockTime(arg) ?: return "What time should the alarm go off? (e.g. “7am”, “18:30”, “in 20 minutes”)"
+        val (h, m) = hm
+        val label = Regex("(?i)\\b(for|at|to)\\b").split(arg).lastOrNull()?.let {
+            Regex("(?i)(alarm|am|pm|\\d|:|in|minutes?|mins?|hours?|hrs?|noon|midnight|half|quarter|past)").replace(it, "").trim()
+        }.orEmpty().take(40)
+        // ACTION_SET_ALARM sets a REAL system alarm — it rings through Doze, silent mode, and reboots, which a
+        // WorkManager/handler alarm can't guarantee. That's the "actually works" part.
         start(ctx, Intent(AlarmClock.ACTION_SET_ALARM)
             .putExtra(AlarmClock.EXTRA_HOUR, h)
             .putExtra(AlarmClock.EXTRA_MINUTES, m)
+            .apply { if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label) }
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
-        try { MessageStore.insertOne(ctx, "Alarms", "Alarm", "me", "me", "Alarm set for %02d:%02d".format(h, m)) } catch (e: Exception) {}
-        return "Alarm set for %02d:%02d".format(h, m)
+        val pretty = prettyTime(h, m)
+        val note = "Alarm set for $pretty" + (if (label.isNotBlank()) " — “$label”" else "")
+        try { MessageStore.insertOne(ctx, "Alarms", "Alarm", "me", "me", note) } catch (e: Exception) {}
+        try { MemoryLog.add(ctx, "action", "Alarm", note, "SlyOS") } catch (e: Exception) {}
+        return "$note. It'll ring even on silent or in Doze."
+    }
+
+    /** Parse an alarm time from natural language → 24h (hour, minute). Handles am/pm, bare hours (soonest
+     *  future), noon/midnight, HH:MM, and relative "in 20 min / in 2 hours". Returns null if unparseable. */
+    private fun parseClockTime(raw: String): Pair<Int, Int>? {
+        val t = raw.trim().lowercase()
+        if (t.isBlank()) return null
+        // Relative: "in 20 minutes", "in 2 hours", "in 90 min"
+        if (Regex("\\bin\\b|from now|after").containsMatchIn(t)) {
+            val secs = parseDuration(t)
+            if (secs > 0) {
+                val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.SECOND, secs) }
+                return cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
+            }
+        }
+        if (Regex("\\bnoon\\b").containsMatchIn(t)) return 12 to 0
+        if (Regex("\\bmidnight\\b").containsMatchIn(t)) return 0 to 0
+        val mtch = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(a\\.?m\\.?|p\\.?m\\.?)?").find(t) ?: return null
+        var h = mtch.groupValues[1].toIntOrNull() ?: return null
+        val m = mtch.groupValues[2].toIntOrNull() ?: 0
+        val ap = mtch.groupValues[3].replace(".", "")
+        if (h > 23 || m > 59) return null
+        when {
+            ap == "pm" && h < 12 -> h += 12
+            ap == "am" && h == 12 -> h = 0
+            ap.isBlank() && h in 1..11 -> {
+                // Ambiguous bare hour → pick whichever of AM/PM comes SOONEST in the future.
+                val now = java.util.Calendar.getInstance()
+                fun next(hour: Int): Long {
+                    val c = java.util.Calendar.getInstance().apply {
+                        set(java.util.Calendar.HOUR_OF_DAY, hour); set(java.util.Calendar.MINUTE, m)
+                        set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+                    }
+                    if (c.before(now)) c.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                    return c.timeInMillis
+                }
+                h = if (next(h) <= next(h + 12)) h else h + 12
+            }
+        }
+        return h to m
+    }
+
+    private fun prettyTime(h: Int, m: Int): String {
+        val ap = if (h < 12) "AM" else "PM"
+        val h12 = when { h == 0 -> 12; h > 12 -> h - 12; else -> h }
+        return "%d:%02d %s".format(h12, m, ap)
     }
 
     /** Schedule a timed reminder that pops a notification with a message.

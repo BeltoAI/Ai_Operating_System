@@ -972,6 +972,41 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(14.dp))
 
+        // Now-playing mini-player — appears ONLY while audio is actually playing (polls the active media
+        // session); classic controls + tap-to-open the player. Vanishes the moment music stops.
+        var np by remember { mutableStateOf<com.agentos.shell.tools.MediaControls.NowPlaying?>(null) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
+                kotlinx.coroutines.delay(1500)
+            }
+        }
+        np?.let { m ->
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+                    .clickable { com.agentos.shell.tools.MediaControls.open(ctx) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)) {
+                val art = remember(m.title, m.art) { m.art?.asImageBitmap() }
+                Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).background(T.bg), contentAlignment = Alignment.Center) {
+                    if (art != null) Image(bitmap = art, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    else Text("♪", fontSize = T.body, color = T.inkSoft)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(m.title, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (m.artist.isNotBlank())
+                        Text(m.artist, fontSize = T.caption, color = T.inkSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("⏮", fontSize = T.body, color = T.ink, modifier = Modifier
+                    .clickable { com.agentos.shell.tools.MediaControls.previous(ctx) }.padding(8.dp))
+                Text(if (m.playing) "⏸" else "▶", fontSize = T.body, color = T.accent, modifier = Modifier
+                    .clickable { com.agentos.shell.tools.MediaControls.playPause(ctx); np = com.agentos.shell.tools.MediaControls.nowPlaying(ctx) }.padding(8.dp))
+                Text("⏭", fontSize = T.body, color = T.ink, modifier = Modifier
+                    .clickable { com.agentos.shell.tools.MediaControls.next(ctx) }.padding(8.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
         // App-name autocomplete: as you type, surface matching installed apps to open instantly.
         val appMatches = remember(text, allApps) {
             val t = text.trim().lowercase()
