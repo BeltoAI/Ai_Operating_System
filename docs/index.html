@@ -190,59 +190,87 @@
 
   <!-- TEAM -->
   <style>
-    .teamsec .muted{ max-width:640px }
-    .office{ position:relative; margin:26px auto 0; max-width:720px; background:var(--card); border:1px solid var(--line);
-      border-radius:22px; padding:22px; overflow:hidden }
-    .officefloor{ position:relative; height:190px }
-    .agent{ position:absolute; width:56px; text-align:center; animation:float 5s ease-in-out infinite }
-    .agent .pet{ width:54px; height:54px; margin:0 auto; image-rendering:pixelated }
+    .teamsec .muted{ max-width:600px }
+    .office{ position:relative; margin:24px auto 0; max-width:660px; background:#1c140d; border:1px solid var(--line);
+      border-radius:18px; padding:12px; overflow:hidden }
+    .officefloor{ position:relative; aspect-ratio:128/84; border-radius:10px; overflow:hidden }
+    .officefloor > svg.bg{ position:absolute; inset:0; width:100%; height:100%; display:block; image-rendering:pixelated }
+    .agent{ position:absolute; width:14%; text-align:center; z-index:2; animation:float 5s ease-in-out infinite }
+    .agent .pet{ width:74%; margin:0 auto; aspect-ratio:1; image-rendering:pixelated }
     .agent .pet svg{ width:100%; height:100%; display:block }
-    .agent .nm{ font-size:11px; color:var(--faint); margin-top:4px; text-align:center }
-    .agent .role{ font-size:9px; letter-spacing:.4px; color:var(--soft); text-align:center; opacity:.8 }
-    @keyframes float{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } }
-    .bubble{ position:absolute; background:var(--bg); border:1px solid var(--line); color:var(--ink);
-      font-size:13px; padding:8px 12px; border-radius:14px; max-width:230px; opacity:0; transform:translateY(6px);
-      transition:opacity .4s, transform .4s; pointer-events:none; z-index:5; line-height:1.4 }
+    .agent .nm{ font-size:9px; color:#F2E9DC; margin-top:1px; font-weight:600; text-shadow:0 1px 2px #000 }
+    @keyframes float{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-6px) } }
+    .bubble{ position:absolute; background:#fff; color:#1A1714; font-size:12px; padding:6px 10px; border-radius:12px;
+      max-width:220px; opacity:0; transform:translateY(6px); transition:opacity .4s, transform .4s; pointer-events:none;
+      z-index:5; line-height:1.4; box-shadow:0 6px 20px rgba(0,0,0,.4) }
     .bubble.show{ opacity:1; transform:translateY(0) }
-    .bubble.need{ border-color:var(--accent); color:var(--accent) }
-    .hirebar{ display:flex; align-items:center; gap:10px; margin-top:20px; background:var(--bg); border:1px solid var(--line);
-      border-radius:14px; padding:12px 14px }
-    .hirebar .lbl{ font-size:11px; letter-spacing:1.4px; color:var(--accent); font-weight:700 }
-    .hirebar .typ{ font-size:15px; color:var(--soft) } .hirebar .go{ margin-left:auto; background:var(--accent); color:#1A1714;
-      font-weight:700; font-size:13px; padding:7px 16px; border-radius:999px }
-    .feed{ margin-top:16px; border-top:1px solid var(--line); padding-top:14px }
-    .feed .fl{ font-size:13px; color:var(--soft); line-height:2 } .feed .fl .t{ color:var(--faint); margin-right:10px }
-    .feed .fl.need{ color:var(--accent) }
-    .brainnote{ text-align:center; font-size:13px; color:var(--faint); margin-top:16px }
+    .bubble.need{ color:var(--accent) }
+    .hires{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:18px }
+    .hire{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; text-align:center }
+    .hire .pet{ width:40px; height:40px; margin:0 auto 6px; image-rendering:pixelated }
+    .hire .pet svg{ width:100%; height:100%; display:block }
+    .hire .hn{ font-size:14px; color:var(--ink); font-weight:600 }
+    .hire .hr{ font-size:11px; color:var(--accent); margin-top:2px }
+    .hire .hd{ font-size:11px; color:var(--faint); margin-top:5px; line-height:1.4 }
+    .brainnote{ text-align:center; font-size:13px; color:var(--faint); margin-top:18px }
     @media (max-width:600px){
-      .office{ padding:14px; border-radius:16px }
-      .officefloor{ height:150px }
-      .agent{ width:44px }
-      .agent .pet{ width:42px; height:42px }
-      .agent:nth-child(1){ left:3% !important; top:52px !important }
-      .agent:nth-child(2){ left:39% !important; top:80px !important }
-      .agent:nth-child(3){ left:72% !important; top:46px !important }
-      .bubble{ max-width:170px; font-size:12px; padding:6px 10px }
-      .hirebar{ flex-wrap:wrap; gap:8px; padding:10px 12px }
-      .hirebar .typ{ font-size:13px; flex:1 1 100%; order:3 }
-      .hirebar .go{ margin-left:auto }
-      .feed .fl{ line-height:1.8 }
+      .office{ padding:8px }
+      .agent .nm{ font-size:7px }
+      .bubble{ max-width:150px; font-size:11px; padding:5px 8px }
+      .hires{ grid-template-columns:repeat(2,1fr); gap:8px }
     }
   </style>
   <section id="team" class="teamsec">
     <p class="eyebrow">Your AI staff</p>
-    <h2>Hire as many agents as you want — all from your phone</h2>
-    <p class="muted">Tap a role or describe your own: an inbox triager, a research analyst, a bookkeeper, a Reddit growth strategist. They move into their own office and work 24/7 — reading your calendar, sending real email, browsing the web, positioning you as an expert — grounded in your brain. Every shift shows the receipt: tokens spent vs. minutes saved. Fully autonomous by default; they ping your lock screen when there's something to see.</p>
+    <h2>A whole team, living on your phone</h2>
+    <p class="muted">Hire AI agents into a little pixel office. They work 24/7 from your brain, message you on Telegram, and even build you decks — grounded in what they know about you.</p>
     <div class="office">
       <div class="officefloor" id="officefloor">
-        <div class="agent" style="left:8%; top:64px"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="nm">Maya</div><div class="role">Inbox</div></div>
-        <div class="agent" style="left:44%; top:92px; animation-delay:1.2s"><div class="pet" data-sp="1" data-col="#4E86B0"></div><div class="nm">Rana</div><div class="role">Research</div></div>
-        <div class="agent" style="left:80%; top:58px; animation-delay:.6s"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="nm">Ravi</div><div class="role">Reddit</div></div>
+        <svg class="bg" viewBox="0 0 128 84" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="128" height="84" fill="#2A2016"/><rect x="3" y="3" width="122" height="78" fill="#211812"/>
+          <!-- hallway -->
+          <rect x="52" y="3" width="24" height="78" fill="#B79CA6"/><rect x="58" y="3" width="12" height="78" fill="#C6AEB6"/>
+          <g fill="#A98C97"><rect x="53" y="12" width="22" height="1"/><rect x="53" y="24" width="22" height="1"/><rect x="53" y="36" width="22" height="1"/><rect x="53" y="48" width="22" height="1"/><rect x="53" y="60" width="22" height="1"/><rect x="53" y="72" width="22" height="1"/></g>
+          <!-- staircase -->
+          <g fill="#A98C97"><rect x="55" y="52" width="18" height="2"/><rect x="55" y="55" width="18" height="2"/><rect x="55" y="58" width="18" height="2"/></g>
+          <!-- water cooler + plants -->
+          <rect x="54" y="40" width="6" height="9" fill="#DDEAF2"/><rect x="55" y="42" width="4" height="4" fill="#7FB4D6"/>
+          <rect x="63" y="8" width="3" height="5" fill="#C1743E"/><ellipse cx="64.5" cy="7" rx="4.5" ry="4" fill="#5A9A5C"/>
+          <rect x="70" y="72" width="3" height="5" fill="#C1743E"/><ellipse cx="71.5" cy="71" rx="4" ry="4" fill="#57955A"/>
+          <!-- DEV (top-left) -->
+          <rect x="4" y="4" width="47" height="36" fill="#26333E"/><rect x="4" y="4" width="47" height="12" fill="#2E3E4A"/>
+          <rect x="9" y="22" width="18" height="7" fill="#7A4E2A"/><rect x="11" y="16" width="12" height="7" fill="#15140F"/><rect x="12" y="17" width="10" height="4" fill="#7CE0A0"/>
+          <rect x="31" y="12" width="13" height="26" fill="#20262B"/><g fill="#7CE0A0"><rect x="39" y="15" width="2" height="2"/><rect x="39" y="21" width="2" height="2"/><rect x="39" y="27" width="2" height="2"/></g>
+          <!-- MEETING (top-right) -->
+          <rect x="77" y="4" width="47" height="36" fill="#EADFC9"/><rect x="77" y="20" width="47" height="20" fill="#C69A5E"/>
+          <rect x="92" y="6" width="20" height="11" fill="#2E2A22"/><rect x="93" y="7" width="18" height="9" fill="#F3ECDD"/>
+          <ellipse cx="100" cy="30" rx="15" ry="8" fill="#7A4E2A"/><ellipse cx="100" cy="29" rx="15" ry="7" fill="#8A5A32"/>
+          <!-- KITCHEN (bottom-left) -->
+          <rect x="4" y="44" width="47" height="36" fill="#D3E4DE"/>
+          <g fill="#E7EFEB"><rect x="6" y="46" width="6" height="6"/><rect x="18" y="46" width="6" height="6"/><rect x="30" y="46" width="6" height="6"/><rect x="12" y="52" width="6" height="6"/><rect x="24" y="52" width="6" height="6"/><rect x="6" y="58" width="6" height="6"/><rect x="18" y="58" width="6" height="6"/><rect x="30" y="58" width="6" height="6"/></g>
+          <rect x="7" y="48" width="24" height="6" fill="#C9BFAE"/><rect x="34" y="52" width="13" height="24" fill="#EDE7DB"/><rect x="34" y="63" width="13" height="1" fill="#C9BFAE"/>
+          <!-- HR (bottom-right) -->
+          <rect x="77" y="44" width="47" height="36" fill="#E8DCC8"/><rect x="77" y="60" width="47" height="20" fill="#B98F53"/>
+          <rect x="84" y="50" width="18" height="8" fill="#A9713C"/><rect x="87" y="44" width="12" height="6" fill="#15140F"/><rect x="88" y="45" width="10" height="4" fill="#6FD0C4"/>
+          <rect x="104" y="66" width="16" height="8" fill="#C05B4A"/>
+          <!-- doors -->
+          <g fill="#7A4E2A"><rect x="50" y="20" width="2.5" height="10"/><rect x="75.5" y="20" width="2.5" height="10"/><rect x="50" y="58" width="2.5" height="10"/><rect x="75.5" y="58" width="2.5" height="10"/></g>
+        </svg>
+        <div class="agent" style="left:11%; top:20%"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="nm">Maya</div></div>
+        <div class="agent" style="left:78%; top:14%; animation-delay:1.1s"><div class="pet" data-sp="1" data-col="#4E86B0"></div><div class="nm">Rana</div></div>
+        <div class="agent" style="left:14%; top:60%; animation-delay:.7s"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="nm">Kai</div></div>
+        <div class="agent" style="left:80%; top:58%; animation-delay:1.6s"><div class="pet" data-sp="0" data-col="#7B9E6B"></div><div class="nm">Vera</div></div>
         <div class="bubble" id="bubble"></div>
       </div>
-      <div class="hirebar"><span class="lbl">HIRE A TEAMMATE —</span><span class="typ" id="hiretyp"></span><span class="go">Hire</span></div>
-      <div class="feed" id="teamfeed"></div>
-      <div class="brainnote">Runs 24/7 · every shift logged to your brain · you see the receipts</div>
+      <div class="hires">
+        <div class="hire"><div class="pet" data-sp="0" data-col="#C9863F"></div><div class="hn">Maya</div><div class="hr">Inbox Manager</div><div class="hd">Triages mail, drafts replies</div></div>
+        <div class="hire"><div class="pet" data-sp="1" data-col="#4E86B0"></div><div class="hn">Rana</div><div class="hr">Research Analyst</div><div class="hd">Daily brief on your field</div></div>
+        <div class="hire"><div class="pet" data-sp="2" data-col="#E8642C"></div><div class="hn">Kai</div><div class="hr">Calendar Manager</div><div class="hd">Guards & preps your day</div></div>
+        <div class="hire"><div class="pet" data-sp="0" data-col="#7B9E6B"></div><div class="hn">Vera</div><div class="hr">Design Lead</div><div class="hd">VC-grade decks & one-pagers</div></div>
+        <div class="hire"><div class="pet" data-sp="1" data-col="#9A9085"></div><div class="hn">Bastardi</div><div class="hr">Deep Expert</div><div class="hd">Masters the PDFs you feed him</div></div>
+        <div class="hire"><div class="pet" data-sp="2" data-col="#D0603A"></div><div class="hn">+ your own</div><div class="hr">Describe it</div><div class="hd">Any role, any persona</div></div>
+      </div>
+      <div class="brainnote">Runs 24/7 · chat with them on Telegram · every shift logged to your brain</div>
     </div>
   </section>
 
@@ -288,9 +316,7 @@
 <script src="/app.js"></script>
 <script>
 (function(){
-  var floor=document.getElementById('officefloor'), bubble=document.getElementById('bubble'),
-      feed=document.getElementById('teamfeed'), hiretyp=document.getElementById('hiretyp');
-  if(!floor||!bubble) return;
+  var bubble=document.getElementById('bubble');
   var DARK='#2C2620';
   function pet(sp,col){
     var body=[[2,4],[3,4],[4,4],[5,4],[6,4],[2,5],[3,5],[4,5],[5,5],[6,5],[3,6],[4,6],[5,6],[3,3],[4,3],[5,3]];
@@ -299,34 +325,25 @@
     function r(list,c){ return list.map(function(q){return '<rect x="'+q[0]*5+'" y="'+q[1]*5+'" width="5.4" height="5.4" fill="'+c+'"/>';}).join(''); }
     return '<svg viewBox="0 0 45 45" shape-rendering="crispEdges">'+r(body,col)+r(ears,col)+r(feet,col)+r(tail,col)+r(dark,DARK)+'</svg>';
   }
-  [].forEach.call(document.querySelectorAll('#officefloor .pet'),function(el){ el.innerHTML=pet(+el.dataset.sp, el.dataset.col); });
-  var xs={PM:'12%',DV:'46%',AD:'80%'};
+  [].forEach.call(document.querySelectorAll('.pet'),function(el){ el.innerHTML=pet(+el.dataset.sp, el.dataset.col); });
+  if(!bubble) return;
   var script=[
-    {who:'PM',x:'10%',y:'34px',t:'Triaged 6 tickets',need:false,feed:'Piper triaged 6 tickets'},
-    {who:'PM',x:'26%',y:'54px',t:'Handing 2 to Dev →',need:false,feed:'Piper assigned 2 to Dev'},
-    {who:'DV',x:'40%',y:'60px',t:'Drafted a fix for #214 — awaiting your ok',need:false,feed:'Dev drafted a fix for #214 · awaiting approval'},
-    {who:'AD',x:'56%',y:'30px',t:'Gathered 4 sources for the brief',need:false,feed:'Ada gathered 4 sources'},
-    {who:'AD',x:'52%',y:'30px',t:'Need your Gmail to finish',need:true,feed:'Ada paused — needs your Gmail'},
-    {who:'PM',x:'10%',y:'34px',t:'Booked your 3pm and sent invites',need:false,feed:'Piper booked your 3pm'}
+    {x:'14%',y:'34%',t:'Maya · triaged 6 emails, drafted 2 replies',need:false},
+    {x:'80%',y:'26%',t:'Rana · your daily brief is ready',need:false},
+    {x:'16%',y:'70%',t:'Kai · added a Meet link to your 3pm',need:false},
+    {x:'80%',y:'68%',t:'Vera · deck for Sharon — sent to your chat',need:false},
+    {x:'50%',y:'40%',t:'Bastardi · needs your call on the vendor',need:true}
   ];
-  function pad(n){return n<10?'0'+n:''+n}
-  var base=8*60+2, i=0;
+  var i=0;
   function tick(){
     var s=script[i%script.length];
     bubble.style.left=s.x; bubble.style.top=s.y;
     bubble.textContent=s.t; bubble.className='bubble'+(s.need?' need':'');
     void bubble.offsetWidth; bubble.classList.add('show');
-    var mins=base+i*3, hh=Math.floor(mins/60), mm=mins%60;
-    var row=document.createElement('div'); row.className='fl'+(s.need?' need':'');
-    row.innerHTML='<span class="t">'+pad(hh)+':'+pad(mm)+'</span>'+s.feed;
-    feed.insertBefore(row,feed.firstChild);
-    while(feed.children.length>4) feed.removeChild(feed.lastChild);
-    setTimeout(function(){bubble.classList.remove('show')},2600);
+    setTimeout(function(){bubble.classList.remove('show')},2800);
     i++;
   }
-  var phrase='grows my Reddit presence and drafts human posts', hp=0;
-  function type(){ if(hp<=phrase.length){ hiretyp.textContent=phrase.slice(0,hp)+'▏'; hp++; setTimeout(type,55);} else hiretyp.textContent=phrase; }
-  type(); tick(); setInterval(tick,3400);
+  tick(); setInterval(tick,3400);
 })();
 </script>
 </body>

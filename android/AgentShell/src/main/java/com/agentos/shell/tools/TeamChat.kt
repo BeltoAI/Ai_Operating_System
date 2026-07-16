@@ -77,10 +77,11 @@ object TeamChat {
         val named = staff.firstOrNull { e ->
             e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
         }
-        // Summoned if: an agent named, a team question, the bot @mentioned, you REPLIED to an agent's message,
-        // or you're mid-exchange (an agent asked/posted in the last ~5 min) — so answering a "needs you" needs no @.
-        val engaged = System.currentTimeMillis() - p(ctx).getLong("last_agent_ts", 0L) < 5 * 60 * 1000L
-        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text) || u.replyToBot || engaged
+        // Summoned if: an agent named, a team question, the bot @mentioned, or you replied to an agent's message.
+        // ALSO auto-listen (no @ needed) ONLY while an agent is actually waiting on you — so answering a "needs
+        // you" needs no tag, but the bot otherwise stays out of normal human conversation.
+        val waiting = staff.any { it.status == "needs_you" } && System.currentTimeMillis() - p(ctx).getLong("last_agent_ts", 0L) < 10 * 60 * 1000L
+        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text) || u.replyToBot || waiting
         if (!summoned) return true   // consumed, but we don't butt into human conversation
 
         // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
@@ -166,8 +167,8 @@ object TeamChat {
     /** Is this a question ABOUT the team itself (who's here, introductions, capabilities)? */
     private fun isTeamQuestion(text: String): Boolean = Regex(
         "(?i)\\b(who('?s| is| are)?\\s+(here|else|this|you|on the team|in (this|the) (chat|group))|" +
-        "introduce (yoursel(f|ves)|the team)|meet the team|the (whole )?team\\??$|list (the )?(team|agents|bots)|" +
-        "what can (you|the team|they) do|who do i have|everyone here)\\b").containsMatchIn(text.trim())
+        "intro(duce)?\\s+(everyone|the team|the crew|us|yoursel(f|ves)|the group)|meet the team|the (whole )?team\\??$|" +
+        "list (the )?(team|agents|bots)|what can (you|the team|they) do|who do i have|everyone here)\\b").containsMatchIn(text.trim())
 
     /** The one clean roster message — who's on the team and what each does. */
     private fun rosterText(staff: List<EmployeeStore.Employee>): String =

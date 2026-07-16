@@ -26,8 +26,8 @@ object EmployeeRunner {
 
     // How the doc actions work — appended to the chain prompt so a designer agent knows to use them.
     private const val DOC_HELP =
-        " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put the FULL " +
-        "content/outline into \"text\" (research the person/topic first in earlier steps, then hand it all here; never invent facts). " +
+        " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put a CONCISE outline " +
+        "into \"text\" (a handful of short lines — the designer expands each into polished copy; keep it brief so the JSON stays valid). " +
         "It's designed as a beautiful PDF, saved to the SlyOS folder + brain, and sent into the chat for review. " +
         "CRITICAL: if the owner asked for a deck/one-pager/document, your job is NOT done until you have actually run make_doc and the " +
         "file is produced — do NOT stop after only researching or saving a note. Do at most ONE quick research step, then call make_doc. " +
@@ -143,8 +143,10 @@ object EmployeeRunner {
         val kb = try { AgentKnowledge.retrieve(ctx, emp.id, task, 2200) } catch (e: Exception) { "" }
         val caps = try { Capabilities.summary(ctx) } catch (e: Exception) { "" }
         val cal = try { if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx) else "" } catch (e: Exception) { "" }
+        val roster = try { EmployeeStore.all(ctx).filter { it.id != emp.id && it.name.isNotBlank() }.joinToString("; ") { "${it.name} (${it.role})" } } catch (e: Exception) { "" }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
         val ctxBlock = "Current time: $now\n" +
+            (if (roster.isNotBlank()) "YOUR TEAMMATES (you know these people; refer work to them when it's their lane, but you can't do their jobs): $roster\n\n" else "") +
             (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (your PRIMARY source):\n$kb\n\n" else "") +
             (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1000)}\n\n" else "") +
             (if (history.isNotBlank()) "RECENT TEAM-CHAT (each line 'Sender: message'):\n$history\n\n" else "") +
@@ -184,7 +186,18 @@ object EmployeeRunner {
             if (done) break
             if (inSum + outSum > tokenCap) { steps.add("• (paused — hit this run's budget)"); break }
         }
-        val summary = (if (steps.isEmpty()) "Worked on it." else steps.joinToString("\n")) +
+        // GUARANTEE: a deck/doc request ALWAYS yields a file. If the chain didn't actually build one (model
+        // flaked or kept asking), build it now from the task + brain + fed docs — no more "Worked on it".
+        if (Regex("(?i)\\b(deck|one.?pager|onepager|document|slides?|presentation|brochure|pitch|proposal)\\b").containsMatchIn(task) &&
+            steps.none { it.contains("designed", true) || it.contains("edited", true) || it.contains("ready to review", true) }) {
+            val docKind = if (Regex("(?i)deck|slide|present|pitch").containsMatchIn(task)) "deck" else "onepager"
+            val docTitle = Regex("(?i)\\b(vera|bastard|build|create|make|design|me|my|a|an|the|please|for|can|you|u|just|do|it|agnostic|short|quick|send|to)\\b").replace(task, " ")
+                .replace(Regex("[^A-Za-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim().split(" ").filter { it.length > 1 }.take(5).joinToString(" ").ifBlank { "Document" }.replaceFirstChar { it.uppercase() }
+            val fb = task + (if (kb.isNotBlank()) "\n\nKnown context:\n${kb.take(1500)}" else "") + (if (brain.isNotBlank()) "\n\nAbout the company/owner:\n${brain.take(1500)}" else "")
+            val r = try { renderAndShare(ctx, emp, docKind, docTitle, fb) } catch (e: Exception) { "couldn't build the document" }
+            steps.add("• $r"); if (!r.startsWith("couldn't")) { didAny++; needs = "" }
+        }
+        val summary = (if (steps.isEmpty()) "Looked into it — nothing to action right now." else steps.joinToString("\n")) +
             (if (needs.isNotBlank()) "\n\n⏸ Needs you: $needs" else "")
         return ChainResult(summary, needs, didAny, inSum, outSum)
     }
