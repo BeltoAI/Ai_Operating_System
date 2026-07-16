@@ -26,6 +26,15 @@ object TeamChat {
         if (!enabled(ctx)) return
         val gid = groupId(ctx); if (gid == 0L || text.isBlank()) return
         try { TelegramClient.sendMessage(gid, "$agentName · $text") } catch (e: Exception) {}
+        // Mark this agent as the one you're "with", so your reply reaches them WITHOUT an @mention.
+        try { EmployeeStore.all(ctx).firstOrNull { it.name.equals(agentName, true) }?.let { setLastAgent(ctx, it.id) } } catch (e: Exception) {}
+    }
+
+    /** An agent shares a generated file (a designed PDF) into the group for review. Returns whether it sent. */
+    fun postDocument(ctx: Context, file: java.io.File, caption: String): Boolean {
+        if (!enabled(ctx)) return false
+        val gid = groupId(ctx); if (gid == 0L) return false
+        return try { TelegramClient.sendDocument(gid, file, caption) } catch (e: Exception) { false }
     }
 
     /**
@@ -63,7 +72,10 @@ object TeamChat {
         val named = staff.firstOrNull { e ->
             e.name.isNotBlank() && Regex("(?i)(^|[^\\p{L}])@?" + Regex.escape(e.name) + "\\b").containsMatchIn(text)
         }
-        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text)
+        // Summoned if: an agent named, a team question, the bot @mentioned, you REPLIED to an agent's message,
+        // or you're mid-exchange (an agent asked/posted in the last ~5 min) — so answering a "needs you" needs no @.
+        val engaged = System.currentTimeMillis() - p(ctx).getLong("last_agent_ts", 0L) < 5 * 60 * 1000L
+        val summoned = named != null || isTeamQuestion(text) || mentionsBot(text) || u.replyToBot || engaged
         if (!summoned) return true   // consumed, but we don't butt into human conversation
 
         // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
@@ -179,8 +191,13 @@ object TeamChat {
                 if (bytes == null) { safeSend(gid, "Couldn't download that PDF (Telegram caps bot downloads at 20 MB)."); return }
                 val name = u.docName.ifBlank { "document.pdf" }
                 val tmp = java.io.File(ctx.cacheDir, "tg_${System.currentTimeMillis()}.pdf")
-                val text = try { tmp.writeBytes(bytes); FileOps.pdfText(ctx, android.net.Uri.fromFile(tmp)) } catch (e: Exception) { "" } finally { try { tmp.delete() } catch (e: Exception) {} }
-                if (text.length < 40) { safeSend(gid, "Got “$name” but couldn't read text from it (scanned/image PDF)."); return }
+                val text = try {
+                    tmp.writeBytes(bytes)
+                    var t = FileOps.pdfText(ctx, android.net.Uri.fromFile(tmp))
+                    if (t.length < 200) { val ocr = PdfOcr.fromFile(tmp); if (ocr.length > t.length) t = ocr }   // slides/scans → OCR
+                    t
+                } catch (e: Exception) { "" } finally { try { tmp.delete() } catch (e: Exception) {} }
+                if (text.length < 40) { safeSend(gid, "Got “$name” but couldn't read any text from it, even with OCR."); return }
                 try { DocText.add(ctx, name, "telegram", text) } catch (e: Exception) {}   // into the brain for everyone
                 if (target != null) { AgentKnowledge.add(ctx, target.id, name, text); safeSend(gid, "${target.name} learned “$name” ✓ — it's now part of what they know.") }
                 else safeSend(gid, "Read “$name” and saved it to your brain ✓.")

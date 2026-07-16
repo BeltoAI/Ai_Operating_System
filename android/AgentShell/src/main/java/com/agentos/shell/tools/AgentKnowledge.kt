@@ -39,13 +39,20 @@ object AgentKnowledge {
         db(ctx).rawQuery("SELECT COUNT(*) FROM kb WHERE emp_id=?", arrayOf(empId)).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     } catch (e: Exception) { 0 }
 
-    fun titles(ctx: Context, empId: String, limit: Int = 20): List<String> = try {
-        val out = ArrayList<String>()
-        db(ctx).rawQuery("SELECT title FROM kb WHERE emp_id=? ORDER BY ts DESC LIMIT $limit", arrayOf(empId)).use { c ->
-            while (c.moveToNext()) out.add(c.getString(0) ?: "document")
+    fun titles(ctx: Context, empId: String, limit: Int = 20): List<String> = items(ctx, empId, limit).map { it.title }
+
+    data class Item(val id: Long, val title: String, val ts: Long)
+
+    /** Each fed document with its id, so the UI can list + remove them individually. */
+    fun items(ctx: Context, empId: String, limit: Int = 40): List<Item> = try {
+        val out = ArrayList<Item>()
+        db(ctx).rawQuery("SELECT id, title, ts FROM kb WHERE emp_id=? ORDER BY ts DESC LIMIT $limit", arrayOf(empId)).use { c ->
+            while (c.moveToNext()) out.add(Item(c.getLong(0), c.getString(1) ?: "document", c.getLong(2)))
         }
         out
     } catch (e: Exception) { emptyList() }
+
+    fun remove(ctx: Context, id: Long) = try { db(ctx).delete("kb", "id=?", arrayOf(id.toString())); Unit } catch (e: Exception) {}
 
     fun clear(ctx: Context, empId: String) = try { db(ctx).delete("kb", "emp_id=?", arrayOf(empId)); Unit } catch (e: Exception) {}
 

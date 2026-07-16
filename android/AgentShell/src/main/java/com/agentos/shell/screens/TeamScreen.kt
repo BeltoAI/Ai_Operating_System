@@ -77,8 +77,8 @@ val TEAM_PRESETS = listOf(
         "Keep my calendar clean, catch conflicts, and prep a short agenda before meetings.", "calendar", 30),
     Preset("Deep expert", "Feed him PDFs; he masters them", "Bastardi", "Deep Expert",
         "You are the owner's deep expert. The documents the owner feeds you are your PRIMARY source of truth — master them and answer from them first, then the owner's brain, then live web search (including their published papers). Be precise, technical, and concrete; cite what you found and never fabricate. If the documents don't cover something, say so before reasoning from the web.", "knowledge,web,brain", 0),
-    Preset("Reddit growth", "Grows your Reddit rep", "Ravi", "Reddit Growth Strategist",
-        "Grow my Reddit presence authentically. Study the subreddits where my expertise fits, and on each shift propose ONE genuinely human comment or post — never spammy, never ad-like — that adds real value to the thread and quietly positions me as an expert, grounded in what you actually know about me from my brain. Name the subreddit, give the exact text I'd post, and flag it for my approval. Never fabricate credentials.", "web", 60))
+    Preset("Designer", "Stunning decks & one-pagers", "Vera", "Design Lead",
+        "Create extremely high-end, professional decks, one-pagers, and documents on request. When asked for a deck/doc for a person or topic, research them (web + my brain + my CRM + any example templates I've fed you), then design a beautiful PDF, save it to my SlyOS folder, and send it into our chat for review — then iterate on my edits until it's perfect. Match my company's voice and any template style I've given you; never invent facts.", "web,files,brain", 0))
 
 private val NAME_POOL = listOf(
     "Maya", "Leo", "Nova", "Kai", "Ivy", "Rex", "Zoe", "Milo", "Luna", "Finn",
@@ -551,7 +551,9 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                                 val ok = withContext(Dispatchers.IO) {
                                     try {
                                         val name = com.agentos.shell.tools.FileOps.displayName(ctx, uri)
-                                        val txt = com.agentos.shell.tools.FileOps.pdfText(ctx, uri)
+                                        var txt = com.agentos.shell.tools.FileOps.pdfText(ctx, uri)
+                                        // Image-based (slides/scans) → no text layer → OCR the pages on-device.
+                                        if (txt.length < 200) { val ocr = com.agentos.shell.tools.PdfOcr.fromUri(ctx, uri); if (ocr.length > txt.length) txt = ocr }
                                         if (txt.length > 40) { com.agentos.shell.tools.AgentKnowledge.add(ctx, e.id, name, txt); true } else false
                                     } catch (ex: Exception) { false }
                                 }
@@ -560,6 +562,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             }
                         }
                     }
+                    var kbItems by remember(e.id, kbCount) { mutableStateOf(com.agentos.shell.tools.AgentKnowledge.items(ctx, e.id)) }
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (kbCount > 0) "Knowledge · $kbCount doc${if (kbCount == 1) "" else "s"} fed" else "No docs fed yet",
@@ -567,6 +570,14 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Text("Feed a PDF  →", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(T.accent.copy(alpha = 0.12f))
                                 .clickable { try { pdfPicker.launch(arrayOf("application/pdf")) } catch (ex: Exception) { flash = "No file picker available." } }.padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                    kbItems.forEach { doc ->
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(doc.title, fontSize = 11.sp, color = T.inkSoft, maxLines = 1, modifier = Modifier.weight(1f))
+                            Text("✕", fontSize = 13.sp, color = T.danger, modifier = Modifier
+                                .clickable { com.agentos.shell.tools.AgentKnowledge.remove(ctx, doc.id); kbItems = com.agentos.shell.tools.AgentKnowledge.items(ctx, e.id); kbCount = com.agentos.shell.tools.AgentKnowledge.count(ctx, e.id); flash = "Removed “${doc.title}”." }
+                                .padding(start = 10.dp, end = 4.dp))
+                        }
                     }
                     val stat = remember(e.id, log) { com.agentos.shell.tools.EmployeeStats.stat(ctx, e.id) }
                     val tokLabel = if (stat.tokens >= 1000) String.format("%.1fk", stat.tokens / 1000.0) else stat.tokens.toString()

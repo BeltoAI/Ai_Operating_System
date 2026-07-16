@@ -156,6 +156,52 @@ object AgentClient {
         return if (code == 200) Triple(text.trim(), lastInTok, lastOutTok) else Triple("", lastInTok, lastOutTok)
     }
 
+    private fun stripHtmlFences(s: String): String {
+        var h = s.trim()
+        if (h.startsWith("```")) h = h.substringAfter('\n', h).trim()
+        if (h.endsWith("```")) h = h.removeSuffix("```").trim()
+        val i = h.indexOf("<!DOCTYPE", ignoreCase = true).let { if (it >= 0) it else h.indexOf("<html", ignoreCase = true) }
+        if (i > 0) h = h.substring(i)
+        return h
+    }
+
+    /**
+     * Generate a COMPLETE, extremely high-end HTML document (one-pager or slide deck) — full inline CSS,
+     * print-ready A4, premium design. Grounded in the company brain + any example templates the agent was fed.
+     */
+    fun designHtml(kind: String, title: String, brief: String, templates: String = "", brainSnippet: String = ""): String {
+        val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
+        val sys = "You are a world-class presentation + document designer. Produce ONE complete, self-contained HTML5 document " +
+            "with ALL styling in an inline <style> block — NO external assets, NO scripts required. It must look EXTREMELY " +
+            "high-end and professional: confident typography (system fonts), a strong cover, generous whitespace, a refined " +
+            "color palette, clear hierarchy, subtle rules/accents. Print target is A4. " +
+            (if (isDeck)
+                "This is a SLIDE DECK: use `@page { size: A4 landscape; margin: 0 }` and make each `.slide` a full page with " +
+                "`page-break-after: always`, padded ~6-8%, content vertically centered, big readable headings. First slide is a " +
+                "cover (title + subtitle + date). 6-12 slides, one idea each."
+             else
+                "This is a ONE-PAGER: a single beautiful A4 portrait page — `@page { size: A4; margin: 0 }` — with a header band, " +
+                "well-structured sections, and a clean footer. Dense but elegant.") +
+            " Output ONLY the HTML (starting with <!DOCTYPE html>). No markdown, no commentary."
+        val user = "Title: $title\nType: ${if (isDeck) "slide deck" else "one-pager"}\n\nWHAT IT MUST CONTAIN (turn this into a polished, " +
+            "well-organized document — expand terse points into clean copy, never invent facts):\n$brief\n\n" +
+            (if (brainSnippet.isNotBlank()) "COMPANY CONTEXT (use for accuracy/voice):\n${brainSnippet.take(2500)}\n\n" else "") +
+            (if (templates.isNotBlank()) "STYLE/STRUCTURE REFERENCE from the owner's example documents (mirror this look & feel):\n${templates.take(2500)}\n\n" else "") +
+            "Design the full HTML now."
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 12000, OPUS, 240000)
+        return if (code == 200) stripHtmlFences(text) else ""
+    }
+
+    /** Apply a plain-language edit to an existing HTML document and return the full updated HTML. */
+    fun editHtml(currentHtml: String, instruction: String): String {
+        val sys = "You edit an existing HTML document (a designed one-pager or slide deck). Apply the owner's requested change " +
+            "precisely while KEEPING the overall premium design, structure, and all unrelated content intact. Return the ENTIRE " +
+            "updated HTML document (starting with <!DOCTYPE html>) — not a diff, no markdown, no commentary."
+        val user = "REQUESTED CHANGE: $instruction\n\nCURRENT DOCUMENT:\n${currentHtml.take(60000)}"
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 14000, OPUS, 240000)
+        return if (code == 200) stripHtmlFences(text) else ""
+    }
+
     /**
      * Distill a GitHub project's docs into clean, injectable SKILL instructions for the brain — imperative
      * guidance on HOW to behave / what to do, stripped of install steps, badges and repo fluff. This is what

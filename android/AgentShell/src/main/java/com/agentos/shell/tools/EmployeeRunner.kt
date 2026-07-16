@@ -20,9 +20,16 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
-        "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
+        "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
+
+    // How the doc actions work — appended to the chain prompt so a designer agent knows to use them.
+    private const val DOC_HELP =
+        " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put the FULL " +
+        "content/outline into \"text\" (research the person/topic first in earlier steps, then hand it all here; never invent facts). " +
+        "It's designed as a beautiful PDF, saved to the SlyOS folder + brain, and sent into the chat for review. " +
+        "edit_doc: revise the CURRENT document — put the requested change in \"text\" (e.g. 'make the cover bolder, add a pricing slide'); it re-renders and re-sends."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -71,9 +78,46 @@ object EmployeeRunner {
                     val n = act!!.optString("text").trim().ifBlank { act.optString("body").trim() }
                     if (n.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", n.take(500), "Team") } catch (e: Exception) {}; "saved a note to your brain ✓" } else ""
                 }
+                "make_doc" -> {
+                    val kind = act!!.optString("kind").ifBlank { act.optString("target") }.ifBlank { "onepager" }
+                    val title = act.optString("title").ifBlank { "Document" }
+                    val brief = act.optString("text").ifBlank { act.optString("body") }
+                    if (brief.length < 20) "" else renderAndShare(ctx, emp, kind, title, brief)
+                }
+                "edit_doc" -> {
+                    val instruction = act!!.optString("text").ifBlank { act.optString("body") }
+                    val cur = DesignStore.get(ctx, emp.id)
+                    if (cur == null) "no document in progress to edit — make one first" else if (instruction.isBlank()) "" else {
+                        val html = AgentClient.editHtml(cur.html, instruction)
+                        if (html.length < 100) "couldn't apply that edit" else finalizeDoc(ctx, emp, cur.title, cur.kind, html, "edited")
+                    }
+                }
                 else -> ""
             }
         } catch (e: Exception) { "action failed: ${e.message}" }
+    }
+
+    /** Design a brand-new document/deck: research + templates + brain → HTML → PDF → SlyOS folder + brain + chat. */
+    private fun renderAndShare(ctx: Context, emp: EmployeeStore.Employee, kind: String, title: String, brief: String): String {
+        val templates = try { AgentKnowledge.retrieve(ctx, emp.id, "template layout design example", 2500) } catch (e: Exception) { "" }
+        val brainSnip = try { BrainContext.build(ctx, "$title $brief").take(2500) } catch (e: Exception) { "" }
+        val html = AgentClient.designHtml(kind, title, brief, templates, brainSnip)
+        if (html.length < 100) return "couldn't design “$title” just now"
+        return finalizeDoc(ctx, emp, title, kind, html, "designed")
+    }
+
+    /** Render the HTML to PDF, store it (SlyOS folder + brain + editable source), and share it into the chat. */
+    private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String, verb: String): String {
+        val pdf = try { HtmlPdf.render(ctx, html, title) } catch (e: Exception) { null }
+        DesignStore.set(ctx, emp.id, title, kind, html, pdf?.absolutePath ?: "")
+        try { DocStore.addText(ctx, kind, title, "Designed by ${emp.name}", org.json.JSONObject(), "designer") } catch (e: Exception) {}
+        try { DocText.add(ctx, title, "design", html.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").take(4000)) } catch (e: Exception) {}
+        val sent = if (pdf != null) try { TeamChat.postDocument(ctx, pdf, "$title — reply with any edits and I'll update it.") } catch (e: Exception) { false } else false
+        return when {
+            sent -> "$verb “$title” and sent it to your chat ✓"
+            pdf != null -> "$verb “$title” ✓ — saved to your SlyOS folder (connect the team chat to get it sent to you)"
+            else -> "$verb “$title”, but the PDF render didn't complete on this device"
+        }
     }
 
     data class ChainResult(val summary: String, val needs: String, val actions: Int, val inTok: Int, val outTok: Int)
@@ -108,7 +152,7 @@ object EmployeeRunner {
                 "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
                 "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
                 "Output ONLY compact JSON {\"say\":\"one short progress line, past/pres tense\",\"action\":$ACTION_SCHEMA," +
-                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the whole goal is accomplished. No prose, no fences."
+                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the whole goal is accomplished." + DOC_HELP + " No prose, no fences."
             val user = ctxBlock + "\nSTEPS DONE SO FAR:\n" + (if (steps.isEmpty()) "(none yet)" else steps.joinToString("\n")) +
                 "\n\n" + (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "Request from $speaker: " else "") + task +
                 "\n\nDo the next step now (or set done:true if the goal is fully met)."
