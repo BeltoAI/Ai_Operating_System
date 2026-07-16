@@ -16,6 +16,11 @@ class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
             // Bigger batches so a large gallery gets fully understood in days, not never.
             PhotoIndex.analyzeRecent(applicationContext, 200)
             PhotoIndex.analyzeVideosRecent(applicationContext, 40)
+            // Keep draining the embedding queue every run (not just once at launch) so semantic memory actually
+            // fills instead of sitting at 0 with tens of thousands queued.
+            try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 500) } catch (e: Exception) {}
+            // Daily brain-stats snapshot so we can track growth over time, not just a moment.
+            try { com.agentos.shell.tools.StatsHistory.snapshotIfDue(applicationContext) } catch (e: Exception) {}
             Result.success()
         } catch (e: Exception) {
             Result.success()

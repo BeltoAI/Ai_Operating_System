@@ -423,9 +423,67 @@ object GmailClient {
                 val bodyText = sb.toString().replace(Regex("\\s+\n"), "\n").trim().take(8000)
                 val prefix = if (role == "me") "Sent to $who — " else ""
                 MessageStore.insertOne(ctx, who, "Email", who, role, prefix + "Subject: $subject\n$bodyText")
+                // AUTO-CRM: every real correspondent becomes a lead — this used to only happen for receipt/invoice
+                // emails, so a whole inbox produced almost no contacts. Now every human sender/recipient lands.
+                try {
+                    val hdr = header(payload, whoHeader)
+                    val email = Regex("[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}").find(hdr)?.value?.lowercase() ?: ""
+                    if (email.isNotBlank() && !isNoisyEmail(email)) {
+                        val nm = hdr.substringBefore("<").trim().trim('"').ifBlank { email.substringBefore("@") }
+                        LeadStore.add(ctx, nm, email, "", "", if (role == "me") "email-sent" else "email-inbox", "")
+                    }
+                } catch (e: Exception) {}
                 seen.add(id); added++
             } catch (e: Exception) { Log.w(TAG, "gmail parse $id failed", e) }
         }
+        return added
+    }
+
+    /** Skip automated / no-reply senders so the CRM stays PEOPLE, not robots. */
+    private fun isNoisyEmail(email: String): Boolean {
+        val local = email.substringBefore("@")
+        return Regex("(?i)^(no-?reply|do-?not-?reply|donotreply|no_?reply|noreply|mailer-daemon|postmaster|bounce|bounces|notification|notifications|notify|newsletter|mailer|automated|do-not-respond|updates?)([._+-]|$)").containsMatchIn(local)
+    }
+
+    /**
+     * ONE-TIME CRM backfill from mail HISTORY. The normal sync only sees new mail (everything older is already
+     * "seen"), so a huge existing inbox never populated the CRM. This does a light headers-only sweep of inbox +
+     * sent (no bodies), extracting every real correspondent into leads. Guarded by a flag so it runs once.
+     */
+    fun backfillContacts(ctx: Context, cap: Int = 1500): Int {
+        val token = GoogleAuth.accessToken(ctx); if (token.isBlank()) return 0
+        val prefs = ctx.getSharedPreferences("slyos_gmail", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("crm_backfilled", false)) return 0
+        var added = 0
+        for ((q, whoHeader) in listOf("in:inbox" to "From", "in:sent" to "To")) {
+            var pageToken = ""
+            var pulled = 0
+            while (pulled < cap / 2) {
+                val url = "$BASE/messages?maxResults=100&q=" + java.net.URLEncoder.encode(q, "UTF-8") +
+                    (if (pageToken.isNotBlank()) "&pageToken=$pageToken" else "")
+                val (lc, lb) = get(url, token); if (lc !in 200..299) break
+                val obj = try { JSONObject(lb) } catch (e: Exception) { break }
+                val arr = obj.optJSONArray("messages") ?: break
+                for (i in 0 until arr.length()) {
+                    if (pulled >= cap / 2) break
+                    val id = arr.getJSONObject(i).optString("id"); if (id.isBlank()) continue
+                    val (mc, mb) = get("$BASE/messages/$id?format=metadata&metadataHeaders=$whoHeader", token)
+                    pulled++
+                    if (mc !in 200..299) continue
+                    try {
+                        val payload = JSONObject(mb).optJSONObject("payload") ?: continue
+                        val hdr = header(payload, whoHeader)
+                        val email = Regex("[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}").find(hdr)?.value?.lowercase() ?: continue
+                        if (isNoisyEmail(email)) continue
+                        val nm = hdr.substringBefore("<").trim().trim('"').ifBlank { email.substringBefore("@") }
+                        if (LeadStore.add(ctx, nm, email, "", "", if (whoHeader == "To") "email-sent" else "email-inbox", "")) added++
+                    } catch (e: Exception) {}
+                }
+                pageToken = obj.optString("nextPageToken", ""); if (pageToken.isBlank()) break
+            }
+        }
+        prefs.edit().putBoolean("crm_backfilled", true).apply()
+        Log.i(TAG, "CRM backfill swept mail history, ~$added contacts touched")
         return added
     }
 
