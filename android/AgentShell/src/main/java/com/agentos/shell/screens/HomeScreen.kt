@@ -373,6 +373,15 @@ fun HomeScreen(
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
         }
+        // Brain diagnostics on request — a real readout from every store, not the model guessing.
+        if (Regex("(?i)\\b(brain (status|stats|health|check|diagnostic)|health check|is my brain (growing|working|filling))\\b").containsMatchIn(q.lowercase())) {
+            text = ""; thinking = true; reply = ""; lastQuery = q
+            scope.launch {
+                val r = try { withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainStats.report(ctx) } } catch (e: Exception) { "Couldn't read the brain stats." }
+                reply = r; thinking = false; if (doSpeak) speak(r)
+            }
+            return@submit
+        }
         // DETERMINISTIC DEVICE COMMANDS — hardware toggles must actually run, not be narrated by the model
         // (it will happily *say* "flashlight's on" without doing anything). Match tightly so chat isn't hijacked.
         run {

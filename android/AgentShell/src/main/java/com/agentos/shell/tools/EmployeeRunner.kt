@@ -235,7 +235,9 @@ object EmployeeRunner {
         val cal = try { if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx) else "" } catch (e: Exception) { "" }
         val roster = try { EmployeeStore.all(ctx).filter { it.id != emp.id && it.name.isNotBlank() }.joinToString("; ") { "${it.name} (${it.role})" } } catch (e: Exception) { "" }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
+        val forget = try { EmployeeStore.forgetList(ctx, emp.id) } catch (e: Exception) { "" }
         val ctxBlock = "Current time: $now\n" +
+            (if (forget.isNotBlank()) "DROPPED BY THE OWNER — do NOT work on, suggest, or bring up ANY of these ever again:\n$forget\n\n" else "") +
             (if (roster.isNotBlank()) "YOUR TEAMMATES (you know these people; refer work to them when it's their lane, but you can't do their jobs): $roster\n\n" else "") +
             (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (your PRIMARY source):\n$kb\n\n" else "") +
             (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1000)}\n\n" else "") +
@@ -352,7 +354,9 @@ object EmployeeRunner {
                 "none = you only researched/thought this shift. No prose, no fences."
             val kb = try { AgentKnowledge.retrieve(ctx, emp.id, emp.goal, 2000) } catch (e: Exception) { "" }
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
+            val forget = try { EmployeeStore.forgetList(ctx, emp.id) } catch (e: Exception) { "" }
             val user = "Current time: $now\n\n" + (if (live.isNotEmpty()) live.toString() else "") +
+                (if (forget.isNotBlank()) "DROPPED BY $owner — never work on, retry, or mention ANY of these again (pick something else):\n$forget\n\n" else "") +
                 (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (fed to you — your PRIMARY source, use these first):\n$kb\n\n" else "") +
                 "Your recent log:\n${recent.ifBlank { "(nothing yet)" }}\n\n" +
                 "What you know about $owner:\n${brain.take(3500)}\n\nDo your next step now."

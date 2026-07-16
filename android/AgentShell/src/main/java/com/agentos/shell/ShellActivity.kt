@@ -103,6 +103,9 @@ class ShellActivity : ComponentActivity() {
         } catch (e: Exception) {}
         // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
         Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()
+        // One-shot brain health check to logcat (adb logcat -s SlyOS-Stats:I) — a quick way to verify every
+        // store is populating; also available live via the Home AI ("brain status").
+        Thread { try { Thread.sleep(4000); com.agentos.shell.tools.BrainStats.log(applicationContext) } catch (e: Exception) {} }.start()
         // Keep filling the index in the background (free-tier-friendly) so the user needn't babysit it.
         try {
             val embReq = androidx.work.PeriodicWorkRequestBuilder<EmbedWorker>(15, java.util.concurrent.TimeUnit.MINUTES)

@@ -93,6 +93,18 @@ object EmployeeStore {
     fun rememberAsked(ctx: Context, id: String, needs: String) = needsPrefs(ctx).edit().putString(id, normNeeds(needs)).apply()
     fun clearAsked(ctx: Context, id: String) = needsPrefs(ctx).edit().remove(id).apply()
 
+    // Things the owner explicitly told an agent to DROP. Persisted per-agent and injected into every shift/chat
+    // so the agent never resurfaces a killed task. This is the fix for "I told it to forget and it kept going".
+    private fun forgetPrefs(ctx: Context) = ctx.getSharedPreferences("slyos_forget", Context.MODE_PRIVATE)
+    fun addForget(ctx: Context, id: String, item: String) {
+        val clean = item.trim().take(140); if (clean.isBlank()) return
+        val cur = forgetPrefs(ctx).getString(id, "").orEmpty()
+        val items = (cur.split("\n") + clean).map { it.trim() }.filter { it.isNotBlank() }.distinct().takeLast(12)
+        forgetPrefs(ctx).edit().putString(id, items.joinToString("\n")).apply()
+    }
+    fun forgetList(ctx: Context, id: String): String = forgetPrefs(ctx).getString(id, "").orEmpty().trim()
+    fun clearForget(ctx: Context, id: String) = forgetPrefs(ctx).edit().remove(id).apply()
+
     /** Edit an agent's persona/instructions, and optionally its display name + role, after hiring. */
     fun edit(ctx: Context, id: String, goal: String, name: String = "", role: String = "") = try {
         db(ctx).update("employees", ContentValues().apply {

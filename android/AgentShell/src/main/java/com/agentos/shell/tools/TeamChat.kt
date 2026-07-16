@@ -105,6 +105,26 @@ object TeamChat {
             ConversationStore.add(ctx, "Team", gid.toString(), "them", "$fromWho: $instruction")
         } catch (e: Exception) {}
 
+        // "forget / drop / stop working on X" → record it so the agent NEVER resurfaces that task. This is the
+        // fix for agents getting stuck re-proposing the same self-found task after being told to let it go.
+        val forgetIntent = Regex("(?i)\\b(forget (about|it|that)?|drop (it|that|this)|stop (working on|doing|pursuing)|never ?mind|don'?t (do|work on|pursue|bring up)|let (it|that) go|abandon|give up on|move on from|no longer|quit)\\b")
+            .containsMatchIn(instruction)
+        if (forgetIntent) {
+            // What to forget: the phrase after the keyword; if vague ("forget it"), fall back to whatever the
+            // agent last surfaced (its most recent proposed task / ask), so "it" resolves to the right thing.
+            val stripped = instruction.replace(Regex("(?i)\\b(please|hey|ok|okay|now|just|can you|could you|would you|@?\\w+[,:]?)\\b"), " ")
+                .replace(Regex("(?i)\\b(forget (about|it|that)?|drop (it|that|this)|stop (working on|doing|pursuing)|never ?mind|don'?t (do|work on|pursue|bring up)|let (it|that) go|abandon|give up on|move on from|no longer|quit)\\b"), " ")
+                .replace(Regex("\\s+"), " ").trim()
+            val lastTask = try { EmployeeStore.logFor(ctx, emp.id, 1).firstOrNull()?.line.orEmpty() } catch (e: Exception) { "" }
+            val toForget = stripped.takeIf { it.length > 2 } ?: lastTask.ifBlank { "the task you last proposed" }
+            try { EmployeeStore.addForget(ctx, emp.id, toForget); EmployeeStore.clearAsked(ctx, emp.id) } catch (e: Exception) {}
+            val reply = "Done — dropping “${toForget.take(60)}”. I won't work on it or bring it up again."
+            try { ConversationStore.add(ctx, "Team", gid.toString(), "me", "${emp.name}: $reply") } catch (e: Exception) {}
+            setLastAgent(ctx, emp.id)
+            safeSend(gid, "${emp.name} · $reply")
+            return true
+        }
+
         // Feel human, not like a spinner: if this is a job that takes real time (design / build / research /
         // refine), acknowledge INSTANTLY with a rough ETA so you know it landed and when to follow up — instead
         // of silent typing dots and hoping. Quick questions skip the ack and just get answered.
