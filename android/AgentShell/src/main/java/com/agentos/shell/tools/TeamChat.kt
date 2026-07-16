@@ -89,6 +89,7 @@ object TeamChat {
         // you" needs no tag, but the bot otherwise stays out of normal human conversation.
         val waiting = staff.any { it.status == "needs_you" } && System.currentTimeMillis() - p(ctx).getLong("last_agent_ts", 0L) < 10 * 60 * 1000L
         val summoned = named != null || isTeamQuestion(text) || botSummon || waiting
+        try { android.util.Log.i("SlyOS-Team", "grp=$gid summoned=$summoned bot=$botSummon named=${named?.name} text='${text.take(40)}'") } catch (e: Exception) {}
         if (!summoned) return true   // consumed, but we don't butt into human conversation
 
         // "Who's here / introduce yourselves / what can you do" → one authoritative roster answer.
@@ -207,9 +208,9 @@ object TeamChat {
         // first name so "@Emil" to a human doesn't wake the bot. Prefix match both ways so "@bastard" hits it.
         val distinctive = name.split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }.lastOrNull()
         if (distinctive != null && mentions.any { m -> m == distinctive || distinctive.startsWith(m) || m.startsWith(distinctive) }) return true
-        // Fallback: if we can't identify the bot yet (getMe not cached / offline), treat ANY leading @mention in a
-        // group as a summon so "@bastard …" still works instead of silently failing.
-        if (user.isBlank() && name.isBlank() && Regex("^\\s*@[a-z0-9_]{2,}").containsMatchIn(t)) return true
+        // Fallback: if we couldn't positively identify the bot's name (getMe not cached / offline), treat a leading
+        // @mention as a summon so "@bastard …" still works instead of silently failing.
+        if (distinctive == null && Regex("^\\s*@[a-z0-9_]{2,}").containsMatchIn(t)) return true
         return false
     }
 

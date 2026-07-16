@@ -46,6 +46,9 @@ class TelegramService : Service() {
     override fun onDestroy() { running = false; scope.cancel() }
 
     private suspend fun loop() {
+        // Warm getMe so the bot's @username + name are cached before any group message arrives — otherwise the
+        // "@bastard" summon can't be matched on the very first messages.
+        try { TelegramClient.botUsername(); Log.i("SlyOS-Team", "bot identity: @${TelegramClient.botUsername()} / ${TelegramClient.botName()}") } catch (e: Exception) {}
         var offset = 0L
         while (running && scope.isActive) {
             val updates = TelegramClient.getUpdates(offset)
