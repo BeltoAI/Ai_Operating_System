@@ -39,6 +39,8 @@ object SongId {
         val song = try { recognize(token, file) } catch (e: Exception) { Log.w(TAG, "recognize: ${e.message}"); null }
         try { file.delete() } catch (e: Exception) {}
         if (song == null) return "I listened but couldn't recognize the song — too noisy or too quiet, maybe. Try again closer to the source."
+        // Feed the brain: MessageStore is the searchable memory, so later you can ask "what songs have I heard".
+        try { MessageStore.insertOne(ctx, "Music", "Song ID", "me", "me", "Heard “${song.title}” by ${song.artist}") } catch (e: Exception) {}
         try { MemoryLog.add(ctx, "note", "Song ID", "Heard: ${song.artist} — ${song.title}", "SlyOS") } catch (e: Exception) {}
         if (openInSpotify) { try { ToolRouter.executeAction(ctx, "play_music", song.query) } catch (e: Exception) {} }
         return "That's “${song.title}” by ${song.artist}." + (if (openInSpotify) " Opening it in your music app." else "")

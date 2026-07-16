@@ -76,6 +76,12 @@ object MediaControls {
         } catch (e: Exception) { "I couldn't reach the player." }
     }
 
+    fun stop(ctx: Context): String {
+        val c = top(ctx) ?: return "Nothing's playing."
+        return try { c.transportControls.stop(); "Stopped." }
+        catch (e: Exception) { try { c.transportControls.pause() } catch (ex: Exception) {}; "Paused." }
+    }
+
     fun next(ctx: Context): String {
         val c = top(ctx) ?: return "Nothing's playing."
         return try { c.transportControls.skipToNext(); "Skipped ahead." } catch (e: Exception) { "I couldn't skip." }

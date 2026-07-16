@@ -67,6 +67,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
 import android.content.Context
 import kotlin.math.sin
 import androidx.compose.ui.input.pointer.pointerInput
@@ -983,14 +984,22 @@ fun HomeScreen(
         // Now-playing mini-player — appears ONLY while audio is actually playing (polls the active media
         // session). Reactive accent frame + swipe gestures. Vanishes the moment music stops.
         var np by remember { mutableStateOf<com.agentos.shell.tools.MediaControls.NowPlaying?>(null) }
+        var mediaHidden by remember { mutableStateOf<String?>(null) }   // track title the user swiped away
         LaunchedEffect(Unit) {
             while (true) {
-                np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
-                kotlinx.coroutines.delay(1200)
+                val cur = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null }
+                np = when {
+                    cur == null -> { mediaHidden = null; null }                 // nothing playing → clear dismissal
+                    cur.title == mediaHidden -> null                             // user dismissed this track → keep hidden
+                    else -> { if (cur.playing) mediaHidden = null; cur }
+                }
+                kotlinx.coroutines.delay(1000)
             }
         }
         np?.let { m ->
-            MediaCard(ctx, m) { np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null } }
+            MediaCard(ctx, m,
+                refresh = { np = try { com.agentos.shell.tools.MediaControls.nowPlaying(ctx) } catch (e: Exception) { null } },
+                onDismiss = { com.agentos.shell.tools.MediaControls.stop(ctx); mediaHidden = m.title; np = null })
             Spacer(Modifier.height(12.dp))
         }
 
@@ -1597,10 +1606,10 @@ private fun NavIcon(icon: ImageVector, label: String, onClick: () -> Unit) =
 /**
  * Now-playing card: a clean tile with an accent frame that pulses to a lively (simulated) audio envelope —
  * Android forbids reading another app's audio stream, so the "beat" is two layered sines that only animate
- * while playing; the frame's width/glow is the "altitude." Swipe LEFT to pause, RIGHT to open the player.
+ * while playing; the frame's width/glow is the "altitude." Swipe LEFT to stop+dismiss, RIGHT to open the player.
  */
 @Composable
-private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.NowPlaying, refresh: () -> Unit) {
+private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.NowPlaying, refresh: () -> Unit, onDismiss: () -> Unit) {
     val M = com.agentos.shell.tools.MediaControls
     val accent = T.accent
     var playing by remember(m.title) { mutableStateOf(m.playing) }
@@ -1618,12 +1627,12 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         when {
-                            dragX < -120f -> { M.playPause(ctx); playing = false; refresh() }
-                            dragX > 120f -> { M.open(ctx) }
+                            dragX < -90f -> onDismiss()      // swipe left → stop + close
+                            dragX > 90f -> M.open(ctx)       // swipe right → open player
                         }
                         dragX = 0f
                     },
-                    onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-220f, 220f) }
+                    onHorizontalDrag = { change, d -> change.consume(); dragX = (dragX + d).coerceIn(-240f, 240f) }
                 )
             }
     ) {
@@ -1663,9 +1672,32 @@ private fun MediaCard(ctx: Context, m: com.agentos.shell.tools.MediaControls.Now
                     Text(m.title, fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(m.artist.ifBlank { m.app }, fontSize = T.caption, color = T.inkSoft, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text("⏮", fontSize = T.body, color = T.ink, modifier = Modifier.clickable { M.previous(ctx); refresh() }.padding(7.dp))
-                Text(if (playing) "❚❚" else "▶", fontSize = T.small, color = accent, modifier = Modifier.clickable { M.playPause(ctx); playing = !playing; refresh() }.padding(7.dp))
-                Text("⏭", fontSize = T.body, color = T.ink, modifier = Modifier.clickable { M.next(ctx); refresh() }.padding(7.dp))
+                CtrlIcon("prev", T.ink) { M.previous(ctx); refresh() }
+                CtrlIcon(if (playing) "pause" else "play", accent) { M.playPause(ctx); playing = !playing; refresh() }
+                CtrlIcon("next", T.ink) { M.next(ctx); refresh() }
+            }
+        }
+    }
+}
+
+/** Clean vector transport control (no emoji): play / pause / prev / next, drawn to match the UI. */
+@Composable
+private fun CtrlIcon(kind: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    androidx.compose.foundation.Canvas(Modifier.size(34.dp).clip(RoundedCornerShape(50)).clickable { onClick() }.padding(9.dp)) {
+        val w = size.width; val h = size.height; val bar = w * 0.17f
+        when (kind) {
+            "play" -> drawPath(Path().apply { moveTo(w * 0.12f, 0f); lineTo(w, h / 2f); lineTo(w * 0.12f, h); close() }, tint)
+            "pause" -> {
+                drawRect(tint, Offset(w * 0.16f, 0f), Size(bar * 1.4f, h))
+                drawRect(tint, Offset(w * 0.62f, 0f), Size(bar * 1.4f, h))
+            }
+            "prev" -> {
+                drawRect(tint, Offset(0f, 0f), Size(bar, h))
+                drawPath(Path().apply { moveTo(w, 0f); lineTo(w * 0.30f, h / 2f); lineTo(w, h); close() }, tint)
+            }
+            "next" -> {
+                drawRect(tint, Offset(w - bar, 0f), Size(bar, h))
+                drawPath(Path().apply { moveTo(0f, 0f); lineTo(w * 0.70f, h / 2f); lineTo(0f, h); close() }, tint)
             }
         }
     }
@@ -1691,14 +1723,14 @@ private fun TorchWidget(ctx: Context) {
                     onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-200f, 40f) })
             }
             .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
-            .clickable { off() }.padding(horizontal = 12.dp, vertical = 11.dp)) {
-        Text("🔦", fontSize = T.body)
-        Spacer(Modifier.width(10.dp))
+            .clickable { off() }.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(T.accent))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("Flashlight on", fontSize = T.small, color = T.ink)
-            Text("tap or swipe ◂ to turn off", fontSize = T.caption, color = T.inkSoft)
+            Text("Tap or swipe left to turn off", fontSize = T.caption, color = T.inkSoft)
         }
-        Text("OFF", fontSize = T.small, color = T.accent)
+        Text("Turn off", fontSize = T.small, color = T.accent)
     }
     Spacer(Modifier.height(12.dp))
 }
@@ -1732,9 +1764,9 @@ private fun WakeUpSuggestion(ctx: Context) {
     if (dismissed) return
     sug?.let { (arg, label) ->
         Row(verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text("⏰", fontSize = T.body)
-            Spacer(Modifier.width(10.dp))
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(horizontal = 14.dp, vertical = 11.dp)) {
+            Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(T.accent))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (setDone) "Alarm set for ${arg.uppercase()}" else "Wake at ${arg.uppercase()} for “$label”?",
                     fontSize = T.small, color = T.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
