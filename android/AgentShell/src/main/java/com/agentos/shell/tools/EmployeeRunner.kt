@@ -43,7 +43,12 @@ object EmployeeRunner {
             when (type) {
                 "send_email" -> {
                     val to = act!!.optString("to").trim(); val body = act.optString("body").trim()
-                    if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
+                    // NEVER email the owner — you're already talking to them in the chat. Emailing yourself
+                    // a "team intro" / status is pure noise. Say it in the chat instead.
+                    val ownerEmail = (GoogleAuth.account(ctx).ifBlank { AccountStore.email(ctx) }).trim()
+                    if (ownerEmail.isNotBlank() && to.equals(ownerEmail, ignoreCase = true)) {
+                        ""   // silently skip; the chain will just reply in chat
+                    } else if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
                         val (ok, msg) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
                         if (ok) "sent email to $to ✓" else "couldn't send to $to ($msg)"
                     } else ""
@@ -256,7 +261,7 @@ object EmployeeRunner {
                 "\"action\":{\"type\":\"send_email|add_event|note|post|save_lead|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
                 "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"," +
                 "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}}. " +
-                "send_email only to a REAL address, body written in $owner's own voice. add_event uses local ISO times. " +
+                "send_email only to a REAL EXTERNAL person, in $owner's own voice — NEVER email $owner (you talk to them in the app/chat, not their inbox). add_event uses local ISO times. " +
                 "note saves a finding to $owner's brain. " +
                 "post: for a Reddit comment/post or any social reply. Put the subreddit in \"target\" (e.g. \"r/LocalLLaMA\") — " +
                 "VARY the subreddit across shifts to reach different relevant communities, don't always pick the same one. " +
@@ -295,7 +300,10 @@ object EmployeeRunner {
                 when (actType) {
                     "send_email" -> {
                         val to = act!!.optString("to").trim(); val subj = act.optString("subject").trim(); val body = act.optString("body").trim()
-                        if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
+                        val ownerEmail = (GoogleAuth.account(ctx).ifBlank { AccountStore.email(ctx) }).trim()
+                        if (ownerEmail.isNotBlank() && to.equals(ownerEmail, ignoreCase = true)) {
+                            // never email the owner — that's what the app/chat is for
+                        } else if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
                             val (ok, msg) = GmailClient.send(ctx, to, subj.ifBlank { "(no subject)" }, body)
                             outcome = if (ok) "Sent email to $to" else "Couldn't send: $msg"; if (ok) didAction = 1
                         }
