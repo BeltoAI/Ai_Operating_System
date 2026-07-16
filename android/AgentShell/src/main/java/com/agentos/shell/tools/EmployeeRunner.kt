@@ -30,7 +30,10 @@ object EmployeeRunner {
         "content/outline into \"text\" (research the person/topic first in earlier steps, then hand it all here; never invent facts). " +
         "It's designed as a beautiful PDF, saved to the SlyOS folder + brain, and sent into the chat for review. " +
         "CRITICAL: if the owner asked for a deck/one-pager/document, your job is NOT done until you have actually run make_doc and the " +
-        "file is produced — do NOT stop after only researching or saving a note. Gather what you need, then call make_doc this run. " +
+        "file is produced — do NOT stop after only researching or saving a note. Do at most ONE quick research step, then call make_doc. " +
+        "NEVER keep asking for missing details on a doc request: if the owner gives any go-ahead — or says 'just create it', 'agnostic', " +
+        "'it's fine', 'go ahead' — call make_doc IMMEDIATELY and use tasteful placeholders like [Client] for anything unknown. A solid " +
+        "draft they can edit always beats questions. Do NOT set 'needs' for a doc unless you genuinely cannot render at all. " +
         "edit_doc: revise the CURRENT document — put the requested change in \"text\" (e.g. 'make the cover bolder, add a pricing slide'); it re-renders and re-sends."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
@@ -81,10 +84,13 @@ object EmployeeRunner {
                     if (n.isNotBlank()) { try { MemoryLog.add(ctx, "note", "${emp.name}: note", n.take(500), "Team") } catch (e: Exception) {}; "saved a note to your brain ✓" } else ""
                 }
                 "make_doc" -> {
-                    val kind = act!!.optString("kind").ifBlank { act.optString("target") }.ifBlank { "onepager" }
-                    val title = act.optString("title").ifBlank { "Document" }
+                    val kind = act!!.optString("kind").ifBlank { act.optString("target") }.ifBlank { "deck" }
+                    val title = act.optString("title").ifBlank { "Deck" }
                     val brief = act.optString("text").ifBlank { act.optString("body") }
-                    if (brief.length < 20) "" else renderAndShare(ctx, emp, kind, title, brief)
+                    // Build even with thin input — a solid draft they can edit beats asking questions.
+                    val effBrief = if (brief.length >= 20) brief else
+                        "$title. Context: $srcMessage. Design a clean, professional structure with sensible sections; use tasteful placeholders like [Client], [Metric], [Date] where a specific is unknown."
+                    renderAndShare(ctx, emp, kind, title, effBrief)
                 }
                 "edit_doc" -> {
                     val instruction = act!!.optString("text").ifBlank { act.optString("body") }
@@ -156,8 +162,10 @@ object EmployeeRunner {
                 "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
                 "Output ONLY compact JSON {\"say\":\"one short progress line, past/pres tense\",\"action\":$ACTION_SCHEMA," +
                 "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the whole goal is accomplished." + DOC_HELP + " No prose, no fences."
+            val proceed = Regex("(?i)just (do|create|build|make) it|agnostic|it'?s fine|go ahead|without.*(info|details)|don'?t need|no info|proceed").containsMatchIn(task)
             val user = ctxBlock + "\nSTEPS DONE SO FAR:\n" + (if (steps.isEmpty()) "(none yet)" else steps.joinToString("\n")) +
                 "\n\n" + (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "Request from $speaker: " else "") + task +
+                (if (proceed) "\n\nThe owner has told you to PROCEED WITHOUT more info — take the real action NOW (for a doc: call make_doc with placeholders). Do NOT ask again." else "") +
                 "\n\nDo the next step now (or set done:true if the goal is fully met)."
             val (raw, inTok, outTok) = AgentClient.work(sys, user, 850, web = true)
             inSum += inTok; outSum += outTok
