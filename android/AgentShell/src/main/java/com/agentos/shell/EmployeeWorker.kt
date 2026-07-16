@@ -15,6 +15,13 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
     override suspend fun doWork(): Result {
         val ctx = applicationContext
+        // Self-heal the Telegram poller: if Android froze/killed the foreground service in the background, revive
+        // it every worker cycle so incoming @mentions get answered instead of silently dropped.
+        try {
+            if ((com.agentos.shell.tools.MemoryStore.telegramBot(ctx) || com.agentos.shell.tools.TeamChat.enabled(ctx)) &&
+                com.agentos.shell.tools.TelegramClient.configured())
+                TelegramService.start(ctx)
+        } catch (e: Exception) {}
         return try {
             // Spam-safe outreach drip: send at most ONE queued email per cadence window, independent of API keys.
             try {
