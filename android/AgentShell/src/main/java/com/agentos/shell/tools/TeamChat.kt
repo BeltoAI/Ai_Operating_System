@@ -201,9 +201,16 @@ object TeamChat {
         val user = try { TelegramClient.botUsername() } catch (e: Exception) { "" }.lowercase()
         if (user.isNotBlank() && t.contains("@$user")) return true
         val name = try { TelegramClient.botName() } catch (e: Exception) { "" }.lowercase()
-        // Only the last distinctive word (surname-like), so the owner's first name in the name doesn't over-trigger.
-        val last = name.split(Regex("[^a-z0-9]+")).filter { it.length > 4 }.lastOrNull() ?: return false
-        return Regex("(^|[^a-z0-9])@?" + Regex.escape(last) + "($|[^a-z0-9])").containsMatchIn(t)
+        // Every @mention in the message (without the @).
+        val mentions = Regex("@([a-z0-9_]{2,})").findAll(t).map { it.groupValues[1] }.toList()
+        // Match against the bot's DISTINCTIVE last name-word (e.g. "Emil's Bastard" → "bastard") — skip the owner's
+        // first name so "@Emil" to a human doesn't wake the bot. Prefix match both ways so "@bastard" hits it.
+        val distinctive = name.split(Regex("[^a-z0-9]+")).filter { it.length >= 4 }.lastOrNull()
+        if (distinctive != null && mentions.any { m -> m == distinctive || distinctive.startsWith(m) || m.startsWith(distinctive) }) return true
+        // Fallback: if we can't identify the bot yet (getMe not cached / offline), treat ANY leading @mention in a
+        // group as a summon so "@bastard …" still works instead of silently failing.
+        if (user.isBlank() && name.isBlank() && Regex("^\\s*@[a-z0-9_]{2,}").containsMatchIn(t)) return true
+        return false
     }
 
     /** Is this a question ABOUT the team itself (who's here, introductions, capabilities)? */
