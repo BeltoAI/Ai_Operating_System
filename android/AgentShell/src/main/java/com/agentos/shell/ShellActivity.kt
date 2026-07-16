@@ -94,11 +94,12 @@ class ShellActivity : ComponentActivity() {
         Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery
         // without per-image API cost. A quick kick now + a periodic sweep that fills it in over time.
-        Thread { try { com.agentos.shell.tools.PhotoIndex.analyzeRecent(applicationContext, 60); com.agentos.shell.tools.PhotoIndex.analyzeVideosRecent(applicationContext, 15) } catch (e: Exception) {} }.start()
+        Thread { try { com.agentos.shell.tools.PhotoIndex.analyzeRecent(applicationContext, 250); com.agentos.shell.tools.PhotoIndex.analyzeVideosRecent(applicationContext, 40) } catch (e: Exception) {} }.start()
         try {
-            val scanReq = androidx.work.PeriodicWorkRequestBuilder<PhotoScanWorker>(6, java.util.concurrent.TimeUnit.HOURS).build()
+            // Hourly (was every 6h) and REPLACE so the faster cadence actually takes effect on existing installs.
+            val scanReq = androidx.work.PeriodicWorkRequestBuilder<PhotoScanWorker>(1, java.util.concurrent.TimeUnit.HOURS).build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_photoscan", androidx.work.ExistingPeriodicWorkPolicy.KEEP, scanReq)
+                .enqueueUniquePeriodicWork("slyos_photoscan", androidx.work.ExistingPeriodicWorkPolicy.REPLACE, scanReq)
         } catch (e: Exception) {}
         // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
         Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()

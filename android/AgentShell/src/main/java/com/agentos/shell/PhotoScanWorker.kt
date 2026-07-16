@@ -13,8 +13,9 @@ import com.agentos.shell.tools.PhotoIndex
 class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         return try {
-            PhotoIndex.analyzeRecent(applicationContext, 80)
-            PhotoIndex.analyzeVideosRecent(applicationContext, 20)
+            // Bigger batches so a large gallery gets fully understood in days, not never.
+            PhotoIndex.analyzeRecent(applicationContext, 200)
+            PhotoIndex.analyzeVideosRecent(applicationContext, 40)
             Result.success()
         } catch (e: Exception) {
             Result.success()

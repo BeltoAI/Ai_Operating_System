@@ -117,7 +117,10 @@ object PhotoIndex {
     fun analyzeRecent(ctx: Context, max: Int = 60): Int {
         return try {
             val done = analyzedUris(ctx)
-            val recents = FileResolver.recentPhotos(ctx, 500)
+            // Scan the WHOLE gallery over time, not just the newest 500 — otherwise indexing plateaus once the
+            // newest photos are done and never reaches older ones (why the brain "stopped growing"). Dedup by
+            // `done` means each run just grinds through the next un-indexed batch until everything's covered.
+            val recents = FileResolver.recentPhotos(ctx, 50000)
             var added = 0
             for (f in recents) {
                 if (added >= max) break

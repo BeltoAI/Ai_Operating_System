@@ -294,8 +294,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
     Column(modifier) {
         ScreenHeader("Memory", onBack)
         version.let { }
-        Text("${nodes.size} memories mapped · drag to rotate, pinch to zoom", fontSize = T.caption, color = T.inkFaint,
-            modifier = Modifier.padding(top = 2.dp))
+        val photoCount = remember(version) { try { com.agentos.shell.tools.PhotoIndex.count(ctx) } catch (e: Exception) { 0 } }
+        Text("${nodes.size} memories mapped" + (if (photoCount > 0) " · $photoCount photos understood on-device" else "") + " · drag to rotate, pinch to zoom",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 2.dp))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
