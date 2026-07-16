@@ -88,6 +88,7 @@ class TelegramService : Service() {
         // Team GROUP chat (you + agents + humans) is handled separately — it routes agent dispatch and never
         // exposes the owner's brain, so it must run BEFORE the private-owner allowlist below.
         if (com.agentos.shell.tools.TeamChat.handleUpdate(applicationContext, u)) return
+        if (u.chatId < 0) return   // a GROUP the team chat didn't handle → stay silent (never spam pairing in a group)
         if (!authorized(u)) return   // no brain, no persona, no logging for anyone but the paired owner
         val mem = MemoryStore.about(applicationContext)
         val who = u.senderName.ifBlank { "Telegram ${u.chatId}" }   // brain contact name for any branch

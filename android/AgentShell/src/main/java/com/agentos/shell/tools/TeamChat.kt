@@ -42,18 +42,23 @@ object TeamChat {
      * the team group), so the service skips its private-owner brain flow. Auto-captures the group the first
      * time the bot sees a group message while enabled.
      */
+    private fun greeted(ctx: Context, chatId: Long) = p(ctx).getBoolean("greeted_$chatId", false)
+    private fun markGreeted(ctx: Context, chatId: Long) = p(ctx).edit().putBoolean("greeted_$chatId", true).apply()
+
     fun handleUpdate(ctx: Context, u: TelegramClient.Update): Boolean {
         if (!enabled(ctx)) return false
-        val gid = groupId(ctx)
         val isGroup = u.chatId < 0   // Telegram group/supergroup chat ids are negative
-        if (gid == 0L) {
-            if (!isGroup) return false   // haven't captured a group yet; let the normal DM flow handle DMs
-            setGroupId(ctx, u.chatId)
-            try { TelegramClient.sendMessage(u.chatId,
+        if (!isGroup) return false   // a DM → let the private-owner flow handle it, not the team chat
+
+        // ANY group the bot is in (while team chat is on) IS a team chat — so you can spin up new test groups
+        // freely. Follow the active group for agent posts, and greet each new one exactly once.
+        val gid = u.chatId
+        if (groupId(ctx) != gid) setGroupId(ctx, gid)
+        if (!greeted(ctx, gid)) {
+            markGreeted(ctx, gid)
+            try { TelegramClient.sendMessage(gid,
                 "SlyOS team chat connected ✓ — your agents will post here. Address one by name, e.g. \"Kai, reschedule my 3pm\".") } catch (e: Exception) {}
-            return true
         }
-        if (u.chatId != gid) return false   // some other chat → not ours
 
         // Someone joined → the whole team introduces itself.
         if (u.newMembers.isNotEmpty()) { introduceAll(ctx, u.newMembers.first()); return true }
