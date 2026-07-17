@@ -39,7 +39,7 @@ object OnDeviceEmbedder {
             val total = c.contentLength.coerceAtLeast(1)
             var read = 0L
             c.inputStream.use { inp ->
-                out.outputStream.use { o ->
+                out.outputStream().use { o ->
                     val buf = ByteArray(65536); var n: Int
                     while (inp.read(buf).also { n = it } > 0) {
                         o.write(buf, 0, n); read += n
