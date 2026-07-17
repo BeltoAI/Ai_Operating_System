@@ -21,11 +21,15 @@ object TeamChat {
     private fun setGroupId(ctx: Context, id: Long) = p(ctx).edit().putLong("group_id", id).apply()
     fun isConnected(ctx: Context): Boolean = enabled(ctx) && groupId(ctx) != 0L
 
-    /** An agent posts an update/ask into the group. Prefixed with its name so identities are clear. */
+    /** A PROACTIVE, owner-directed agent update/ask ("needs you", status). These go to the owner PRIVATELY (his
+     *  DM with the bot) — NOT the shared group, which may have family/others. The group is only for actual
+     *  requests: agents reply there when someone asks. Falls back to the group if no private chat is paired. */
     fun post(ctx: Context, agentName: String, text: String) {
-        if (!enabled(ctx)) return
-        val gid = groupId(ctx); if (gid == 0L || text.isBlank()) return
-        try { TelegramClient.sendMessage(gid, stripMd("$agentName · $text")) } catch (e: Exception) {}
+        if (!enabled(ctx) || text.isBlank()) return
+        val ownerDm = try { MemoryStore.telegramOwnerId(ctx) } catch (e: Exception) { 0L }
+        val target = if (ownerDm != 0L) ownerDm else groupId(ctx)
+        if (target == 0L) return
+        try { TelegramClient.sendMessage(target, stripMd("$agentName · $text")) } catch (e: Exception) {}
         // Mark this agent as the one you're "with", so your reply reaches them WITHOUT an @mention.
         try { EmployeeStore.all(ctx).firstOrNull { it.name.equals(agentName, true) }?.let { setLastAgent(ctx, it.id) } } catch (e: Exception) {}
     }

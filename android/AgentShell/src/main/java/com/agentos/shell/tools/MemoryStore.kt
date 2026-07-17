@@ -146,6 +146,12 @@ object MemoryStore {
     fun setZenodoToken(ctx: Context, value: String) = prefs(ctx).edit().putString("zenodo_token", value.trim()).apply()
     fun musicIdToken(ctx: Context): String = prefs(ctx).getString("audd_token", "") ?: ""
     fun setMusicIdToken(ctx: Context, value: String) = prefs(ctx).edit().putString("audd_token", value.trim()).apply()
+    fun vercelToken(ctx: Context): String = prefs(ctx).getString("vercel_token", "") ?: ""
+    fun setVercelToken(ctx: Context, value: String) = prefs(ctx).edit().putString("vercel_token", value.trim()).apply()
+    fun supabaseUrl(ctx: Context): String = prefs(ctx).getString("supabase_url", "") ?: ""
+    fun setSupabaseUrl(ctx: Context, value: String) = prefs(ctx).edit().putString("supabase_url", value.trim()).apply()
+    fun supabaseAnon(ctx: Context): String = prefs(ctx).getString("supabase_anon", "") ?: ""
+    fun setSupabaseAnon(ctx: Context, value: String) = prefs(ctx).edit().putString("supabase_anon", value.trim()).apply()
 
     /** Your Anthropic API key (the brain). Stored ONLY on this device; lets a prebuilt APK run with no
      *  key compiled in — each person pastes their own. */

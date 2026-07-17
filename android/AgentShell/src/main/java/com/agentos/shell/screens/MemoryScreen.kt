@@ -795,6 +795,19 @@ private fun ApiKeysCard() {
         }
         KeyEntry("GitHub token (Cowork push)", "ghp_…", "github", MemoryStore.githubToken(ctx)) { MemoryStore.setGithubToken(ctx, it) }
         KeyEntry("AudD (name songs you hear)", "token…", "audd", MemoryStore.musicIdToken(ctx)) { MemoryStore.setMusicIdToken(ctx, it) }
+        KeyEntry("Vercel (agents ship sites live)", "token…", "vercel", MemoryStore.vercelToken(ctx)) { MemoryStore.setVercelToken(ctx, it) }
+        run {
+            var su by remember { mutableStateOf(MemoryStore.supabaseUrl(ctx)) }
+            BasicTextField(su, { su = it; MemoryStore.setSupabaseUrl(ctx, it) }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (su.isEmpty()) Text("Supabase project URL (backend for deployed apps)", fontSize = T.small, color = T.inkFaint); inner() })
+            var sa by remember { mutableStateOf(MemoryStore.supabaseAnon(ctx)) }
+            BasicTextField(sa, { sa = it; MemoryStore.setSupabaseAnon(ctx, it) }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
+                decorationBox = { inner -> if (sa.isEmpty()) Text("Supabase anon key", fontSize = T.small, color = T.inkFaint); inner() })
+        }
         Spacer(Modifier.height(8.dp))
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)

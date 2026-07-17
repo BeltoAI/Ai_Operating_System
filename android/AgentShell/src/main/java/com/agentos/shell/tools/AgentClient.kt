@@ -170,6 +170,8 @@ object AgentClient {
      * print-ready A4, premium design. Grounded in the company brain + any example templates the agent was fed.
      */
     fun designHtml(kind: String, title: String, brief: String, templates: String = "", brainSnippet: String = ""): String {
+        val k = kind.lowercase()
+        if (k.contains("site") || k.contains("web") || k.contains("app") || k.contains("landing")) return designSite(title, brief, templates, brainSnippet)
         val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
         val sys = "You are a genius founder-CEO with world-class design taste, building this document. Produce ONE complete, " +
             "self-contained HTML5 document with ALL styling in an inline <style> block — NO external assets, NO scripts required. " +
@@ -193,6 +195,25 @@ object AgentClient {
             (if (templates.isNotBlank()) "STYLE/STRUCTURE REFERENCE from the owner's example documents (mirror this look & feel):\n${templates.take(2500)}\n\n" else "") +
             "Design the full HTML now."
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 12000, OPUS, 240000)
+        return if (code == 200) stripHtmlFences(text) else ""
+    }
+
+    /** Build a COMPLETE responsive website (single self-contained index.html) with a real Supabase backend when
+     *  creds are provided — deployable to Vercel as-is. Scripts allowed; mobile-first; premium design. */
+    private fun designSite(title: String, brief: String, templates: String, brainSnippet: String): String {
+        val sys = "You are a senior product designer AND full-stack engineer. Build a COMPLETE, responsive, production-quality " +
+            "website as ONE self-contained index.html — inline CSS, and JavaScript is allowed and ENCOURAGED. Modern, beautiful, " +
+            "mobile-first, fast; restrained premium visual design (confident type, generous whitespace, one accent). Write REAL copy " +
+            "from the brief — never lorem ipsum, never invent facts. If the brief includes Supabase credentials " +
+            "(SUPABASE_URL / SUPABASE_ANON_KEY), wire a REAL working backend CLIENT-SIDE using supabase-js from the CDN " +
+            "(import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm') for auth/database/storage exactly " +
+            "as the brief requires — functional, not mocked. Build every section the brief asks for. Output ONLY the HTML " +
+            "(starting with <!DOCTYPE html>). No markdown, no commentary."
+        val user = "Site: $title\n\nWHAT TO BUILD (make it real and complete):\n$brief\n\n" +
+            (if (brainSnippet.isNotBlank()) "OWNER/COMPANY CONTEXT (for accuracy + voice):\n${brainSnippet.take(2500)}\n\n" else "") +
+            (if (templates.isNotBlank()) "STYLE REFERENCE (mirror this feel):\n${templates.take(2000)}\n\n" else "") +
+            "Build the full site now."
+        val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 16000, OPUS, 240000)
         return if (code == 200) stripHtmlFences(text) else ""
     }
 

@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -39,7 +39,10 @@ object EmployeeRunner {
         " outreach: send an email to MANY relevant people from the CRM as a spam-safe drip (one every ~hour, not a blast). Put the audience in " +
         "\"target\" (e.g. 'vcs', 'investors', 'all leads', 'design agencies' — whatever the context demands), a \"subject\", and a warm personalized \"body\" " +
         "(use [Name] and it's filled per-recipient). If a document is in progress it's attached automatically. Optionally set \"extra\":{\"everyMin\":60}. " +
-        "Only use outreach when the owner clearly asks to reach out to a group; confirm the audience makes sense first."
+        "Only use outreach when the owner clearly asks to reach out to a group; confirm the audience makes sense first." +
+        " deploy: ship the CURRENT site LIVE to Vercel — returns a public URL you paste back in the chat. Build the site first with make_doc " +
+        "(kind \"site\"), then call deploy. Wire any backend (DB/auth/storage) with Supabase client-side using the creds in your context. " +
+        "If a Vercel token isn't set, say in one line that the owner needs to add one in Brain → API keys, and hand back the finished code meanwhile."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -134,6 +137,18 @@ object EmployeeRunner {
                         }
                     }
                 }
+                "deploy" -> {
+                    val cur = DesignStore.get(ctx, emp.id)
+                    val html = act!!.optString("text").ifBlank { cur?.html.orEmpty() }
+                    val name = act.optString("title").ifBlank { cur?.title ?: "site" }
+                    if (html.length < 60) "there's no site built yet to deploy — create it first, then deploy" else {
+                        val r = DeployClient.deployHtml(ctx, name, html)
+                        if (r.ok) {
+                            try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Deployed “$name” live: ${r.url}") } catch (e: Exception) {}
+                            "shipped it live ✓ ${r.url}"
+                        } else r.error
+                    }
+                }
                 else -> ""
             }
         } catch (e: Exception) { "action failed: ${e.message}" }
@@ -157,9 +172,11 @@ object EmployeeRunner {
     private fun finalizeDoc(ctx: Context, emp: EmployeeStore.Employee, title: String, kind: String, html: String,
                             verb: String, finalize: Boolean = false): String {
         val isDeck = kind.lowercase().contains("deck") || kind.lowercase().contains("slide") || kind.lowercase().contains("present")
+        val isSite = kind.lowercase().let { it.contains("site") || it.contains("web") || it.contains("app") || it.contains("landing") }
         val safe = title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().take(50).ifBlank { "document" }
         val dir = java.io.File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "SlyOS").apply { mkdirs() }
-        val pdf = if (finalize) try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null } else null
+        // A website is never a PDF — keep it as HTML and offer to deploy it instead.
+        val pdf = if (finalize && !isSite) try { HtmlPdf.render(ctx, html, title, landscape = isDeck) } catch (e: Exception) { null } else null
         // Always keep an HTML copy on disk (that's what we iterate on and what we send while drafting).
         val htmlFile = try { java.io.File(dir, "$safe.html").apply { writeText(html) } } catch (e: Exception) { null }
         val file = pdf ?: htmlFile
@@ -177,6 +194,8 @@ object EmployeeRunner {
             "$title — final PDF, ready to send. Nice working with you on this one."
         else if (finalize)
             "$title — couldn't render the PDF on-device, so here's the final HTML (opens in any browser, looks identical). You can print-to-PDF from there."
+        else if (isSite)
+            "$title — here's the working site (open it in any browser). Tell me any changes. When it's ready, say “deploy it” and I'll ship it to a live public URL."
         else {
             val ask = if (isDeck) "What do you think — tighten the cover, cut a slide, shift the color?"
                       else "What do you think — punchier, shorter, different accent color?"
@@ -229,8 +248,17 @@ object EmployeeRunner {
                  maxSteps: Int = 6, tokenCap: Int = 45000): ChainResult {
         // FAST PATH: "make it a PDF" / "finalize" / "export it" / "I'm happy, convert it" on a doc that's already
         // in progress → skip the model entirely and do the single HTML→PDF conversion. Reliable + instant.
-        val wantsPdf = Regex("(?i)\\b(make (it|this).*(pdf|final)|to pdf|as (a )?pdf|export|finali[sz]e|convert.*pdf|i'?m happy|we'?re done|looks good.*(send|final|pdf)|lock it in|ship it)\\b").containsMatchIn(task)
-        if (wantsPdf && DesignStore.get(ctx, emp.id) != null) {
+        // FAST PATH: "deploy it / ship it / go live" on a SITE in progress → deploy to Vercel now (skip the model).
+        val cur0 = DesignStore.get(ctx, emp.id)
+        val curIsSite = cur0?.kind?.lowercase()?.let { it.contains("site") || it.contains("web") || it.contains("app") || it.contains("landing") } ?: false
+        val wantsDeploy = Regex("(?i)\\b(deploy( it| this)?|ship it( live)?|go live|publish( it| this)?|put (it|this) live|make (it|this) live)\\b").containsMatchIn(task)
+        if (wantsDeploy && cur0 != null && curIsSite) {
+            val r = try { DeployClient.deployHtml(ctx, cur0.title, cur0.html) } catch (e: Exception) { DeployClient.Result(false, "", "deploy failed: ${e.message}") }
+            if (r.ok) { try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Deployed “${cur0.title}” live: ${r.url}") } catch (e: Exception) {} }
+            return ChainResult(if (r.ok) "Shipped it live — ${r.url}" else r.error, "", if (r.ok) 1 else 0, 0, 0)
+        }
+        val wantsPdf = Regex("(?i)\\b(make (it|this).*(pdf|final)|to pdf|as (a )?pdf|export|finali[sz]e|convert.*pdf|i'?m happy|we'?re done|looks good.*(send|final|pdf)|lock it in)\\b").containsMatchIn(task)
+        if (wantsPdf && DesignStore.get(ctx, emp.id) != null && !curIsSite) {
             val r = try { exportPdf(ctx, emp) } catch (e: Exception) { "couldn't render the PDF" }
             if (r.isNotBlank()) return ChainResult(r, "", if (r.startsWith("couldn't")) 0 else 1, 0, 0)
         }
@@ -242,7 +270,14 @@ object EmployeeRunner {
         val roster = try { EmployeeStore.all(ctx).filter { it.id != emp.id && it.name.isNotBlank() }.joinToString("; ") { "${it.name} (${it.role})" } } catch (e: Exception) { "" }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
         val forget = try { EmployeeStore.forgetList(ctx, emp.id) } catch (e: Exception) { "" }
-        val ctxBlock = "Current time: $now\n" +
+        val isDev = Regex("(?i)dev|engineer|full.?stack|deploy|coder?").containsMatchIn(emp.role + " " + emp.tools)
+        val devBlock = if (isDev) {
+            val u = try { DeployClient.supabaseUrl(ctx) } catch (e: Exception) { "" }
+            val a = try { DeployClient.supabaseAnon(ctx) } catch (e: Exception) { "" }
+            "DEPLOY STACK: you can ship sites LIVE to Vercel — build the site (make_doc kind \"site\"), then call the 'deploy' action to get a public URL. " +
+            (if (u.isNotBlank()) "Backend = Supabase: wire DB/auth/storage CLIENT-SIDE via the supabase-js CDN with SUPABASE_URL=\"$u\" and SUPABASE_ANON_KEY=\"$a\"." else "Backend = Supabase, but no creds are set — build the frontend and note a Supabase URL + anon key is needed.") + "\n\n"
+        } else ""
+        val ctxBlock = "Current time: $now\n" + devBlock +
             (if (forget.isNotBlank()) "DROPPED BY THE OWNER — do NOT work on, suggest, or bring up ANY of these ever again:\n$forget\n\n" else "") +
             (if (roster.isNotBlank()) "YOUR TEAMMATES (you know these people; refer work to them when it's their lane, but you can't do their jobs): $roster\n\n" else "") +
             (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (your PRIMARY source):\n$kb\n\n" else "") +
@@ -260,8 +295,9 @@ object EmployeeRunner {
                 "web search every step. MAX AUTOMATION — actually DO things (send the email, create the event, save the lead, " +
                 "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
                 "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
-                "Output ONLY compact JSON {\"say\":\"one short progress line, past/pres tense\",\"action\":$ACTION_SCHEMA," +
-                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the whole goal is accomplished." + DOC_HELP + " No prose, no fences."
+                "\"say\" is a SHORT, NATURAL, FIRST-PERSON message to $owner — talk like a real teammate who's on it, warm and human, the way ${emp.name} the ${emp.role} actually would. NEVER narrate your own internal reasoning or routing: no 'this is inbox territory', no 'handing to Riri', no bullet-point status log. Just say the human thing. If it's genuinely another teammate's job, say ONE friendly line like 'that's more Kai's area — want me to loop them in?' and set done:true. For casual chat or a simple reply, answer in ONE step and set done:true — never repeat yourself across steps. " +
+                "Output ONLY compact JSON {\"say\":\"your natural message to $owner\",\"action\":$ACTION_SCHEMA," +
+                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the goal is met (or immediately for chit-chat)." + DOC_HELP + " No prose, no fences."
             val proceed = Regex("(?i)just (do|create|build|make) it|agnostic|it'?s fine|go ahead|without.*(info|details)|don'?t need|no info|proceed").containsMatchIn(task)
             val user = ctxBlock + "\nSTEPS DONE SO FAR:\n" + (if (steps.isEmpty()) "(none yet)" else steps.joinToString("\n")) +
                 "\n\n" + (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "Request from $speaker: " else "") + task +
@@ -295,8 +331,23 @@ object EmployeeRunner {
             val r = try { renderAndShare(ctx, emp, docKind, docTitle, fb) } catch (e: Exception) { "couldn't build the document" }
             steps.add("• $r"); if (!r.startsWith("couldn't")) { didAny++; needs = "" }
         }
-        val summary = (if (steps.isEmpty()) "Looked into it — nothing to action right now." else steps.joinToString("\n")) +
-            (if (needs.isNotBlank()) "\n\n⏸ Needs you: $needs" else "")
+        // Build a HUMAN reply, not the internal step log: strip the "• " bullets, separate the agent's natural
+        // message from the internal action-result, DEDUPE (so a looped model doesn't repeat itself 5×), and only
+        // surface concrete outcomes (added/sent/created) — never internal routing chatter.
+        val seen = LinkedHashSet<String>()
+        steps.forEach { raw ->
+            val s = raw.removePrefix("• ").trim()
+            val arrow = s.indexOf(" → ")
+            val msg = if (arrow >= 0) s.substring(0, arrow).trim() else s
+            val res = if (arrow >= 0) s.substring(arrow + 3).trim() else ""
+            if (msg.isNotBlank()) seen.add(msg)
+            if (res.isNotBlank() && !res.startsWith("couldn't") &&
+                Regex("(?i)✓|\\badded\\b|\\bsent\\b|\\bcreated\\b|\\bsaved\\b|\\bscheduled\\b|\\bqueued\\b|\\bdrafted\\b|\\bdesigned\\b|\\bfinalized\\b").containsMatchIn(res))
+                seen.add(res)
+        }
+        val body = seen.joinToString("\n")
+        val summary = (if (body.isBlank()) "On it." else body) +
+            (if (needs.isNotBlank()) "\n\nNeeds you: $needs" else "")
         return ChainResult(summary, needs, didAny, inSum, outSum)
     }
 
