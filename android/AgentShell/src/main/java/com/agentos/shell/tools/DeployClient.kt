@@ -25,9 +25,10 @@ object DeployClient {
 
     private fun slug(s: String): String = s.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(40).ifBlank { "slyos-site" }
 
-    /** Deploy a set of files (path → content) to Vercel production. Returns the live https URL or an error. */
-    fun deploy(ctx: Context, name: String, files: Map<String, String>): Result {
-        val token = MemoryStore.vercelToken(ctx)
+    /** Deploy a set of files (path → content) to Vercel production. [tokenOverride] lets the shared/baked token be
+     *  used; otherwise falls back to the owner's own token. Returns the live https URL or an error. */
+    fun deploy(ctx: Context, name: String, files: Map<String, String>, tokenOverride: String = ""): Result {
+        val token = tokenOverride.ifBlank { MemoryStore.vercelToken(ctx) }
         if (token.isBlank()) return Result(false, "", "No Vercel token — add one in Brain → API keys to deploy.")
         if (files.isEmpty()) return Result(false, "", "Nothing to deploy.")
         return try {

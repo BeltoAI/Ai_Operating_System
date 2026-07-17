@@ -167,7 +167,7 @@ object EmployeeRunner {
                         // FREE + zero-config host by default (real URL, no user keys). Vercel only if a token is set.
                         val (ok, url, err) = if (MemoryStore.vercelToken(ctx).isNotBlank()) {
                             val r = DeployClient.deployHtml(ctx, name, html); Triple(r.ok, r.url, r.error)
-                        } else { val r = SiteHost.publish(html, name); Triple(r.ok, r.url, r.error) }
+                        } else { val r = SiteHost.publish(ctx, html, name); Triple(r.ok, r.url, r.error) }
                         if (ok) {
                             try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Shipped “$name” live: $url") } catch (e: Exception) {}
                             "It's live ✓ $url"
@@ -280,7 +280,7 @@ object EmployeeRunner {
         if (wantsDeploy && cur0 != null && curIsSite) {
             val (ok, url, err) = try {
                 if (MemoryStore.vercelToken(ctx).isNotBlank()) { val r = DeployClient.deployHtml(ctx, cur0.title, cur0.html); Triple(r.ok, r.url, r.error) }
-                else { val r = SiteHost.publish(cur0.html, cur0.title); Triple(r.ok, r.url, r.error) }
+                else { val r = SiteHost.publish(ctx, cur0.html, cur0.title); Triple(r.ok, r.url, r.error) }
             } catch (e: Exception) { Triple(false, "", "deploy failed: ${e.message}") }
             if (ok) { try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Shipped “${cur0.title}” live: $url") } catch (e: Exception) {} }
             return ChainResult(if (ok) "It's live — $url" else err, "", if (ok) 1 else 0, 0, 0)

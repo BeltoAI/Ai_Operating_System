@@ -44,6 +44,9 @@ android {
         // Both come from apikey.properties (gitignored). See ACCOUNT_AND_SYNC.md for the DB contract.
         buildConfigField("String", "SUPABASE_URL", "\"${apiKeyProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${apiKeyProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
+        // Shared Vercel token (BeltoAI-owned) so agents can ship user sites LIVE to a RENDERED URL with zero
+        // per-user setup. Supabase Storage serves HTML as text/plain, so it can't host live pages. From apikey.properties.
+        buildConfigField("String", "VERCEL_TOKEN", "\"${apiKeyProps.getProperty("VERCEL_TOKEN", "")}\"")
         // Image model key (prompt-based generate + edit — Claude has no image model). Add ONE of these to
         // apikey.properties: OPENAI_API_KEY (gpt-image-1) or GEMINI_API_KEY. Blank = native edits still work.
         buildConfigField("String", "OPENAI_API_KEY", "\"${apiKeyProps.getProperty("OPENAI_API_KEY", "")}\"")

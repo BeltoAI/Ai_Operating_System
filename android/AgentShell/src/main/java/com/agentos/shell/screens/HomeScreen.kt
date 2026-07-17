@@ -391,7 +391,7 @@ fun HomeScreen(
                         val html = com.agentos.shell.tools.AgentClient.designHtml("site", q.take(40), brief)
                         if (html.length < 120) "I couldn't build that just now — mind trying again?"
                         else {
-                            val pub = com.agentos.shell.tools.SiteHost.publish(html, q.take(30))
+                            val pub = com.agentos.shell.tools.SiteHost.publish(ctx, html, q.take(30))
                             if (pub.ok) {
                                 try { com.agentos.shell.tools.MessageStore.insertOne(ctx, "You", "Build", "You", "me", "Built + shipped a site for: $q → ${pub.url}") } catch (e: Exception) {}
                                 "Built it with the best model and it's live:\n${pub.url}\n\nTell me any changes and I'll update it."
