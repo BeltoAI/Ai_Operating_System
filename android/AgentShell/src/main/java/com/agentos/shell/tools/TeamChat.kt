@@ -192,6 +192,8 @@ object TeamChat {
             boost("expense|receipt|spend|budget|invoice|money|cost", "book|expense|financ|account")
             boost("reddit|post|comment|tweet|social|audience", "reddit|growth|social|market")
             boost("explain|what is|how does|why|know|expert|technical|deep", "expert|deep")
+            boost("website|web ?site|web ?app|landing|marketplace|storefront|deploy|ship it|go live|build.*(app|site|page)|code|backend|frontend|supabase|vercel", "dev|engineer|full.?stack|coder?|build")
+            boost("deck|one.?pager|slides?|presentation|pitch|design|logo|brand|mockup|poster", "design|creative")
             // an agent that's been fed documents is the natural home for knowledge questions
             if (try { AgentKnowledge.count(ctx, e.id) } catch (ex: Exception) { 0 } > 0) s += 1
             return s

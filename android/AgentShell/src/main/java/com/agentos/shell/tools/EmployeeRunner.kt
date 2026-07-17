@@ -26,7 +26,7 @@ object EmployeeRunner {
 
     // How the doc actions work — appended to the chain prompt so a designer agent knows to use them.
     private const val DOC_HELP =
-        " make_doc: create a high-end DECK or ONE-PAGER — set kind (\"deck\" or \"onepager\"), a title, and put a CONCISE outline " +
+        " make_doc: create a high-end DECK, ONE-PAGER, or WEBSITE — set kind (\"deck\", \"onepager\", or \"site\" for a full responsive web app with a real Supabase backend), a title, and put a CONCISE outline " +
         "into \"text\" (a handful of short lines — the designer expands each into polished copy; keep it brief so the JSON stays valid). " +
         "It's designed as a beautiful LIVE DRAFT (HTML that opens in any browser), saved to the SlyOS folder + brain, and sent into the " +
         "chat for review — the owner iterates on it, then says 'make it a PDF' when happy and it's converted once. Don't claim you made a PDF; call it a draft. " +
@@ -322,9 +322,10 @@ object EmployeeRunner {
         }
         // GUARANTEE: a deck/doc request ALWAYS yields a file. If the chain didn't actually build one (model
         // flaked or kept asking), build it now from the task + brain + fed docs — no more "Worked on it".
-        if (Regex("(?i)\\b(deck|one.?pager|onepager|document|slides?|presentation|brochure|pitch|proposal)\\b").containsMatchIn(task) &&
-            steps.none { it.contains("designed", true) || it.contains("edited", true) || it.contains("ready to review", true) }) {
-            val docKind = if (Regex("(?i)deck|slide|present|pitch").containsMatchIn(task)) "deck" else "onepager"
+        val wantsSite = Regex("(?i)\\b(web ?site|web ?app|web ?page|landing ?page|marketplace|storefront|online store|build.*site|make.*site)\\b").containsMatchIn(task)
+        if ((wantsSite || Regex("(?i)\\b(deck|one.?pager|onepager|document|slides?|presentation|brochure|pitch|proposal)\\b").containsMatchIn(task)) &&
+            steps.none { it.contains("designed", true) || it.contains("edited", true) || it.contains("ready to review", true) || it.contains("working site", true) }) {
+            val docKind = when { wantsSite -> "site"; Regex("(?i)deck|slide|present|pitch").containsMatchIn(task) -> "deck"; else -> "onepager" }
             val docTitle = Regex("(?i)\\b(vera|bastard|build|create|make|design|me|my|a|an|the|please|for|can|you|u|just|do|it|agnostic|short|quick|send|to)\\b").replace(task, " ")
                 .replace(Regex("[^A-Za-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim().split(" ").filter { it.length > 1 }.take(5).joinToString(" ").ifBlank { "Document" }.replaceFirstChar { it.uppercase() }
             val fb = task + (if (kb.isNotBlank()) "\n\nKnown context:\n${kb.take(1500)}" else "") + (if (brain.isNotBlank()) "\n\nAbout the company/owner:\n${brain.take(1500)}" else "")
