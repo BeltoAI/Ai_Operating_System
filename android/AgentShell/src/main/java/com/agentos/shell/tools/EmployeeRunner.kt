@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -42,7 +42,9 @@ object EmployeeRunner {
         "Only use outreach when the owner clearly asks to reach out to a group; confirm the audience makes sense first." +
         " deploy: ship the CURRENT site LIVE to Vercel — returns a public URL you paste back in the chat. Build the site first with make_doc " +
         "(kind \"site\"), then call deploy. Wire any backend (DB/auth/storage) with Supabase client-side using the creds in your context. " +
-        "If a Vercel token isn't set, say in one line that the owner needs to add one in Brain → API keys, and hand back the finished code meanwhile."
+        "If a Vercel token isn't set, say in one line that the owner needs to add one in Brain → API keys, and hand back the finished code meanwhile." +
+        " build_app: for a REAL full-stack app (marketplace, SaaS, dashboard — anything with users, data, auth, or payments) hand it to LOVABLE, which ships React + a Supabase backend + hosting END-TO-END. Put a crisp, complete build brief in \"text\" " +
+        "(what it does, the key pages, the data model, auth, payments, and the look/feel). I turn it into a one-tap Lovable build link the owner opens — no key needed. Use build_app for full apps; use make_doc kind \"site\" + deploy only for a simple static/marketing page."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -135,6 +137,16 @@ object EmployeeRunner {
                                 (if (attach.isNotBlank()) " (your document attached)" else "")
                             else "those contacts are already queued"
                         }
+                    }
+                }
+                "build_app" -> {
+                    // Hand a REAL full-stack app to Lovable (React + Supabase + hosting, end-to-end). We compose a
+                    // crisp build brief; the owner taps the link to build it in their Lovable account.
+                    val brief = act!!.optString("text").ifBlank { act.optString("body") }.ifBlank { srcMessage }
+                    if (brief.length < 8) "tell me what the app should do and I'll spin up a Lovable build" else {
+                        val url = LovableClient.buildUrl(brief)
+                        try { MessageStore.insertOne(ctx, emp.name, "Build", emp.name, "me", "Lovable build for “${brief.take(60)}”: $url") } catch (e: Exception) {}
+                        "Tap to build it end-to-end on Lovable (React + Supabase + hosting):\n$url"
                     }
                 }
                 "deploy" -> {

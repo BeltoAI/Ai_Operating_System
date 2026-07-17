@@ -379,6 +379,20 @@ fun HomeScreen(
             val r = try { com.agentos.shell.tools.AlarmPlanner.configure(ctx, q) } catch (e: Exception) { null }
             if (r != null) { text = ""; reply = r; lastQuery = q; if (doSpeak) speak(r); return@submit }
         }
+        // "build me an app / website / marketplace" → hand to Lovable (full-stack e2e). Works from any chat.
+        // The prompt is grounded in the brain (business context) and the build is recorded to the brain.
+        if (Regex("(?i)\\bbuild\\b.{0,40}\\b(app|web ?app|web ?site|website|marketplace|saas|platform|dashboard|online store|landing ?page)\\b").containsMatchIn(q)) {
+            text = ""; thinking = true; reply = ""; lastQuery = q
+            scope.launch {
+                val ctxSnippet = try { withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) } } catch (e: Exception) { "" }
+                val fullPrompt = q + (if (ctxSnippet.isNotBlank()) "\n\nBuild it to fit this business/owner context:\n${ctxSnippet.take(1500)}" else "")
+                val url = com.agentos.shell.tools.LovableClient.buildUrl(fullPrompt)
+                try { withContext(Dispatchers.IO) { com.agentos.shell.tools.MessageStore.insertOne(ctx, "You", "Build", "You", "me", "App build request: $q → $url") } } catch (e: Exception) {}
+                val r = "Tap to build it end-to-end on Lovable — React + Supabase backend + hosting:\n$url"
+                reply = r; thinking = false; if (doSpeak) speak(r)
+            }
+            return@submit
+        }
         // Brain diagnostics on request — a real readout from every store, not the model guessing.
         if (Regex("(?i)\\b(brain (status|stats|health|check|diagnostic)|health check|is my brain (growing|working|filling))\\b").containsMatchIn(q.lowercase())) {
             text = ""; thinking = true; reply = ""; lastQuery = q
