@@ -34,9 +34,11 @@ object SiteHost {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 20000; readTimeout = 40000
                 setRequestProperty("apikey", key)
                 setRequestProperty("Authorization", "Bearer $key")
-                setRequestProperty("Content-Type", "text/html; charset=utf-8")
+                // Supabase stores the object's mime-type from this header AND from a form field — set both plainly
+                // to "text/html" so the browser RENDERS the page instead of showing source. No charset suffix.
+                setRequestProperty("Content-Type", "text/html")
                 setRequestProperty("x-upsert", "true")
-                setRequestProperty("cache-control", "3600")
+                setRequestProperty("cache-control", "max-age=3600")
             }
             conn.outputStream.use { it.write(html.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
