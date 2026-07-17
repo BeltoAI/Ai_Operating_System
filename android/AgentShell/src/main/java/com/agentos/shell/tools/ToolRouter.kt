@@ -266,11 +266,12 @@ object ToolRouter {
     private fun setTimer(ctx: Context, arg: String): String {
         val secs = parseDuration(arg)
         if (secs <= 0) return "How long should the timer be?"
-        start(ctx, Intent(AlarmClock.ACTION_SET_TIMER)
-            .putExtra(AlarmClock.EXTRA_LENGTH, secs)
-            .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
-        try { MessageStore.insertOne(ctx, "Timers", "Timer", "me", "me", "Timer set for ${secs / 60} min") } catch (e: Exception) {}
-        return "Timer set for ${secs / 60} min."
+        // In-app timer so the Home countdown widget can show it live (a system-clock timer can't be read back).
+        val label = arg.replace(Regex("(?i)\\b(timer|set|for|a|an|minutes?|mins?|seconds?|secs?|hours?|hrs?|\\d+)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        TimerStore.start(ctx, secs, label)
+        val pretty = if (secs >= 3600) "${secs / 3600}h ${(secs % 3600) / 60}m" else if (secs >= 60) "${secs / 60} min" else "$secs sec"
+        try { MessageStore.insertOne(ctx, "Timers", "Timer", "me", "me", "Timer set for $pretty") } catch (e: Exception) {}
+        return "Timer set for $pretty — counting down on your Home screen."
     }
 
     /** Public entry so UI (e.g. the wake-up suggestion chip) can set an alarm directly. */

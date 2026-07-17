@@ -12,19 +12,30 @@ import com.agentos.shell.BuildConfig
  * rendering.) If the owner has set their OWN Vercel token in Settings, that takes precedence.
  */
 object SiteHost {
-    fun sharedToken(): String = try { BuildConfig.VERCEL_TOKEN } catch (e: Exception) { "" }
-    fun available(ctx: Context): Boolean = sharedToken().isNotBlank() || MemoryStore.vercelToken(ctx).isNotBlank()
+    private fun bakedNetlify(): String = try { BuildConfig.NETLIFY_TOKEN } catch (e: Exception) { "" }
+    private fun vercelShared(): String = try { BuildConfig.VERCEL_TOKEN } catch (e: Exception) { "" }
+    fun available(ctx: Context): Boolean = MemoryStore.netlifyToken(ctx).isNotBlank() || bakedNetlify().isNotBlank() ||
+        vercelShared().isNotBlank() || MemoryStore.vercelToken(ctx).isNotBlank()
 
     data class Result(val ok: Boolean, val url: String, val error: String)
 
-    /** Publish an HTML page to a live, rendered URL. */
+    /** Publish an HTML page to a live, RENDERED public URL. Owner's own Netlify token first (their account), then
+     *  the shared baked Netlify token (zero setup), then Vercel. */
     fun publish(ctx: Context, html: String, name: String = "site"): Result {
         if (html.length < 40) return Result(false, "", "nothing to publish")
-        // Owner's own Vercel token first (their account/domain), else the shared baked token (zero setup).
-        val ownToken = MemoryStore.vercelToken(ctx)
-        val token = ownToken.ifBlank { sharedToken() }
-        if (token.isBlank()) return Result(false, "", "site hosting isn't set up in this build yet")
-        val r = DeployClient.deploy(ctx, name, mapOf("index.html" to html), tokenOverride = token)
-        return Result(r.ok, r.url, r.error)
+        // 1) Netlify — the owner's own token (their account) if set, else the shared baked one.
+        val netlify = MemoryStore.netlifyToken(ctx).ifBlank { bakedNetlify() }
+        if (netlify.isNotBlank()) {
+            val r = NetlifyClient.deployHtml(netlify, html)
+            if (r.ok) { try { Analytics.track(ctx, "site_published", "netlify") } catch (e: Exception) {}; return Result(true, r.url, "") }
+            // fall through to Vercel if Netlify failed
+        }
+        // 2) Vercel — owner's own token first, else the shared baked one.
+        val vToken = MemoryStore.vercelToken(ctx).ifBlank { vercelShared() }
+        if (vToken.isNotBlank()) {
+            val r = DeployClient.deploy(ctx, name, mapOf("index.html" to html), tokenOverride = vToken)
+            return Result(r.ok, r.url, r.error)
+        }
+        return Result(false, "", "site hosting isn't set up yet — add a Netlify token to enable it")
     }
 }

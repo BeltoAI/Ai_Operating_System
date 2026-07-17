@@ -47,6 +47,7 @@ android {
         // Shared Vercel token (BeltoAI-owned) so agents can ship user sites LIVE to a RENDERED URL with zero
         // per-user setup. Supabase Storage serves HTML as text/plain, so it can't host live pages. From apikey.properties.
         buildConfigField("String", "VERCEL_TOKEN", "\"${apiKeyProps.getProperty("VERCEL_TOKEN", "")}\"")
+        buildConfigField("String", "NETLIFY_TOKEN", "\"${apiKeyProps.getProperty("NETLIFY_TOKEN", "")}\"")
         // Image model key (prompt-based generate + edit — Claude has no image model). Add ONE of these to
         // apikey.properties: OPENAI_API_KEY (gpt-image-1) or GEMINI_API_KEY. Blank = native edits still work.
         buildConfigField("String", "OPENAI_API_KEY", "\"${apiKeyProps.getProperty("OPENAI_API_KEY", "")}\"")

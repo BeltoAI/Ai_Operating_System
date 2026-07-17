@@ -95,6 +95,7 @@ class ShellActivity : ComponentActivity() {
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery
         // without per-image API cost. A quick kick now + a periodic sweep that fills it in over time.
         Thread { try { com.agentos.shell.tools.PhotoIndex.analyzeRecent(applicationContext, 250); com.agentos.shell.tools.PhotoIndex.analyzeVideosRecent(applicationContext, 40) } catch (e: Exception) {} }.start()
+        try { com.agentos.shell.tools.Analytics.track(applicationContext, "app_open") } catch (e: Exception) {}
         try {
             // Hourly (was every 6h) and REPLACE so the faster cadence actually takes effect on existing installs.
             val scanReq = androidx.work.PeriodicWorkRequestBuilder<PhotoScanWorker>(1, java.util.concurrent.TimeUnit.HOURS).build()

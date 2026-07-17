@@ -102,12 +102,28 @@ fun ConfirmActionCard(
             fields.forEachIndexed { fi, f ->
                 val cur = map[f.key] ?: ""
                 if (cur.isNotBlank() || fi == 0) {
+                    val isWhen = (f.key == "start" || f.key == "end" || f.key == "at") && cur.contains("T")
                     if (f.label.isNotBlank()) {
                         Spacer(Modifier.height(6.dp))
-                        val isWhen = (f.key == "start" || f.key == "end" || f.key == "at") && cur.contains("T")
-                        Text(if (isWhen) f.label + " · " + ActionConfirm.prettyWhen(cur) else f.label, fontSize = T.caption, color = if (isWhen) T.accent else T.inkFaint)
+                        Text(f.label, fontSize = T.caption, color = T.inkFaint)
                     }
-                    BasicTextField(
+                    if (isWhen) {
+                        // Pretty, human, TAP-TO-PICK datetime — no raw ISO to read or edit.
+                        Text(ActionConfirm.prettyWhen(cur), fontSize = T.small, color = T.ink,
+                            modifier = Modifier.fillMaxWidth().padding(top = 3.dp).clip(RoundedCornerShape(9.dp)).background(T.bg)
+                                .clickable {
+                                    val c = java.util.Calendar.getInstance()
+                                    try {
+                                        val m = Regex("(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})").find(cur)
+                                        if (m != null) { val (y, mo, d, h, mi) = m.destructured; c.set(y.toInt(), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt()) }
+                                    } catch (e: Exception) {}
+                                    android.app.DatePickerDialog(ctx, { _, yy, mm2, dd ->
+                                        android.app.TimePickerDialog(ctx, { _, hh, mn ->
+                                            map[f.key] = "%04d-%02d-%02dT%02d:%02d".format(yy, mm2 + 1, dd, hh, mn)
+                                        }, c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE), false).show()
+                                    }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                                }.padding(12.dp))
+                    } else BasicTextField(
                         value = cur,
                         onValueChange = { map[f.key] = it },
                         textStyle = TextStyle(color = T.ink, fontSize = T.small),

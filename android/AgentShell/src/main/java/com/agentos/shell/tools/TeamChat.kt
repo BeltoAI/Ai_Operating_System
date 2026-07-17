@@ -17,6 +17,10 @@ object TeamChat {
 
     fun enabled(ctx: Context): Boolean = p(ctx).getBoolean("enabled", false)
     fun setEnabled(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("enabled", v).apply()
+    // Proactive pings ("needs you", "saved a note") from 24/7 shifts. OFF by default — agents work silently and
+    // reply only when you message them. Turn on to get unprompted updates again.
+    fun proactiveOn(ctx: Context): Boolean = p(ctx).getBoolean("proactive", false)
+    fun setProactive(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("proactive", v).apply()
     fun groupId(ctx: Context): Long = p(ctx).getLong("group_id", 0L)
     private fun setGroupId(ctx: Context, id: Long) = p(ctx).edit().putLong("group_id", id).apply()
     fun isConnected(ctx: Context): Boolean = enabled(ctx) && groupId(ctx) != 0L
@@ -26,6 +30,7 @@ object TeamChat {
      *  requests: agents reply there when someone asks. Falls back to the group if no private chat is paired. */
     fun post(ctx: Context, agentName: String, text: String) {
         if (!enabled(ctx) || text.isBlank()) return
+        if (!proactiveOn(ctx)) return   // stay quiet unless the owner turned proactive updates on
         val ownerDm = try { MemoryStore.telegramOwnerId(ctx) } catch (e: Exception) { 0L }
         val target = if (ownerDm != 0L) ownerDm else groupId(ctx)
         if (target == 0L) return
@@ -192,7 +197,7 @@ object TeamChat {
             boost("expense|receipt|spend|budget|invoice|money|cost", "book|expense|financ|account")
             boost("reddit|post|comment|tweet|social|audience", "reddit|growth|social|market")
             boost("explain|what is|how does|why|know|expert|technical|deep", "expert|deep")
-            boost("website|web ?site|web ?app|landing|marketplace|storefront|deploy|ship it|go live|build.*(app|site|page)|code|backend|frontend|supabase|vercel", "dev|engineer|full.?stack|coder?|build")
+            boost("website|web ?site|web ?app|landing|marketplace|storefront|deploy|ship it|go live|build.*(app|site|page)|code|backend|frontend|supabase|vercel", "\\bdev\\b|engineer|full.?stack|coder")
             boost("deck|one.?pager|slides?|presentation|pitch|design|logo|brand|mockup|poster", "design|creative")
             // an agent that's been fed documents is the natural home for knowledge questions
             if (try { AgentKnowledge.count(ctx, e.id) } catch (ex: Exception) { 0 } > 0) s += 1

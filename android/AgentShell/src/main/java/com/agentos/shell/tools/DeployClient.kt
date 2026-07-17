@@ -25,6 +25,18 @@ object DeployClient {
 
     private fun slug(s: String): String = s.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(40).ifBlank { "slyos-site" }
 
+    /** The team the token belongs to (empty for a personal token). Team-scoped tokens need this on every call. */
+    private fun teamId(token: String): String = try {
+        val conn = (URL("https://api.vercel.com/v2/teams?limit=1").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"; connectTimeout = 12000; readTimeout = 15000
+            setRequestProperty("Authorization", "Bearer $token")
+        }
+        val code = conn.responseCode
+        val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+        conn.disconnect()
+        if (code in 200..299) JSONObject(raw).optJSONArray("teams")?.let { if (it.length() > 0) it.getJSONObject(0).optString("id") else "" }.orEmpty() else ""
+    } catch (e: Exception) { "" }
+
     /** Deploy a set of files (path → content) to Vercel production. [tokenOverride] lets the shared/baked token be
      *  used; otherwise falls back to the owner's own token. Returns the live https URL or an error. */
     fun deploy(ctx: Context, name: String, files: Map<String, String>, tokenOverride: String = ""): Result {
@@ -45,7 +57,11 @@ object DeployClient {
                     }
                 })
             }.toString()
-            val conn = (URL("https://api.vercel.com/v13/deployments?forceNew=1").openConnection() as HttpURLConnection).apply {
+            // If the token is scoped to a Vercel TEAM, deploys must target that team (else 403 "no permission to
+            // create a project"). Auto-detect the team and pass its id.
+            val team = teamId(token)
+            val deployUrl = "https://api.vercel.com/v13/deployments?forceNew=1" + (if (team.isNotBlank()) "&teamId=$team" else "")
+            val conn = (URL(deployUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 20000; readTimeout = 60000
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("Content-Type", "application/json")
@@ -56,7 +72,9 @@ object DeployClient {
             conn.disconnect()
             if (code !in 200..299) {
                 val msg = try { JSONObject(raw).optJSONObject("error")?.optString("message") } catch (e: Exception) { null } ?: raw.take(160)
-                Log.w(TAG, "vercel $code: $msg"); return Result(false, "", "Vercel error ($code): $msg")
+                Log.w(TAG, "vercel $code (team=$team): $msg")
+                val hint = if (code == 403) " — the Vercel token needs FULL account scope with permission to create projects; recreate it at vercel.com/account/tokens." else ""
+                return Result(false, "", "Vercel error ($code): $msg$hint")
             }
             val obj = JSONObject(raw)
             // Prefer a stable production alias (same URL across redeploys) over the per-deploy url.

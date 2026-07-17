@@ -403,6 +403,13 @@ fun HomeScreen(
             }
             return@submit
         }
+        // Toggle proactive agent updates ("needs you" pings from 24/7 shifts) on/off.
+        if (Regex("(?i)\\b(proactive|unprompted|auto).{0,15}(update|message|ping|alert)|(update|message|ping|alert)s?.{0,15}(proactive|on their own|without)|stop (messaging|pinging) me|(turn|switch) (on|off).{0,20}(proactive|updates)\\b").containsMatchIn(q)) {
+            val on = Regex("(?i)\\b(on|enable|resume|start|yes)\\b").containsMatchIn(q) && !Regex("(?i)\\b(off|stop|disable|no more|quiet|don'?t)\\b").containsMatchIn(q)
+            com.agentos.shell.tools.TeamChat.setProactive(ctx, on)
+            val r = if (on) "Proactive updates are ON — your agents will ping you with 'needs you' items as they work." else "Proactive updates are OFF — your agents work silently and only reply when you message them."
+            text = ""; reply = r; lastQuery = q; if (doSpeak) speak(r); return@submit
+        }
         // Brain diagnostics on request — a real readout from every store, not the model guessing.
         if (Regex("(?i)\\b(brain (status|stats|health|check|diagnostic)|health check|is my brain (growing|working|filling))\\b").containsMatchIn(q.lowercase())) {
             text = ""; thinking = true; reply = ""; lastQuery = q
@@ -1066,6 +1073,9 @@ fun HomeScreen(
                 })
             Spacer(Modifier.height(12.dp))
         }
+
+        // Live timer countdown + next alarm — visible only when active.
+        TimerWidget(ctx)
 
         // Flashlight control — visible only while the torch is on; tap or swipe-left to turn it off.
         TorchWidget(ctx)
@@ -1755,6 +1765,56 @@ private fun CtrlIcon(kind: String, tint: androidx.compose.ui.graphics.Color, onC
     }
     Icon(iv, contentDescription = kind, tint = tint,
         modifier = Modifier.size(34.dp).clip(RoundedCornerShape(50)).clickable { onClick() }.padding(4.dp))
+}
+
+/** Live timer countdown (in-app) + the next system alarm. Both appear only when set. */
+@Composable
+private fun TimerWidget(ctx: Context) {
+    val TS = com.agentos.shell.tools.TimerStore
+    var remaining by remember { mutableStateOf(TS.remainingMs(ctx)) }
+    var nextAlarm by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            remaining = TS.remainingMs(ctx)
+            nextAlarm = try {
+                (ctx.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).nextAlarmClock?.triggerTime ?: 0L
+            } catch (e: Exception) { 0L }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    val running = remaining > 0
+    val showAlarm = nextAlarm > 0L && !TS.alarmDismissed(ctx, nextAlarm)
+    if (!running && !showAlarm) return
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        if (running) {
+            val total = TS.totalMs(ctx).coerceAtLeast(1L)
+            val frac = (remaining.toFloat() / total).coerceIn(0f, 1f)
+            val h = (remaining / 3_600_000).toInt(); val m = ((remaining % 3_600_000) / 60_000).toInt(); val s = ((remaining % 60_000) / 1000).toInt()
+            val txt = if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(txt, fontSize = T.prompt, color = T.ink, modifier = Modifier.weight(1f))
+                Text("Cancel", fontSize = T.small, color = T.accent,
+                    modifier = Modifier.clickable { TS.cancel(ctx); remaining = 0 }.padding(8.dp))
+            }
+            val lbl = TS.label(ctx)
+            if (lbl.isNotBlank()) Text(lbl, fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(T.bg)) {
+                Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(T.accent))
+            }
+        }
+        if (showAlarm) {
+            if (running) Spacer(Modifier.height(10.dp))
+            val ap = java.text.SimpleDateFormat("EEE h:mm a", java.util.Locale.getDefault()).format(java.util.Date(nextAlarm))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Alarm, contentDescription = null, tint = T.inkSoft, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Next alarm · $ap", fontSize = T.small, color = T.inkSoft, modifier = Modifier.weight(1f))
+                Text("✕", fontSize = T.small, color = T.inkFaint, modifier = Modifier.clickable { TS.dismissAlarm(ctx, nextAlarm); nextAlarm = 0L }.padding(6.dp))
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
 }
 
 /** Shows only while the flashlight is on — a guaranteed OFF control (tap or swipe left), independent of the AI. */

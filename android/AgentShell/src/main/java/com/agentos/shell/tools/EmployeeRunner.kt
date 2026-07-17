@@ -219,8 +219,12 @@ object EmployeeRunner {
             "$title — final PDF, ready to send. Nice working with you on this one."
         else if (finalize)
             "$title — couldn't render the PDF on-device, so here's the final HTML (opens in any browser, looks identical). You can print-to-PDF from there."
-        else if (isSite)
-            "$title — here's the working site (open it in any browser). Tell me any changes. When it's ready, say “deploy it” and I'll ship it to a live public URL."
+        else if (isSite) {
+            // Auto-ship sites to a live, rendered URL so the reply contains the LINK — not just a preview file.
+            val pub = try { SiteHost.publish(ctx, html, title) } catch (e: Exception) { SiteHost.Result(false, "", "") }
+            if (pub.ok) "$title — it's LIVE: ${pub.url}\n\nTell me any changes and I'll update it."
+            else "$title — here's the working site (open it in any browser). Say “deploy it” to publish it live." + (if (pub.error.isNotBlank()) " (${pub.error})" else "")
+        }
         else {
             val ask = if (isDeck) "What do you think — tighten the cover, cut a slide, shift the color?"
                       else "What do you think — punchier, shorter, different accent color?"

@@ -56,6 +56,7 @@ object EmployeeStore {
                 put("created_at", System.currentTimeMillis()); put("last_run", 0L); put("status", "idle")
             })
             log(ctx, id, "Hired as ${role.ifBlank { "an assistant" }}.", false)
+            try { Analytics.track(ctx, "agent_hired", role.take(30)) } catch (e: Exception) {}
         } catch (e: Exception) { Log.w(TAG, "hire: ${e.message}") }
         return id
     }

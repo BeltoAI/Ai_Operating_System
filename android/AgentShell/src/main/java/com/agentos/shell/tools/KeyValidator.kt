@@ -25,6 +25,7 @@ object KeyValidator {
             "elevenlabs" -> elevenlabs(key)
             "audd" -> State.VALID   // no cheap validation endpoint (needs an audio sample) — accept any non-blank token
             "vercel" -> vercel(key)
+            "netlify" -> netlify(key)
             else -> State.ERROR
         }
     }
@@ -51,6 +52,9 @@ object KeyValidator {
 
     private fun vercel(key: String): State =
         classify(get("https://api.vercel.com/v2/user", mapOf("Authorization" to "Bearer $key")))
+
+    private fun netlify(key: String): State =
+        classify(get("https://api.netlify.com/api/v1/user", mapOf("Authorization" to "Bearer $key")))
 
     /** 200s = valid; explicit auth rejections = invalid; anything else (network, rate limit) = error. */
     private fun classify(code: Int): State = when {

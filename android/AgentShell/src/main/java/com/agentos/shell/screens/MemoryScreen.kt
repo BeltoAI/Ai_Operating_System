@@ -795,7 +795,8 @@ private fun ApiKeysCard() {
         }
         KeyEntry("GitHub token (Cowork push)", "ghp_…", "github", MemoryStore.githubToken(ctx)) { MemoryStore.setGithubToken(ctx, it) }
         KeyEntry("AudD (name songs you hear)", "token…", "audd", MemoryStore.musicIdToken(ctx)) { MemoryStore.setMusicIdToken(ctx, it) }
-        KeyEntry("Vercel (agents ship sites live)", "token…", "vercel", MemoryStore.vercelToken(ctx)) { MemoryStore.setVercelToken(ctx, it) }
+        KeyEntry("Netlify (host the sites agents build)", "nfp_…", "netlify", MemoryStore.netlifyToken(ctx)) { MemoryStore.setNetlifyToken(ctx, it) }
+        KeyEntry("Vercel (alternative host, optional)", "token…", "vercel", MemoryStore.vercelToken(ctx)) { MemoryStore.setVercelToken(ctx, it) }
         run {
             var su by remember { mutableStateOf(MemoryStore.supabaseUrl(ctx)) }
             BasicTextField(su, { su = it; MemoryStore.setSupabaseUrl(ctx, it) }, singleLine = true,
