@@ -733,7 +733,9 @@ private fun BrainStatsCard(refreshKey: String) {
 /** One API key: tap the row to reveal a paste field, then Save & check confirms it against the provider
  *  and shows a live Valid / Invalid dot — so you're never guessing whether a paste actually worked. */
 @Composable
-private fun KeyEntry(label: String, hint: String, provider: String, initial: String, onSave: (String) -> Unit) {
+private fun KeyEntry(label: String, hint: String, provider: String, initial: String,
+                    getUrl: String = "", steps: String = "", onSave: (String) -> Unit) {
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var value by remember { mutableStateOf(initial) }
     var open by remember { mutableStateOf(false) }
@@ -741,6 +743,10 @@ private fun KeyEntry(label: String, hint: String, provider: String, initial: Str
     LaunchedEffect(Unit) {
         if (initial.isNotBlank()) state = withContext(Dispatchers.IO) { KeyValidator.check(provider, initial) }
     }
+    fun openUrl(u: String) { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+        android.net.Uri.parse(u)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+    fun saveCheck(k: String) { onSave(k); state = KeyValidator.State.CHECKING
+        scope.launch { state = withContext(Dispatchers.IO) { KeyValidator.check(provider, k) } } }
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
             Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
@@ -749,6 +755,16 @@ private fun KeyEntry(label: String, hint: String, provider: String, initial: Str
             Text(if (open) "▾" else "▸", fontSize = T.small, color = T.inkSoft)
         }
         if (open) {
+            // Idiot-safe: numbered steps + a big button straight to the key page, then one-tap Paste.
+            if (getUrl.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(steps.ifBlank { "1) Tap “Get free key” below  2) Sign in  3) Create/copy the key  4) Come back, tap Paste, then Save" },
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(8.dp))
+                Text("Get free key →", fontSize = T.small, color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { openUrl(getUrl) }.padding(vertical = 11.dp))
+            }
             Spacer(Modifier.height(8.dp))
             BasicTextField(value, { value = it }, singleLine = true,
                 textStyle = TextStyle(color = T.ink, fontSize = T.small),
@@ -756,12 +772,16 @@ private fun KeyEntry(label: String, hint: String, provider: String, initial: Str
                 decorationBox = { inner -> if (value.isEmpty()) Text(hint, fontSize = T.small, color = T.inkFaint); inner() })
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Paste", fontSize = T.small, color = T.ink,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                        .clickable {
+                            val c = com.agentos.shell.tools.KeyProbe.clipboardText(ctx)
+                            if (c.isNotBlank()) { value = c; saveCheck(c) }
+                        }.padding(horizontal = 14.dp, vertical = 8.dp))
+                Spacer(Modifier.width(10.dp))
                 Text("Save & check", fontSize = T.small, color = T.bgElevated,
                     modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
-                        .clickable {
-                            val k = value.trim(); onSave(k); state = KeyValidator.State.CHECKING
-                            scope.launch { state = withContext(Dispatchers.IO) { KeyValidator.check(provider, k) } }
-                        }.padding(horizontal = 16.dp, vertical = 8.dp))
+                        .clickable { saveCheck(value.trim()) }.padding(horizontal = 16.dp, vertical = 8.dp))
                 if (value.isNotBlank()) {
                     Spacer(Modifier.width(10.dp))
                     Text("Clear", fontSize = T.small, color = T.inkSoft,
@@ -776,12 +796,35 @@ private fun KeyEntry(label: String, hint: String, provider: String, initial: Str
 @Composable
 private fun ApiKeysCard() {
     val ctx = LocalContext.current
-    Collapsible("API keys & model", "Paste a key — SlyOS checks it's actually valid. Gemini is free.") {
-        KeyEntry("Gemini (free tier)", "AIza…", "gemini", MemoryStore.geminiKey(ctx)) { MemoryStore.setGeminiKey(ctx, it) }
-        KeyEntry("Claude / Anthropic", "sk-ant-…", "anthropic", MemoryStore.anthropicKey(ctx)) {
+    Collapsible("API keys & model", "Paste a key — SlyOS checks it's actually valid. All of these have FREE tiers.",
+        keywords = "api key token gemini groq cerebras mistral nvidia openrouter github openai claude anthropic brain model llm free tier netlify supabase") {
+        Text("Free brains — add as many as you like. SlyOS uses whichever is fastest and rolls to the next when " +
+            "one hits its daily free limit, so you basically never run out.", fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(6.dp))
+        KeyEntry("Google Gemini (free · easiest)", "AIza…", "gemini", MemoryStore.geminiKey(ctx),
+            getUrl = "https://aistudio.google.com/app/apikey",
+            steps = "1) Tap “Get free key”  2) Sign in with Google  3) Tap “Create API key”  4) Tap the key to copy  5) Back here → Paste → Save") { MemoryStore.setGeminiKey(ctx, it) }
+        KeyEntry("Groq (free · very fast)", "gsk_…", "groq", MemoryStore.groqKey(ctx),
+            getUrl = "https://console.groq.com/keys") { MemoryStore.setGroqKey(ctx, it) }
+        KeyEntry("Cerebras (free · huge daily limit)", "csk-…", "cerebras", MemoryStore.providerKey(ctx, "cerebras"),
+            getUrl = "https://cloud.cerebras.ai/") { MemoryStore.setProviderKey(ctx, "cerebras", it) }
+        KeyEntry("Mistral (free tier)", "key…", "mistral", MemoryStore.providerKey(ctx, "mistral"),
+            getUrl = "https://console.mistral.ai/api-keys/") { MemoryStore.setProviderKey(ctx, "mistral", it) }
+        KeyEntry("NVIDIA NIM (free)", "nvapi-…", "nvidia", MemoryStore.providerKey(ctx, "nvidia"),
+            getUrl = "https://build.nvidia.com/") { MemoryStore.setProviderKey(ctx, "nvidia", it) }
+        KeyEntry("OpenRouter (free models · one key, many models)", "sk-or-…", "openrouter", MemoryStore.providerKey(ctx, "openrouter"),
+            getUrl = "https://openrouter.ai/keys") { MemoryStore.setProviderKey(ctx, "openrouter", it) }
+        KeyEntry("GitHub Models (free GPT-4o / Claude)", "ghp_… or github_pat_…", "githubmodels", MemoryStore.providerKey(ctx, "githubmodels"),
+            getUrl = "https://github.com/settings/tokens",
+            steps = "1) Tap “Get free key”  2) Generate a token (classic, no scopes needed)  3) Copy it  4) Back here → Paste → Save") { MemoryStore.setProviderKey(ctx, "githubmodels", it) }
+        Spacer(Modifier.height(10.dp))
+        Text("Paid options (optional)", fontSize = T.caption, color = T.inkSoft)
+        KeyEntry("Claude / Anthropic", "sk-ant-…", "anthropic", MemoryStore.anthropicKey(ctx),
+            getUrl = "https://console.anthropic.com/settings/keys") {
             MemoryStore.setAnthropicKey(ctx, it); com.agentos.shell.tools.AgentClient.apiKeyOverride = it.trim()
         }
-        KeyEntry("OpenAI", "sk-…", "openai", MemoryStore.openaiKey(ctx)) { MemoryStore.setOpenaiKey(ctx, it) }
+        KeyEntry("OpenAI", "sk-…", "openai", MemoryStore.openaiKey(ctx),
+            getUrl = "https://platform.openai.com/api-keys") { MemoryStore.setOpenaiKey(ctx, it) }
         KeyEntry("Finnhub (market data)", "token…", "finnhub", MemoryStore.finnhubKey(ctx)) {
             MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim()
         }
@@ -819,7 +862,8 @@ private fun ApiKeysCard() {
         Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(6.dp))
         Row(Modifier.horizontalScroll(rememberScrollState())) {
-            listOf("gemini" to "Gemini", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
+            listOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
+                "nvidia" to "NVIDIA", "openrouter" to "OpenRouter", "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
                 val sel = pref == id
                 Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
                     modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
@@ -1024,11 +1068,30 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v29 · Chess Coach — draggable + auto", fontSize = T.caption, color = T.accent,
+        Text("✦ Settings build v30 · search + about-you + free brains", fontSize = T.caption, color = T.accent,
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
         Spacer(Modifier.height(16.dp))
 
-        Collapsible("Character", "How the agent sounds like you", initiallyOpen = true) {
+        // Natural-language filter — type what you need and the card stack narrows to it.
+        SettingsSearchBar()
+
+        // Who you are — optional demographics + details, all fed into the brain so SlyOS speaks as the real you.
+        Collapsible("About you", "Age, background & the details that make it you",
+            keywords = "age ethnicity gender pronouns personal profile demographics nationality religion location languages occupation relationship interests about me who i am identity") {
+            Text("All optional. Everything here feeds your brain so SlyOS truly understands who it's speaking for.",
+                fontSize = T.small, color = T.inkFaint)
+            Spacer(Modifier.height(8.dp))
+            val piState = remember {
+                mutableStateMapOf<String, String>().apply {
+                    MemoryStore.PERSONAL_FIELDS.forEach { (k, _) -> put(k, MemoryStore.personal(ctx, k)) }
+                }
+            }
+            MemoryStore.PERSONAL_FIELDS.forEach { (k, lbl) ->
+                LabeledField(lbl, piState[k] ?: "") { v -> piState[k] = v; MemoryStore.setPersonal(ctx, k, v) }
+            }
+        }
+
+        Collapsible("Character", "How the agent sounds like you", keywords = "voice tone persona style personality how i write", initiallyOpen = true) {
         Text("What should the agent know about you?", fontSize = T.body, color = T.ink)
         Spacer(Modifier.height(6.dp))
         Text("Name, tone, work, people who matter — anything that makes its answers feel like you.",
@@ -1517,7 +1580,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (voiceStatus.isNotBlank()) { Spacer(Modifier.height(4.dp)); Text(voiceStatus, fontSize = T.caption, color = if (voiceStatus.startsWith("Learned")) T.accent else T.danger) }
 
         }
-        Collapsible("Models & spending") {
+        Collapsible("Models & spending", keywords = "embedding semantic memory on-device local cost routing matrix free tier health diagnostics providers index") {
         Text("Semantic memory indexing and your compute spend.", fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(14.dp))
         var embN by remember { mutableStateOf(0) }
@@ -1596,6 +1659,91 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
+        // On-device memory — free, unlimited, private; works with ANY chat provider (even Groq-only). ~6MB.
+        run {
+            val ODE = com.agentos.shell.tools.OnDeviceEmbedder
+            var odeReady by remember { mutableStateOf(ODE.ready(ctx)) }
+            var odeBusy by remember { mutableStateOf(false) }
+            var odeProg by remember { mutableStateOf(0) }
+            val usingLocal = MemoryStore.embedProvider(ctx) == "local"
+            Spacer(Modifier.height(10.dp))
+            Text("On-device memory — free · unlimited · private", fontSize = T.caption, color = T.inkSoft)
+            Text("Embeds memories on the phone. No key, no rate limits, works with any brain. One-time ~6MB download.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(6.dp))
+            if (!odeReady) {
+                Text(if (odeBusy) "Downloading… $odeProg%" else "Download on-device memory", fontSize = T.small, color = T.bgElevated,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable(enabled = !odeBusy) {
+                            odeBusy = true
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { ODE.download(ctx) { p -> odeProg = p } }
+                                odeReady = ok; odeBusy = false
+                            }
+                        }.padding(horizontal = 14.dp, vertical = 8.dp))
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (usingLocal) "Using on-device ✓" else "Use on-device", fontSize = T.small,
+                        color = if (usingLocal) T.accent else T.bgElevated,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (usingLocal) T.hairline else T.accent)
+                            .clickable(enabled = !odeBusy && !usingLocal) {
+                                MemoryStore.setEmbedProvider(ctx, "local"); odeBusy = true
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        com.agentos.shell.tools.VectorStore.clear(ctx)   // dims differ — re-index
+                                        com.agentos.shell.tools.VectorStore.backfill(ctx, 500)
+                                    }
+                                    embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+                                    pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx); odeBusy = false
+                                }
+                            }.padding(horizontal = 14.dp, vertical = 8.dp))
+                    if (usingLocal) {
+                        Spacer(Modifier.width(10.dp))
+                        Text("Switch to cloud", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clickable(enabled = !odeBusy) {
+                                MemoryStore.setEmbedProvider(ctx, "auto"); odeBusy = true
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        com.agentos.shell.tools.VectorStore.clear(ctx)
+                                        com.agentos.shell.tools.VectorStore.backfill(ctx, 500)
+                                    }
+                                    embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
+                                    pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx); odeBusy = false
+                                }
+                            }.padding(8.dp))
+                    }
+                }
+            }
+        }
+
+        // --- System health: live diagnostics for the test week ---
+        run {
+            val HS = com.agentos.shell.tools.HealthStore
+            Spacer(Modifier.height(14.dp))
+            Text("System health", fontSize = T.caption, color = T.inkSoft)
+            Text("How every brain and the memory index are actually doing (today).", fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(4.dp))
+            val provs = com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { HS.okToday(ctx, it) > 0 || HS.failToday(ctx, it) > 0 }
+            if (provs.isEmpty()) Text("No model calls yet today.", fontSize = T.caption, color = T.inkFaint)
+            provs.forEach { pr ->
+                val ok = HS.okToday(ctx, pr); val fail = HS.failToday(ctx, pr); val err = HS.lastError(ctx, pr)
+                Text("$pr — $ok ok / $fail fail" + (if (fail > 0 && err.isNotBlank()) "  · last: ${err.take(70)}" else ""),
+                    fontSize = T.caption, color = if (fail > 0 && ok == 0) T.danger else T.inkSoft)
+            }
+            val ep = com.agentos.shell.tools.EmbeddingClient.provider(ctx) ?: "off"
+            val odr = com.agentos.shell.tools.OnDeviceEmbedder.ready(ctx)
+            Text("Memory: index=$ep · $embN indexed" + (if (pendN > 0) " · $pendN pending" else " · up to date") +
+                (if (odr) " · on-device ready" else ""), fontSize = T.caption, color = T.inkFaint)
+            val ee = com.agentos.shell.tools.EmbeddingClient.lastError
+            if (ee.isNotBlank()) Text("Embed last error: ${ee.take(90)}", fontSize = T.caption, color = T.danger)
+            val notes = HS.recent(8)
+            if (notes.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                notes.forEach { n -> Text((if (n.ok) "✓ " else "✗ ") + n.component + (if (n.detail.isNotBlank()) " · ${n.detail}" else ""),
+                    fontSize = T.caption, color = if (n.ok) T.inkFaint else T.danger) }
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
         Text("Routing — which model handles what", fontSize = T.caption, color = T.inkSoft)
         Text("Quick tasks = triage, summaries, understanding commands (high volume).  Your replies = the " +
@@ -1610,21 +1758,55 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         val routeMap = remember {
             mutableStateMapOf<String, String>().apply { tiers.forEach { (t, _) -> put(t.name, MemoryStore.tierProvider(ctx, t)) } }
         }
+        val shortLbl = mapOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
+            "nvidia" to "NVIDIA", "openrouter" to "Router", "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "GPT")
+        val provChips = listOf("" to "Auto") + com.agentos.shell.tools.ModelRouter.PROVIDERS.map { it to (shortLbl[it] ?: it) }
         tiers.forEach { (tier, label) ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
-                Text(label, fontSize = T.caption, color = T.inkSoft, modifier = Modifier.weight(1f))
-                listOf("" to "Auto", "gemini" to "Gem", "anthropic" to "Claude", "openai" to "GPT").forEach { (pid, plbl) ->
-                    val sel = (routeMap[tier.name] ?: "") == pid
-                    Text(plbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                        modifier = Modifier.padding(start = 5.dp).clip(RoundedCornerShape(999.dp))
-                            .background(if (sel) T.accent else T.hairline)
-                            .clickable { routeMap[tier.name] = pid; MemoryStore.setTierProvider(ctx, tier, pid) }
-                            .padding(horizontal = 9.dp, vertical = 5.dp))
+            Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                Text(label, fontSize = T.caption, color = T.inkSoft)
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    provChips.forEach { (pid, plbl) ->
+                        val sel = (routeMap[tier.name] ?: "") == pid
+                        Text(plbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                            modifier = Modifier.padding(end = 5.dp).clip(RoundedCornerShape(999.dp))
+                                .background(if (sel) T.accent else T.hairline)
+                                .clickable { routeMap[tier.name] = pid; MemoryStore.setTierProvider(ctx, tier, pid) }
+                                .padding(horizontal = 9.dp, vertical = 5.dp))
+                    }
                 }
             }
         }
         Text("Auto = use your preferred, fall back to any key. A model only runs if its key is set.",
             fontSize = T.caption, color = T.inkFaint)
+
+        // Free-tier meter — how many of today's free requests each keyed brain has left, so you can re-route
+        // before one runs dry. A brain that just hit its limit shows "paused" (auto-skipped, retried later).
+        run {
+            val FM = com.agentos.shell.tools.FreeTierMeter
+            val PL = com.agentos.shell.tools.ProviderLimit
+            fun keyPresent(pid: String) = when (pid) {
+                "gemini" -> MemoryStore.geminiKey(ctx).isNotBlank()
+                "groq" -> MemoryStore.groqKey(ctx).isNotBlank()
+                else -> MemoryStore.providerKey(ctx, pid).isNotBlank()
+            }
+            val live = com.agentos.shell.tools.ModelRouter.PROVIDERS
+                .filter { com.agentos.shell.tools.ModelRouter.PROVIDER_FREE.contains(it) && keyPresent(it) }
+            if (live.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Free tier left today", fontSize = T.caption, color = T.inkSoft)
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    live.forEach { pid ->
+                        val paused = PL.limited(ctx, pid)
+                        val txt = "${shortLbl[pid] ?: pid} ${FM.label(ctx, pid)}" + if (paused) " · paused" else ""
+                        Text(txt, fontSize = T.caption, color = if (paused) T.inkFaint else T.inkSoft,
+                            modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
+                                .background(T.hairline).padding(horizontal = 9.dp, vertical = 5.dp))
+                    }
+                }
+            }
+        }
 
         // Offline backup row — shows the on-device model's role in routing without letting it pre-empt cloud.
         run {

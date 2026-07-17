@@ -124,4 +124,6 @@ dependencies {
     // On-device LLM inference (free, offline endpoint). Called by reflection in LocalLlm, so the app still
     // compiles if this line is removed; present here it powers the local model.
     implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    // On-device text embeddings (Universal Sentence Encoder) — free, private, unlimited semantic memory.
+    implementation("com.google.mediapipe:tasks-text:0.10.21")
 }

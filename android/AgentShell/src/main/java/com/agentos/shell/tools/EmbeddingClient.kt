@@ -24,11 +24,14 @@ object EmbeddingClient {
         val pref = MemoryStore.embedProvider(ctx)
         val gem = MemoryStore.geminiKey(ctx).isNotBlank()
         val oai = MemoryStore.openaiKey(ctx).isNotBlank()
+        val local = OnDeviceEmbedder.ready(ctx)
         return when {
-            pref == "openai" && oai -> "openai"      // forced paid path (reliable when Gemini is throttled)
+            pref == "local" && local -> "local"       // on-device: free, unlimited, private, key-independent
+            pref == "openai" && oai -> "openai"       // forced paid path (reliable when Gemini is throttled)
             pref == "gemini" && gem -> "gemini"
-            gem -> "gemini"                           // auto: free Gemini first
-            oai -> "openai"                           // then OpenAI
+            gem -> "gemini"                            // auto: free Gemini first
+            oai -> "openai"                            // then OpenAI
+            local -> "local"                           // last resort if no cloud key but the model's downloaded
             else -> null
         }
     }
@@ -54,7 +57,11 @@ object EmbeddingClient {
     fun embed(ctx: Context, texts: List<String>, taskType: String = "RETRIEVAL_DOCUMENT"): List<FloatArray>? {
         if (texts.isEmpty()) return emptyList()
         val p = provider(ctx) ?: return null
-        return if (p == "openai") embedOpenAi(ctx, texts) else embedGemini(ctx, texts, taskType)
+        return when (p) {
+            "local" -> OnDeviceEmbedder.embed(ctx, texts)   // free/unlimited; null → caller keyword-degrades
+            "openai" -> embedOpenAi(ctx, texts)
+            else -> embedGemini(ctx, texts, taskType)
+        }
     }
 
     private fun embedGemini(ctx: Context, texts: List<String>, taskType: String): List<FloatArray>? {

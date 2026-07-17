@@ -10,7 +10,25 @@ import android.content.Context
 object ModelRouter {
     enum class Tier { CHEAP, STANDARD, HEAVY }
 
-    val PROVIDERS = listOf("anthropic", "openai", "gemini")
+    // Primary three first (order matters for fallback); new free providers appended — inert until keyed.
+    val PROVIDERS = listOf("anthropic", "openai", "gemini", "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels")
+
+    // Human labels + where to get a FREE key (used by the settings cards). Order = suggested to the user.
+    val PROVIDER_LABEL = mapOf(
+        "gemini" to "Google Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
+        "nvidia" to "NVIDIA NIM", "openrouter" to "OpenRouter", "githubmodels" to "GitHub Models",
+        "anthropic" to "Anthropic (Claude)", "openai" to "OpenAI")
+    val PROVIDER_FREE = setOf("gemini", "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels")
+    val PROVIDER_KEYURL = mapOf(
+        "gemini" to "https://aistudio.google.com/app/apikey",
+        "groq" to "https://console.groq.com/keys",
+        "cerebras" to "https://cloud.cerebras.ai/",
+        "mistral" to "https://console.mistral.ai/api-keys/",
+        "nvidia" to "https://build.nvidia.com/",
+        "openrouter" to "https://openrouter.ai/keys",
+        "githubmodels" to "https://github.com/settings/tokens",
+        "anthropic" to "https://console.anthropic.com/settings/keys",
+        "openai" to "https://platform.openai.com/api-keys")
 
     /** Default concrete model per provider per tier (each editable in settings). */
     val DEFAULT_MODELS: Map<String, Map<Tier, String>> = mapOf(
@@ -25,7 +43,32 @@ object ModelRouter {
         "gemini" to mapOf(
             Tier.CHEAP to "gemini-2.0-flash",
             Tier.STANDARD to "gemini-2.0-flash",
-            Tier.HEAVY to "gemini-1.5-pro-latest")
+            Tier.HEAVY to "gemini-1.5-pro-latest"),
+        // ---- Free, OpenAI-compatible providers (text-only; kept out of vision/web sets) ----
+        "groq" to mapOf(
+            Tier.CHEAP to "llama-3.1-8b-instant",
+            Tier.STANDARD to "llama-3.3-70b-versatile",
+            Tier.HEAVY to "llama-3.3-70b-versatile"),
+        "cerebras" to mapOf(
+            Tier.CHEAP to "llama3.1-8b",
+            Tier.STANDARD to "llama-3.3-70b",
+            Tier.HEAVY to "llama-3.3-70b"),
+        "mistral" to mapOf(
+            Tier.CHEAP to "mistral-small-latest",
+            Tier.STANDARD to "mistral-small-latest",
+            Tier.HEAVY to "mistral-large-latest"),
+        "nvidia" to mapOf(
+            Tier.CHEAP to "meta/llama-3.1-8b-instruct",
+            Tier.STANDARD to "meta/llama-3.3-70b-instruct",
+            Tier.HEAVY to "meta/llama-3.3-70b-instruct"),
+        "openrouter" to mapOf(
+            Tier.CHEAP to "meta-llama/llama-3.3-70b-instruct:free",
+            Tier.STANDARD to "meta-llama/llama-3.3-70b-instruct:free",
+            Tier.HEAVY to "meta-llama/llama-3.3-70b-instruct:free"),
+        "githubmodels" to mapOf(
+            Tier.CHEAP to "gpt-4o-mini",
+            Tier.STANDARD to "gpt-4o",
+            Tier.HEAVY to "gpt-4o")
     )
 
     // Only Anthropic exposes the web_search tool the paper writer uses today.
@@ -39,7 +82,9 @@ object ModelRouter {
     private fun keyFor(ctx: Context, p: String): String = when (p) {
         "openai" -> MemoryStore.openaiKey(ctx)
         "gemini" -> MemoryStore.geminiKey(ctx)
-        else -> MemoryStore.anthropicKeyEffective(ctx)
+        "groq" -> MemoryStore.groqKey(ctx)
+        "anthropic" -> MemoryStore.anthropicKeyEffective(ctx)
+        else -> MemoryStore.providerKey(ctx, p)   // cerebras / mistral / nvidia / openrouter / githubmodels
     }
 
     /**
@@ -121,6 +166,11 @@ object ModelRouter {
             val m = modelFor(p) ?: continue
             out.add(Choice(p, m, k))
         }
+        // Cascade memory: a provider that just hit its rate-limit is moved to the BACK (relative order kept
+        // otherwise) so fresh brains are tried first — but it's never dropped, so if everything's parked we
+        // still try (its daily cap may have reset). Success clears the park flag in AgentClient.
+        val parked = out.filter { ProviderLimit.limited(ctx, it.provider) }
+        if (parked.isNotEmpty()) { out.removeAll(parked); out.addAll(parked) }
         // On-device model = OFFLINE SAFETY-NET ONLY. It's slow, hot, can't browse or see images, and small
         // models give weak answers — so it must NEVER pre-empt the cloud. We append it DEAD LAST and only
         // for plain-text tasks. Because callers try choices best-first and stop on the first success, local

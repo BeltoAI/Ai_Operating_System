@@ -47,11 +47,27 @@ object MemoryStore {
     fun setEducation(ctx: Context, v: String) = prefs(ctx).edit().putString("li_education", v.trim()).apply()
 
     /** About + learned facts + LinkedIn work history — the full personal profile to feed the AI. */
+    // ---- Personal profile (demographics & who-you-are) — all optional, all fed into the brain ----
+    // Ordered list of (key, human label) so the UI and the brain block stay in sync.
+    val PERSONAL_FIELDS: List<Pair<String, String>> = listOf(
+        "age" to "Age", "gender" to "Gender", "pronouns" to "Pronouns", "ethnicity" to "Ethnicity",
+        "nationality" to "Nationality", "location" to "Where I live", "languages" to "Languages I speak",
+        "occupation" to "Occupation / role", "relationship" to "Relationship status", "religion" to "Religion (optional)",
+        "interests" to "Interests & hobbies", "health" to "Health notes (optional)", "personal_extra" to "Anything else about me")
+    fun personal(ctx: Context, key: String): String = prefs(ctx).getString("pi_$key", "") ?: ""
+    fun setPersonal(ctx: Context, key: String, v: String) = prefs(ctx).edit().putString("pi_$key", v.trim()).apply()
+    /** Non-blank personal fields assembled as a compact block for the brain. */
+    fun personalProfile(ctx: Context): String = PERSONAL_FIELDS
+        .mapNotNull { (k, lbl) -> personal(ctx, k).takeIf { it.isNotBlank() }?.let { "$lbl: $it" } }
+        .joinToString(" · ")
+
     fun fullProfile(ctx: Context): String {
         val a = about(ctx); val l = learnedFacts(ctx); val p = positions(ctx); val e = education(ctx)
+        val pi = personalProfile(ctx)
         val c = shippingProfile(ctx)   // Name / Email / Phone / Address from Settings — real contact details for letterheads, résumés, forms.
         return buildString {
             if (c.isNotBlank()) append("My contact details (use verbatim in résumé headers, cover-letter sender blocks, and signatures):\n").append(c)
+            if (pi.isNotBlank()) { if (isNotEmpty()) append("\n"); append("About me (personal): ").append(pi) }
             if (a.isNotBlank()) { if (isNotEmpty()) append("\n"); append(a) }
             if (p.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My work history (from LinkedIn):\n").append(p) }
             if (e.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My education:\n").append(e) }
@@ -173,6 +189,15 @@ object MemoryStore {
     fun setOpenaiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("openai_key", value.trim()).apply()
     fun geminiKey(ctx: Context): String = prefs(ctx).getString("gemini_key", "") ?: ""
     fun setGeminiKey(ctx: Context, value: String) = prefs(ctx).edit().putString("gemini_key", value.trim()).apply()
+    // Groq — free, fast (OpenAI-compatible). First of the new stackable free providers.
+    fun groqKey(ctx: Context): String = prefs(ctx).getString("groq_key", "") ?: ""
+    fun setGroqKey(ctx: Context, value: String) = prefs(ctx).edit().putString("groq_key", value.trim()).apply()
+    // Generic per-provider key (cerebras/mistral/nvidia/openrouter/githubmodels) — pref "<provider>_key".
+    // Note: gemini/openai/groq already follow this exact naming, so this reads them too; anthropic uses its
+    // own effective getter (baked fallback), so route that through anthropicKeyEffective instead.
+    fun providerKey(ctx: Context, provider: String): String = prefs(ctx).getString("${provider}_key", "") ?: ""
+    fun setProviderKey(ctx: Context, provider: String, value: String) =
+        prefs(ctx).edit().putString("${provider}_key", value.trim()).apply()
 
     /** Monthly spend cap in USD (0 = no cap). When the month's spend crosses it, SlyOS forces every
      *  paid task onto the free Gemini tier so the bill can't run away. */
@@ -190,7 +215,9 @@ object MemoryStore {
 
     /** True if ANY provider has a usable key — so a Gemini-only (free) user is fully set up. */
     fun anyProviderKey(ctx: Context): Boolean =
-        anthropicKeyEffective(ctx).isNotBlank() || openaiKey(ctx).isNotBlank() || geminiKey(ctx).isNotBlank()
+        anthropicKeyEffective(ctx).isNotBlank() || openaiKey(ctx).isNotBlank() || geminiKey(ctx).isNotBlank() ||
+        groqKey(ctx).isNotBlank() || listOf("cerebras", "mistral", "nvidia", "openrouter", "githubmodels")
+            .any { providerKey(ctx, it).isNotBlank() }
 
     /**
      * Preferred provider to try first ("anthropic"|"openai"|"gemini"). If unset, auto-prefers whichever

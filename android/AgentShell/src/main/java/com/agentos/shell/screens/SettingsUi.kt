@@ -1,6 +1,7 @@
 package com.agentos.shell.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,27 +26,74 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.KeyValidator
 
 /**
- * The building blocks of the redesigned Settings: a tap-to-open card and a live status dot. Every
- * setting becomes a calm, collapsed card that opens only when you want it — so the screen reads as a
- * clean stack of cards instead of one endless form.
+ * The building blocks of the redesigned Settings: a tap-to-open card, a live status dot, a natural-language
+ * filter bar, and a labeled field. Every setting is a calm, collapsed card that opens only when you want it —
+ * so the screen reads as a clean stack of cards, and the search bar narrows the stack to just what you need.
  */
+
+/** Shared, observable search text — the bar sets it, every Collapsible reads it and hides if it doesn't match. */
+object SettingsFilter {
+    var query by mutableStateOf("")
+    fun matches(vararg haystacks: String): Boolean {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return true
+        val hay = haystacks.joinToString(" ").lowercase()
+        return q.split(Regex("\\s+")).filter { it.isNotBlank() }.any { hay.contains(it) }
+    }
+}
+
+/** Search bar for Settings — type what you need in plain words ("add my api key", "change my voice"). */
+@Composable
+fun SettingsSearchBar() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+            .border(1.dp, T.hairline, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Text("⌕", fontSize = T.body, color = T.inkSoft)
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f)) {
+            if (SettingsFilter.query.isEmpty())
+                Text("Search settings — e.g. “add my API key”, “my voice”, “age”", fontSize = T.small, color = T.inkFaint)
+            BasicTextField(
+                value = SettingsFilter.query, onValueChange = { SettingsFilter.query = it }, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small)
+            )
+        }
+        if (SettingsFilter.query.isNotEmpty()) {
+            Spacer(Modifier.width(8.dp))
+            Text("✕", fontSize = T.small, color = T.inkSoft, modifier = Modifier.clickable { SettingsFilter.query = "" })
+        }
+    }
+}
+
 @Composable
 fun Collapsible(
     title: String,
     subtitle: String = "",
+    keywords: String = "",
     initiallyOpen: Boolean = false,
     trailing: @Composable (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // Filter: hide cards that don't match the search; auto-open the ones that do.
+    if (!SettingsFilter.matches(title, subtitle, keywords)) return
+    val searching = SettingsFilter.query.isNotBlank()
     var open by remember { mutableStateOf(initiallyOpen) }
+    val show = open || searching
+
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+            .border(1.dp, if (show) T.accent.copy(alpha = 0.35f) else T.hairline, RoundedCornerShape(16.dp))
+            .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
             Column(Modifier.weight(1f)) {
@@ -55,14 +104,31 @@ fun Collapsible(
                 }
             }
             if (trailing != null) { trailing(); Spacer(Modifier.width(10.dp)) }
-            Text(if (open) "▾" else "▸", fontSize = T.body, color = T.inkSoft)
+            Box(
+                Modifier.size(26.dp).clip(CircleShape).background(if (show) T.accent else T.hairline),
+                contentAlignment = Alignment.Center
+            ) { Text(if (show) "▾" else "▸", fontSize = T.caption, color = if (show) Color.White else T.inkSoft) }
         }
-        if (open) {
+        if (show) {
             Spacer(Modifier.height(14.dp))
             content()
         }
     }
     Spacer(Modifier.height(12.dp))
+}
+
+/** A clean labeled input row — used for personal-info fields so they read as a tidy form. */
+@Composable
+fun LabeledField(label: String, value: String, hint: String = "", onChange: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label, fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp)) {
+            if (value.isEmpty() && hint.isNotEmpty()) Text(hint, fontSize = T.small, color = T.inkFaint)
+            BasicTextField(value = value, onValueChange = onChange, singleLine = true,
+                textStyle = TextStyle(color = T.ink, fontSize = T.small), modifier = Modifier.fillMaxWidth())
+        }
+    }
 }
 
 /** Small colored dot + word describing a key's live validation state. */

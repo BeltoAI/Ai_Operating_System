@@ -33,6 +33,8 @@ object CostStore {
         PRICES[model] ?: when (provider) {
             "gemini" -> 0.10 to 0.40
             "openai" -> 2.5 to 10.0
+            // Free tiers — must read as $0 so the budget cap can't misfire or over-report spend.
+            "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels", "local" -> 0.0 to 0.0
             else -> 3.0 to 15.0
         }
 

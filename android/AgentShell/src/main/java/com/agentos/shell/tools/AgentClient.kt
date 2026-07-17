@@ -330,15 +330,24 @@ object AgentClient {
                     r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, system, messages, maxTokens, readMs, effTools)
                 }
                 if (r.code == 200) {
-                    if (ctx != null) CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+                    if (ctx != null) {
+                        CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+                        FreeTierMeter.record(ctx, choice.provider)   // count toward today's free-tier usage
+                        ProviderLimit.clear(ctx, choice.provider)    // it answered — no longer parked
+                        HealthStore.recordLlm(ctx, choice.provider, true)
+                    }
                     lastInTok = r.inTokens; lastOutTok = r.outTokens; lastProvider = choice.provider; lastModel = choice.model
                     Log.i("SlyOS", "llm ${choice.provider}/${choice.model} OK in=${r.inTokens} out=${r.outTokens}")
                     return 200 to r.text
                 }
-                if (ctx != null && choice.provider == "gemini" &&
-                    (r.code == 429 || r.text.contains("RESOURCE_EXHAUSTED", true) || r.text.contains("quota", true)))
-                    GeminiLimit.hit(ctx)
+                // Rate-limited / quota-exhausted → park this provider for a cooldown so the cascade skips it on
+                // the NEXT calls (instead of wasting a round-trip), and roll to the next brain now.
+                if (ctx != null && ProviderLimit.isRateLimit(r.code, r.text)) {
+                    ProviderLimit.hit(ctx, choice.provider)
+                    if (choice.provider == "gemini") GeminiLimit.hit(ctx)   // keep the user-facing Gemini nudge
+                }
                 Log.w("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} — trying next provider")
+                if (ctx != null) HealthStore.recordLlm(ctx, choice.provider, false, "${r.code}: ${r.text.take(120)}")
                 last = r.code to r.text
                 // A 400 is a malformed request (image too large, bad body) — every provider would reject it,
                 // so don't burn the others; anything else (auth/quota/5xx/network) is worth a fallback.

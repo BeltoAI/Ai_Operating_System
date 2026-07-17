@@ -52,12 +52,13 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     var showManual by remember { mutableStateOf(false) }
     var manualKey by remember { mutableStateOf("") }
 
-    val supported = listOf("gemini", "openai", "anthropic")
+    val supported = listOf("gemini", "openai", "anthropic", "groq")
     fun saveKey(provider: String, key: String) {
         when (provider) {
             "gemini" -> MemoryStore.setGeminiKey(ctx, key)
             "openai" -> MemoryStore.setOpenaiKey(ctx, key)
             "anthropic" -> { MemoryStore.setAnthropicKey(ctx, key); AgentClient.apiKeyOverride = key }
+            "groq" -> MemoryStore.setGroqKey(ctx, key)
         }
         MemoryStore.setPreferredProvider(ctx, provider)
     }

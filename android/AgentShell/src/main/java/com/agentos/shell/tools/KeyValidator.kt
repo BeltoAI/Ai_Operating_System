@@ -26,9 +26,21 @@ object KeyValidator {
             "audd" -> State.VALID   // no cheap validation endpoint (needs an audio sample) — accept any non-blank token
             "vercel" -> vercel(key)
             "netlify" -> netlify(key)
+            // Free, OpenAI-compatible brains — each has a read-only /models list we can ping.
+            "groq" -> classify(get("https://api.groq.com/openai/v1/models", bearer(key)))
+            "cerebras" -> classify(get("https://api.cerebras.ai/v1/models", bearer(key)))
+            "mistral" -> classify(get("https://api.mistral.ai/v1/models", bearer(key)))
+            "nvidia" -> classify(get("https://integrate.api.nvidia.com/v1/models", bearer(key)))
+            "openrouter" -> classify(get("https://openrouter.ai/api/v1/models", bearer(key)))
+            "githubmodels" -> {
+                val c = get("https://models.inference.ai.azure.com/models", bearer(key))
+                if (c in 200..299) State.VALID else State.VALID  // GH token scopes vary — accept; confirmed on first use
+            }
             else -> State.ERROR
         }
     }
+
+    private fun bearer(key: String) = mapOf("Authorization" to "Bearer $key")
 
     private fun gemini(key: String): State =
         classify(get("https://generativelanguage.googleapis.com/v1beta/models?key=$key", emptyMap()))

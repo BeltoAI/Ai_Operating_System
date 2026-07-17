@@ -16,13 +16,29 @@ data class LlmResult(val code: Int, val text: String, val inTokens: Int = 0, val
  */
 object LlmProviders {
 
+    // OpenAI-compatible providers: identical wire format to OpenAI, only the base URL differs. Adding a
+    // provider here is all it takes to support it (Groq, Cerebras, Mistral, NVIDIA, OpenRouter, GitHub Models).
+    private val OPENAI_COMPAT = mapOf(
+        "groq" to "https://api.groq.com/openai/v1/chat/completions",
+        "cerebras" to "https://api.cerebras.ai/v1/chat/completions",
+        "mistral" to "https://api.mistral.ai/v1/chat/completions",
+        "nvidia" to "https://integrate.api.nvidia.com/v1/chat/completions",
+        "openrouter" to "https://openrouter.ai/api/v1/chat/completions",
+        "githubmodels" to "https://models.inference.ai.azure.com/chat/completions"
+    )
+
     fun call(provider: String, model: String, apiKey: String, system: String,
              messages: JSONArray, maxTokens: Int, readMs: Int, tools: JSONArray?): LlmResult =
         when (provider) {
             "openai" -> openai(model, apiKey, system, messages, maxTokens, readMs)
             // P2: pass tools through so Gemini can use Google Search grounding (free-tier web search).
             "gemini" -> gemini(model, apiKey, system, messages, maxTokens, readMs, tools)
-            else -> anthropic(model, apiKey, system, messages, maxTokens, readMs, tools)
+            "anthropic" -> anthropic(model, apiKey, system, messages, maxTokens, readMs, tools)
+            else -> {
+                val compat = OPENAI_COMPAT[provider]
+                if (compat != null) openaiCompatible(compat, model, apiKey, system, messages, maxTokens, readMs)
+                else anthropic(model, apiKey, system, messages, maxTokens, readMs, tools)  // unchanged fallback
+            }
         }
 
     private fun post(url: String, headers: Map<String, String>, body: String, readMs: Int): Pair<Int, String> {
@@ -69,9 +85,15 @@ object LlmProviders {
         } catch (e: Exception) { LlmResult(-1, e.message ?: "parse error") }
     }
 
-    // ---------- OpenAI ----------
+    // ---------- OpenAI (and OpenAI-compatible) ----------
     private fun openai(model: String, apiKey: String, system: String, messages: JSONArray,
-                       maxTokens: Int, readMs: Int): LlmResult {
+                       maxTokens: Int, readMs: Int): LlmResult =
+        openaiCompatible("https://api.openai.com/v1/chat/completions", model, apiKey, system, messages, maxTokens, readMs)
+
+    /** The exact OpenAI chat/completions flow, parameterized by base URL so any OpenAI-compatible
+     *  provider (Groq, Cerebras, Mistral, NVIDIA, OpenRouter, GitHub Models) works with zero extra code. */
+    private fun openaiCompatible(url: String, model: String, apiKey: String, system: String, messages: JSONArray,
+                                 maxTokens: Int, readMs: Int): LlmResult {
         val msgs = JSONArray()
         if (system.isNotBlank()) msgs.put(JSONObject().put("role", "system").put("content", system))
         for (i in 0 until messages.length()) {
@@ -81,8 +103,7 @@ object LlmProviders {
             msgs.put(JSONObject().put("role", m.optString("role")).put("content", outContent))
         }
         val obj = JSONObject().put("model", model).put("messages", msgs).put("max_tokens", maxTokens)
-        val (code, raw) = post("https://api.openai.com/v1/chat/completions",
-            mapOf("authorization" to "Bearer $apiKey"), obj.toString(), readMs)
+        val (code, raw) = post(url, mapOf("authorization" to "Bearer $apiKey"), obj.toString(), readMs)
         if (code !in 200..299) return LlmResult(code, errMsg(raw, code))
         return try {
             val o = JSONObject(raw)
