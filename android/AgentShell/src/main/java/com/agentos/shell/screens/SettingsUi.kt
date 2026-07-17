@@ -84,8 +84,8 @@ fun Collapsible(
     trailing: @Composable (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // Filter: hide cards that don't match the search; auto-open the ones that do.
-    if (!SettingsFilter.matches(title, subtitle, keywords)) return
+    // Filter: search matches the visible card text (title + grey subtitle); hide non-matches, auto-open matches.
+    if (!SettingsFilter.matches(title, subtitle)) return
     val searching = SettingsFilter.query.isNotBlank()
     var open by remember { mutableStateOf(initiallyOpen) }
     val show = open || searching

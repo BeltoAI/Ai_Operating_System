@@ -1068,10 +1068,6 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         AccountHeader(acctTick)
         Spacer(Modifier.height(12.dp))
         // Build badge — if you can see this, you're running the newest settings.
-        Text("✦ Settings build v30 · search + about-you + free brains", fontSize = T.caption, color = T.accent,
-            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accentSoft).padding(horizontal = 12.dp, vertical = 5.dp))
-        Spacer(Modifier.height(16.dp))
-
         // Natural-language filter — type what you need and the card stack narrows to it.
         SettingsSearchBar()
 
