@@ -796,39 +796,37 @@ private fun KeyEntry(label: String, hint: String, provider: String, initial: Str
 @Composable
 private fun ApiKeysCard() {
     val ctx = LocalContext.current
-    Collapsible("API keys & model", "Paste a key — SlyOS checks it's actually valid. All of these have FREE tiers.",
-        keywords = "api key token gemini groq cerebras mistral nvidia openrouter github openai claude anthropic brain model llm free tier netlify supabase") {
-        Text("Free brains — add as many as you like. SlyOS uses whichever is fastest and rolls to the next when " +
-            "one hits its daily free limit, so you basically never run out.", fontSize = T.caption, color = T.inkSoft)
-        Spacer(Modifier.height(6.dp))
-        KeyEntry("Google Gemini (free · easiest)", "AIza…", "gemini", MemoryStore.geminiKey(ctx),
-            getUrl = "https://aistudio.google.com/app/apikey",
-            steps = "1) Tap “Get free key”  2) Sign in with Google  3) Tap “Create API key”  4) Tap the key to copy  5) Back here → Paste → Save") { MemoryStore.setGeminiKey(ctx, it) }
-        KeyEntry("Groq (free · very fast)", "gsk_…", "groq", MemoryStore.groqKey(ctx),
+    Collapsible("API keys & model", "Free brains — add as many as you like",
+        keywords = "api key token gemini groq cerebras mistral github openai claude anthropic brain model free netlify supabase") {
+        Text("Add one to get started. SlyOS uses the fastest and rolls to the next when one hits its free limit.",
+            fontSize = T.caption, color = T.inkSoft)
+        Spacer(Modifier.height(8.dp))
+        KeyEntry("Google Gemini — free, easiest", "AIza…", "gemini", MemoryStore.geminiKey(ctx),
+            getUrl = "https://aistudio.google.com/app/apikey") { MemoryStore.setGeminiKey(ctx, it) }
+        KeyEntry("Groq — free, fast", "gsk_…", "groq", MemoryStore.groqKey(ctx),
             getUrl = "https://console.groq.com/keys") { MemoryStore.setGroqKey(ctx, it) }
-        KeyEntry("Cerebras (free · huge daily limit)", "csk-…", "cerebras", MemoryStore.providerKey(ctx, "cerebras"),
+        KeyEntry("Cerebras — free", "csk-…", "cerebras", MemoryStore.providerKey(ctx, "cerebras"),
             getUrl = "https://cloud.cerebras.ai/") { MemoryStore.setProviderKey(ctx, "cerebras", it) }
-        KeyEntry("Mistral (free tier)", "key…", "mistral", MemoryStore.providerKey(ctx, "mistral"),
+        KeyEntry("Mistral — free", "key…", "mistral", MemoryStore.providerKey(ctx, "mistral"),
             getUrl = "https://console.mistral.ai/api-keys/") { MemoryStore.setProviderKey(ctx, "mistral", it) }
-        KeyEntry("NVIDIA NIM (free)", "nvapi-…", "nvidia", MemoryStore.providerKey(ctx, "nvidia"),
-            getUrl = "https://build.nvidia.com/") { MemoryStore.setProviderKey(ctx, "nvidia", it) }
-        KeyEntry("OpenRouter (free models · one key, many models)", "sk-or-…", "openrouter", MemoryStore.providerKey(ctx, "openrouter"),
-            getUrl = "https://openrouter.ai/keys") { MemoryStore.setProviderKey(ctx, "openrouter", it) }
-        KeyEntry("GitHub Models (free GPT-4o / Claude)", "ghp_… or github_pat_…", "githubmodels", MemoryStore.providerKey(ctx, "githubmodels"),
-            getUrl = "https://github.com/settings/tokens",
-            steps = "1) Tap “Get free key”  2) Generate a token (classic, no scopes needed)  3) Copy it  4) Back here → Paste → Save") { MemoryStore.setProviderKey(ctx, "githubmodels", it) }
+        KeyEntry("GitHub Models — free GPT-4o / Claude", "ghp_…", "githubmodels", MemoryStore.providerKey(ctx, "githubmodels"),
+            getUrl = "https://github.com/settings/tokens") { MemoryStore.setProviderKey(ctx, "githubmodels", it) }
         Spacer(Modifier.height(10.dp))
-        Text("Paid options (optional)", fontSize = T.caption, color = T.inkSoft)
+        Text("Paid (optional)", fontSize = T.caption, color = T.inkSoft)
         KeyEntry("Claude / Anthropic", "sk-ant-…", "anthropic", MemoryStore.anthropicKey(ctx),
             getUrl = "https://console.anthropic.com/settings/keys") {
             MemoryStore.setAnthropicKey(ctx, it); com.agentos.shell.tools.AgentClient.apiKeyOverride = it.trim()
         }
         KeyEntry("OpenAI", "sk-…", "openai", MemoryStore.openaiKey(ctx),
             getUrl = "https://platform.openai.com/api-keys") { MemoryStore.setOpenaiKey(ctx, it) }
-        KeyEntry("Finnhub (market data)", "token…", "finnhub", MemoryStore.finnhubKey(ctx)) {
+        Spacer(Modifier.height(10.dp))
+        Text("Extras (optional)", fontSize = T.caption, color = T.inkSoft)
+        KeyEntry("Finnhub — market data", "token…", "finnhub", MemoryStore.finnhubKey(ctx),
+            getUrl = "https://finnhub.io/dashboard") {
             MemoryStore.setFinnhubKey(ctx, it); com.agentos.shell.tools.QuoteClient.finnhubKey = it.trim()
         }
-        KeyEntry("ElevenLabs (cloned voice, optional)", "xi-…", "elevenlabs", MemoryStore.elevenKey(ctx)) { MemoryStore.setElevenKey(ctx, it) }
+        KeyEntry("ElevenLabs — cloned voice", "xi-…", "elevenlabs", MemoryStore.elevenKey(ctx),
+            getUrl = "https://elevenlabs.io/app/settings/api-keys") { MemoryStore.setElevenKey(ctx, it) }
         run {
             var vid by remember { mutableStateOf(MemoryStore.elevenVoiceId(ctx)) }
             BasicTextField(vid, { vid = it; MemoryStore.setElevenVoiceId(ctx, it) }, singleLine = true,
@@ -836,10 +834,14 @@ private fun ApiKeysCard() {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
                 decorationBox = { inner -> if (vid.isEmpty()) Text("ElevenLabs voice ID (optional)", fontSize = T.small, color = T.inkFaint); inner() })
         }
-        KeyEntry("GitHub token (Cowork push)", "ghp_…", "github", MemoryStore.githubToken(ctx)) { MemoryStore.setGithubToken(ctx, it) }
-        KeyEntry("AudD (name songs you hear)", "token…", "audd", MemoryStore.musicIdToken(ctx)) { MemoryStore.setMusicIdToken(ctx, it) }
-        KeyEntry("Netlify (host the sites agents build)", "nfp_…", "netlify", MemoryStore.netlifyToken(ctx)) { MemoryStore.setNetlifyToken(ctx, it) }
-        KeyEntry("Vercel (alternative host, optional)", "token…", "vercel", MemoryStore.vercelToken(ctx)) { MemoryStore.setVercelToken(ctx, it) }
+        KeyEntry("GitHub token — Cowork push", "ghp_…", "github", MemoryStore.githubToken(ctx),
+            getUrl = "https://github.com/settings/tokens") { MemoryStore.setGithubToken(ctx, it) }
+        KeyEntry("AudD — name songs you hear", "token…", "audd", MemoryStore.musicIdToken(ctx),
+            getUrl = "https://dashboard.audd.io/") { MemoryStore.setMusicIdToken(ctx, it) }
+        KeyEntry("Netlify — host built sites", "nfp_…", "netlify", MemoryStore.netlifyToken(ctx),
+            getUrl = "https://app.netlify.com/user/applications#personal-access-tokens") { MemoryStore.setNetlifyToken(ctx, it) }
+        KeyEntry("Vercel — alternative host", "token…", "vercel", MemoryStore.vercelToken(ctx),
+            getUrl = "https://vercel.com/account/tokens") { MemoryStore.setVercelToken(ctx, it) }
         run {
             var su by remember { mutableStateOf(MemoryStore.supabaseUrl(ctx)) }
             BasicTextField(su, { su = it; MemoryStore.setSupabaseUrl(ctx, it) }, singleLine = true,
@@ -857,19 +859,24 @@ private fun ApiKeysCard() {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
                 decorationBox = { inner -> if (sp.isEmpty()) Text("Supabase access token (lets agents create your DB tables)", fontSize = T.small, color = T.inkFaint); inner() })
         }
-        Spacer(Modifier.height(8.dp))
+        // Preferred model — only show brains you've actually added a key for (no dead options).
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
-        Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
-            listOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
-                "nvidia" to "NVIDIA", "openrouter" to "OpenRouter", "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "OpenAI").forEach { (id, lbl) ->
-                val sel = pref == id
-                Text(lbl, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                    modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
-                        .background(if (sel) T.accent else T.hairline)
-                        .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
-                        .padding(horizontal = 14.dp, vertical = 7.dp))
+        val labels = mapOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
+            "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "OpenAI")
+        val keyed = com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { com.agentos.shell.tools.ModelRouter.hasKey(ctx, it) }
+        if (keyed.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                keyed.forEach { id ->
+                    val sel = pref == id
+                    Text(labels[id] ?: id, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
+                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
+                            .background(if (sel) T.accent else T.hairline)
+                            .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp))
+                }
             }
         }
     }
@@ -1755,8 +1762,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             mutableStateMapOf<String, String>().apply { tiers.forEach { (t, _) -> put(t.name, MemoryStore.tierProvider(ctx, t)) } }
         }
         val shortLbl = mapOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
-            "nvidia" to "NVIDIA", "openrouter" to "Router", "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "GPT")
-        val provChips = listOf("" to "Auto") + com.agentos.shell.tools.ModelRouter.PROVIDERS.map { it to (shortLbl[it] ?: it) }
+            "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "GPT")
+        // Only offer brains that actually have a key — no routing to a provider you can't reach.
+        val provChips = listOf("" to "Auto") +
+            com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { com.agentos.shell.tools.ModelRouter.hasKey(ctx, it) }
+                .map { it to (shortLbl[it] ?: it) }
         tiers.forEach { (tier, label) ->
             Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 Text(label, fontSize = T.caption, color = T.inkSoft)

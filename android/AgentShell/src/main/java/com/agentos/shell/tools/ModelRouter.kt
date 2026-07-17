@@ -11,21 +11,14 @@ object ModelRouter {
     enum class Tier { CHEAP, STANDARD, HEAVY }
 
     // Primary three first (order matters for fallback); new free providers appended — inert until keyed.
-    val PROVIDERS = listOf("anthropic", "openai", "gemini", "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels")
+    val PROVIDERS = listOf("anthropic", "openai", "gemini", "groq", "cerebras", "mistral", "githubmodels")
 
-    // Human labels + where to get a FREE key (used by the settings cards). Order = suggested to the user.
-    val PROVIDER_LABEL = mapOf(
-        "gemini" to "Google Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
-        "nvidia" to "NVIDIA NIM", "openrouter" to "OpenRouter", "githubmodels" to "GitHub Models",
-        "anthropic" to "Anthropic (Claude)", "openai" to "OpenAI")
-    val PROVIDER_FREE = setOf("gemini", "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels")
+    val PROVIDER_FREE = setOf("gemini", "groq", "cerebras", "mistral", "githubmodels")
     val PROVIDER_KEYURL = mapOf(
         "gemini" to "https://aistudio.google.com/app/apikey",
         "groq" to "https://console.groq.com/keys",
         "cerebras" to "https://cloud.cerebras.ai/",
         "mistral" to "https://console.mistral.ai/api-keys/",
-        "nvidia" to "https://build.nvidia.com/",
-        "openrouter" to "https://openrouter.ai/keys",
         "githubmodels" to "https://github.com/settings/tokens",
         "anthropic" to "https://console.anthropic.com/settings/keys",
         "openai" to "https://platform.openai.com/api-keys")
@@ -57,14 +50,6 @@ object ModelRouter {
             Tier.CHEAP to "mistral-small-latest",
             Tier.STANDARD to "mistral-small-latest",
             Tier.HEAVY to "mistral-large-latest"),
-        "nvidia" to mapOf(
-            Tier.CHEAP to "meta/llama-3.1-8b-instruct",
-            Tier.STANDARD to "meta/llama-3.3-70b-instruct",
-            Tier.HEAVY to "meta/llama-3.3-70b-instruct"),
-        "openrouter" to mapOf(
-            Tier.CHEAP to "meta-llama/llama-3.3-70b-instruct:free",
-            Tier.STANDARD to "meta-llama/llama-3.3-70b-instruct:free",
-            Tier.HEAVY to "meta-llama/llama-3.3-70b-instruct:free"),
         "githubmodels" to mapOf(
             Tier.CHEAP to "gpt-4o-mini",
             Tier.STANDARD to "gpt-4o",
@@ -84,8 +69,11 @@ object ModelRouter {
         "gemini" -> MemoryStore.geminiKey(ctx)
         "groq" -> MemoryStore.groqKey(ctx)
         "anthropic" -> MemoryStore.anthropicKeyEffective(ctx)
-        else -> MemoryStore.providerKey(ctx, p)   // cerebras / mistral / nvidia / openrouter / githubmodels
+        else -> MemoryStore.providerKey(ctx, p)   // cerebras / mistral / githubmodels
     }
+
+    /** True if this provider has a usable key — so the UI only offers brains you can actually route to. */
+    fun hasKey(ctx: Context, provider: String): Boolean = keyFor(ctx, provider).isNotBlank()
 
     /**
      * Choose a provider+model for [tier], honoring the user's preferred provider, then any provider

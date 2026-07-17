@@ -62,7 +62,7 @@ fun SettingsSearchBar() {
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f)) {
             if (SettingsFilter.query.isEmpty())
-                Text("Search settings — e.g. “add my API key”, “my voice”, “age”", fontSize = T.small, color = T.inkFaint)
+                Text("Search settings", fontSize = T.small, color = T.inkFaint)
             BasicTextField(
                 value = SettingsFilter.query, onValueChange = { SettingsFilter.query = it }, singleLine = true,
                 textStyle = TextStyle(color = T.ink, fontSize = T.small)
@@ -96,6 +96,11 @@ fun Collapsible(
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
+            // Clean monogram badge — a consistent "icon" for every card without per-card art.
+            Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(T.accentSoft), contentAlignment = Alignment.Center) {
+                Text(title.trim().take(1).uppercase(), fontSize = T.small, color = T.accent, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
                 if (subtitle.isNotBlank()) {
