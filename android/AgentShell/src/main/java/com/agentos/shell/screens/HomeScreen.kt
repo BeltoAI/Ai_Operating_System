@@ -369,6 +369,9 @@ fun HomeScreen(
     val submit: (String, Boolean) -> Unit = submit@{ raw, doSpeak ->
         val q = raw.trim()
         if (q.isEmpty() || thinking) return@submit
+        // Every Home AI query: log the WHAT-FOR bucket (never the text). This is the core signal for
+        // "what do people actually use SlyOS for" — remember, find_job, reduce_screentime, communicate, …
+        try { com.agentos.shell.tools.Analytics.track(ctx, "home_query", "", com.agentos.shell.tools.Analytics.intent(q)) } catch (e: Exception) {}
         // Bank/vault questions are answered LOCALLY behind the PIN — never sent to any model.
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit

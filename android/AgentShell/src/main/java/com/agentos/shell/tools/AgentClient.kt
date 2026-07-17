@@ -357,8 +357,11 @@ object AgentClient {
                     }
                 } catch (e: Exception) {}
             }
+            // LOSS: every provider (and local fallback) failed. Log the code so you can see how often models fail.
+            if (last.first != 200 && ctx != null) try { Analytics.track(ctx, "llm_error", last.first.toString(), "system") } catch (e: Exception) {}
             last
         } catch (e: Exception) {
+            if (ctx != null) try { Analytics.track(ctx, "llm_error", "exception", "system") } catch (ig: Exception) {}
             -1 to (e.message ?: "network error")
         } finally {
             Busy.end()

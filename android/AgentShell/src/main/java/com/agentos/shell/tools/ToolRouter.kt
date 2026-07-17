@@ -199,6 +199,22 @@ object ToolRouter {
      * routes through here, so the [userInitiated] gate is enforced in ONE place. Autonomous/worker/bot
      * callers MUST pass userInitiated=false so gated actions are skipped instead of auto-executed.
      */
+    /** Map a concrete action to the "what for" bucket, so the analytics stream doubles as intent data. */
+    fun categoryFor(type: String): String = when (type) {
+        "remind", "add_event" -> "remember"
+        "timer", "alarm" -> "schedule"
+        "send_sms", "sms", "message", "send_email", "send_photo", "share_location" -> "communicate"
+        "create_doc", "create_sheet", "create_slides", "create_pdf" -> "create"
+        "trade" -> "finance"
+        "identify_song", "song", "shazam", "play_music", "media", "music_control" -> "music"
+        "translate" -> "translate"
+        "web_search", "open_url" -> "research"
+        "navigate" -> "device_control"
+        "torch", "flashlight", "open_app", "dial", "camera", "settings", "pin_app" -> "device_control"
+        "checklist_add", "checklist_remove", "checklist_clear" -> "remember"
+        else -> "other"
+    }
+
     fun executeActions(ctx: Context, actions: List<AgentAction>, userInitiated: Boolean = true): String {
         Log.i("SlyOS", "actions(${actions.size}, user=$userInitiated): " + actions.joinToString { "${it.type}=${it.arg}" })
         val msgs = mutableListOf<String>()
@@ -206,10 +222,18 @@ object ToolRouter {
             if (a.type.isBlank() || a.type == "none") continue
             if (!userInitiated && a.type in GATED) {   // code-level gate: never auto-fire these unattended
                 Log.w("SlyOS", "action gated (non-user-initiated): ${a.type}")
+                try { Analytics.track(ctx, "action_gated", a.type.take(30), categoryFor(a.type)) } catch (e: Exception) {}
                 continue
             }
-            val m = executeAction(ctx, a.type, a.arg)
+            val m = try { executeAction(ctx, a.type, a.arg) }
+                    catch (e: Exception) {
+                        try { Analytics.track(ctx, "action_failed", a.type.take(30), categoryFor(a.type)) } catch (ig: Exception) {}
+                        throw e
+                    }
             MetricsStore.record(ctx, MetricsStore.secondsFor(a.type))
+            // WIN: an action actually ran. Tag it with the feature and the what-for bucket so you can see
+            // both "which features get used" and "what people use SlyOS for" from the same stream.
+            try { Analytics.track(ctx, "action", a.type.take(30), categoryFor(a.type)) } catch (e: Exception) {}
             if (m.isNotEmpty()) msgs.add(m)
         }
         return msgs.joinToString("  ")
