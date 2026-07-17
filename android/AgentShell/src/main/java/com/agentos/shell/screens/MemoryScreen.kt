@@ -807,11 +807,11 @@ private fun ApiKeysCard() {
                 textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
                 decorationBox = { inner -> if (sa.isEmpty()) Text("Supabase anon key", fontSize = T.small, color = T.inkFaint); inner() })
-            var lv by remember { mutableStateOf(MemoryStore.lovableToken(ctx)) }
-            BasicTextField(lv, { lv = it; MemoryStore.setLovableToken(ctx, it) }, singleLine = true,
+            var sp by remember { mutableStateOf(MemoryStore.supabasePat(ctx)) }
+            BasicTextField(sp, { sp = it; MemoryStore.setSupabasePat(ctx, it) }, singleLine = true,
                 textStyle = TextStyle(color = T.ink, fontSize = T.small),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
-                decorationBox = { inner -> if (lv.isEmpty()) Text("Lovable token (optional — for full auto-build; link build needs none)", fontSize = T.small, color = T.inkFaint); inner() })
+                decorationBox = { inner -> if (sp.isEmpty()) Text("Supabase access token (lets agents create your DB tables)", fontSize = T.small, color = T.inkFaint); inner() })
         }
         Spacer(Modifier.height(8.dp))
         var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }

@@ -57,7 +57,10 @@ object DeployClient {
                 val msg = try { JSONObject(raw).optJSONObject("error")?.optString("message") } catch (e: Exception) { null } ?: raw.take(160)
                 Log.w(TAG, "vercel $code: $msg"); return Result(false, "", "Vercel error ($code): $msg")
             }
-            val url = JSONObject(raw).optString("url")
+            val obj = JSONObject(raw)
+            // Prefer a stable production alias (same URL across redeploys) over the per-deploy url.
+            val alias = obj.optJSONArray("alias")?.let { if (it.length() > 0) it.optString(0) else "" }.orEmpty()
+            val url = alias.ifBlank { obj.optString("url") }
             if (url.isBlank()) Result(false, "", "Vercel didn't return a URL.") else Result(true, "https://$url", "")
         } catch (e: Exception) { Log.w(TAG, "deploy: ${e.message}"); Result(false, "", "Couldn't reach Vercel: ${e.message}") }
     }

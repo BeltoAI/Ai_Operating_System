@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|provision_db|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -44,7 +44,8 @@ object EmployeeRunner {
         "(kind \"site\"), then call deploy. Wire any backend (DB/auth/storage) with Supabase client-side using the creds in your context. " +
         "If a Vercel token isn't set, say in one line that the owner needs to add one in Brain → API keys, and hand back the finished code meanwhile." +
         " build_app: for a REAL full-stack app (marketplace, SaaS, dashboard — anything with users, data, auth, or payments) hand it to LOVABLE, which ships React + a Supabase backend + hosting END-TO-END. Put a crisp, complete build brief in \"text\" " +
-        "(what it does, the key pages, the data model, auth, payments, and the look/feel). I turn it into a one-tap Lovable build link the owner opens — no key needed. Use build_app for full apps; use make_doc kind \"site\" + deploy only for a simple static/marketing page."
+        "(what it does, the key pages, the data model, auth, payments, and the look/feel). I turn it into a one-tap Lovable build link the owner opens — no key needed. Use build_app for full apps; use make_doc kind \"site\" + deploy only for a simple static/marketing page." +
+        " provision_db: run the app's backend SQL (CREATE TABLE, Row-Level-Security policies, seed data) against the owner's Supabase — put the SQL in \"text\". Do this so a deployed site WORKS on first load instead of hitting missing tables. Typical full flow you own end-to-end: make_doc kind \"site\" (frontend wired to Supabase) → provision_db (schema) → deploy (live URL). To refine later: edit_doc the site, then deploy again."
 
     /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -149,16 +150,28 @@ object EmployeeRunner {
                         "Tap to build it end-to-end on Lovable (React + Supabase + hosting):\n$url"
                     }
                 }
+                "provision_db" -> {
+                    // Run the agent's generated SQL (create tables + RLS + seed) so the deployed app works on load.
+                    val sql = act!!.optString("text").ifBlank { act.optString("body") }
+                    if (sql.length < 10) "give me the SQL (tables/policies) and I'll set up the database" else {
+                        val r = SupabaseAdmin.runSql(ctx, sql)
+                        if (r.ok) { try { MessageStore.insertOne(ctx, emp.name, "Database", emp.name, "me", "Applied DB schema (${sql.length} chars of SQL)") } catch (e: Exception) {} }
+                        r.message
+                    }
+                }
                 "deploy" -> {
                     val cur = DesignStore.get(ctx, emp.id)
                     val html = act!!.optString("text").ifBlank { cur?.html.orEmpty() }
                     val name = act.optString("title").ifBlank { cur?.title ?: "site" }
                     if (html.length < 60) "there's no site built yet to deploy — create it first, then deploy" else {
-                        val r = DeployClient.deployHtml(ctx, name, html)
-                        if (r.ok) {
-                            try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Deployed “$name” live: ${r.url}") } catch (e: Exception) {}
-                            "shipped it live ✓ ${r.url}"
-                        } else r.error
+                        // FREE + zero-config host by default (real URL, no user keys). Vercel only if a token is set.
+                        val (ok, url, err) = if (MemoryStore.vercelToken(ctx).isNotBlank()) {
+                            val r = DeployClient.deployHtml(ctx, name, html); Triple(r.ok, r.url, r.error)
+                        } else { val r = SiteHost.publish(html, name); Triple(r.ok, r.url, r.error) }
+                        if (ok) {
+                            try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Shipped “$name” live: $url") } catch (e: Exception) {}
+                            "It's live ✓ $url"
+                        } else err
                     }
                 }
                 else -> ""
@@ -265,9 +278,12 @@ object EmployeeRunner {
         val curIsSite = cur0?.kind?.lowercase()?.let { it.contains("site") || it.contains("web") || it.contains("app") || it.contains("landing") } ?: false
         val wantsDeploy = Regex("(?i)\\b(deploy( it| this)?|ship it( live)?|go live|publish( it| this)?|put (it|this) live|make (it|this) live)\\b").containsMatchIn(task)
         if (wantsDeploy && cur0 != null && curIsSite) {
-            val r = try { DeployClient.deployHtml(ctx, cur0.title, cur0.html) } catch (e: Exception) { DeployClient.Result(false, "", "deploy failed: ${e.message}") }
-            if (r.ok) { try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Deployed “${cur0.title}” live: ${r.url}") } catch (e: Exception) {} }
-            return ChainResult(if (r.ok) "Shipped it live — ${r.url}" else r.error, "", if (r.ok) 1 else 0, 0, 0)
+            val (ok, url, err) = try {
+                if (MemoryStore.vercelToken(ctx).isNotBlank()) { val r = DeployClient.deployHtml(ctx, cur0.title, cur0.html); Triple(r.ok, r.url, r.error) }
+                else { val r = SiteHost.publish(cur0.html, cur0.title); Triple(r.ok, r.url, r.error) }
+            } catch (e: Exception) { Triple(false, "", "deploy failed: ${e.message}") }
+            if (ok) { try { MessageStore.insertOne(ctx, emp.name, "Deploy", emp.name, "me", "Shipped “${cur0.title}” live: $url") } catch (e: Exception) {} }
+            return ChainResult(if (ok) "It's live — $url" else err, "", if (ok) 1 else 0, 0, 0)
         }
         val wantsPdf = Regex("(?i)\\b(make (it|this).*(pdf|final)|to pdf|as (a )?pdf|export|finali[sz]e|convert.*pdf|i'?m happy|we'?re done|looks good.*(send|final|pdf)|lock it in)\\b").containsMatchIn(task)
         if (wantsPdf && DesignStore.get(ctx, emp.id) != null && !curIsSite) {
@@ -286,8 +302,9 @@ object EmployeeRunner {
         val devBlock = if (isDev) {
             val u = try { DeployClient.supabaseUrl(ctx) } catch (e: Exception) { "" }
             val a = try { DeployClient.supabaseAnon(ctx) } catch (e: Exception) { "" }
-            "DEPLOY STACK: you can ship sites LIVE to Vercel — build the site (make_doc kind \"site\"), then call the 'deploy' action to get a public URL. " +
-            (if (u.isNotBlank()) "Backend = Supabase: wire DB/auth/storage CLIENT-SIDE via the supabase-js CDN with SUPABASE_URL=\"$u\" and SUPABASE_ANON_KEY=\"$a\"." else "Backend = Supabase, but no creds are set — build the frontend and note a Supabase URL + anon key is needed.") + "\n\n"
+            "DEPLOY STACK (you own this end-to-end): make_doc kind \"site\" to build the site → provision_db to create its Supabase tables/policies → deploy to ship a live Vercel URL. To refine later: edit_doc then deploy again. " +
+            (if (u.isNotBlank()) "Backend = Supabase: wire DB/auth/storage CLIENT-SIDE via the supabase-js CDN with SUPABASE_URL=\"$u\" and SUPABASE_ANON_KEY=\"$a\". " else "Backend = Supabase, but no creds set — build the frontend and note a Supabase URL + anon key + access token are needed. ") +
+            (if (try { SupabaseAdmin.configured(ctx) } catch (e: Exception) { false }) "Database provisioning IS set up — call provision_db with the SQL." else "Database provisioning NOT set up yet (needs a Supabase access token) — still hand over the SQL in provision_db so it runs once the owner adds it.") + "\n\n"
         } else ""
         val ctxBlock = "Current time: $now\n" + devBlock +
             (if (forget.isNotBlank()) "DROPPED BY THE OWNER — do NOT work on, suggest, or bring up ANY of these ever again:\n$forget\n\n" else "") +

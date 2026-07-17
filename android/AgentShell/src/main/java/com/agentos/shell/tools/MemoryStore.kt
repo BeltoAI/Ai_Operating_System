@@ -154,6 +154,8 @@ object MemoryStore {
     fun setSupabaseAnon(ctx: Context, value: String) = prefs(ctx).edit().putString("supabase_anon", value.trim()).apply()
     fun lovableToken(ctx: Context): String = prefs(ctx).getString("lovable_token", "") ?: ""
     fun setLovableToken(ctx: Context, value: String) = prefs(ctx).edit().putString("lovable_token", value.trim()).apply()
+    fun supabasePat(ctx: Context): String = prefs(ctx).getString("supabase_pat", "") ?: ""
+    fun setSupabasePat(ctx: Context, value: String) = prefs(ctx).edit().putString("supabase_pat", value.trim()).apply()
 
     /** Your Anthropic API key (the brain). Stored ONLY on this device; lets a prebuilt APK run with no
      *  key compiled in — each person pastes their own. */

@@ -379,16 +379,26 @@ fun HomeScreen(
             val r = try { com.agentos.shell.tools.AlarmPlanner.configure(ctx, q) } catch (e: Exception) { null }
             if (r != null) { text = ""; reply = r; lastQuery = q; if (doSpeak) speak(r); return@submit }
         }
-        // "build me an app / website / marketplace" → hand to Lovable (full-stack e2e). Works from any chat.
-        // The prompt is grounded in the brain (business context) and the build is recorded to the brain.
-        if (Regex("(?i)\\bbuild\\b.{0,40}\\b(app|web ?app|web ?site|website|marketplace|saas|platform|dashboard|online store|landing ?page)\\b").containsMatchIn(q)) {
+        // "build me a website / landing page / site" → Opus builds it, we host it free (SlyOS's own hosting, no
+        // user setup), and hand back the ACTUAL live URL. Grounded in the brain + recorded to the brain.
+        if (Regex("(?i)\\b(build|make|create)\\b.{0,40}\\b(web ?site|website|web ?page|landing ?page|marketplace|storefront|online store|web ?app|dashboard|portal|\\bsite\\b)\\b").containsMatchIn(q)) {
             text = ""; thinking = true; reply = ""; lastQuery = q
             scope.launch {
-                val ctxSnippet = try { withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) } } catch (e: Exception) { "" }
-                val fullPrompt = q + (if (ctxSnippet.isNotBlank()) "\n\nBuild it to fit this business/owner context:\n${ctxSnippet.take(1500)}" else "")
-                val url = com.agentos.shell.tools.LovableClient.buildUrl(fullPrompt)
-                try { withContext(Dispatchers.IO) { com.agentos.shell.tools.MessageStore.insertOne(ctx, "You", "Build", "You", "me", "App build request: $q → $url") } } catch (e: Exception) {}
-                val r = "Tap to build it end-to-end on Lovable — React + Supabase backend + hosting:\n$url"
+                val r = try {
+                    withContext(Dispatchers.IO) {
+                        val ctxSnippet = try { com.agentos.shell.tools.BrainContext.build(ctx, q) } catch (e: Exception) { "" }
+                        val brief = q + (if (ctxSnippet.isNotBlank()) "\n\nBusiness/owner context to fit:\n${ctxSnippet.take(1500)}" else "")
+                        val html = com.agentos.shell.tools.AgentClient.designHtml("site", q.take(40), brief)
+                        if (html.length < 120) "I couldn't build that just now — mind trying again?"
+                        else {
+                            val pub = com.agentos.shell.tools.SiteHost.publish(html, q.take(30))
+                            if (pub.ok) {
+                                try { com.agentos.shell.tools.MessageStore.insertOne(ctx, "You", "Build", "You", "me", "Built + shipped a site for: $q → ${pub.url}") } catch (e: Exception) {}
+                                "Built it with the best model and it's live:\n${pub.url}\n\nTell me any changes and I'll update it."
+                            } else "I built the site but couldn't publish it (${pub.error})."
+                        }
+                    }
+                } catch (e: Exception) { "That didn't go through — try again in a sec." }
                 reply = r; thinking = false; if (doSpeak) speak(r)
             }
             return@submit
