@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -194,7 +195,7 @@ private fun OutreachCard(
         Modifier.fillMaxWidth().padding(vertical = 6.dp)
             .offset { androidx.compose.ui.unit.IntOffset(offsetX.toInt(), 0) }
             .pointerInput(name) {
-                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                detectHorizontalDragGestures(
                     onDragEnd = { if (offsetX < -200f) { done = true; onDismiss() } else offsetX = 0f }
                 ) { _, dragAmount -> offsetX = (offsetX + dragAmount).coerceIn(-600f, 0f) }
             }
