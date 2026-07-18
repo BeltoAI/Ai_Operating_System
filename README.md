@@ -11,7 +11,7 @@
 ![platform](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)
 ![models](https://img.shields.io/badge/models-Claude%20·%20GPT%20·%20Gemini%20·%20on--device-E8642C)
 ![cost](https://img.shields.io/badge/~255%20tokens%2Freply-runs%20near--free-2E9E5B)
-![license](https://img.shields.io/badge/license-MIT-blue)
+![license](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
 <br>
 
@@ -101,9 +101,22 @@ Kotlin · Jetpack Compose · SQLite (FTS4 + a local vector index) · CameraX + M
 
 ## Contributing
 
-Issues and PRs welcome. If SlyOS resonates, a ⭐ genuinely helps — it's how people find it.
+Issues and bug reports welcome. Note that SlyOS is **proprietary** (see [License](#license)), so external code contributions can't be merged without a separate agreement — but feedback and reports genuinely help.
 
-**License:** MIT © Belto
+**License:** Proprietary — © Belto. All rights reserved.
+
+## Security
+
+SlyOS is early software handling sensitive data. Two honest caveats:
+
+- The prompt-injection filter and outbound safety filter are **first-party and have not been independently audited.** Treat autonomous actions (auto-reply, auto-send, missions) as beta and keep them under review.
+- Report vulnerabilities privately per [SECURITY.md](SECURITY.md) — please don't open public issues for security problems.
+
+**Release integrity:** each release publishes the **SHA-256** of `SlyOS.apk` in its notes; verify with `shasum -a 256 SlyOS.apk` before installing. Releases are signed with a consistent key (fingerprint published in the release notes / this repo once release signing is finalized).
+
+## Identity & disclosure
+
+SlyOS drafts and (optionally) sends messages in your voice, but it is honest about being an AI: if anyone asks whether they're talking to an AI or a bot, the assistant **answers truthfully**. A per-app "disclose AI" setting (ON by default) controls how proactively it volunteers this; truthful-when-asked is always enforced.
 
 ---
 

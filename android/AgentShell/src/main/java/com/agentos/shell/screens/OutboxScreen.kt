@@ -1,13 +1,16 @@
 package com.agentos.shell.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,13 +47,21 @@ fun OutboxScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize()) {
             items(items, key = { it.id }) { e ->
                 Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+                    .border(1.dp, T.hairline, RoundedCornerShape(16.dp)).padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(e.contact.ifBlank { e.channel }, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+                        val who = e.contact.ifBlank { e.channel }
+                        Box(Modifier.size(36.dp).clip(CircleShape).background(T.accentSoft), contentAlignment = Alignment.Center) {
+                            Text(who.trim().take(1).uppercase(), fontSize = T.body, color = T.accent, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(who, fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                            Text(e.channel + " · " + ago(e.time), fontSize = T.caption, color = T.inkFaint)
+                        }
                         val chip = when (e.status) { "held" -> "held" to T.accent; "undone" -> "recalled" to T.inkFaint; else -> "sent" to Color(0xFF4E9A5B) }
                         Text(chip.first, fontSize = T.caption, color = chip.second)
                     }
-                    Text(e.channel + " · " + ago(e.time), fontSize = T.caption, color = T.inkFaint)
                     Spacer(Modifier.height(6.dp))
                     Text(e.body, fontSize = T.small, color = T.inkSoft, maxLines = 4)
                     if (e.reason.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("↳ " + e.reason, fontSize = T.caption, color = T.inkFaint) }

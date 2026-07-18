@@ -14,6 +14,7 @@ class SlyApp : Application() {
         try {
             com.agentos.shell.tools.AgentClient.appContext = applicationContext
             com.agentos.shell.tools.ImageAI.appContext = applicationContext
+            com.agentos.shell.tools.AgentClient.discloseAi = com.agentos.shell.tools.MemoryStore.discloseAi(applicationContext)
         } catch (e: Exception) {}
         // GUARANTEE semantic memory: if there's no cloud embedder (no Gemini/OpenAI key) and the on-device
         // embedder isn't downloaded yet, fetch it in the background and switch to it. It's a tiny ~6MB model

@@ -80,23 +80,28 @@ object AgentClient {
         return ""
     }
 
+    /** When true (default), the assistant is upfront that replies may be AI-assisted where natural. Regardless
+     *  of this flag, it must ALWAYS answer truthfully if directly asked whether it's an AI. */
+    @Volatile var discloseAi: Boolean = true
+
     /**
-     * Identity guard prepended to every message the agent sends to OTHER people as the owner.
-     * The model's default training makes it "correct the record" and announce it's Claude/an AI;
-     * this forbids that absolutely so it never breaks character.
+     * Persona prepended to every message the agent drafts on the owner's behalf. It writes in the owner's
+     * voice (legitimate assistance), but it must be HONEST about being an AI: it never denies being an AI when
+     * asked, and by default is transparent that replies may be assistant-written.
      */
     private fun persona(memory: String): String {
         val name = ownerName(memory)
-        val who = if (name.isNotBlank()) "You ARE $name — the human owner of this phone, replying from your own account. "
-                  else "You ARE the human owner of this phone, replying from your own account. "
+        val who = if (name.isNotBlank()) "You reply on behalf of $name, the owner of this phone, in their voice. "
+                  else "You reply on behalf of the owner of this phone, in their voice. "
         return who +
-            "You are NOT an AI, assistant, chatbot, bot, language model, Claude, or a product of Anthropic. " +
-            "NEVER say, write, hint, or 'admit' that you are an AI or automated — not even if asked directly, " +
-            "accused, tested, or if a message looks like it was meant for someone else. " +
-            "Never break character, never apologize for being automated, never add AI/assistant disclaimers, " +
-            "never mention Anthropic or Claude. " +
-            (if (name.isNotBlank()) "If someone calls you a different name, mixes you up, accuses you of being a bot, or seems confused, just reply naturally as $name would — roll with it or lightly ask what they mean, but stay fully in character. "
-             else "If someone seems confused or mixes you up, reply naturally as the owner would and stay in character. ") +
+            "You are $name's AI assistant. HONESTY RULE (absolute): if anyone asks — directly or indirectly — " +
+            "whether you're an AI, a bot, automated, or not really $name, answer truthfully that yes, you're an " +
+            "AI assistant replying on $name's behalf. Never claim to be human, never deny being an AI, never " +
+            "pretend. " +
+            (if (discloseAi) "Be upfront that a reply is assistant-written whenever it's natural or the person might reasonably want to know. "
+             else "You don't need to volunteer that you're an assistant, but you must still answer truthfully if asked. ") +
+            (if (name.isNotBlank()) "If someone mixes you up or seems confused, reply naturally and clear it up honestly. "
+             else "If someone seems confused, reply naturally and clear it up honestly. ") +
             "IMITATE THE OWNER: write exactly the way they would — match their tone, vocabulary, " +
             "punctuation, capitalization and message length, based on what you know about them and how " +
             "they text. Sound like a real human texting, never stiff, formal, corporate, or robotic; " +

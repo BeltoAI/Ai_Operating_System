@@ -31,9 +31,11 @@
   <h1>Privacy Policy</h1>
   <p class="upd">Last updated: June 2026</p>
 
-  <div class="box"><strong>The short version:</strong> SlyOS runs on your phone, on your own Anthropic API key.
-    Your messages, memory, and keys are stored locally on your device. Belto does not run a server that
-    collects, stores, or sees your personal data.</div>
+  <div class="box"><strong>The short version:</strong> SlyOS runs on your phone and stores your messages, memory,
+    and keys locally on your device. Belto does not run a server that collects your personal data — <em>but</em>
+    SlyOS is not fully on-device: when you use AI, email, backup, voice-cloning, or the bot, the relevant data
+    is sent to the third-party providers whose keys/accounts you connect (listed in section 5), under your own
+    keys. SlyOS also sends anonymous usage counts to Belto's analytics backend (section 6).</div>
 
   <h2>1. Who we are</h2>
   <p>SlyOS is an Android launcher application made by Belto ("we", "us"). This policy explains what happens
@@ -44,11 +46,13 @@
     settings, and your API keys in local storage on your phone. This data is not transmitted to Belto. Clearing
     the app's data or uninstalling it removes this data; you can also reset memory inside the app.</p>
 
-  <h2>3. Data sent to Anthropic</h2>
-  <p>To generate replies, summaries, papers, and other AI output, SlyOS sends the relevant prompt and context to
-    the Anthropic API using <strong>your own API key</strong>. That processing is governed by Anthropic's terms
-    and privacy policy (see <a href="https://www.anthropic.com/legal/privacy">anthropic.com/legal/privacy</a>).
-    We do not receive or retain a copy of those requests.</p>
+  <h2>3. Data sent to AI model providers</h2>
+  <p>To generate replies, summaries, papers, and other AI output, SlyOS sends the relevant prompt and context
+    (which may include your messages, memory, and profile) to whichever model provider you've added a key for,
+    using <strong>your own API key</strong>. Depending on what you connect, that can be
+    <strong>Anthropic (Claude), Google (Gemini), OpenAI (GPT), Groq, Cerebras, Mistral, or GitHub Models</strong>.
+    Each request is governed by that provider's terms and privacy policy. We do not receive or retain a copy of
+    those requests. If you download the on-device model/embedder, that processing stays on your phone.</p>
 
   <h2>4. Permissions we use, and why</h2>
   <ul>
@@ -60,24 +64,43 @@
   </ul>
   <p>All permissions are granted by you and can be revoked in Android settings at any time.</p>
 
-  <h2>5. Third-party services</h2>
-  <p>If you choose to use them, SlyOS connects to services using <em>your</em> accounts/keys: Anthropic (AI),
-    Zenodo (publishing papers), Telegram (bot), and X/Twitter (posting). Your use of those services is subject to
-    their own terms and privacy policies. SlyOS does not add advertising or third-party trackers.</p>
+  <h2>5. Third-party services &amp; what is sent</h2>
+  <p>If you choose to use them, SlyOS connects to the services below using <em>your</em> accounts/keys. Each is
+    optional and governed by that provider's own terms and privacy policy. SlyOS does not add advertising or
+    third-party trackers.</p>
+  <ul>
+    <li><strong>AI models</strong> (Anthropic, Google Gemini, OpenAI, Groq, Cerebras, Mistral, GitHub Models) —
+      prompts + relevant context, under your key.</li>
+    <li><strong>Google</strong> — Gmail (reading/ingesting and sending email on your behalf), Google Drive
+      (encrypted-at-rest brain backups you initiate), Gemini (above). Under your Google account.</li>
+    <li><strong>OpenAI / Google</strong> — image generation &amp; semantic-memory embeddings, under your key.</li>
+    <li><strong>ElevenLabs</strong> — if you enable cloned voice, your voice sample + text are sent to synthesize
+      speech, under your key.</li>
+    <li><strong>Telegram</strong> — if you connect a bot, messages to/from your bot pass through Telegram's Bot API.</li>
+    <li><strong>Supabase</strong> — the app store's review/ratings wall and anonymous usage analytics (see section 6)
+      are stored in Belto's Supabase project.</li>
+    <li><strong>Others (optional):</strong> Zenodo (publishing papers), X/Twitter (posting), Finnhub (market data),
+      AudD (song identification), Netlify/Vercel (hosting sites the agent builds).</li>
+  </ul>
 
-  <h2>6. The website</h2>
-  <p>This site is static and does not set tracking cookies. Our host (Vercel) and our download host (GitHub) may
-    log basic technical request data (such as IP and user-agent) as part of serving the page and file, per their
-    own policies.</p>
+  <h2>6. Anonymous usage analytics</h2>
+  <p>To understand what SlyOS is used for and improve it, the app sends <strong>anonymous</strong> event counts
+    (e.g. "a Home query happened", the general category such as "remember" or "schedule", feature used, success/
+    failure) to Belto's Supabase backend. Events are keyed to a random per-install ID and, if you're signed into
+    a SlyOS account, your account email — never the content of your messages. You can turn this off in the app.</p>
 
-  <h2>7. Children</h2>
+  <h2>7. The website</h2>
+  <p>This site is static and does not set tracking cookies. Our host (GitHub Pages) may log basic technical
+    request data (such as IP and user-agent) as part of serving the page and file, per their own policies.</p>
+
+  <h2>8. Children</h2>
   <p>SlyOS is not directed to children and is intended for users 16 and older.</p>
 
-  <h2>8. Your control</h2>
-  <p>You control your data: reset the memory in-app, remove your keys, clear app storage, or uninstall. Because the
-    data lives on your device, you hold and manage it directly.</p>
+  <h2>9. Your control</h2>
+  <p>You control your data: reset the memory in-app, remove your keys, clear app storage, turn off analytics, or
+    uninstall. Because the data lives on your device, you hold and manage it directly.</p>
 
-  <h2>9. Changes</h2>
+  <h2>10. Changes</h2>
   <p>We may update this policy; the "last updated" date will change. Continued use after an update means you accept
     the revised policy.</p>
 

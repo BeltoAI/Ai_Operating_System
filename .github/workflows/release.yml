@@ -44,7 +44,15 @@ jobs:
           # A single rolling release tagged "latest" — always the newest build, stable download URL.
           # IMPORTANT: do NOT delete the release each push (that resets GitHub's download_count to 0).
           # Create it once if missing, then just replace the APK asset in place with --clobber.
-          gh release view latest >/dev/null 2>&1 || gh release create latest \
-            --title "SlyOS — latest build" \
-            --notes "Auto-published from main. Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted."
+          # APK trust: publish the SHA-256 so anyone can verify the download hasn't been tampered with.
+          SHA=$(sha256sum "$GITHUB_WORKSPACE/SlyOS.apk" | cut -d' ' -f1)
+          echo "SlyOS.apk SHA-256: $SHA"
+          NOTES="Auto-published from main. Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted.
+
+**Verify your download** — SlyOS.apk SHA-256:
+\`$SHA\`
+Run \`shasum -a 256 SlyOS.apk\` and confirm it matches before installing."
+          gh release view latest >/dev/null 2>&1 \
+            && gh release edit latest --notes "$NOTES" \
+            || gh release create latest --title "SlyOS — latest build" --notes "$NOTES"
           gh release upload latest "$GITHUB_WORKSPACE/SlyOS.apk" --clobber

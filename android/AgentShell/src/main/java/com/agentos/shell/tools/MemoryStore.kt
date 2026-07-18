@@ -195,6 +195,13 @@ object MemoryStore {
     // Generic per-provider key (cerebras/mistral/nvidia/openrouter/githubmodels) — pref "<provider>_key".
     // Note: gemini/openai/groq already follow this exact naming, so this reads them too; anthropic uses its
     // own effective getter (baked fallback), so route that through anthropicKeyEffective instead.
+    // Honesty: be upfront that replies may be AI-assisted. ON by default. (Truthful-if-asked is always enforced
+    // in the persona regardless of this.) Global default; per-app overrides layer on top.
+    fun discloseAi(ctx: Context): Boolean = prefs(ctx).getBoolean("disclose_ai", true)
+    fun setDiscloseAi(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("disclose_ai", v).apply()
+    fun discloseAiForApp(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("disclose_ai_$pkg", discloseAi(ctx))
+    fun setDiscloseAiForApp(ctx: Context, pkg: String, v: Boolean) = prefs(ctx).edit().putBoolean("disclose_ai_$pkg", v).apply()
+
     // Apps that expose NO inline reply action (RemoteInput) — SlyOS physically can't auto-send there (e.g.
     // LinkedIn), so the settings should show "draft-only" instead of a full-auto toggle that silently no-ops.
     fun appNoInlineReply(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("noinline_$pkg", false)

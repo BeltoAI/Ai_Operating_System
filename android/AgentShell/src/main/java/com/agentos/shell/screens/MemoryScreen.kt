@@ -1912,11 +1912,27 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             fontSize = T.small, color = T.inkFaint)
 
         }
-        Collapsible("Per-app responses") {
+        Collapsible("Per-app responses", keywords = "auto reply draft disclose ai honesty per app send") {
         Text("Pick how each app behaves. Draft pre-writes a reply and waits on the Now screen so you " +
             "just tap Send. Auto sends it for you after an 8-second undo window.",
             fontSize = T.small, color = T.inkFaint)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
+        // Honesty setting — proactive AI disclosure (truthful-when-asked is always on regardless).
+        run {
+            var disclose by remember { mutableStateOf(MemoryStore.discloseAi(ctx)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Disclose AI", fontSize = T.small, color = T.ink)
+                    Text("Be upfront that replies are assistant-written. (It always answers truthfully if directly asked, either way.)",
+                        fontSize = T.caption, color = T.inkFaint)
+                }
+                Text(if (disclose) "On" else "Off", fontSize = T.small, color = if (disclose) T.bgElevated else T.inkSoft,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (disclose) T.accent else T.hairline)
+                        .clickable { disclose = !disclose; MemoryStore.setDiscloseAi(ctx, disclose); com.agentos.shell.tools.AgentClient.discloseAi = disclose }
+                        .padding(horizontal = 16.dp, vertical = 7.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         val apps = remember { com.agentos.shell.tools.AppScanner.installed(ctx) }
         if (apps.isEmpty()) {
             Text("No messaging or social apps detected yet. They'll appear here once installed " +
