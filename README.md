@@ -209,7 +209,7 @@ You build once on your Mac and hand friends a single file — they don't touch a
 never need your keys (they paste their own Anthropic key on first launch).
 
 ```bash
-cd ~/Downloads/MADSCIENTIST/agentos
+cd ~/Downloads/Ai_Operating_System/agentos
 bash package_apk.sh
 ```
 
@@ -425,8 +425,8 @@ Revert: Settings → Apps → Default apps → Home → One UI Home, or `adb uni
 ## Permissions (all user-granted)
 
 INTERNET, RECORD_AUDIO, READ/WRITE_CALENDAR, READ_CONTACTS, SEND_SMS, POST_NOTIFICATIONS,
-SET_WALLPAPER, FOREGROUND_SERVICE(+DATA_SYNC), notification access. Nothing leaves the device
-except prompts you trigger, using your own keys.
+SET_WALLPAPER, FOREGROUND_SERVICE(+DATA_SYNC), notification access. Your memory brain stays on the device;
+connected features (AI, Gmail, Drive backup, voice, Telegram, analytics) send only what they need — see docs/privacy.html.
 
 ---
 
@@ -452,6 +452,6 @@ except prompts you trigger, using your own keys.
 
 ## License
 
-**Proprietary — all rights reserved.** See [LICENSE](LICENSE). No permission is granted to
+**Proprietary — © 2026 Emil Shirokikh (Belto). All rights reserved.** See [LICENSE](LICENSE). No permission is granted to
 use, copy, modify, or distribute this software without a written agreement. To request a
 license: support@belto.world

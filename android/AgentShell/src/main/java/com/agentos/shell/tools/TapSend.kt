@@ -6,19 +6,19 @@ import android.net.Uri
 import android.util.Log
 import com.agentos.shell.InteractionLogService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * ACCESSIBILITY TAP-SEND for platforms with no inline reply (LinkedIn, IG, X).
  *
- * DESIGN = SAFE-BY-DEFAULT. It is deterministic: open the profile → find "Message" → open the thread → type the
- * EXACT drafted message → tap "Send" exactly ONCE → stop. It never improvises text and it CANNOT loop. If any
- * step's element isn't found in the accessibility tree, it aborts and reports the step — it never guesses, never
- * re-sends, never spams. (This is a deliberate step back from the general vision agent, which improvised text
- * and re-sent in a loop — unacceptable when messaging real people.)
- *
- * Requires the SlyOS accessibility service ON. Note: apps that render Message/Send as unlabelled icons may not
- * expose them here, in which case this returns a clean failure — the honest signal that LinkedIn automation via
- * Accessibility isn't reliable, and outreach should go through email/CRM instead.
+ * LinkedIn's Message/Send are UNLABELLED icons (confirmed: no text, no desc, no resource-id), so label-matching
+ * can't find them — only VISION can. This does a CONTROLLED, single-shot flow:
+ *   open profile → (label OR vision) tap "Message" → find the editable box → type the EXACT drafted text →
+ *   (label OR vision) tap "Send" ONCE → stop.
+ * It NEVER improvises the message and it CANNOT loop (that was the earlier spam bug). If any element can't be
+ * located, it aborts cleanly — never re-sends, never guesses wildly. Requires SlyOS accessibility ON and a
+ * vision-capable brain (Gemini/OpenAI/Claude/GitHub) for the vision fallback.
  */
 object TapSend {
     private const val TAG = "SlyOS-TapSend"
@@ -32,8 +32,8 @@ object TapSend {
     private fun dump(svc: InteractionLogService, step: String) {
         try {
             val labels = svc.readScreen().filter { it.clickable || it.editable }
-                .joinToString(" | ") { "${it.role}${if (it.editable) "*" else ""}:\"${it.text.take(30)}\"" }
-            Log.i(TAG, "[$step] screen: $labels")
+                .joinToString(" | ") { "${it.role}${if (it.editable) "*" else ""}:\"${it.text.take(24)}\"" }
+            Log.i(TAG, "[$step] $labels")
         } catch (e: Exception) {}
     }
 
@@ -42,7 +42,7 @@ object TapSend {
         while (System.currentTimeMillis() < end) {
             val nodes = svc.readScreen()
             for (l in labels) Reflex.findIndex(nodes, l)?.let { return it }
-            delay(700)
+            delay(600)
         }
         return null
     }
@@ -53,9 +53,37 @@ object TapSend {
             val nodes = svc.readScreen()
             for (l in labels) Reflex.fieldIndex(nodes, l)?.let { return it }
             Reflex.fieldIndex(nodes, "")?.let { return it }
-            delay(700)
+            delay(600)
         }
         return null
+    }
+
+    private suspend fun screenshot(svc: InteractionLogService): String? = suspendCancellableCoroutine { cont ->
+        try { svc.captureScreenshot { b64 -> if (cont.isActive) cont.resume(b64) } }
+        catch (e: Exception) { if (cont.isActive) cont.resume(null) }
+    }
+
+    /** Ask the vision model for the tap point of [desc] and tap it. Returns true if it tapped. */
+    private suspend fun visionTap(svc: InteractionLogService, desc: String): Boolean {
+        val shot = screenshot(svc) ?: return false
+        val ans = try {
+            AgentClient.askVision(
+                "This is a phone screenshot. Find $desc. Reply with ONLY the tap point as two integers \"X Y\" on a " +
+                    "0–1000 grid (0 0 = top-left, 1000 1000 = bottom-right). If it is not visible, reply exactly: none",
+                listOf(shot), "", maxTokens = 20)
+        } catch (e: Exception) { "" }
+        if (ans.contains("none", true)) { Log.i(TAG, "vision: '$desc' not visible"); return false }
+        val m = Regex("(\\d{1,4})\\s*[,x ]\\s*(\\d{1,4})").find(ans) ?: run { Log.i(TAG, "vision: no coord in '${ans.take(40)}'"); return false }
+        val gx = m.groupValues[1].toInt().coerceIn(0, 1000); val gy = m.groupValues[2].toInt().coerceIn(0, 1000)
+        val px = gx / 1000f * svc.screenW; val py = gy / 1000f * svc.screenH
+        Log.i(TAG, "visionTap '$desc' grid=$gx,$gy px=$px,$py")
+        return svc.tapAt(px, py)
+    }
+
+    /** Tap a target by label first (cheap), else by vision. */
+    private suspend fun tapTarget(svc: InteractionLogService, labels: List<String>, visionDesc: String): Boolean {
+        waitForClickable(svc, labels, 3000)?.let { svc.tapNode(it); return true }
+        return visionTap(svc, visionDesc)
     }
 
     private fun packageFor(url: String): String? {
@@ -75,26 +103,27 @@ object TapSend {
         try { ctx.startActivity(intent) } catch (e: Exception) {}
     }
 
-    /** Open a profile → Message → type exact text → Send ONCE. Returns (ok, step detail). Never loops/improvises. */
     suspend fun sendViaProfile(ctx: Context, openUrl: String, message: String): Pair<Boolean, String> {
         val svc = InteractionLogService.instance ?: return false to "Turn on SlyOS accessibility first."
         if (openUrl.isBlank() || message.isBlank()) return false to "Missing profile link or message."
         return try {
             open(ctx, openUrl)
-            delay(3500)
+            delay(4000)
             dump(svc, "profile")
-            val msgBtn = waitForClickable(svc, MESSAGE_LABELS, 10000)
-                ?: run { dump(svc, "no-message"); return false to "Couldn't find a labelled “Message” button (LinkedIn likely renders it as an unlabelled icon — see logcat)." }
-            svc.tapNode(msgBtn)
-            delay(1800)
-            var field = waitForField(svc, FIELD_LABELS, 8000)
-            if (field == null) return false to "Opened the chat but couldn't find the message box."
-            svc.setText(field, message)                 // EXACT drafted text, no improvisation
-            delay(1200)
-            val send = waitForClickable(svc, SEND_LABELS, 7000)
-                ?: run { dump(svc, "no-send"); return false to "Typed it, but couldn't find “Send” (unlabelled icon)." }
-            svc.tapNode(send)                            // exactly ONE send
-            delay(700)
+            if (!tapTarget(svc, MESSAGE_LABELS, "the button that opens a direct message/chat with this person (usually a “Message” button near the top of the profile)")) {
+                dump(svc, "no-message"); return false to "Couldn't find the Message button (label or vision)."
+            }
+            delay(2600)
+            dump(svc, "chat")
+            val field = waitForField(svc, FIELD_LABELS, 8000)
+                ?: return false to "Opened the chat but couldn't find the message box."
+            svc.setText(field, message)                  // EXACT drafted text
+            delay(1300)
+            dump(svc, "typed")
+            if (!tapTarget(svc, SEND_LABELS, "the Send button that sends the message I just typed (often a paper-plane icon or a button that says Send, usually bottom-right of the message box)")) {
+                dump(svc, "no-send"); return false to "Typed it, but couldn't find the Send button."
+            }
+            delay(800)
             HealthStore.note("tapsend", true, "sent once")
             true to "Sent ✓"
         } catch (e: Exception) {

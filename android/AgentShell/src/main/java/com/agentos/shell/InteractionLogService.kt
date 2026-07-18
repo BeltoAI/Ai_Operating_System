@@ -52,6 +52,21 @@ class InteractionLogService : AccessibilityService() {
 
     fun currentPackage(): String = try { rootInActiveWindow?.packageName?.toString() ?: "" } catch (e: Exception) { "" }
 
+    /** First meaningful text/description from a clickable container's descendants — surfaces labels like
+     *  "Message"/"Send" that apps render on a non-clickable child of the tappable button. */
+    private fun descendantLabel(node: AccessibilityNodeInfo?, depth: Int): String {
+        if (node == null || depth > 3) return ""
+        for (i in 0 until node.childCount) {
+            val c = try { node.getChild(i) } catch (e: Exception) { null } ?: continue
+            if (c.isPassword) continue
+            val t = (c.text ?: c.contentDescription)?.toString()?.trim().orEmpty()
+            if (t.length in 1..40) return t
+            val deeper = descendantLabel(c, depth + 1)
+            if (deeper.isNotEmpty()) return deeper
+        }
+        return ""
+    }
+
     private fun walkActionable(node: AccessibilityNodeInfo?, out: ArrayList<Pair<AccessibilityNodeInfo, ScreenNode>>, depth: Int = 0) {
         if (node == null || depth > 90 || out.size > 200) return
         if (node.isPassword) {
@@ -71,6 +86,12 @@ class InteractionLogService : AccessibilityService() {
             if (txt.isEmpty() && (clickable || checkable)) {
                 val idn = try { node.viewIdResourceName?.substringAfterLast('/')?.replace('_', ' ')?.trim().orEmpty() } catch (e: Exception) { "" }
                 if (idn.length in 2..40) txt = idn
+            }
+            // Many apps (LinkedIn "Message", chat "Send") put the VISIBLE label on a NON-clickable child of a
+            // clickable container, so the button itself reads as empty. Pull the label up from a descendant so
+            // the agent can identify + tap it by name — deterministic, no vision needed. Works across apps.
+            if (txt.isEmpty() && clickable) {
+                txt = descendantLabel(node, 0)
             }
             if ((clickable || editable || checkable || scrollable || txt.isNotEmpty()) && (txt.isNotEmpty() || clickable || checkable || scrollable)) {
                 val r = Rect(); node.getBoundsInScreen(r)
