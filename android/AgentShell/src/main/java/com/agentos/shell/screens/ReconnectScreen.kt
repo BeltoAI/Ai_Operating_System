@@ -8,8 +8,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -157,7 +159,9 @@ private fun NetworkTab(ctx: android.content.Context) {
         items(never.take(25), key = { it.name + "|" + it.source }) { c ->
             val sub = listOfNotNull(c.role.ifBlank { null }, c.company.ifBlank { null }).joinToString(" · ")
             OutreachCard(ctx, c.name, (if (sub.isNotBlank()) "$sub · " else "") + c.source, c.source,
-                openUrl = c.url, onReached = { ConnectionStore.markReachedOut(ctx, c.name) }) {
+                openUrl = c.url,
+                onReached = { ConnectionStore.markReachedOut(ctx, c.name); never = ConnectionStore.neverReachedOut(ctx) },
+                onDismiss = { ConnectionStore.dismiss(ctx, c.name); never = ConnectionStore.neverReachedOut(ctx) }) {
                 val mem = com.agentos.shell.tools.ReplyContext.forSender(ctx, c.source, c.name)
                 AgentClient.introMessage(c.name, c.company, c.role, c.source, mem)
             }
@@ -169,7 +173,7 @@ private fun NetworkTab(ctx: android.content.Context) {
 @Composable
 private fun OutreachCard(
     ctx: android.content.Context, name: String, subtitle: String, appLabel: String,
-    openUrl: String = "", onReached: () -> Unit = {}, draft: suspend () -> String
+    openUrl: String = "", onReached: () -> Unit = {}, onDismiss: () -> Unit = {}, draft: suspend () -> String
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -185,8 +189,16 @@ private fun OutreachCard(
         }
     }
     if (done) return
+    var offsetX by remember(name) { mutableStateOf(0f) }
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(16.dp))
+        Modifier.fillMaxWidth().padding(vertical = 6.dp)
+            .offset { androidx.compose.ui.unit.IntOffset(offsetX.toInt(), 0) }
+            .pointerInput(name) {
+                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                    onDragEnd = { if (offsetX < -200f) { done = true; onDismiss() } else offsetX = 0f }
+                ) { _, dragAmount -> offsetX = (offsetX + dragAmount).coerceIn(-600f, 0f) }
+            }
+            .clip(RoundedCornerShape(16.dp))
             .background(T.bgElevated).border(1.dp, T.hairline, RoundedCornerShape(16.dp)).padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -224,7 +236,7 @@ private fun OutreachCard(
                             .clickable(enabled = sendMsg != "…") {
                                 sendMsg = "…"
                                 scope.launch {
-                                    val (ok, detail) = com.agentos.shell.tools.TapSend.sendViaProfile(ctx, openUrl, msg)
+                                    val (ok, detail) = com.agentos.shell.tools.TapSend.sendViaProfile(ctx, openUrl, msg, name)
                                     sendMsg = detail
                                     if (ok) onReached()
                                 }

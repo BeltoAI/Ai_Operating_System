@@ -42,7 +42,10 @@ object NetworkOutreach {
         running = true; sent = 0; failed = 0; lastMsg = "Finding people…"; onUpdate()
         job = scope.launch {
             try {
-                val profile = withContext(Dispatchers.IO) { MemoryStore.fullProfile(ctx) }
+                // Feed the user's LinkedIn persona/voice into every draft so it sounds like them on LinkedIn.
+                val liStyle = try { MemoryStore.styleFor(ctx, "LinkedIn") } catch (e: Exception) { "" }
+                val profile = (if (liStyle.isNotBlank()) "Your LinkedIn voice/persona: $liStyle\n\n" else "") +
+                    withContext(Dispatchers.IO) { MemoryStore.fullProfile(ctx) }
                 val cap = count.coerceIn(1, MissionStore.dailyCap(ctx))
                 val targets = withContext(Dispatchers.IO) {
                     ConnectionStore.neverReachedOut(ctx).filter { it.url.isNotBlank() }.take(cap)
@@ -56,7 +59,7 @@ object NetworkOutreach {
                         AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile).take(600)
                     }
                     if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${c.name}: couldn't draft."; onUpdate(); continue }
-                    val (ok, detail) = TapSend.sendViaProfile(ctx, c.url, msg)
+                    val (ok, detail) = TapSend.sendViaProfile(ctx, c.url, msg, c.name)
                     if (ok) {
                         sent++
                         withContext(Dispatchers.IO) {

@@ -111,6 +111,12 @@ object ConnectionStore {
         try { db(ctx).execSQL("UPDATE conns SET reachedOut=1 WHERE name=?", arrayOf(name)) } catch (e: Exception) {}
     }
 
+    // Swipe-to-skip: people you've decided NOT to reconnect with. Removed from the never-reached list, but not
+    // counted as messaged. Stored as a name set so it survives without a schema migration.
+    private fun dismissedSet(ctx: Context): Set<String> = prefs(ctx).getStringSet("dismissed", emptySet()) ?: emptySet()
+    fun dismiss(ctx: Context, name: String) = prefs(ctx).edit().putStringSet("dismissed", dismissedSet(ctx) + name).apply()
+    fun undismiss(ctx: Context, name: String) = prefs(ctx).edit().putStringSet("dismissed", dismissedSet(ctx) - name).apply()
+
     // ---- contacted map (from messages.csv) ----
     private fun contacted(ctx: Context): Map<String, Long> = try {
         val o = JSONObject(prefs(ctx).getString(KEY_MSG, "{}"))
@@ -124,7 +130,8 @@ object ConnectionStore {
         val talked = HashSet<String>()
         ConversationStore.all(ctx).keys.forEach { talked.add(it.substringAfter("|").lowercase().trim()) }
         contacted(ctx).keys.forEach { talked.add(it.lowercase().trim()) }
-        return load(ctx).filter { !it.reachedOut && !talked.contains(it.name.lowercase().trim()) }
+        val dismissed = dismissedSet(ctx)
+        return load(ctx).filter { !it.reachedOut && it.name !in dismissed && !talked.contains(it.name.lowercase().trim()) }
     }
 
     /** Connections you HAVE messaged but not in over [days] days (from message history). */

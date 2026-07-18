@@ -103,7 +103,7 @@ object TapSend {
         try { ctx.startActivity(intent) } catch (e: Exception) {}
     }
 
-    suspend fun sendViaProfile(ctx: Context, openUrl: String, message: String): Pair<Boolean, String> {
+    suspend fun sendViaProfile(ctx: Context, openUrl: String, message: String, recipient: String = ""): Pair<Boolean, String> {
         val svc = InteractionLogService.instance ?: return false to "Turn on SlyOS accessibility first."
         if (openUrl.isBlank() || message.isBlank()) return false to "Missing profile link or message."
         return try {
@@ -115,6 +115,16 @@ object TapSend {
             }
             delay(2600)
             dump(svc, "chat")
+            // SAFETY: confirm the open chat is actually the intended person before typing a word. This prevents
+            // ever messaging the wrong person (e.g. drafting for one contact but landing in another's thread).
+            val first = recipient.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+            if (first.length >= 2) {
+                val onScreen = svc.readScreen().any { it.text.contains(first, ignoreCase = true) }
+                if (!onScreen) {
+                    dump(svc, "wrong-chat")
+                    return false to "Safety stop — the open chat doesn't look like “$recipient”. Nothing sent."
+                }
+            }
             val field = waitForField(svc, FIELD_LABELS, 8000)
                 ?: return false to "Opened the chat but couldn't find the message box."
             svc.setText(field, message)                  // EXACT drafted text

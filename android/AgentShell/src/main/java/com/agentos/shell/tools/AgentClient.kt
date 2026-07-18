@@ -1406,13 +1406,19 @@ object AgentClient {
 
     /** A genuine first-touch opener to a connection you've never actually spoken with. Owner's voice. */
     fun introMessage(name: String, company: String, role: String, source: String, memory: String = ""): String {
-        val sys = persona(memory) +
-            "You're connected with $name on $source but have never actually spoken. Write a short, warm, SPECIFIC " +
-            "opener to start a real conversation — never a mass-blast or a pitch, no 'hope you're well' filler. " +
-            "Reference what you can about them if useful. One or two lines, easy to reply to, in your voice. Return ONLY the message."
-        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")
-        val (code, text) = callContent(sys, who, 240)
-        return if (code == 200) text.trim() else "[couldn't draft: $code]"
+        val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+        // Professional LinkedIn register (NOT the owner's casual texting persona) + hard-locked name so it can
+        // never address the wrong person.
+        val sys = "You write a short, warm, PROFESSIONAL opener on the sender's behalf to someone they're connected " +
+            "with on $source but have never spoken to. CRITICAL: address them by EXACTLY this first name — " +
+            "\"$firstName\" — and use NO other name; never invent or guess a name. Warm but professional (this is " +
+            "$source, not a text to a friend): do NOT open with “yo”, “hey”, or slang. Specific and easy to reply " +
+            "to; no pitch, no 'hope you're well' filler, no markdown. 1–2 sentences. " +
+            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
+            "Return ONLY the message."
+        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "") + ". Address them as \"$firstName\"."
+        val (code, text) = callContent(sys, who, 240, VOICE)
+        return if (code == 200) text.trim() else "Hi $firstName — we're connected here but haven't actually spoken yet. I'd genuinely like to; what are you focused on these days?"
     }
 
     /** Backing AI call for a mini-app's SlyOS.ask(). Concise, returns plain text (or JSON if asked). */
@@ -1616,20 +1622,23 @@ object AgentClient {
     /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
      *  fresh when you actually message them, so it's never a generic template. */
     fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String): String {
+        val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
         val book = bookingLink.trim()
-        val sys = persona(memory) +
-            "Write ONE genuinely good outreach message to this specific contact, for the goal: \"$goal\". Structure: " +
-            "(1) open with a SPECIFIC, real reason you're contacting THEM — tied to their role/company, not generic; " +
-            "(2) state your value in ONE concrete line — what you do and the benefit to them or their company; " +
-            "(3) end with ONE low-friction ask. 3-5 sentences, addressed by first name, in the person's own voice, " +
-            "warm and credible. BAN clichés: no 'I hope this finds you well', no 'I wanted to reach out', no " +
-            "'quick question', no buzzword soup, no markdown. " +
-            (if (book.isNotBlank()) "Include this booking link for the call/ask where it fits naturally: $book. " else "") +
+        // NOTE: no casual owner-persona here — LinkedIn outreach must read professional, not like a text to a
+        // friend. And the name is HARD-LOCKED so the model can't address the wrong person.
+        val sys = "You write a short, professional LinkedIn message on the sender's behalf, for the goal: \"$goal\". " +
+            "CRITICAL: address the recipient by EXACTLY this first name — \"$firstName\" — and use NO other name; " +
+            "never invent or guess a name. Register: warm but professional (this is LinkedIn, not a text) — do NOT " +
+            "open with “yo”, “hey”, or slang. Structure: (1) a specific, real reason for reaching out tied to their " +
+            "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
+            "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). " +
+            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
+            (if (book.isNotBlank()) "Include this booking link where it fits naturally: $book. " else "") +
             "Ready to paste and send."
-        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Send it to: $who"))
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Recipient: $who. Their first name is \"$firstName\" — address them as that.") )
         val (code, text) = callMessages(sys, msgs, 350, VOICE)
-        return if (code == 200) text.trim() else ("Hi " + (name.split(" ").firstOrNull() ?: "") + ", I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
+        return if (code == 200) text.trim() else ("Hi $firstName, I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
 
     /**
