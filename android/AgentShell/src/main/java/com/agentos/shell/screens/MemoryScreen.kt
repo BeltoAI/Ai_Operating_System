@@ -295,7 +295,7 @@ private fun BrainBackupCard() {
     var lastBk by remember { mutableStateOf(com.agentos.shell.tools.BrainBackup.lastBackup(ctx)) }
     val connected = com.agentos.shell.tools.GoogleAuth.isConnected(ctx)
     Collapsible(
-        "🛡  Brain backup",
+        "Brain backup",
         if (lastBk == 0L) "Never backed up — tap to protect your brain"
         else "Backed up " + android.text.format.DateUtils.getRelativeTimeSpanString(lastBk)
     ) {
@@ -859,26 +859,7 @@ private fun ApiKeysCard() {
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bg).padding(12.dp),
                 decorationBox = { inner -> if (sp.isEmpty()) Text("Supabase access token (lets agents create your DB tables)", fontSize = T.small, color = T.inkFaint); inner() })
         }
-        // Preferred model — only show brains you've actually added a key for (no dead options).
-        var pref by remember { mutableStateOf(MemoryStore.preferredProvider(ctx)) }
-        val labels = mapOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
-            "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "OpenAI")
-        val keyed = com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { com.agentos.shell.tools.ModelRouter.hasKey(ctx, it) }
-        if (keyed.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text("Preferred model", fontSize = T.caption, color = T.inkSoft)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                keyed.forEach { id ->
-                    val sel = pref == id
-                    Text(labels[id] ?: id, fontSize = T.caption, color = if (sel) T.bgElevated else T.inkSoft,
-                        modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp))
-                            .background(if (sel) T.accent else T.hairline)
-                            .clickable { pref = id; MemoryStore.setPreferredProvider(ctx, id) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp))
-                }
-            }
-        }
+        // (Which brain handles which task lives in one place: “Models & spending → Routing”.)
     }
 }
 
@@ -1536,11 +1517,11 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             listOf("WhatsApp", "Instagram", "Telegram", "LinkedIn msgs").forEach { p ->
-                Text("📥 $p", fontSize = T.small, color = T.bgElevated,
+                Text(p, fontSize = T.small, color = T.bgElevated,
                     modifier = Modifier.padding(end = 8.dp).clip(RoundedCornerShape(999.dp)).background(T.accent)
                         .clickable { chatImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
             }
-            Text("🔗 LinkedIn network", fontSize = T.small, color = T.ink,
+            Text("LinkedIn network", fontSize = T.small, color = T.ink,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                     .clickable { liImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
         }
@@ -1548,7 +1529,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (voiceBusy) "Learning…" else "🎙 Learn my voice", fontSize = T.small, color = T.ink,
+            Text(if (voiceBusy) "Learning…" else "Learn my voice", fontSize = T.small, color = T.ink,
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                     .clickable(enabled = !voiceBusy) {
                         voiceBusy = true; voiceStatus = ""
@@ -1723,15 +1704,33 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         run {
             val HS = com.agentos.shell.tools.HealthStore
             Spacer(Modifier.height(14.dp))
-            Text("System health", fontSize = T.caption, color = T.inkSoft)
-            Text("How every brain and the memory index are actually doing (today).", fontSize = T.caption, color = T.inkFaint)
-            Spacer(Modifier.height(4.dp))
-            val provs = com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { HS.okToday(ctx, it) > 0 || HS.failToday(ctx, it) > 0 }
-            if (provs.isEmpty()) Text("No model calls yet today.", fontSize = T.caption, color = T.inkFaint)
-            provs.forEach { pr ->
-                val ok = HS.okToday(ctx, pr); val fail = HS.failToday(ctx, pr); val err = HS.lastError(ctx, pr)
-                Text("$pr — $ok ok / $fail fail" + (if (fail > 0 && err.isNotBlank()) "  · last: ${err.take(70)}" else ""),
-                    fontSize = T.caption, color = if (fail > 0 && ok == 0) T.danger else T.inkSoft)
+            Text("Requests per AI today", fontSize = T.caption, color = T.inkSoft)
+            Spacer(Modifier.height(6.dp))
+            val FM = com.agentos.shell.tools.FreeTierMeter
+            val PL = com.agentos.shell.tools.ProviderLimit
+            val lbl = mapOf("gemini" to "Gemini", "groq" to "Groq", "cerebras" to "Cerebras", "mistral" to "Mistral",
+                "githubmodels" to "GitHub", "anthropic" to "Claude", "openai" to "OpenAI")
+            val active = com.agentos.shell.tools.ModelRouter.PROVIDERS.filter { HS.okToday(ctx, it) + HS.failToday(ctx, it) > 0 }
+            if (active.isEmpty()) Text("No AI requests yet today.", fontSize = T.caption, color = T.inkFaint)
+            else {
+                val maxN = active.maxOf { HS.okToday(ctx, it) + HS.failToday(ctx, it) }.coerceAtLeast(1)
+                active.forEach { pr ->
+                    val ok = HS.okToday(ctx, pr); val fail = HS.failToday(ctx, pr); val total = ok + fail
+                    val cap = FM.capFor(pr); val paused = PL.limited(ctx, pr)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        Text(lbl[pr] ?: pr, fontSize = T.caption, color = T.ink, modifier = Modifier.width(64.dp))
+                        Box(Modifier.weight(1f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(T.hairline)) {
+                            Box(Modifier.fillMaxWidth((total.toFloat() / maxN).coerceIn(0.04f, 1f)).height(14.dp)
+                                .clip(RoundedCornerShape(7.dp)).background(if (fail > 0 && ok == 0) T.danger else T.accent))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text("$total" + (if (cap != null) "/$cap" else "") + (if (fail > 0) " · $fail✗" else "") + (if (paused) " · paused" else ""),
+                            fontSize = T.caption, color = if (paused) T.inkFaint else T.inkSoft, modifier = Modifier.width(96.dp))
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Bar = total prompts today · number = total (/free cap if any) · ✗ = failures · paused = cooling down",
+                    fontSize = T.caption, color = T.inkFaint)
             }
             val ep = com.agentos.shell.tools.EmbeddingClient.provider(ctx) ?: "off"
             val odr = com.agentos.shell.tools.OnDeviceEmbedder.ready(ctx)
@@ -1748,15 +1747,12 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(12.dp))
-        Text("Routing — which model handles what", fontSize = T.caption, color = T.inkSoft)
-        Text("Quick tasks = triage, summaries, understanding commands (high volume).  Your replies = the " +
-            "messages it sends as you.  Heavy work = papers, mini-apps, spicy posts.",
-            fontSize = T.caption, color = T.inkFaint)
+        Text("Which brain does what", fontSize = T.caption, color = T.inkSoft)
         Spacer(Modifier.height(6.dp))
         val tiers = listOf(
-            com.agentos.shell.tools.ModelRouter.Tier.CHEAP to "Quick tasks",
-            com.agentos.shell.tools.ModelRouter.Tier.STANDARD to "Your replies",
-            com.agentos.shell.tools.ModelRouter.Tier.HEAVY to "Heavy work"
+            com.agentos.shell.tools.ModelRouter.Tier.CHEAP to "Everyday (Home AI, memory, understanding you)",
+            com.agentos.shell.tools.ModelRouter.Tier.STANDARD to "Messages sent as you (replies, Telegram, email)",
+            com.agentos.shell.tools.ModelRouter.Tier.HEAVY to "Heavy work (documents, apps, research, posts)"
         )
         val routeMap = remember {
             mutableStateMapOf<String, String>().apply { tiers.forEach { (t, _) -> put(t.name, MemoryStore.tierProvider(ctx, t)) } }
@@ -1783,36 +1779,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
             }
         }
-        Text("Auto = use your preferred, fall back to any key. A model only runs if its key is set.",
+        Text("Auto = SlyOS picks the best available brain and rolls to the next automatically. Pick a specific one to pin it.",
             fontSize = T.caption, color = T.inkFaint)
-
-        // Free-tier meter — how many of today's free requests each keyed brain has left, so you can re-route
-        // before one runs dry. A brain that just hit its limit shows "paused" (auto-skipped, retried later).
-        run {
-            val FM = com.agentos.shell.tools.FreeTierMeter
-            val PL = com.agentos.shell.tools.ProviderLimit
-            fun keyPresent(pid: String) = when (pid) {
-                "gemini" -> MemoryStore.geminiKey(ctx).isNotBlank()
-                "groq" -> MemoryStore.groqKey(ctx).isNotBlank()
-                else -> MemoryStore.providerKey(ctx, pid).isNotBlank()
-            }
-            val live = com.agentos.shell.tools.ModelRouter.PROVIDERS
-                .filter { com.agentos.shell.tools.ModelRouter.PROVIDER_FREE.contains(it) && keyPresent(it) }
-            if (live.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Text("Free tier left today", fontSize = T.caption, color = T.inkSoft)
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    live.forEach { pid ->
-                        val paused = PL.limited(ctx, pid)
-                        val txt = "${shortLbl[pid] ?: pid} ${FM.label(ctx, pid)}" + if (paused) " · paused" else ""
-                        Text(txt, fontSize = T.caption, color = if (paused) T.inkFaint else T.inkSoft,
-                            modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(999.dp))
-                                .background(T.hairline).padding(horizontal = 9.dp, vertical = 5.dp))
-                    }
-                }
-            }
-        }
 
         // Offline backup row — shows the on-device model's role in routing without letting it pre-empt cloud.
         run {

@@ -16,7 +16,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +50,40 @@ object SettingsFilter {
         if (q.isBlank()) return true
         val hay = haystacks.joinToString(" ").lowercase()
         return q.split(Regex("\\s+")).filter { it.isNotBlank() }.any { hay.contains(it) }
+    }
+}
+
+/** A function-matched professional icon for each Settings card, so it says what the card does at a glance. */
+fun iconFor(title: String): ImageVector {
+    val t = title.lowercase()
+    return when {
+        t.contains("api key") || t.contains("& model") -> Icons.Outlined.Key
+        t.contains("backup") -> Icons.Outlined.Backup
+        t.contains("about you") -> Icons.Outlined.Person
+        t.contains("character") -> Icons.Outlined.Face
+        t.contains("bank") || t.contains("vault") -> Icons.Outlined.AccountBalance
+        t.contains("account") -> Icons.Outlined.Cloud
+        t.contains("efficiency") -> Icons.Outlined.Schedule
+        t.contains("on-device") -> Icons.Outlined.PhoneAndroid
+        t.contains("chess") -> Icons.Outlined.Extension
+        t.contains("teach") || t.contains("reflex") -> Icons.Outlined.TouchApp
+        t.contains("floating") || t.contains("nav") -> Icons.Outlined.Explore
+        t.contains("diagnostic") || t.contains("health") -> Icons.Outlined.Favorite
+        t.contains("detail") -> Icons.Outlined.Badge
+        t.contains("appearance") -> Icons.Outlined.Palette
+        t.contains("invest") -> Icons.Outlined.TrendingUp
+        t.contains("booking") -> Icons.Outlined.Event
+        t.contains("talk") -> Icons.Outlined.Chat
+        t.contains("voice") -> Icons.Outlined.Mic
+        t.contains("persona") -> Icons.Outlined.RecordVoiceOver
+        t.contains("upload") -> Icons.Outlined.CloudUpload
+        t.contains("import") -> Icons.Outlined.Download
+        t.contains("model") || t.contains("spending") -> Icons.Outlined.Psychology
+        t.contains("connection") -> Icons.Outlined.Link
+        t.contains("per-app") || t.contains("response") -> Icons.Outlined.Apps
+        t.contains("document") -> Icons.Outlined.Description
+        t.contains("lock") -> Icons.Outlined.Lock
+        else -> Icons.Outlined.Settings
     }
 }
 
@@ -96,9 +134,9 @@ fun Collapsible(
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { open = !open }) {
-            // Clean monogram badge — a consistent "icon" for every card without per-card art.
+            // Function-matched professional icon so each card is recognizable at a glance.
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(T.accentSoft), contentAlignment = Alignment.Center) {
-                Text(title.trim().take(1).uppercase(), fontSize = T.small, color = T.accent, fontWeight = FontWeight.Bold)
+                Icon(iconFor(title), contentDescription = null, tint = T.accent, modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
