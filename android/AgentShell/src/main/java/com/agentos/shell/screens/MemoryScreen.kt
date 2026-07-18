@@ -1945,19 +1945,24 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         ) { Text(app.label.take(1).uppercase(), fontSize = T.small, color = T.inkSoft) }
                     }
                     Spacer(Modifier.width(12.dp))
-                    Text(app.label, fontSize = T.body, color = T.ink, modifier = Modifier.weight(1f))
+                    val noInline = MemoryStore.appNoInlineReply(ctx, app.pkg)
+                    Column(Modifier.weight(1f)) {
+                        Text(app.label, fontSize = T.body, color = T.ink)
+                        if (noInline) Text("Draft-only — no inline reply here", fontSize = T.caption, color = T.inkFaint)
+                    }
                     val cur = modeMap[app.pkg] ?: "draft"
                     Row(
                         Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf("off" to "Off", "draft" to "Draft", "full" to "Auto").forEach { (id, label) ->
-                            val sel = cur == id
+                            val disabled = noInline && id == "full"   // can't auto-send where there's no reply box
+                            val sel = cur == id && !disabled
                             Text(label, fontSize = T.caption,
-                                color = if (sel) T.bgElevated else T.inkSoft,
+                                color = if (disabled) T.inkFaint.copy(alpha = 0.5f) else if (sel) T.bgElevated else T.inkSoft,
                                 modifier = Modifier.clip(RoundedCornerShape(999.dp))
                                     .background(if (sel) T.accent else androidx.compose.ui.graphics.Color.Transparent)
-                                    .clickable { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
+                                    .clickable(enabled = !disabled) { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
                                     .padding(horizontal = 11.dp, vertical = 6.dp))
                         }
                     }

@@ -195,6 +195,11 @@ object MemoryStore {
     // Generic per-provider key (cerebras/mistral/nvidia/openrouter/githubmodels) — pref "<provider>_key".
     // Note: gemini/openai/groq already follow this exact naming, so this reads them too; anthropic uses its
     // own effective getter (baked fallback), so route that through anthropicKeyEffective instead.
+    // Apps that expose NO inline reply action (RemoteInput) — SlyOS physically can't auto-send there (e.g.
+    // LinkedIn), so the settings should show "draft-only" instead of a full-auto toggle that silently no-ops.
+    fun appNoInlineReply(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("noinline_$pkg", false)
+    fun setAppNoInlineReply(ctx: Context, pkg: String, v: Boolean) = prefs(ctx).edit().putBoolean("noinline_$pkg", v).apply()
+
     fun providerKey(ctx: Context, provider: String): String = prefs(ctx).getString("${provider}_key", "") ?: ""
     fun setProviderKey(ctx: Context, provider: String, value: String) =
         prefs(ctx).edit().putString("${provider}_key", value.trim()).apply()

@@ -210,7 +210,16 @@ class AgentNotificationListener : NotificationListenerService() {
     }
 
     private fun maybeAutoReply(note: NotificationStore.Note) {
-        if (!note.canReply) return
+        if (!note.canReply) {
+            // The app offers no inline reply box, so we can't auto-send here (e.g. LinkedIn). If the user set
+            // this app to full-auto, remember it can't — so Settings can show "draft-only" instead of lying.
+            if (MemoryStore.appMode(applicationContext, note.pkg) == "full")
+                MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, true)
+            return
+        }
+        // It CAN reply inline — clear any stale draft-only flag (app may have added the action in an update).
+        if (MemoryStore.appNoInlineReply(applicationContext, note.pkg))
+            MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, false)
         if (note.isEmail) return   // email is always human-reviewed, never autonomous
         val telegram = note.pkg.startsWith("org.telegram")
         val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
