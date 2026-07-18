@@ -84,13 +84,11 @@ object ModelRouter {
         if (ctx == null) return null
         val geminiKey = MemoryStore.geminiKey(ctx)
 
-        // HARD BUDGET CAP: if this month's spend crossed the cap, force everything (that free Gemini can
-        // do) onto Gemini so the bill can't blow up. Web tasks still need Anthropic, so only those escape.
+        // HARD BUDGET CAP: once this month's PAID spend crosses your cap, route ONLY to FREE brains (any of
+        // them) so the bill can't grow — overriding any pinned provider. Falls back to paid only if you have
+        // no free brain keyed at all. (On-device stays as the final safety net in chooseAll.)
         val budget = MemoryStore.monthlyBudget(ctx)
-        if (budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget && geminiKey.isNotBlank() && !needWeb) {
-            val model = MemoryStore.modelOverride(ctx, "gemini", tier).ifBlank { DEFAULT_MODELS["gemini"]?.get(tier) ?: "gemini-2.0-flash" }
-            return Choice("gemini", model, geminiKey)
-        }
+        val overBudget = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget
 
         // Per-task routing override takes precedence, then the global preferred, then any keyed provider.
         val tierPref = MemoryStore.tierProvider(ctx, tier)
@@ -98,7 +96,8 @@ object ModelRouter {
         // COST DEFAULT: high-volume CHEAP work (triage, understanding commands, memory lookups) goes to
         // FREE Gemini unless you explicitly set that tier to something else — so everyday use is $0.
         val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
-        val order = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
+        val order0 = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
+        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) }.ifEmpty { order0 } else order0
         // First pass: respect capability constraints.
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue
@@ -128,12 +127,13 @@ object ModelRouter {
         if (ctx == null) return emptyList()
         val geminiKey = MemoryStore.geminiKey(ctx)
         val budget = MemoryStore.monthlyBudget(ctx)
-        val budgetCapped = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget && geminiKey.isNotBlank() && !needWeb
+        val overBudget = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget
         val tierPref = MemoryStore.tierProvider(ctx, tier)
         val preferred = MemoryStore.preferredProvider(ctx)
         val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
-        val order = (listOf(if (budgetCapped) "gemini" else "", cheapFree, tierPref, preferred) + PROVIDERS)
-            .filter { it.isNotBlank() }.distinct()
+        val order0 = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
+        // Budget enforcement: over the cap → free brains only (any), overriding pins; paid only if no free key.
+        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) }.ifEmpty { order0 } else order0
         val out = ArrayList<Choice>()
         fun modelFor(p: String): String? {
             val ov = MemoryStore.modelOverride(ctx, p, tier)
