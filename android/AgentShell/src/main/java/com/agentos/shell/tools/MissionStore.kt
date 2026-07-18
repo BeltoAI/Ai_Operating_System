@@ -87,6 +87,17 @@ object MissionStore {
     fun contacted(ctx: Context): Set<String> = set(ctx, "contacted")
     fun replied(ctx: Context): Set<String> = set(ctx, "replied")
     fun addContacted(ctx: Context, name: String) = prefs(ctx).edit().putStringSet("contacted", contacted(ctx) + name).apply()
+
+    // ── Overnight run: a start/stop switch + the time it started (for the morning report window) + daily cap. ──
+    fun running(ctx: Context): Boolean = prefs(ctx).getBoolean("run_active", false)
+    fun setRunning(ctx: Context, v: Boolean) {
+        val e = prefs(ctx).edit().putBoolean("run_active", v)
+        if (v) e.putLong("run_started", System.currentTimeMillis())
+        e.apply()
+    }
+    fun startedAt(ctx: Context): Long = prefs(ctx).getLong("run_started", 0L)
+    fun dailyCap(ctx: Context): Int = prefs(ctx).getInt("run_cap", 50)
+    fun setDailyCap(ctx: Context, n: Int) = prefs(ctx).edit().putInt("run_cap", n.coerceIn(1, 200)).apply()
     fun toggleReplied(ctx: Context, name: String) {
         val r = replied(ctx); prefs(ctx).edit().putStringSet("replied", if (name in r) r - name else r + name).apply()
     }

@@ -57,6 +57,9 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     var draft by remember { mutableStateOf("") }
     var reviewBusy by remember { mutableStateOf(false) }
     var sendStatus by remember { mutableStateOf("") }
+    var running by remember { mutableStateOf(MissionStore.running(ctx)) }
+    var runMsg by remember { mutableStateOf("") }
+    var report by remember { mutableStateOf<com.agentos.shell.tools.OutreachQueue.Report?>(null) }
 
     // Unique per person: two contacts at the same company must not collapse to one key (which would
     // make "contacted"/"replied" toggles bleed across both). Combine name + company.
@@ -125,6 +128,31 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             }
             busy = false
         }
+    }
+    // Overnight auto-send: enqueue the emailable targets into the spam-safe drip at ~cap/day, human-paced.
+    // Runs on the existing background worker; press Stop in the morning for the report.
+    fun startOvernight() {
+        val recips = prospects.mapNotNull { p ->
+            guessEmail(p).takeIf { it.contains("@") }?.let { com.agentos.shell.tools.OutreachQueue.Recipient(p.name.ifBlank { p.company }, it) }
+        }
+        if (recips.isEmpty()) { runMsg = "No emailable targets yet — run a mission first. (LinkedIn-only contacts need tap-to-send, coming next.)"; return }
+        busy = true
+        scope.launch {
+            val template = withContext(Dispatchers.IO) { AgentClient.outreachEmail(goal, "[FirstName]", "", MemoryStore.fullProfile(ctx)) }
+            val cap = MissionStore.dailyCap(ctx); val spacing = (1440 / cap).coerceIn(2, 720)
+            val added = withContext(Dispatchers.IO) { com.agentos.shell.tools.OutreachQueue.enqueue(ctx, recips, "Reaching out", template, "", spacing, "mission") }
+            MissionStore.setRunning(ctx, true); running = true; report = null
+            withContext(Dispatchers.IO) { MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Overnight mission on: $goal — $added queued (~$cap/day)") }
+            runMsg = "Running — $added queued, ~$cap/day. Sleep on it; press Stop in the morning for your report."
+            busy = false
+        }
+    }
+    fun stopOvernight() {
+        val n = com.agentos.shell.tools.OutreachQueue.cancelPending(ctx)
+        val since = MissionStore.startedAt(ctx).takeIf { it > 0 } ?: (System.currentTimeMillis() - 86_400_000L)
+        report = com.agentos.shell.tools.OutreachQueue.report(ctx, since)
+        MissionStore.setRunning(ctx, false); running = false
+        runMsg = "Stopped — $n queued message(s) cancelled."
     }
     fun findMore() {
         if (busy || goal.isBlank()) return
@@ -212,6 +240,43 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             val pct = MissionStore.campaignProgress(ctx)
             Text("$pct% · ${contacted.size} reached · ${replied.size} replied", fontSize = T.caption, color = ACC)
             Spacer(Modifier.height(6.dp))
+
+            // ── Overnight auto-send: start/stop + morning report ──
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                Text("Overnight auto-send", fontSize = T.body, color = T.ink)
+                Text("Emails your mission targets on a human-paced drip (~${MissionStore.dailyCap(ctx)}/day) while you sleep. Stop for a report.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(10.dp))
+                if (!running) {
+                    Text("Start overnight", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACC)
+                            .clickable(enabled = !busy) { startOvernight() }.padding(horizontal = 18.dp, vertical = 10.dp))
+                } else {
+                    Text("Stop & see report", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.danger)
+                            .clickable { stopOvernight() }.padding(horizontal = 18.dp, vertical = 10.dp))
+                }
+                if (runMsg.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(runMsg, fontSize = T.caption, color = ACC) }
+                report?.let { r ->
+                    Spacer(Modifier.height(12.dp))
+                    Text("${r.sent} sent · ${r.pending} queued · ${r.failed} failed", fontSize = T.small, color = T.ink)
+                    Spacer(Modifier.height(8.dp))
+                    val maxH = (r.hourly.maxOrNull() ?: 0).coerceAtLeast(1)
+                    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                        for (h in 0 until 24) {
+                            val frac = (r.hourly[h].toFloat() / maxH).coerceIn(0.03f, 1f)
+                            Box(Modifier.weight(1f).fillMaxHeight(frac).padding(horizontal = 1.dp)
+                                .clip(RoundedCornerShape(2.dp)).background(if (r.hourly[h] > 0) ACC else T.hairline))
+                        }
+                    }
+                    Text("sends by hour (0–23)", fontSize = T.caption, color = T.inkFaint)
+                    if (r.recent.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        r.recent.take(6).forEach { Text("· ${it.first}", fontSize = T.caption, color = T.inkSoft) }
+                    }
+                }
+            }
+
             Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(999.dp)).background(T.hairline)) {
                 Box(Modifier.fillMaxWidth(pct / 100f).fillMaxHeight().clip(RoundedCornerShape(999.dp)).background(ACC))
             }

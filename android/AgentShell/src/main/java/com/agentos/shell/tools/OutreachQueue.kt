@@ -17,13 +17,45 @@ object OutreachQueue {
     private const val PREFS = "slyos_outreach"
     private const val KEY_NEXT = "next_allowed_ts"
 
-    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx, "outreach.db", null, 1) {
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx, "outreach.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE outreach(id INTEGER PRIMARY KEY AUTOINCREMENT, toName TEXT, toEmail TEXT, " +
-                "subject TEXT, body TEXT, attach TEXT, spacingMin INTEGER, status TEXT, createdTs INTEGER, campaign TEXT)")
+                "subject TEXT, body TEXT, attach TEXT, spacingMin INTEGER, status TEXT, createdTs INTEGER, campaign TEXT, sentTs INTEGER DEFAULT 0)")
         }
-        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {}
+        override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
+            if (o < 2) try { db.execSQL("ALTER TABLE outreach ADD COLUMN sentTs INTEGER DEFAULT 0") } catch (e: Exception) {}
+        }
     }
+
+    /** Morning report of an overnight run: what got sent, and a per-hour histogram for the graph. */
+    data class Report(val sent: Int, val pending: Int, val failed: Int,
+                      val hourly: IntArray, val recent: List<Pair<String, Long>>)
+
+    fun sentToday(ctx: Context): Int = try {
+        val c = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }
+        db(ctx).rawQuery("SELECT COUNT(*) FROM outreach WHERE status='sent' AND sentTs>=?", arrayOf(c.timeInMillis.toString()))
+            .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    } catch (e: Exception) { 0 }
+
+    fun report(ctx: Context, sinceTs: Long): Report {
+        val hourly = IntArray(24); var sent = 0; var failed = 0
+        val recent = ArrayList<Pair<String, Long>>()
+        try {
+            db(ctx).rawQuery("SELECT toName,toEmail,status,sentTs FROM outreach WHERE createdTs>=? OR sentTs>=?",
+                arrayOf(sinceTs.toString(), sinceTs.toString())).use { c ->
+                while (c.moveToNext()) {
+                    val st = c.getString(2) ?: ""; val ts = c.getLong(3)
+                    when (st) {
+                        "sent" -> { sent++; if (ts > 0) { hourly[java.util.Calendar.getInstance().apply { timeInMillis = ts }.get(java.util.Calendar.HOUR_OF_DAY)]++; recent.add((c.getString(0).ifBlankOr(c.getString(1))) to ts) } }
+                        "failed" -> failed++
+                    }
+                }
+            }
+        } catch (e: Exception) {}
+        val pending = pendingCount(ctx)
+        return Report(sent, pending, failed, hourly, recent.sortedByDescending { it.second }.take(12))
+    }
+    private fun String?.ifBlankOr(alt: String?): String = this?.takeIf { it.isNotBlank() } ?: (alt ?: "someone")
     private var helper: Helper? = null
     private fun db(ctx: Context): SQLiteDatabase {
         if (helper == null) helper = Helper(ctx.applicationContext)
@@ -88,7 +120,8 @@ object OutreachQueue {
             else GmailClient.send(ctx, toEmail, pSubj.ifBlank { "Hello" }, pBody)
         } catch (e: Exception) { false to (e.message ?: "error") }
         if (ok) {
-            mark(ctx, id, "sent")
+            try { db(ctx).execSQL("UPDATE outreach SET status='sent', sentTs=? WHERE id=?", arrayOf(now.toString(), id.toString())) }
+            catch (e: Exception) { mark(ctx, id, "sent") }
             // Open the gate again only after the spacing window → strict ≤1 per window, whole-queue-wide.
             prefs(ctx).edit().putLong(KEY_NEXT, now + spacing * 60_000L).apply()
             val left = pendingCount(ctx)
