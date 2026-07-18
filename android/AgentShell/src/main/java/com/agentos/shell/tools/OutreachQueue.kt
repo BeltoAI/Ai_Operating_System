@@ -133,6 +133,13 @@ object OutreachQueue {
         }
     }
 
+    /** Send one NOW, bypassing the pacing gate (for the very first send when a run starts, so it's observable).
+     *  Subsequent sends still respect the spacing window that drainOne re-arms. */
+    fun drainNow(ctx: Context): String? {
+        prefs(ctx).edit().putLong(KEY_NEXT, 0L).apply()
+        return drainOne(ctx)
+    }
+
     private fun mark(ctx: Context, id: Long, status: String) {
         try { db(ctx).execSQL("UPDATE outreach SET status=? WHERE id=?", arrayOf(status, id.toString())) } catch (e: Exception) {}
     }

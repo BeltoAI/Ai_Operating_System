@@ -143,7 +143,13 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             val added = withContext(Dispatchers.IO) { com.agentos.shell.tools.OutreachQueue.enqueue(ctx, recips, "Reaching out", template, "", spacing, "mission") }
             MissionStore.setRunning(ctx, true); running = true; report = null
             withContext(Dispatchers.IO) { MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Overnight mission on: $goal — $added queued (~$cap/day)") }
-            runMsg = "Running — $added queued, ~$cap/day. Sleep on it; press Stop in the morning for your report."
+            // Fire the FIRST one right now so you can see it work immediately (not wait ~15 min for the worker).
+            val first = if (added > 0) withContext(Dispatchers.IO) { com.agentos.shell.tools.OutreachQueue.drainNow(ctx) } else null
+            runMsg = when {
+                added == 0 -> "Nothing new to queue — those targets are already contacted or have no email."
+                first != null -> "Sent 1 now ✓ — $added queued, then ~$cap/day. Press Stop for the report."
+                else -> "$added queued (~$cap/day), but the first send didn't go — connect Google (Settings) so it can email. It'll retry on the drip."
+            }
             busy = false
         }
     }
