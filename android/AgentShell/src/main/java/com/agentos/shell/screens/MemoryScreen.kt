@@ -1931,6 +1931,19 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         .clickable { disclose = !disclose; MemoryStore.setDiscloseAi(ctx, disclose); com.agentos.shell.tools.AgentClient.discloseAi = disclose }
                         .padding(horizontal = 16.dp, vertical = 7.dp))
             }
+            Spacer(Modifier.height(12.dp))
+            var otp by remember { mutableStateOf(MemoryStore.otpAutofill(ctx)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Read 2FA codes to auto-fill logins", fontSize = T.small, color = T.ink)
+                    Text("Lets the screen agent read one-time codes from your notifications & Gmail to get past login screens. Sensitive — off by default.",
+                        fontSize = T.caption, color = T.inkFaint)
+                }
+                Text(if (otp) "On" else "Off", fontSize = T.small, color = if (otp) T.bgElevated else T.inkSoft,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (otp) T.accent else T.hairline)
+                        .clickable { otp = !otp; MemoryStore.setOtpAutofill(ctx, otp) }
+                        .padding(horizontal = 16.dp, vertical = 7.dp))
+            }
             Spacer(Modifier.height(10.dp))
         }
         val apps = remember { com.agentos.shell.tools.AppScanner.installed(ctx) }

@@ -14,6 +14,7 @@ object OtpReader {
     private val CODEY = Regex("(?i)code|otp|verif|passcode|one[- ]?time|2fa|sign.?in|log.?in|security")
 
     fun latest(ctx: Context, hint: String = ""): String? {
+        if (!MemoryStore.otpAutofill(ctx)) return null   // OPT-IN: never read codes unless the user enabled it
         // 1) Notifications (SMS + app codes).
         try {
             val notes = NotificationStore.notes

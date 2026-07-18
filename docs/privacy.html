@@ -58,9 +58,15 @@
   <ul>
     <li><strong>Notification access</strong> — to read incoming messages and reply to them on your behalf.</li>
     <li><strong>Accessibility / "Total Recall" (optional)</strong> — to read on-screen text into your private,
-      on-device memory. This is off by default and gated by a toggle; secure fields (passwords) are not captured.</li>
-    <li><strong>SMS, Contacts, Calendar, Camera, Microphone</strong> — to send texts, find people, check
-      availability, answer visual questions, and take voice input. Each is requested only when used.</li>
+      on-device memory and to let the screen agent operate apps for you. It never reads or stores password
+      <em>contents</em>, but it <strong>can type into password fields</strong> to complete logins/sign-ups you
+      initiate. Off by default and gated by toggles.</li>
+    <li><strong>One-time codes / 2FA (opt-in, OFF by default)</strong> — if you turn on "Read 2FA codes to
+      auto-fill logins," SlyOS reads one-time verification codes from your notifications and Gmail so the screen
+      agent can get past "enter the code" screens. Nothing reads codes unless you enable this.</li>
+    <li><strong>SMS, Contacts, Calendar, Camera, Microphone, Location</strong> — to send texts, find people,
+      check availability, answer visual questions, take voice input, and (if you enable it) share live location.
+      Each is requested only when used.</li>
   </ul>
   <p>All permissions are granted by you and can be revoked in Android settings at any time.</p>
 
@@ -79,8 +85,13 @@
     <li><strong>Telegram</strong> — if you connect a bot, messages to/from your bot pass through Telegram's Bot API.</li>
     <li><strong>Supabase</strong> — the app store's review/ratings wall and anonymous usage analytics (see section 6)
       are stored in Belto's Supabase project.</li>
+    <li><strong>Live location (optional):</strong> if you enable location sharing, your device location is served
+      through a live-location endpoint so the people you share with can see it. Off unless you turn it on.</li>
+    <li><strong>Website hosting (Netlify / Vercel):</strong> when the agent builds and "ships" a website for you,
+      it publishes it using hosting tokens <em>bundled in the app</em> (Belto's), so it works with zero setup.
+      Anything you publish this way is served publicly on the internet.</li>
     <li><strong>Others (optional):</strong> Zenodo (publishing papers), X/Twitter (posting), Finnhub (market data),
-      AudD (song identification), Netlify/Vercel (hosting sites the agent builds).</li>
+      AudD (song identification).</li>
   </ul>
 
   <h2>6. Anonymous usage analytics</h2>

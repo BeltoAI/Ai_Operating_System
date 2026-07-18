@@ -114,6 +114,43 @@ private fun NetworkTab(ctx: android.content.Context) {
         Text("No network imported yet.", fontSize = T.small, color = T.inkFaint)
         return
     }
+    // ── Autonomous reconnect: message N of your never-reached network via tap-send ──
+    run {
+        val NO = com.agentos.shell.tools.NetworkOutreach
+        var tick by remember { mutableStateOf(0) }
+        tick.let { }   // subscribe so onUpdate() recomposes this card
+        var n by remember { mutableStateOf(minOf(50, never.size).coerceAtLeast(1)) }
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(16.dp))
+            .background(T.bgElevated).border(1.dp, T.hairline, RoundedCornerShape(16.dp)).padding(16.dp)) {
+            Text("Reconnect for me — autonomously", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+            Text("SlyOS opens LinkedIn and messages people you've never reached, one by one, human-paced. Needs SlyOS accessibility ON — it drives the screen while it runs.",
+                fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(10.dp))
+            if (!NO.running) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("−", fontSize = T.body, color = T.ink, modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(T.hairline).clickable { n = (n - 5).coerceAtLeast(1) }.padding(horizontal = 14.dp, vertical = 6.dp))
+                    Text("$n", fontSize = T.body, color = T.ink, modifier = Modifier.padding(horizontal = 14.dp))
+                    Text("+", fontSize = T.body, color = T.ink, modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                        .background(T.hairline).clickable { n = (n + 5).coerceAtMost(minOf(50, never.size).coerceAtLeast(1)) }.padding(horizontal = 14.dp, vertical = 6.dp))
+                    Text("people today", fontSize = T.caption, color = T.inkSoft, modifier = Modifier.padding(start = 10.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Start — message $n for me", fontSize = T.small, color = Color.White,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable { NO.start(ctx, "reconnect warmly and catch up", n) { tick++ } }
+                        .padding(horizontal = 18.dp, vertical = 10.dp))
+            } else {
+                Text("Stop", fontSize = T.small, color = Color.White,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.danger)
+                        .clickable { NO.stop(); tick++ }.padding(horizontal = 18.dp, vertical = 10.dp))
+            }
+            if (NO.lastMsg.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(NO.lastMsg, fontSize = T.caption, color = if (NO.running) T.accent else T.inkSoft) }
+            if (NO.sent + NO.failed > 0) Text("${NO.sent} sent · ${NO.failed} skipped of ${NO.total}", fontSize = T.caption, color = T.inkFaint)
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+
     Text("NEVER REACHED OUT", fontSize = T.caption, color = T.inkFaint)
     Spacer(Modifier.height(6.dp))
     LazyColumn {

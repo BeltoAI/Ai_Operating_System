@@ -18,7 +18,8 @@ import com.agentos.shell.tools.MemoryStore
  *  1) READ — logs on-screen text into InteractionStore for recall (unchanged).
  *  2) ACT (P1) — with gestures enabled, it can read the live node tree and tap / type / scroll on the
  *     user's behalf for the action layer (ScreenAgent). It only ever acts while the screen is on and the
- *     target app is foreground; never captures passwords/secure fields; everything stays on-device.
+ *     target app is foreground; never captures password CONTENTS into the log (but the agent CAN type into
+ *     password fields to fill logins you initiate); the Total Recall log itself stays on-device.
  *
  * Enabled by the user in Settings > Accessibility; gated again by the in-app toggle.
  */

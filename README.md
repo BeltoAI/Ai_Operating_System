@@ -75,8 +75,9 @@ Then on the phone: open SlyOS, paste an API key (a free **Gemini** key runs the 
 
 SlyOS is powerful because it can see your notifications and screen — so let's be clear:
 
-- **Everything stays on your device.** The memory brain is a local SQLite database. Nothing is uploaded except the specific prompt you send to the model provider *you* configured.
-- **Permissions are opt-in and reversible.** Notification access, accessibility (screen reading), contacts, SMS — each is granted by you and revocable anytime. It never captures password fields.
+- **Your brain lives on your device**, but SlyOS is **not fully on-device.** The memory brain is a local SQLite database, but when you use its features it sends data to services you connect: model providers (Claude/Gemini/GPT/Groq/etc.), Google (Gmail read+send, Drive backup), OpenAI/Gemini (embeddings, images), ElevenLabs (voice cloning), Telegram (bot), a live-location service, and Belto's Supabase (review wall + anonymous usage analytics). See [privacy.html](docs/privacy.html) for the full list.
+- **Permissions are opt-in and reversible.** Notification access, accessibility (screen reading), contacts, SMS — each is granted by you and revocable anytime.
+- **Passwords & codes:** SlyOS never *reads or stores* password contents. But the accessibility screen-agent **can type into password fields** to complete logins/sign-ups you initiate, and (if you enable OTP auto-fill) it reads one-time 2FA codes from your notifications/Gmail to get past "enter the code" screens. Both are documented in [privacy.html](docs/privacy.html); OTP auto-fill is off by default.
 - **It asks before consequential actions.** Sending a message, posting publicly, or spending money is always confirmed — auto-send is opt-in, per-app, per-contact, and rate-limited.
 - **Aggressive automation, made safe.** Everything the agent sends on its own lands in a visible **"Sent for you"** timeline (what, to whom, and *why*) with one-tap **Recall**. Unknown/first-time senders are drafted, never auto-sent. An outbound safety filter holds anything that looks like an injected link or money/credential request. Incoming messages are treated as untrusted data, never instructions.
 - **Locked down at rest.** Secrets and the brain are excluded from cloud/USB backup (`allowBackup=false`), the Telegram bot only talks to you (one-time pairing), and every model key stays on your device — none is ever compiled into a shared build.
@@ -103,7 +104,7 @@ Kotlin · Jetpack Compose · SQLite (FTS4 + a local vector index) · CameraX + M
 
 Issues and bug reports welcome. Note that SlyOS is **proprietary** (see [License](#license)), so external code contributions can't be merged without a separate agreement — but feedback and reports genuinely help.
 
-**License:** Proprietary — © Belto. All rights reserved.
+**License:** Proprietary — © 2026 Emil Shirokikh (Belto). All rights reserved. See [LICENSE](LICENSE).
 
 ## Security
 

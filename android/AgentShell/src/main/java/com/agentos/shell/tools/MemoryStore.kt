@@ -202,6 +202,11 @@ object MemoryStore {
     fun discloseAiForApp(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("disclose_ai_$pkg", discloseAi(ctx))
     fun setDiscloseAiForApp(ctx: Context, pkg: String, v: Boolean) = prefs(ctx).edit().putBoolean("disclose_ai_$pkg", v).apply()
 
+    // OTP auto-fill: let the screen agent read one-time 2FA codes from notifications/Gmail to pass login screens.
+    // Sensitive → OPT-IN (OFF by default). Nothing reads codes unless the user turns this on.
+    fun otpAutofill(ctx: Context): Boolean = prefs(ctx).getBoolean("otp_autofill", false)
+    fun setOtpAutofill(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("otp_autofill", v).apply()
+
     // Apps that expose NO inline reply action (RemoteInput) — SlyOS physically can't auto-send there (e.g.
     // LinkedIn), so the settings should show "draft-only" instead of a full-auto toggle that silently no-ops.
     fun appNoInlineReply(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("noinline_$pkg", false)
