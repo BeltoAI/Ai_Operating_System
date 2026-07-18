@@ -133,7 +133,10 @@ object TapSend {
             if (!tapTarget(svc, SEND_LABELS, "the Send button that sends the message I just typed (often a paper-plane icon or a button that says Send, usually bottom-right of the message box)")) {
                 dump(svc, "no-send"); return false to "Typed it, but couldn't find the Send button."
             }
-            delay(800)
+            delay(1000)
+            // Leave the chat so the NEXT person's profile opens clean (LinkedIn won't navigate a fresh deep link
+            // while it's already foreground on this chat). Back out to a neutral screen.
+            try { svc.back(); delay(700); svc.back(); delay(500) } catch (e: Exception) {}
             HealthStore.note("tapsend", true, "sent once")
             true to "Sent ✓"
         } catch (e: Exception) {
