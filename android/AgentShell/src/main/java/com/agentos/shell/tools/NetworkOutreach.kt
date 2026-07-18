@@ -29,7 +29,12 @@ object NetworkOutreach {
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    fun stop() { running = false; job?.cancel(); lastMsg = "Stopped — $sent sent." }
+    fun stop() {
+        running = false
+        job?.cancel()
+        try { ScreenAgent.stop() } catch (e: Exception) {}   // also kill any screen-agent run it spawned
+        lastMsg = "Stopped — $sent sent."
+    }
 
     fun start(ctx: Context, goal: String, count: Int, onUpdate: () -> Unit) {
         if (running) return
