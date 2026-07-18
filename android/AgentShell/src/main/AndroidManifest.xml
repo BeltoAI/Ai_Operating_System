@@ -46,6 +46,7 @@
     <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
 
     <application
+        android:name=".SlyApp"
         android:label="SlyOS"
         android:theme="@style/Theme.SlyOS"
         android:supportsRtl="true"

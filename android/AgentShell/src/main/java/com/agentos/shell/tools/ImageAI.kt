@@ -20,8 +20,14 @@ import java.net.URL
 object ImageAI {
     private const val TAG = "SlyOS-ImageAI"
 
-    private val openai get() = BuildConfig.OPENAI_API_KEY.trim()
-    private val gemini get() = BuildConfig.GEMINI_API_KEY.trim()
+    // Set once in SlyApp so background paths work too. Prefer the USER'S entered key (Settings), else the baked
+    // build key. BUG FIX: previously read only BuildConfig, so image gen was dead in keyless public builds even
+    // when the user had added an OpenAI/Gemini key.
+    @Volatile var appContext: android.content.Context? = null
+    private val openai get() = (appContext?.let { MemoryStore.openaiKey(it) }?.takeIf { it.isNotBlank() }
+        ?: BuildConfig.OPENAI_API_KEY).trim()
+    private val gemini get() = (appContext?.let { MemoryStore.geminiKey(it) }?.takeIf { it.isNotBlank() }
+        ?: BuildConfig.GEMINI_API_KEY).trim()
 
     fun available(): Boolean = openai.isNotBlank() || gemini.isNotBlank()
     fun providerName(): String = when { openai.isNotBlank() -> "OpenAI"; gemini.isNotBlank() -> "Gemini"; else -> "" }

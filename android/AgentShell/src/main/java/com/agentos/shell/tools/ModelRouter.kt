@@ -59,8 +59,9 @@ object ModelRouter {
     // Only Anthropic exposes the web_search tool the paper writer uses today.
     // P2: Anthropic via webTool(), Gemini via Google Search grounding — both can browse for the agent loop.
     private val WEB_PROVIDERS = setOf("anthropic", "gemini")
-    // All three current providers have vision-capable models.
-    private val VISION_PROVIDERS = setOf("anthropic", "openai", "gemini")
+    // Vision-capable: Claude, GPT-4o, Gemini, and GitHub Models (serves GPT-4o). Groq/Cerebras/Mistral defaults
+    // are text-only, so image tasks route to one of these (or degrade) — they won't be sent to a text model.
+    private val VISION_PROVIDERS = setOf("anthropic", "openai", "gemini", "githubmodels")
 
     data class Choice(val provider: String, val model: String, val apiKey: String)
 
