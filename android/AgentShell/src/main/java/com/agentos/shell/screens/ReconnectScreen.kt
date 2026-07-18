@@ -139,6 +139,7 @@ private fun OutreachCard(
     var msg by remember(name) { mutableStateOf("") }
     var copied by remember(name) { mutableStateOf(false) }
     var done by remember(name) { mutableStateOf(false) }
+    var sendMsg by remember(name) { mutableStateOf("") }
 
     LaunchedEffect(name) {
         if (msg.isEmpty()) {
@@ -179,11 +180,25 @@ private fun OutreachCard(
                             if (openUrl.isNotBlank()) openProfile(ctx, openUrl, appLabel) else openByLabel(ctx, appLabel)
                         }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
+                if (openUrl.isNotBlank()) {
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (sendMsg == "…") "Sending…" else "Send for me", fontSize = T.small, color = T.ink,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                            .clickable(enabled = sendMsg != "…") {
+                                sendMsg = "…"
+                                scope.launch {
+                                    val (ok, detail) = com.agentos.shell.tools.TapSend.sendViaProfile(ctx, openUrl, msg)
+                                    sendMsg = detail
+                                    if (ok) onReached()
+                                }
+                            }.padding(horizontal = 16.dp, vertical = 9.dp))
+                }
                 Spacer(Modifier.weight(1f))
                 Text("Done", fontSize = T.small, color = T.inkFaint,
                     modifier = Modifier.clickable { onReached(); done = true }.padding(vertical = 9.dp, horizontal = 6.dp))
             }
             if (copied) { Spacer(Modifier.height(6.dp)); Text("Copied — paste it in $appLabel", fontSize = T.caption, color = T.accent) }
+            if (sendMsg.isNotBlank() && sendMsg != "…") { Spacer(Modifier.height(6.dp)); Text(sendMsg, fontSize = T.caption, color = if (sendMsg.contains("✓")) T.accent else T.danger) }
         }
     }
 }
