@@ -6,7 +6,7 @@ SlyOS is early-stage software that handles sensitive personal data (messages, co
 
 Please report security issues **privately** — do not open a public GitHub issue.
 
-- Email: **eshir010@ucr.edu**
+- Email: **support@belto.world**
 - Include: a description, reproduction steps, affected version/commit, and impact.
 - We aim to acknowledge within 5 business days.
 
