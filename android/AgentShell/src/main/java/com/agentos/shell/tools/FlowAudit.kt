@@ -340,6 +340,196 @@ object FlowAudit {
                 (uri != null) to (if (uri != null) "output folder writable" else "cannot save a filled form")
             })),
 
+        Flow("telegram_dm", "Telegram bot (private)", "Someone messages your bot", listOf(
+            Step("Bot configured + reachable") { _ ->
+                if (!TelegramClient.configured()) false to "no bot token in this build — the bot cannot run"
+                else { val u = try { TelegramClient.botUsername() } catch (e: Exception) { "" }
+                       u.isNotBlank() to (if (u.isNotBlank()) "@$u reachable" else "getMe failed — token may be revoked") }
+            },
+            stepBrainWrite(), stepBrainRead(),
+            Step("Document knowledge available", critical = false) { ctx ->
+                val has = try { KnowledgeStore.hasDoc(ctx) } catch (e: Exception) { false }
+                true to (if (has) "a document is loaded for Q&A" else "no document loaded (fine — text chat still works)")
+            },
+            stepBrainReachable(), stepGenerate(), stepSanitise(), stepLogOutbox())),
+
+        Flow("telegram_team", "Telegram team chat", "You address an agent in the group", listOf(
+            Step("Team chat connected") { ctx ->
+                val on = try { TeamChat.isConnected(ctx) } catch (e: Exception) { false }
+                on to (if (on) "group paired" else "not connected — agents can't be reached in a group")
+            },
+            Step("Agents exist to answer") { ctx ->
+                val n = try { EmployeeStore.all(ctx).size } catch (e: Exception) { 0 }
+                (n > 0) to (if (n > 0) "$n agent(s) hired" else "no agents — nobody can respond")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepSanitise(), stepLogOutbox())),
+
+        Flow("agents", "AI employees working", "Agents run shifts on your behalf", listOf(
+            Step("Team roster") { ctx ->
+                val n = try { EmployeeStore.all(ctx).size } catch (e: Exception) { 0 }
+                (n > 0) to (if (n > 0) "$n on the team" else "no agents hired yet")
+            },
+            Step("Per-agent knowledge", critical = false) { ctx ->
+                val fed = try { EmployeeStore.all(ctx).sumOf { AgentKnowledge.count(ctx, it.id) } } catch (e: Exception) { 0 }
+                true to (if (fed > 0) "$fed documents fed to agents" else "no documents fed to any agent yet")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepLogOutbox())),
+
+        Flow("calendar", "Calendar + scheduling", "\"What's on today / book me at 3\"", listOf(
+            Step("Calendar permission") { ctx ->
+                val ok = try { CalendarTool.hasPermission(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — SlyOS is blind to your schedule")
+            },
+            Step("Events actually readable") { ctx ->
+                if (!CalendarTool.hasPermission(ctx)) false to "no permission, so nothing can be read"
+                else { val e = try { CalendarTool.upcoming(ctx) } catch (ex: Exception) { "" }
+                       true to (if (e.isBlank()) "readable (nothing upcoming)" else "read ${e.lines().size} upcoming line(s)") }
+            },
+            stepBrainRead(), stepBrainReachable())),
+
+        Flow("contacts_sms", "Message a person", "\"Text Sarah I'm running late\"", listOf(
+            Step("Contacts readable") { ctx ->
+                val ok = try { ContactsTool.canRead(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — names can't be resolved to numbers")
+            },
+            Step("Name → number resolution") { ctx ->
+                if (!ContactsTool.canRead(ctx)) false to "no contacts permission"
+                else { val n = try { ContactsTool.findCandidates(ctx, "a").size } catch (e: Exception) { -1 }
+                       (n >= 0) to (if (n >= 0) "lookup works ($n candidates for a broad query)" else "contact lookup threw") }
+            },
+            Step("SMS permission") { ctx ->
+                val g = ctx.checkSelfPermission(android.Manifest.permission.SEND_SMS) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                g to (if (g) "granted" else "DENIED — texts cannot be sent")
+            },
+            stepBrainReachable(), stepGenerate(), stepGuard(), stepLogOutbox())),
+
+        Flow("screen_agent", "Operate the screen", "\"Do X in this app for me\"", listOf(
+            stepAccessibility(),
+            Step("Screen readable") { _ ->
+                val svc = com.agentos.shell.InteractionLogService.instance
+                if (svc == null) false to "service not running"
+                else { val n = try { svc.readScreen().size } catch (e: Exception) { -1 }
+                       (n > 0) to (if (n > 0) "reads $n nodes from the current screen" else "reads NOTHING — cannot see the screen") }
+            },
+            stepBrainReachable(), stepGenerate(), stepLogOutbox())),
+
+        Flow("voice", "Voice in / voice out", "You speak to SlyOS", listOf(
+            Step("Microphone") { ctx ->
+                val ok = try { SongId.hasMic(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — voice input impossible")
+            },
+            Step("Speech output", critical = false) { ctx ->
+                val el = try { ElevenLabs.available(ctx) } catch (e: Exception) { false }
+                true to (if (el) "ElevenLabs voice available" else "using the system voice (no ElevenLabs key)")
+            },
+            stepBrainReachable(), stepGenerate(), stepSanitise())),
+
+        Flow("song_id", "Identify a song", "\"What song is this?\"", listOf(
+            Step("Microphone") { ctx ->
+                val ok = try { SongId.hasMic(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — cannot listen")
+            },
+            Step("AudD token") { ctx ->
+                val k = try { MemoryStore.providerKey(ctx, "audd") } catch (e: Exception) { "" }
+                val t = k.ifBlank { try { MemoryStore.providerKey(ctx, "audd_token") } catch (e: Exception) { "" } }
+                true to (if (t.isNotBlank()) "token set" else "no AudD token — song ID will return nothing")
+            })),
+
+        Flow("translate", "Translate", "\"Translate this to Spanish\"", listOf(
+            Step("Translator returns real output") { _ ->
+                val out = try { Translate.translate("hello", "es") } catch (e: Exception) { "" }
+                (out.isNotBlank() && !out.equals("hello", true)) to
+                    (if (out.isNotBlank() && !out.equals("hello", true)) "\"hello\" → \"$out\""
+                     else "returned nothing usable — the language pack may not be downloaded")
+            },
+            stepLogOutbox())),
+
+        Flow("trading", "Trading / quotes", "\"How's NVDA doing?\"", listOf(
+            Step("Quote source keyed") { ctx ->
+                val k = try { MemoryStore.providerKey(ctx, "finnhub") } catch (e: Exception) { "" }
+                k.isNotBlank() to (if (k.isNotBlank()) "Finnhub key set" else "no market data key — quotes return nothing")
+            },
+            Step("Live quote returns a price") { ctx ->
+                val q = try { QuoteClient.quote("AAPL") } catch (e: Exception) { null }
+                (q != null) to (if (q != null) "AAPL priced" else "quote lookup returned NOTHING")
+            },
+            stepBrainWrite(), stepLogOutbox())),
+
+        Flow("job_hunt", "Job hunt", "\"Find me a job as X\"", listOf(
+            Step("Résumé on file") { ctx ->
+                val r = try { JobStore.resume(ctx) } catch (e: Exception) { "" }
+                r.isNotBlank() to (if (r.isNotBlank()) "${r.length} chars of résumé" else "NO résumé — tailoring has nothing to work from")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepFolder(), stepLogOutbox())),
+
+        Flow("papers", "Write a paper / report", "\"Write me a paper on X\"", listOf(
+            stepBrainRead(), stepBrainReachable(),
+            Step("Paper store writable") { ctx ->
+                val n = try { PaperStore.list(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n papers stored" else "paper store unreadable")
+            },
+            stepFolder(), stepIndexDoc(), stepLogOutbox())),
+
+        Flow("deploy", "Build + deploy a site", "\"Build and ship a landing page\"", listOf(
+            stepBrainReachable(),
+            Step("Vercel token") { ctx ->
+                val t = try { MemoryStore.vercelToken(ctx) } catch (e: Exception) { "" }
+                t.isNotBlank() to (if (t.isNotBlank()) "set" else "no Vercel token — cannot ship")
+            },
+            Step("Supabase provisioning", critical = false) { ctx ->
+                val u = try { DeployClient.supabaseUrl(ctx) } catch (e: Exception) { "" }
+                true to (if (u.isNotBlank()) "backend configured" else "no Supabase — frontend-only deploys")
+            },
+            stepLogOutbox())),
+
+        Flow("powers", "Powers / store", "You install and run a Power", listOf(
+            Step("Powers installed") { ctx ->
+                val n = try { PowerRegistry.count(ctx) } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n > 0) "$n installed" else if (n == 0) "none installed yet" else "power registry unreadable")
+            },
+            stepBrainRead(), stepBrainReachable())),
+
+        Flow("backup", "Brain backup + restore", "Your brain is backed up automatically", listOf(
+            Step("Backup configured") { ctx ->
+                val on = try { BrainBackup.autoEnabled(ctx) } catch (e: Exception) { false }
+                true to (if (on) "auto-backup ON" else "auto-backup OFF — a wipe would lose everything")
+            },
+            Step("Google Drive target") { ctx ->
+                val c = GoogleAuth.isConnected(ctx)
+                c to (if (c) "Drive reachable" else "not connected — backups can only stay on-device")
+            },
+            stepFolder())),
+
+        Flow("account_sync", "Account + cross-device sync", "Your brain follows you to another phone", listOf(
+            Step("Signed in") { ctx ->
+                val on = try { AccountStore.signedIn(ctx) } catch (e: Exception) { false }
+                on to (if (on) "signed in" else "not signed in — no cross-device brain")
+            },
+            Step("Last sync succeeded") { ctx ->
+                val t = try { BrainSync.lastOkMs(ctx) } catch (e: Exception) { 0L }
+                (t > 0) to (if (t > 0) "last ok " + java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(t))
+                            else "never synced successfully")
+            })),
+
+        Flow("checklist", "Checklist", "\"Add milk to my list\"", listOf(
+            Step("List readable + writable") { ctx ->
+                val before = try { ChecklistStore.load(ctx).size } catch (e: Exception) { -1 }
+                if (before < 0) false to "checklist unreadable"
+                else { ChecklistStore.add(ctx, "__flowaudit__")
+                       val after = try { ChecklistStore.load(ctx).size } catch (e: Exception) { -1 }
+                       try { ChecklistStore.removeMatching(ctx, "__flowaudit__") } catch (e: Exception) {}
+                       (after > before) to (if (after > before) "add + remove both work" else "add did not persist") }
+            },
+            stepLogOutbox())),
+
+        Flow("otp", "OTP autofill", "A login code arrives while you're signing in", listOf(
+            Step("Opt-in enabled") { ctx ->
+                val on = try { MemoryStore.otpAutofill(ctx) } catch (e: Exception) { false }
+                true to (if (on) "enabled" else "OFF by default — codes are never read (this is the safe default)")
+            },
+            stepNotifAccess())),
+
         Flow("reminders", "Reminders + alarms", "\"Remind me in 20 minutes\"", listOf(
             stepBrainReachable(),
             Step("Exact-alarm permission") { ctx ->

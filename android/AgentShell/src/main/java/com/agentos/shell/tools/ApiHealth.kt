@@ -129,16 +129,24 @@ object ApiHealth {
         if (!ok) {
             val code = detail.substringBefore(":").trim().toIntOrNull() ?: 0
             if (ModelResolver.isModelGone(code, detail)) {
+                Fail.log(ctx, "Brain", "$provider/$model unusable", detail.take(140))
                 ModelResolver.blacklist(ctx, provider, model)
                 // A 402 is an ENTITLEMENT failure, not a missing model — so walk UP from the smallest
                 // models (what a free key can actually call) instead of trying more premium ones.
                 val entitlement = code == 402 || detail.contains("payment", true) || detail.contains("does not have access", true)
                 val tries = if (entitlement) ModelResolver.cheapestCandidates(ctx, provider, key, 6)
                             else ModelResolver.candidates(ctx, provider, "STANDARD", key, 4)
+                if (tries.isEmpty())
+                    Fail.log(ctx, "Brain", "$provider has no alternative models",
+                        "catalogue empty or every model already blacklisted — this key may have NO usable model")
                 for (cand in tries) {
                     if (cand.equals(model, true)) continue
                     Log.i(TAG, "$provider: $model unusable → trying $cand")
                     val (ok2, d2) = roundTrip(provider, cand, key)
+                    // Record EVERY attempt — otherwise "cerebras still doesn't work" gives us nothing to
+                    // go on. This shows exactly which models were tried and what each one said.
+                    Fail.log(ctx, "Brain", "$provider tried $cand",
+                        if (ok2) "WORKS — pinning it" else d2.take(140), if (ok2) "warn" else "error")
                     if (ok2) {
                         ModelRouter.rememberHealed(ctx, provider, ModelRouter.Tier.STANDARD, cand)
                         model = cand; ok = true; detail = "healed → $cand"

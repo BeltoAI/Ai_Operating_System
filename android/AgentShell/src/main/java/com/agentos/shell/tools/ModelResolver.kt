@@ -45,8 +45,17 @@ object ModelResolver {
         if (model.isBlank()) return
         val cur = p(ctx).getStringSet(blKey(provider), emptySet())?.toMutableSet() ?: mutableSetOf()
         if (cur.add(model.lowercase())) {
-            p(ctx).edit().putStringSet(blKey(provider), cur).apply()
-            HealthStore.note("model_blacklist", false, "$provider: $model unusable")
+            val e = p(ctx).edit().putStringSet(blKey(provider), cur)
+            // CRITICAL: also evict it from the healed-model cache. Without this the router keeps handing
+            // back the very model we just proved unusable (this is why Cerebras stayed pinned to a paid
+            // model it could never call, sweep after sweep).
+            listOf("CHEAP", "STANDARD", "HEAVY").forEach { t ->
+                if (p(ctx).getString("m_${provider}_$t", null).equals(model, true)) {
+                    e.remove("m_${provider}_$t").remove("t_${provider}_$t")
+                }
+            }
+            e.apply()
+            HealthStore.note("model_blacklist", false, "$provider: $model unusable — evicted from cache")
         }
     }
     fun blacklisted(ctx: Context, provider: String): Set<String> =
