@@ -345,6 +345,25 @@ object AgentClient {
                     Log.i("SlyOS", "llm ${choice.provider}/${choice.model} OK in=${r.inTokens} out=${r.outTokens}")
                     return 200 to r.text
                 }
+                // MODEL RETIRED (404 "no longer available" / "does not exist") → the hardcoded id has rotted and
+                // EVERY future call to this brain would fail forever. Ask the provider what it actually serves,
+                // cache that, and retry once right now instead of writing the provider off.
+                if (ctx != null && ModelResolver.isModelGone(r.code, r.text)) {
+                    val healed = try { ModelRouter.healModel(ctx, choice.provider, tier) } catch (e: Exception) { null }
+                    if (!healed.isNullOrBlank() && healed != choice.model) {
+                        Log.w("SlyOS", "llm ${choice.provider}/${choice.model} retired → retrying on $healed")
+                        r = LlmProviders.call(choice.provider, healed, choice.apiKey, system, messages, maxTokens, readMs, effTools)
+                        if (r.code == 200) {
+                            CostStore.record(ctx, choice.provider, healed, r.inTokens, r.outTokens)
+                            FreeTierMeter.record(ctx, choice.provider)
+                            ProviderLimit.clear(ctx, choice.provider)
+                            HealthStore.recordLlm(ctx, choice.provider, true)
+                            lastInTok = r.inTokens; lastOutTok = r.outTokens
+                            lastProvider = choice.provider; lastModel = healed
+                            return 200 to r.text
+                        }
+                    }
+                }
                 // Rate-limited / quota-exhausted → park this provider for a cooldown so the cascade skips it on
                 // the NEXT calls (instead of wasting a round-trip), and roll to the next brain now.
                 if (ctx != null && ProviderLimit.isRateLimit(r.code, r.text)) {

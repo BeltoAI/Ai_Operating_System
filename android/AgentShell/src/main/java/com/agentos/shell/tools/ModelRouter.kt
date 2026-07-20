@@ -33,10 +33,14 @@ object ModelRouter {
             Tier.CHEAP to "gpt-4o-mini",
             Tier.STANDARD to "gpt-4o",
             Tier.HEAVY to "gpt-4o"),
+        // NOTE: these are only the FAST-PATH defaults. Providers retire model ids on their own schedule
+        // (gemini-2.0-flash was withdrawn; Cerebras deprecated llama-3.3-70b + qwen-3-32b in Feb 2026),
+        // and a stale id here means EVERY call to that brain 404s forever. ModelResolver detects that and
+        // swaps in whatever the provider actually serves, so this list rotting is no longer fatal.
         "gemini" to mapOf(
-            Tier.CHEAP to "gemini-2.0-flash",
-            Tier.STANDARD to "gemini-2.0-flash",
-            Tier.HEAVY to "gemini-1.5-pro-latest"),
+            Tier.CHEAP to "gemini-2.5-flash",
+            Tier.STANDARD to "gemini-2.5-flash",
+            Tier.HEAVY to "gemini-2.5-pro"),
         // ---- Free, OpenAI-compatible providers (text-only; kept out of vision/web sets) ----
         "groq" to mapOf(
             Tier.CHEAP to "llama-3.1-8b-instant",
@@ -44,8 +48,8 @@ object ModelRouter {
             Tier.HEAVY to "llama-3.3-70b-versatile"),
         "cerebras" to mapOf(
             Tier.CHEAP to "llama3.1-8b",
-            Tier.STANDARD to "llama-3.3-70b",
-            Tier.HEAVY to "llama-3.3-70b"),
+            Tier.STANDARD to "llama-4-scout-17b-16e-instruct",
+            Tier.HEAVY to "llama-4-scout-17b-16e-instruct"),
         "mistral" to mapOf(
             Tier.CHEAP to "mistral-small-latest",
             Tier.STANDARD to "mistral-small-latest",
@@ -77,6 +81,21 @@ object ModelRouter {
     fun hasKey(ctx: Context, provider: String): Boolean = keyFor(ctx, provider).isNotBlank()
 
     /**
+     * The model to send for [provider]/[tier]: an explicit user override wins, then a model ModelResolver
+     * healed to after the hardcoded default 404'd, then the default. Null if this provider has no default.
+     */
+    fun modelFor(ctx: Context, p: String, tier: Tier): String? {
+        val ov = MemoryStore.modelOverride(ctx, p, tier)
+        if (ov.isNotBlank()) return ov
+        val default = DEFAULT_MODELS[p]?.get(tier) ?: return null
+        return ModelResolver.effective(ctx, p, tier.name, default)
+    }
+
+    /** A call just failed because the model id is retired — find a live one and remember it. */
+    fun healModel(ctx: Context, provider: String, tier: Tier): String? =
+        ModelResolver.heal(ctx, provider, tier.name, keyFor(ctx, provider))
+
+    /**
      * Choose a provider+model for [tier], honoring the user's preferred provider, then any provider
      * with a key, while respecting capability needs (web → Anthropic; vision → vision model). Returns
      * null only if NO provider has a key at all.
@@ -104,15 +123,13 @@ object ModelRouter {
             val k = keyFor(ctx, p); if (k.isBlank()) continue
             if (needWeb && p !in WEB_PROVIDERS) continue
             if (needVision && p !in VISION_PROVIDERS) continue
-            val ov = MemoryStore.modelOverride(ctx, p, tier)
-            val model = if (ov.isNotBlank()) ov else (DEFAULT_MODELS[p]?.get(tier) ?: continue)
+            val model = modelFor(ctx, p, tier) ?: continue
             return Choice(p, model, k)
         }
         // Second pass: a constraint filtered everyone — fall back to any keyed provider (best effort).
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue
-            val ov = MemoryStore.modelOverride(ctx, p, tier)
-            val model = if (ov.isNotBlank()) ov else (DEFAULT_MODELS[p]?.get(tier) ?: continue)
+            val model = modelFor(ctx, p, tier) ?: continue
             return Choice(p, model, k)
         }
         return null
@@ -136,10 +153,7 @@ object ModelRouter {
         // Budget enforcement: over the cap → free brains only (any), overriding pins; paid only if no free key.
         val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) }.ifEmpty { order0 } else order0
         val out = ArrayList<Choice>()
-        fun modelFor(p: String): String? {
-            val ov = MemoryStore.modelOverride(ctx, p, tier)
-            return if (ov.isNotBlank()) ov else DEFAULT_MODELS[p]?.get(tier)
-        }
+        fun modelFor(p: String): String? = modelFor(ctx, p, tier)
         // Capability-respecting choices first (best quality for the task)…
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue

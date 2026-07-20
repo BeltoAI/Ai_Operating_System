@@ -15,10 +15,13 @@ object CostStore {
         "claude-sonnet-4-6" to (3.0 to 15.0),
         "claude-opus-4-8" to (15.0 to 75.0),
         "gpt-4o-mini" to (0.15 to 0.60),
-        "gpt-4o" to (2.5 to 10.0),
-        "gemini-2.0-flash" to (0.10 to 0.40),
-        "gemini-1.5-pro-latest" to (1.25 to 5.0)
+        "gpt-4o" to (2.5 to 10.0)
+        // Gemini deliberately NOT priced here — see priceFor: SlyOS routes it on the FREE tier.
     )
+
+    /** Must match ModelRouter.PROVIDER_FREE. SlyOS only ever routes these on their free tiers, so billing
+     *  them inflates spend and can trip the monthly cap on money that was never actually charged. */
+    private val FREE_PROVIDERS = setOf("gemini", "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels", "local")
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("slyos_cost", Context.MODE_PRIVATE)
     private fun monthKey(): String {
@@ -29,14 +32,15 @@ object CostStore {
         return "${c.get(Calendar.YEAR)}-${c.get(Calendar.MONTH)}-${c.get(Calendar.DAY_OF_MONTH)}"
     }
 
-    private fun priceFor(provider: String, model: String): Pair<Double, Double> =
-        PRICES[model] ?: when (provider) {
-            "gemini" -> 0.10 to 0.40
+    private fun priceFor(provider: String, model: String): Pair<Double, Double> {
+        // Free tier ALWAYS wins, even if the model name happens to match a priced entry — otherwise a
+        // free-tier call gets billed and the budget cap misfires on spend that never happened.
+        if (provider in FREE_PROVIDERS) return 0.0 to 0.0
+        return PRICES[model] ?: when (provider) {
             "openai" -> 2.5 to 10.0
-            // Free tiers — must read as $0 so the budget cap can't misfire or over-report spend.
-            "groq", "cerebras", "mistral", "nvidia", "openrouter", "githubmodels", "local" -> 0.0 to 0.0
             else -> 3.0 to 15.0
         }
+    }
 
     /** Public estimate (micro-dollars) for a single call — used by per-employee ledgers. */
     fun estimateMicros(provider: String, model: String, inTok: Int, outTok: Int): Long {

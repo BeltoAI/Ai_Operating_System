@@ -47,11 +47,18 @@ jobs:
           # APK trust: publish the SHA-256 so anyone can verify the download hasn't been tampered with.
           SHA=$(sha256sum "$GITHUB_WORKSPACE/SlyOS.apk" | cut -d' ' -f1)
           echo "SlyOS.apk SHA-256: $SHA"
-          NOTES="Auto-published from main. Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted.
+          # NOTE: every line of this heredoc MUST stay indented inside the `run: |` block. A line at
+          # column 0 ends the YAML block scalar and makes the whole workflow file invalid (which is
+          # exactly what silently broke every run here — jobs failed in 0s with no logs).
+          NOTES="$(cat <<EOF
+          Auto-published from main. Install, then paste your own free Gemini or Anthropic key on first launch. Android 10+. Set SlyOS as your Home app when prompted.
 
-**Verify your download** — SlyOS.apk SHA-256:
-\`$SHA\`
-Run \`shasum -a 256 SlyOS.apk\` and confirm it matches before installing."
+          **Verify your download** — SlyOS.apk SHA-256:
+          \`$SHA\`
+          Run \`shasum -a 256 SlyOS.apk\` and confirm it matches before installing.
+          EOF
+          )"
+          NOTES="$(printf '%s\n' "$NOTES" | sed 's/^          //')"
           gh release view latest >/dev/null 2>&1 \
             && gh release edit latest --notes "$NOTES" \
             || gh release create latest --title "SlyOS — latest build" --notes "$NOTES"
