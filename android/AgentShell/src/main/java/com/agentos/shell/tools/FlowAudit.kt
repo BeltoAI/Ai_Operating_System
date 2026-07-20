@@ -260,6 +260,86 @@ object FlowAudit {
             },
             stepBrainRead())),
 
+        // ── SILENT-OUTPUT FLOWS: these exist specifically to catch "you asked for something and got
+        // nothing back" — the failure class that produces no error, no crash, just an empty answer.
+        Flow("expenses", "Expenses / receipts", "You scan a receipt or ask about spending", listOf(
+            Step("Expense store readable") { ctx ->
+                val n = try { ExpenseStore.count(ctx) } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n expenses logged" else "expense database unreadable")
+            },
+            Step("Vision brain for receipt photos") { ctx ->
+                val ok = ModelRouter.hasKey(ctx, "gemini") || ModelRouter.hasKey(ctx, "anthropic") ||
+                    ModelRouter.hasKey(ctx, "openai") || ModelRouter.hasKey(ctx, "githubmodels")
+                ok to (if (ok) "a vision-capable brain is keyed" else "NO vision brain — receipt photos cannot be read at all")
+            },
+            // Real parse of a real receipt, asserting a USABLE result — not just "didn't crash".
+            Step("Actually parse a receipt (real extract)") { ctx ->
+                val sample = "WHOLE FOODS MARKET\n2026-07-19\nBananas 3.40\nCoffee 12.99\nSubtotal 16.39\nTax 1.31\nTOTAL 17.70 USD"
+                val r = try { AgentClient.extractReceiptText(sample) } catch (e: Exception) { null }
+                when {
+                    r == null -> false to "returned NOTHING for a clearly valid receipt — scanning is broken"
+                    r.total <= 0.0 -> false to "parsed but total came back ${r.total} — the amount is being lost"
+                    r.merchant.isBlank() || r.merchant == "(unknown)" -> false to "parsed a total but NO merchant"
+                    else -> true to "read “${r.merchant}” ${r.currency} ${r.total}"
+                }
+            },
+            Step("Categorisation") { _ ->
+                val c = try { ExpenseStore.normalizeCategory("groceries") } catch (e: Exception) { "" }
+                c.isNotBlank() to (if (c.isNotBlank()) "maps to \"$c\"" else "category mapping returned nothing")
+            },
+            stepBrainWrite(), stepLogOutbox())),
+
+        Flow("documents_fetch", "Ask about a document", "\"What did the contract say about X?\"", listOf(
+            Step("Documents are indexed") { ctx ->
+                val n = try { DocText.count(ctx) } catch (e: Exception) { -1 }
+                when {
+                    n < 0 -> false to "document index unreadable"
+                    n == 0 -> false to "NO documents indexed — every document question returns nothing"
+                    else -> true to "$n documents indexed"
+                }
+            },
+            // Retrieval that asserts real text came back, which is the exact silent failure.
+            Step("Retrieval returns real passages") { ctx ->
+                val n = try { DocText.count(ctx) } catch (e: Exception) { 0 }
+                if (n == 0) false to "nothing indexed, so retrieval can only ever return empty"
+                else {
+                    val probe = try { DocText.retrieve(ctx, "the", 800) } catch (e: Exception) { "" }
+                    if (probe.isNotBlank()) true to "returned ${probe.length} chars of document text"
+                    else false to "returned NOTHING even for a common word — retrieval is broken, not just unmatched"
+                }
+            },
+            Step("Filed documents listable") { ctx ->
+                val n = try { DocStore.list(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n filed documents" else "document list unreadable")
+            },
+            Step("PDF text extraction available") { _ ->
+                val ok = try { Class.forName("com.tom_roush.pdfbox.pdmodel.PDDocument"); true }
+                         catch (e: Throwable) { false }
+                ok to (if (ok) "PDF text/form engine present" else "PDF engine MISSING — PDFs can't be read or filled")
+            },
+            stepBrainRead())),
+
+        Flow("forms", "Fill a form", "You hand SlyOS a PDF form to complete", listOf(
+            Step("PDF form engine") { _ ->
+                val ok = try { Class.forName("com.tom_roush.pdfbox.pdmodel.PDDocument"); true }
+                         catch (e: Throwable) { false }
+                ok to (if (ok) "engine present" else "MISSING — no form can be filled")
+            },
+            // The real cause of "it filled nothing": the profile is empty, so no field can ever match.
+            Step("Profile has values to fill with") { ctx ->
+                val fields = listOfNotNull(
+                    MemoryStore.profileName(ctx).takeIf { it.isNotBlank() }?.let { "name" },
+                    MemoryStore.profileEmail(ctx).takeIf { it.isNotBlank() }?.let { "email" },
+                    MemoryStore.profilePhone(ctx).takeIf { it.isNotBlank() }?.let { "phone" })
+                fields.isNotEmpty() to (if (fields.isNotEmpty()) "can fill: ${fields.joinToString()}"
+                    else "profile is EMPTY — every form will fill 0 fields and look broken")
+            },
+            Step("Can save the filled file") { ctx ->
+                val uri = try { SlyFolder.file(ctx, "__flowaudit_form__.txt", "text/plain", "probe".toByteArray(), "documents") }
+                          catch (e: Exception) { null }
+                (uri != null) to (if (uri != null) "output folder writable" else "cannot save a filled form")
+            })),
+
         Flow("reminders", "Reminders + alarms", "\"Remind me in 20 minutes\"", listOf(
             stepBrainReachable(),
             Step("Exact-alarm permission") { ctx ->
