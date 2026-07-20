@@ -52,28 +52,30 @@ fun OutboxScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 // Swipe LEFT to remove this entry, swipe RIGHT to open what it refers to.
                 var dragX by remember(e.id) { mutableStateOf(0f) }
-                val offX = androidx.compose.animation.core.animateFloatAsState(dragX, label = "outboxSwipe").value
                 Box(Modifier.fillMaxWidth()) {
                     // Intent revealed underneath as you drag, so the gesture is discoverable.
-                    if (offX != 0f) Row(Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                    if (dragX != 0f) Row(Modifier.fillMaxWidth().padding(vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = if (offX < 0) Arrangement.End else Arrangement.Start) {
-                        Text(if (offX < 0) "Remove" else "Open", fontSize = T.small,
-                            color = if (offX < 0) T.danger else T.accent,
+                        horizontalArrangement = if (dragX < 0) Arrangement.End else Arrangement.Start) {
+                        Text(if (dragX < 0) "Remove" else "Open", fontSize = T.small,
+                            color = if (dragX < 0) T.danger else T.accent,
                             modifier = Modifier.padding(horizontal = 22.dp))
                     }
                 Column(Modifier.fillMaxWidth()
-                    .offset { androidx.compose.ui.unit.IntOffset(offX.toInt(), 0) }
+                    .offset { androidx.compose.ui.unit.IntOffset(dragX.toInt(), 0) }
                     .pointerInput(e.id) {
-                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                        // Uses the IMPORTED name and the trailing-lambda form — the same shape that already
+                        // compiles in ReconnectScreen. detectHorizontalDragGestures is an extension on
+                        // PointerInputScope, so a fully-qualified call does NOT resolve.
+                        detectHorizontalDragGestures(
                             onDragEnd = {
                                 when {
                                     dragX < -180f -> { OutboxStore.remove(ctx, e.id); items = OutboxStore.recent(ctx, 100) }
                                     dragX > 180f -> { openEntry(ctx, e); dragX = 0f }
                                     else -> dragX = 0f
                                 }
-                            },
-                            onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-320f, 320f) })
+                            }
+                        ) { _, dragAmount -> dragX = (dragX + dragAmount).coerceIn(-320f, 320f) }
                     }
                     .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
                     .border(1.dp, T.hairline, RoundedCornerShape(16.dp)).padding(14.dp)) {
