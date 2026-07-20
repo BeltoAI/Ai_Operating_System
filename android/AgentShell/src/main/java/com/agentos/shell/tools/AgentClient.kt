@@ -1621,7 +1621,8 @@ object AgentClient {
 
     /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
      *  fresh when you actually message them, so it's never a generic template. */
-    fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String): String {
+    fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String,
+                         history: String = ""): String {
         val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
         val book = bookingLink.trim()
@@ -1635,8 +1636,16 @@ object AgentClient {
             "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). " +
             (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
             (if (book.isNotBlank()) "Include this booking link where it fits naturally: $book. " else "") +
+            // Reconnecting with someone you've spoken to before must NOT read like a cold intro.
+            (if (history.isNotBlank())
+                "You have spoken with this person BEFORE — the prior conversation is given below. Do NOT introduce " +
+                "yourself or write a cold opener; pick up naturally where things left off and reference something " +
+                "real and specific from it. Never restate what they already know. "
+             else "This person has NOT been messaged before — a first, warm introduction is appropriate. ") +
             "Ready to paste and send."
-        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Recipient: $who. Their first name is \"$firstName\" — address them as that.") )
+        val msgs = JSONArray().put(JSONObject().put("role", "user").put("content",
+            "Recipient: $who. Their first name is \"$firstName\" — address them as that." +
+            (if (history.isNotBlank()) "\n\nYour prior conversation with them (oldest first):\n" + history.take(1800) else "")))
         val (code, text) = callMessages(sys, msgs, 350, VOICE)
         return if (code == 200) text.trim() else ("Hi $firstName, I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
@@ -2213,7 +2222,7 @@ object AgentClient {
         val start = text.indexOf('{')
         val end = text.lastIndexOf('}')
         if (start < 0 || end <= start)
-            return AgentResult(text.trim().ifEmpty { "(no reply)" }, emptyList(), "")
+            return AgentResult(cleanSay(text), emptyList(), "")
         return try {
             val o = JSONObject(text.substring(start, end + 1))
             val actions = mutableListOf<AgentAction>()
@@ -2227,10 +2236,34 @@ object AgentClient {
                 val act = o.optString("action", "")
                 if (act.isNotBlank()) actions.add(AgentAction(act, argToString(o.opt("arg"))))
             }
-            AgentResult(o.optString("say"), actions, o.optString("remember", ""))
+            AgentResult(cleanSay(o.optString("say")), actions, o.optString("remember", ""))
         } catch (e: Exception) {
-            AgentResult(text.trim(), emptyList(), "")
+            // Malformed/truncated JSON — recover the human sentence; NEVER show the raw JSON.
+            AgentResult(cleanSay(text), emptyList(), "")
         }
+    }
+
+    /**
+     * HARD GUARANTEE: the user never sees raw JSON or envelope keys. Even if the model returns a malformed or
+     * truncated JSON object (e.g. cut off at the token limit), pull out just the "say" sentence (keeping any
+     * [[card:...]] tag), strip code fences, and drop anything that still looks like JSON.
+     */
+    private fun cleanSay(raw: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) return "Done."
+        s = s.removePrefix("```json").removePrefix("```").trim().removeSuffix("```").trim()
+        // If there's a "say":"…" anywhere (even in broken/truncated JSON), that IS the message.
+        Regex("\"say\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"?", RegexOption.DOT_MATCHES_ALL).find(s)?.let {
+            if (it.groupValues[1].isNotBlank()) s = it.groupValues[1]
+        }
+        s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", " ").replace("\\/", "/")
+        // If it STILL looks like JSON, scrub braces/brackets and the envelope keys so nothing technical shows.
+        if (s.trimStart().startsWith("{") || s.trimStart().startsWith("[")) {
+            s = s.replace(Regex("[{}\\[\\]]"), " ")
+                 .replace(Regex("\"(say|actions|remember|type|arg|action)\"\\s*:?", RegexOption.IGNORE_CASE), " ")
+                 .replace(Regex("\\s{2,}"), " ")
+        }
+        return s.trim().trim(',', '"', ' ').ifBlank { "Done." }
     }
 
     /** arg may be a string or a nested JSON object — normalize to a string. */

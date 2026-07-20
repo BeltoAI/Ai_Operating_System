@@ -211,6 +211,13 @@ object MemoryStore {
     // LinkedIn), so the settings should show "draft-only" instead of a full-auto toggle that silently no-ops.
     fun appNoInlineReply(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("noinline_$pkg", false)
     fun setAppNoInlineReply(ctx: Context, pkg: String, v: Boolean) = prefs(ctx).edit().putBoolean("noinline_$pkg", v).apply()
+    // Sticky "this app HAS shown an inline reply box at least once". Chat apps (WhatsApp/Telegram) post plenty of
+    // non-reply notifications (group summaries, "liked your post") too — one of those must NOT flag the whole app
+    // as draft-only. So we only ever treat an app as no-inline-reply if it has NEVER exposed a reply action.
+    fun appEverInlineReply(ctx: Context, pkg: String): Boolean = prefs(ctx).getBoolean("everinline_$pkg", false)
+    fun setAppEverInlineReply(ctx: Context, pkg: String) {
+        if (!appEverInlineReply(ctx, pkg)) prefs(ctx).edit().putBoolean("everinline_$pkg", true).apply()
+    }
 
     fun providerKey(ctx: Context, provider: String): String = prefs(ctx).getString("${provider}_key", "") ?: ""
     fun setProviderKey(ctx: Context, provider: String, value: String) =

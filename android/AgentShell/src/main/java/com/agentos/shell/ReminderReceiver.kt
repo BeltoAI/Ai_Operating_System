@@ -42,7 +42,20 @@ object ReminderScheduler {
         val i = Intent(ctx, ReminderReceiver::class.java).putExtra("text", text)
         val req = (triggerAtMs % 1_000_000).toInt()
         val pi = PendingIntent.getBroadcast(ctx, req, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
+        // EXACT alarm so it fires at the right minute even in Doze (the inexact setAndAllowWhileIdle was getting
+        // delayed/dropped — that's why "nothing happened"). Fall back to inexact only if exact isn't permitted.
+        val canExact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+        if (canExact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
+        else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
         true
+    } catch (e: SecurityException) {
+        // exact denied at runtime → still schedule inexact so something fires
+        try {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = PendingIntent.getBroadcast(ctx, (triggerAtMs % 1_000_000).toInt(),
+                Intent(ctx, ReminderReceiver::class.java).putExtra("text", text),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi); true
+        } catch (e2: Exception) { false }
     } catch (e: Exception) { false }
 }

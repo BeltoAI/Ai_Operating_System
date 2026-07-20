@@ -1985,13 +1985,15 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf("off" to "Off", "draft" to "Draft", "full" to "Auto").forEach { (id, label) ->
-                            val disabled = noInline && id == "full"   // can't auto-send where there's no reply box
-                            val sel = cur == id && !disabled
+                            // Auto is ALWAYS selectable — noInline is only a hint (shown as the caption above), never
+                            // a hard block. Some apps only reveal a reply box on message notifications, so greying
+                            // Auto out was wrong. If there's truly no reply box at send time we safely fall back to draft.
+                            val sel = cur == id
                             Text(label, fontSize = T.caption,
-                                color = if (disabled) T.inkFaint.copy(alpha = 0.5f) else if (sel) T.bgElevated else T.inkSoft,
+                                color = if (sel) T.bgElevated else T.inkSoft,
                                 modifier = Modifier.clip(RoundedCornerShape(999.dp))
                                     .background(if (sel) T.accent else androidx.compose.ui.graphics.Color.Transparent)
-                                    .clickable(enabled = !disabled) { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
+                                    .clickable { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
                                     .padding(horizontal = 11.dp, vertical = 6.dp))
                         }
                     }

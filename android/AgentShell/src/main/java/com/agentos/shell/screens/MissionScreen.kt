@@ -132,10 +132,12 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     // Overnight auto-send: enqueue the emailable targets into the spam-safe drip at ~cap/day, human-paced.
     // Runs on the existing background worker; press Stop in the morning for the report.
     fun startOvernight() {
+        // ONLY genuinely-found addresses. Guessed first.last@domain was bouncing on nearly every send, which
+        // burns the sending domain's reputation — those people go through LinkedIn tap-send instead.
         val recips = prospects.mapNotNull { p ->
-            guessEmail(p).takeIf { it.contains("@") }?.let { com.agentos.shell.tools.OutreachQueue.Recipient(p.name.ifBlank { p.company }, it) }
+            cleanEmail(p.email).takeIf { it.contains("@") }?.let { com.agentos.shell.tools.OutreachQueue.Recipient(p.name.ifBlank { p.company }, it) }
         }
-        if (recips.isEmpty()) { runMsg = "No emailable targets yet — run a mission first. (LinkedIn-only contacts need tap-to-send, coming next.)"; return }
+        if (recips.isEmpty()) { runMsg = "No REAL email addresses found for these targets — use “Start LinkedIn outreach” above instead (guessed addresses bounce)."; return }
         busy = true
         scope.launch {
             val template = withContext(Dispatchers.IO) { AgentClient.outreachEmail(goal, "[FirstName]", "", MemoryStore.fullProfile(ctx)) }
@@ -152,6 +154,22 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             }
             busy = false
         }
+    }
+    // PREFERRED CHANNEL: reach mission targets on LinkedIn via tap-send. Guessed first.last@domain emails were
+    // bouncing on nearly every send; LinkedIn actually lands. Same deterministic loop as Reconnect.
+    fun startLinkedInOutreach() {
+        val targets = prospects.filter { it.name.isNotBlank() }.map {
+            com.agentos.shell.tools.NetworkOutreach.Target(it.name, it.role, it.company, it.linkedin)
+        }
+        if (targets.isEmpty()) { runMsg = "No named people yet — run a mission first (company-only results can't be messaged)."; return }
+        com.agentos.shell.tools.NetworkOutreach.startMission(ctx, goal, targets) {
+            runMsg = com.agentos.shell.tools.NetworkOutreach.lastMsg
+            contacted = MissionStore.contacted(ctx)
+        }
+    }
+    fun stopLinkedInOutreach() {
+        com.agentos.shell.tools.NetworkOutreach.stop()
+        runMsg = com.agentos.shell.tools.NetworkOutreach.lastMsg
     }
     fun stopOvernight() {
         val n = com.agentos.shell.tools.OutreachQueue.cancelPending(ctx)
@@ -247,10 +265,29 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
             Text("$pct% · ${contacted.size} reached · ${replied.size} replied", fontSize = T.caption, color = ACC)
             Spacer(Modifier.height(6.dp))
 
+            // ── PRIMARY: reach them on LinkedIn (tap-send). Actually lands, unlike guessed emails. ──
+            val liRunning = com.agentos.shell.tools.NetworkOutreach.running
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                Text("Reach out on LinkedIn", fontSize = T.body, color = T.ink)
+                Text("Messages each target on LinkedIn — opens their profile, writes a tailored note, sends, moves to the next. Needs SlyOS accessibility on.",
+                    fontSize = T.caption, color = T.inkFaint)
+                Spacer(Modifier.height(10.dp))
+                if (!liRunning) {
+                    Text("Start LinkedIn outreach", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(ACC)
+                            .clickable(enabled = !busy && prospects.isNotEmpty()) { startLinkedInOutreach() }
+                            .padding(horizontal = 18.dp, vertical = 10.dp))
+                } else {
+                    Text("Stop", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.danger)
+                            .clickable { stopLinkedInOutreach() }.padding(horizontal = 18.dp, vertical = 10.dp))
+                }
+            }
+
             // ── Overnight auto-send: start/stop + morning report ──
             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
-                Text("Overnight auto-send", fontSize = T.body, color = T.ink)
-                Text("Emails your mission targets on a human-paced drip (~${MissionStore.dailyCap(ctx)}/day) while you sleep. Stop for a report.",
+                Text("Overnight email drip", fontSize = T.body, color = T.ink)
+                Text("Fallback channel — only use where a REAL email was found. Guessed addresses bounce, so prefer LinkedIn above. ~${MissionStore.dailyCap(ctx)}/day.",
                     fontSize = T.caption, color = T.inkFaint)
                 Spacer(Modifier.height(10.dp))
                 if (!running) {

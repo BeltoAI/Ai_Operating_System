@@ -103,6 +103,41 @@ object TapSend {
         try { ctx.startActivity(intent) } catch (e: Exception) {}
     }
 
+    /**
+     * MISSION path: we only know a NAME (+ company), not a profile URL — so land on the person first.
+     * Opens a LinkedIn people-search deep link, taps the result whose row actually contains the person's
+     * name, then runs the exact same single-shot message flow. Aborts cleanly if no matching result.
+     */
+    suspend fun sendViaSearch(ctx: Context, searchUrl: String, personName: String, message: String): Pair<Boolean, String> {
+        val svc = InteractionLogService.instance ?: return false to "Turn on SlyOS accessibility first."
+        if (searchUrl.isBlank() || message.isBlank() || personName.isBlank())
+            return false to "Missing search link, name, or message."
+        return try {
+            open(ctx, searchUrl)
+            delay(5000)
+            dump(svc, "search")
+            // Find the result row for THIS person. Match on the full name first, then the surname (LinkedIn
+            // often renders "Name · 2nd" or truncates), never on the first name alone (too many false hits).
+            val last = personName.trim().split(Regex("\\s+")).lastOrNull().orEmpty()
+            val nodes = svc.readScreen()
+            var idx = nodes.indexOfFirst { it.clickable && it.text.contains(personName, true) }
+            if (idx < 0 && last.length >= 3)
+                idx = nodes.indexOfFirst { it.clickable && it.text.contains(last, true) }
+            if (idx < 0) {
+                // Vision fallback: point at the search result card for this person.
+                if (!visionTap(svc, "the search-result row for the person named “$personName” (tap their name/photo to open their profile)")) {
+                    dump(svc, "no-result"); return false to "Couldn't find “$personName” in LinkedIn search results."
+                }
+            } else svc.tapNode(idx)
+            delay(4500)
+            dump(svc, "profile-from-search")
+            messageFromProfile(ctx, svc, message, personName)
+        } catch (e: Exception) {
+            HealthStore.note("tapsend", false, e.message ?: "error")
+            false to (e.message ?: "Tap-send error.")
+        }
+    }
+
     suspend fun sendViaProfile(ctx: Context, openUrl: String, message: String, recipient: String = ""): Pair<Boolean, String> {
         val svc = InteractionLogService.instance ?: return false to "Turn on SlyOS accessibility first."
         if (openUrl.isBlank() || message.isBlank()) return false to "Missing profile link or message."
@@ -110,6 +145,16 @@ object TapSend {
             open(ctx, openUrl)
             delay(4000)
             dump(svc, "profile")
+            messageFromProfile(ctx, svc, message, recipient)
+        } catch (e: Exception) {
+            HealthStore.note("tapsend", false, e.message ?: "error")
+            false to (e.message ?: "Tap-send error.")
+        }
+    }
+
+    /** Shared single-shot flow, starting from an OPEN profile: Message → verify person → type → Send once → back out. */
+    private suspend fun messageFromProfile(ctx: Context, svc: InteractionLogService, message: String, recipient: String): Pair<Boolean, String> {
+        return try {
             if (!tapTarget(svc, MESSAGE_LABELS, "the button that opens a direct message/chat with this person (usually a “Message” button near the top of the profile)")) {
                 dump(svc, "no-message"); return false to "Couldn't find the Message button (label or vision)."
             }

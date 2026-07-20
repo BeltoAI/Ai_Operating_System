@@ -173,6 +173,9 @@
 
         <!-- Fires timed reminders ("remind me in 20 min to…") as notifications. -->
         <receiver android:name=".ReminderReceiver" android:exported="false"/>
+    <!-- exact alarms so reminders/timers fire ON TIME (not delayed/dropped by Doze) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
         <!-- STOP button for the action layer ("SlyOS is controlling your screen"). -->
         <receiver android:name=".StopActionReceiver" android:exported="false"/>

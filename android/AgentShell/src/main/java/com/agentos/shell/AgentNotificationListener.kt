@@ -211,13 +211,16 @@ class AgentNotificationListener : NotificationListenerService() {
 
     private fun maybeAutoReply(note: NotificationStore.Note) {
         if (!note.canReply) {
-            // The app offers no inline reply box, so we can't auto-send here (e.g. LinkedIn). If the user set
-            // this app to full-auto, remember it can't — so Settings can show "draft-only" instead of lying.
-            if (MemoryStore.appMode(applicationContext, note.pkg) == "full")
+            // This ONE notification has no inline reply box. But chat apps also post non-message notifications
+            // (group summaries, "liked your post") with no reply box — a single one must NOT flag the whole app.
+            // Only mark draft-only if the app has NEVER, across any notification, exposed an inline reply action.
+            if (MemoryStore.appMode(applicationContext, note.pkg) == "full" &&
+                !MemoryStore.appEverInlineReply(applicationContext, note.pkg))
                 MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, true)
             return
         }
-        // It CAN reply inline — clear any stale draft-only flag (app may have added the action in an update).
+        // It CAN reply inline — record that (sticky) and clear any stale draft-only flag.
+        MemoryStore.setAppEverInlineReply(applicationContext, note.pkg)
         if (MemoryStore.appNoInlineReply(applicationContext, note.pkg))
             MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, false)
         if (note.isEmail) return   // email is always human-reviewed, never autonomous

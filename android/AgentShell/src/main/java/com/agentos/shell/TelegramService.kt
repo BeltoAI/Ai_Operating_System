@@ -102,6 +102,8 @@ class TelegramService : Service() {
         if (!authorized(u)) return   // no brain, no persona, no logging for anyone but the paired owner
         val mem = MemoryStore.about(applicationContext)
         val who = u.senderName.ifBlank { "Telegram ${u.chatId}" }   // brain contact name for any branch
+        // Remember name → chat id so a later "forward it to <name>" can actually reach them.
+        try { com.agentos.shell.tools.TgRelay.rememberChat(applicationContext, u.senderName, u.chatId) } catch (e: Exception) {}
         fun brainIn(text: String) = com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "them", text)
         fun brainOut(text: String) = com.agentos.shell.tools.MessageStore.insertOne(applicationContext, who, "Telegram", who, "me", text)
         when {
@@ -110,12 +112,14 @@ class TelegramService : Service() {
                 val name = u.docName.ifBlank { "document.pdf" }
                 val bytes = u.docFileId?.let { TelegramClient.downloadFile(it) }
                 val chars = if (bytes != null) KnowledgeStore.loadFromBytes(applicationContext, bytes, name) else 0
+                // Keep the actual file so "now forward it to Sarah" can relay it (not just read it).
+                if (bytes != null) com.agentos.shell.tools.TgRelay.remember(applicationContext, u.chatId, name, bytes)
                 brainIn("[sent a PDF: $name]")
                 TelegramClient.sendMessage(u.chatId,
                     when {
-                        chars > 0 -> "Got “$name” — read it ($chars chars). Ask me anything about it."
+                        chars > 0 -> "Got “$name” — read it ($chars chars). Ask me anything about it, or tell me who to forward it to."
                         bytes == null -> "Couldn't download that file (it may be too big — Telegram bots can only fetch files up to 20 MB)."
-                        else -> "Downloaded “$name” but couldn't extract text — it may be a scanned/image PDF."
+                        else -> "Downloaded “$name” but couldn't extract text — it may be a scanned/image PDF. I can still forward it if you tell me who to."
                     })
             }
             // Photo → describe / answer with vision.
@@ -131,6 +135,11 @@ class TelegramService : Service() {
             // Text → natural reply, white paper only when the question is Belto/SlyOS tech.
             u.text.isNotBlank() -> {
                 val chat = u.chatId.toString()
+                // "forward that to X" on a file they just sent → relay it for real, before the chat brain runs.
+                com.agentos.shell.tools.TgRelay.handle(applicationContext, u.chatId, u.text)?.let { relayed ->
+                    brainIn(u.text); TelegramClient.sendMessage(u.chatId, relayed); brainOut(relayed)
+                    return
+                }
                 ConversationStore.add(applicationContext, "Telegram", chat, "them", u.text)
                 // Into the searchable brain (so Telegram chats show in the graph + Ask + reply context).
                 brainIn(u.text)

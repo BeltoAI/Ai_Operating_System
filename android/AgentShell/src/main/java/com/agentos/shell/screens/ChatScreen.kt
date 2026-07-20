@@ -71,6 +71,9 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var renameText by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var attachB64 by remember { mutableStateOf<String?>(null) }   // pending image to send
+    var attachText by remember { mutableStateOf<String?>(null) }  // pending document text (PDF / txt / code…)
+    var attachName by remember { mutableStateOf("") }             // its filename, shown on the chip
+    var attachErr by remember { mutableStateOf("") }              // why an attachment couldn't be read
     var vaultPinPrompt by remember { mutableStateOf(false) }      // asked about bank info → ask PIN
     var vaultPin by remember { mutableStateOf("") }
     var vaultReveal by remember { mutableStateOf<List<BankVault.Item>?>(null) }
@@ -89,20 +92,40 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             })
         } catch (e: Exception) {}
     }
-    // Attach an image — recompressed to JPEG base64 for the vision model.
+    // Attach ANY file. Images go to the vision model as JPEG base64; PDFs and text-ish files (txt, md, csv,
+    // json, code, html…) are read into text and attached as context so the chat can actually answer about them.
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
-            val b64 = withContext(Dispatchers.IO) {
-                try {
-                    ctx.contentResolver.openInputStream(uri).use { inp ->
-                        val bmp = android.graphics.BitmapFactory.decodeStream(inp) ?: return@use null
-                        val bos = java.io.ByteArrayOutputStream()
-                        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, bos)
-                        android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
-                    }
-                } catch (e: Exception) { null }
+            attachErr = ""
+            val FO = com.agentos.shell.tools.FileOps
+            val mime = withContext(Dispatchers.IO) { FO.mimeOf(ctx, uri) }
+            val name = withContext(Dispatchers.IO) { FO.displayName(ctx, uri) }
+            if (mime.startsWith("image/")) {
+                val b64 = withContext(Dispatchers.IO) {
+                    try {
+                        ctx.contentResolver.openInputStream(uri).use { inp ->
+                            val bmp = android.graphics.BitmapFactory.decodeStream(inp) ?: return@use null
+                            val bos = java.io.ByteArrayOutputStream()
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, bos)
+                            android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP)
+                        }
+                    } catch (e: Exception) { null }
+                }
+                if (b64 != null) { attachB64 = b64; attachName = name.ifBlank { "image" } }
+                else attachErr = "Couldn't read that image."
+            } else {
+                val text = withContext(Dispatchers.IO) {
+                    try {
+                        if (FO.isPdf(ctx, uri)) FO.pdfText(ctx, uri)
+                        else ctx.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                    } catch (e: Exception) { "" }
+                }
+                // Binary junk check — if it isn't mostly readable text, say so instead of pasting garbage.
+                val readable = text.count { it.isLetterOrDigit() || it.isWhitespace() || it in ".,;:!?'\"-()[]{}/@#%&*+=_<>|\\$" }
+                if (text.length > 20 && readable > text.length * 0.8) {
+                    attachText = text.take(60000); attachName = name.ifBlank { "file" }
+                } else attachErr = "Couldn't read text from “${name.ifBlank { "that file" }}”."
             }
-            attachB64 = b64
         }
     }
 
@@ -116,15 +139,21 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun send() {
         val q = input.trim()
         val img = attachB64
-        if ((q.isBlank() && img == null) || busy) return
+        val docText = attachText
+        val docName = attachName
+        if ((q.isBlank() && img == null && docText == null) || busy) return
         // Bank/vault questions are answered LOCALLY behind the PIN — never sent to the cloud model.
-        if (img == null && q.isNotBlank() && BankVault.isConfigured(ctx) && isVaultQuery(q)) {
+        if (img == null && docText == null && q.isNotBlank() && BankVault.isConfigured(ctx) && isVaultQuery(q)) {
             input = ""; vaultErr = ""; vaultPin = ""; vaultPinPrompt = true; return
         }
-        input = ""; attachB64 = null; busy = true
+        input = ""; attachB64 = null; attachText = null; attachName = ""; attachErr = ""; busy = true
         if (currentId == 0L) currentId = ChatStore.create(ctx)
         val id = currentId
-        val shownUser = if (img != null) (if (q.isBlank()) "[image]" else "$q  [image]") else q
+        val shownUser = when {
+            img != null -> if (q.isBlank()) "[image]" else "$q  [image]"
+            docText != null -> if (q.isBlank()) "[$docName]" else "$q  [$docName]"
+            else -> q
+        }
         msgs = ChatStore.append(ctx, id, "you", shownUser)
         scope.launch {
             val context = withContext(Dispatchers.IO) {
@@ -139,10 +168,18 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 else if (m.role == "ai" && pendingUser != null) { history.add(pendingUser!! to m.text); pendingUser = null }
             }
             val (code, reply) = withContext(Dispatchers.IO) {
-                if (img != null) {
-                    val r = AgentClient.askVision(q.ifBlank { "What's in this image?" }, listOf(img), context, maxTokens = 900)
-                    if (AgentClient.looksLikeError(r)) -1 to r else 200 to r
-                } else AgentClient.chat(q, context, history)
+                when {
+                    img != null -> {
+                        val r = AgentClient.askVision(q.ifBlank { "What's in this image?" }, listOf(img), context, maxTokens = 900)
+                        if (AgentClient.looksLikeError(r)) -1 to r else 200 to r
+                    }
+                    // Attached document → put its text in front of the question so the model answers FROM it.
+                    docText != null -> AgentClient.chat(
+                        "Attached file “$docName”:\n\"\"\"\n" + docText.take(24000) + "\n\"\"\"\n\n" +
+                            q.ifBlank { "Read this file and summarize what matters." },
+                        context, history)
+                    else -> AgentClient.chat(q, context, history)
+                }
             }
             val shown = if (code == 200 && reply.isNotBlank()) reply
                 else "Couldn't reach the model — check your connection or key, then try again."
@@ -154,6 +191,11 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 try {
                     MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", shownUser)
                     MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", clean)
+                } catch (e: Exception) {}
+                // An attached document goes into the brain too, so it's searchable/recallable later —
+                // same as documents dropped anywhere else in SlyOS.
+                if (docText != null && docText.length > 40) try {
+                    com.agentos.shell.tools.DocText.add(ctx, docName.ifBlank { "chat attachment" }, "chat", docText)
                 } catch (e: Exception) {}
                 val pk = MemoryLog.add(ctx, "prompt", shownUser, shownUser, "Chat")
                 MemoryLog.add(ctx, "response", clean, clean, "Chat reply", pk)
@@ -210,54 +252,90 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text("Ask me anything.", fontSize = T.small, color = T.inkFaint, modifier = Modifier.padding(vertical = 10.dp))
                 }
                 items(msgs) { m ->
-                    val copyDelete: @Composable (horiz: Arrangement.Horizontal) -> Unit = { horiz ->
-                        Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = horiz) {
+                    // Actions live UNDER the message and only on the one you tap — icon rows on every single
+                    // bubble were most of what made the thread look cluttered.
+                    var showActions by remember(m.ts) { mutableStateOf(false) }
+                    val actions: @Composable (horiz: Arrangement.Horizontal) -> Unit = { horiz ->
+                        if (showActions) Row(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = horiz) {
                             Icon(Icons.Outlined.ContentCopy, "Copy", tint = T.inkFaint,
-                                modifier = Modifier.size(17.dp).clickable {
-                                    clipboard.setText(AnnotatedString(RichParse.fromTag(m.text).second))
+                                modifier = Modifier.size(16.dp).clickable {
+                                    clipboard.setText(AnnotatedString(RichParse.fromTag(m.text).second)); showActions = false
                                 })
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.width(18.dp))
                             Icon(Icons.Outlined.DeleteOutline, "Delete", tint = T.inkFaint,
-                                modifier = Modifier.size(18.dp).clickable {
+                                modifier = Modifier.size(17.dp).clickable {
                                     msgs = ChatStore.deleteMessage(ctx, currentId, m.ts); threads = ChatStore.threads(ctx)
                                 })
                         }
                     }
                     if (m.role == "you") {
-                        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                Text(m.text, fontSize = T.small, color = T.bgElevated,
-                                    modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(16.dp))
-                                        .background(T.accent).padding(horizontal = 13.dp, vertical = 9.dp))
+                                // Softer, roomier bubble with a "tail" corner, so it reads as a real chat bubble
+                                // instead of a hard rounded block.
+                                Text(m.text, fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                                    lineHeight = androidx.compose.ui.unit.TextUnit(20f, androidx.compose.ui.unit.TextUnitType.Sp),
+                                    modifier = Modifier.widthIn(max = 290.dp)
+                                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp))
+                                        .background(T.accent)
+                                        .clickable { showActions = !showActions }
+                                        .padding(horizontal = 15.dp, vertical = 11.dp))
                             }
-                            copyDelete(Arrangement.End)
+                            actions(Arrangement.End)
                         }
                     } else {
                         val (hero, body) = remember(m.text) { RichParse.render(m.text) }
-                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp)) {
                             if (hero != null) { HeroCardView(hero); Spacer(Modifier.height(10.dp)) }
                             if (body.isNotBlank()) {
-                                if (hasMath(body)) MathText(body) else MarkdownText(body)
+                                // The reply sits on a soft surface (not bare on the background) so the eye can
+                                // separate turns at a glance, while still giving Markdown full width.
+                                Column(Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp))
+                                    .background(T.bgElevated)
+                                    .clickable { showActions = !showActions }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                    if (hasMath(body)) MathText(body) else MarkdownText(body)
+                                }
                             }
-                            copyDelete(Arrangement.Start)
+                            actions(Arrangement.Start)
                         }
                     }
                 }
                 if (busy) item {
-                    Text("thinking…", fontSize = T.small, color = T.accent, modifier = Modifier.padding(vertical = 10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 12.dp)) {
+                        Text("●", fontSize = T.caption, color = T.accent)
+                        Spacer(Modifier.width(6.dp))
+                        Text("thinking…", fontSize = T.small, color = T.inkSoft)
+                    }
                 }
             }
-            if (attachB64 != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text("Image attached", fontSize = T.caption, color = T.accent)
-                    Spacer(Modifier.width(8.dp))
-                    Text("remove", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.clickable { attachB64 = null })
+            // Attachment chip — shows exactly what's going with the next message, with a one-tap remove.
+            if (attachB64 != null || attachText != null) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 6.dp).clip(RoundedCornerShape(999.dp))
+                        .background(T.accent.copy(alpha = 0.13f)).padding(horizontal = 12.dp, vertical = 7.dp)) {
+                    Text(if (attachB64 != null) "🖼" else "📄", fontSize = T.caption)
+                    Spacer(Modifier.width(7.dp))
+                    Text(attachName.ifBlank { if (attachB64 != null) "Image" else "File" },
+                        fontSize = T.caption, color = T.accent, maxLines = 1)
+                    if (attachText != null) {
+                        Spacer(Modifier.width(6.dp))
+                        Text("${(attachText?.length ?: 0) / 1000}k chars", fontSize = T.caption, color = T.inkFaint)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text("✕", fontSize = T.caption, color = T.inkFaint,
+                        modifier = Modifier.clickable { attachB64 = null; attachText = null; attachName = "" })
                 }
+            }
+            if (attachErr.isNotBlank()) {
+                Text(attachErr, fontSize = T.caption, color = T.danger, modifier = Modifier.padding(vertical = 4.dp))
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // ANY file: images go to vision, PDFs/text/code are read into the prompt.
                 Icon(Icons.Outlined.AttachFile, "Attach", tint = T.inkSoft,
-                    modifier = Modifier.size(22.dp).clickable { pick.launch("image/*") })
+                    modifier = Modifier.size(22.dp).clickable { pick.launch("*/*") })
                 Spacer(Modifier.width(10.dp))
                 Icon(Icons.Outlined.Mic, "Speak", tint = T.inkSoft,
                     modifier = Modifier.size(22.dp).clickable { startVoice() })
