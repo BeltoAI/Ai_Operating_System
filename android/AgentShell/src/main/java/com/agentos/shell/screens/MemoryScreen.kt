@@ -967,6 +967,62 @@ private fun BrainDiagnosticsCard() {
                 fontSize = T.caption, color = if (bad == 0) T.accent else T.danger)
         }
 
+        // ── FEATURE SELF-TEST: does each FEATURE actually do what it claims, end to end? ──
+        Spacer(Modifier.height(18.dp))
+        Text("FEATURE SELF-TEST", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)
+        Text("Safe to run anytime — nothing is sent, and test data is cleaned up.", fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
+        var testing by remember { mutableStateOf(false) }
+        var deepTest by remember { mutableStateOf(false) }
+        var featResults by remember { mutableStateOf<List<com.agentos.shell.tools.FeatureHealth.Check>>(emptyList()) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (testing) "Testing…" else "Run self-test", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(if (testing) T.hairline else T.accent)
+                    .clickable(enabled = !testing) {
+                        testing = true
+                        apiScope.launch {
+                            val r = withContext(Dispatchers.IO) {
+                                try { com.agentos.shell.tools.FeatureHealth.runAll(ctx, deepTest) } catch (e: Exception) { emptyList() }
+                            }
+                            featResults = r; testing = false; tick++
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 8.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(if (deepTest) "deep: ON" else "deep: off", fontSize = T.caption,
+                color = if (deepTest) T.accent else T.inkFaint,
+                modifier = Modifier.clickable { deepTest = !deepTest }.padding(8.dp))
+        }
+        if (deepTest) Text("Deep also creates a real Doc, Sheet and deck in your Drive to verify styling.",
+            fontSize = T.caption, color = T.inkFaint)
+        if (featResults.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            featResults.groupBy { it.area }.forEach { (area, checks) ->
+                Text(area.uppercase(), fontSize = 10.sp, color = T.inkFaint, letterSpacing = 1.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                checks.forEach { c ->
+                    val dot = when (c.status) {
+                        "PASS" -> androidx.compose.ui.graphics.Color(0xFF3BA55D)
+                        "FAIL" -> androidx.compose.ui.graphics.Color(0xFFE0574C)
+                        "DRYRUN" -> androidx.compose.ui.graphics.Color(0xFFE0A03C)
+                        else -> T.inkFaint
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Box(Modifier.size(7.dp).clip(RoundedCornerShape(50)).background(dot))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(c.feature, fontSize = T.small, color = T.ink)
+                            Text(c.detail, fontSize = T.caption, color = T.inkFaint, maxLines = 2)
+                        }
+                    }
+                }
+            }
+            val failed = featResults.count { it.status == "FAIL" }
+            Spacer(Modifier.height(8.dp))
+            Text(if (failed == 0) "Everything that could be tested passed ✓" else "$failed feature(s) not working",
+                fontSize = T.small, color = if (failed == 0) T.accent else T.danger)
+        }
+
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Capture now", fontSize = T.small, color = T.bgElevated,

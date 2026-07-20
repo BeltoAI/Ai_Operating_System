@@ -2267,6 +2267,10 @@ object AgentClient {
      * truncated JSON object (e.g. cut off at the token limit), pull out just the "say" sentence (keeping any
      * [[card:...]] tag), strip code fences, and drop anything that still looks like JSON.
      */
+    /** Public entry point for the same sanitiser the UI paths use — so FeatureHealth can PROVE the
+     *  "Home AI must never show raw JSON" guarantee still holds, instead of us assuming it does. */
+    fun sanitizeForUi(raw: String): String = cleanSay(raw)
+
     private fun cleanSay(raw: String): String {
         var s = raw.trim()
         if (s.isEmpty()) return "Done."

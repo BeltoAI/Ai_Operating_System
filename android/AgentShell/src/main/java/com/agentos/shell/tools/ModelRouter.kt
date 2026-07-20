@@ -98,6 +98,10 @@ object ModelRouter {
     fun healModel(ctx: Context, provider: String, tier: Tier): String? =
         ModelResolver.heal(ctx, provider, tier.name, keyFor(ctx, provider))
 
+    /** Pin a model we PROVED works by calling it, so every tier of this provider uses it from now on. */
+    fun rememberHealed(ctx: Context, provider: String, tier: Tier, model: String) =
+        ModelResolver.pin(ctx, provider, tier.name, model)
+
     /**
      * Choose a provider+model for [tier], honoring the user's preferred provider, then any provider
      * with a key, while respecting capability needs (web → Anthropic; vision → vision model). Returns

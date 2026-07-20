@@ -120,17 +120,31 @@ object ApiHealth {
         if (kc == 401 || kc == 403) return Result(provider, false, "key", "key rejected ($kc)", System.currentTimeMillis() - started)
 
         var model = ModelRouter.modelFor(ctx, provider, ModelRouter.Tier.STANDARD) ?: "?"
-        // Stage 2: is that model actually served? Heal BEFORE the user ever hits the 404.
-        val cat = catalogue(provider, kbody)
-        if (cat.isNotEmpty() && model != "?" && cat.none { it.equals(model, true) || it.endsWith("/$model") }) {
-            val healed = try { ModelRouter.healModel(ctx, provider, ModelRouter.Tier.STANDARD) } catch (e: Exception) { null }
-            if (healed.isNullOrBlank())
-                return Result(provider, false, "model", "“$model” retired; no replacement found", System.currentTimeMillis() - started, model)
-            Log.i(TAG, "$provider: $model retired → healed to $healed")
-            model = healed
-        }
 
-        val (ok, detail) = roundTrip(provider, model, key)
+        // Stage 2+3 combined, CALL-AND-VERIFY. Catalogue membership is not proof: Gemini lists models that
+        // can't do generateContent, and Cerebras lists paid-only models that 402 for a free key. The only
+        // reliable test is sending a real prompt — so try the configured model, and on a model-shaped
+        // failure blacklist it and walk down the ranked candidates until one actually answers.
+        var (ok, detail) = roundTrip(provider, model, key)
+        if (!ok) {
+            val code = detail.substringBefore(":").trim().toIntOrNull() ?: 0
+            if (ModelResolver.isModelGone(code, detail)) {
+                ModelResolver.blacklist(ctx, provider, model)
+                for (cand in ModelResolver.candidates(ctx, provider, "STANDARD", key, 4)) {
+                    if (cand.equals(model, true)) continue
+                    Log.i(TAG, "$provider: $model unusable → trying $cand")
+                    val (ok2, d2) = roundTrip(provider, cand, key)
+                    if (ok2) {
+                        ModelRouter.rememberHealed(ctx, provider, ModelRouter.Tier.STANDARD, cand)
+                        model = cand; ok = true; detail = "healed → $cand"
+                        break
+                    }
+                    val c2 = d2.substringBefore(":").trim().toIntOrNull() ?: 0
+                    if (ModelResolver.isModelGone(c2, d2)) ModelResolver.blacklist(ctx, provider, cand)
+                    detail = d2
+                }
+            }
+        }
         val ms = System.currentTimeMillis() - started
         try { HealthStore.recordLlm(ctx, provider, ok, if (ok) "" else detail) } catch (e: Exception) {}
         return Result(provider, ok, if (ok) "ok" else "roundtrip", detail, ms, model)

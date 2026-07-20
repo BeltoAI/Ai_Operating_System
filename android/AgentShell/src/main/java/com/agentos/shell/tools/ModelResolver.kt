@@ -25,19 +25,50 @@ object ModelResolver {
 
     private fun p(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** True if this error means "that model doesn't exist", as opposed to auth/rate-limit/network. */
+    /**
+     * True if this error means "we can't use that model" — it's retired, or it exists but this account
+     * isn't entitled to it (Cerebras returns 402 Payment Required for its paid-only models, which a
+     * catalogue listing can't tell you). Both cases mean: pick a different model, don't kill the provider.
+     */
     fun isModelGone(code: Int, body: String): Boolean {
+        if (code == 402) return true                       // entitlement — model exists, we can't call it
         if (code != 404 && code != 400) return false
         val b = body.lowercase()
         return b.contains("model") && (b.contains("not found") || b.contains("does not exist") ||
-            b.contains("no longer available") || b.contains("deprecated") || b.contains("unsupported"))
+            b.contains("no longer available") || b.contains("deprecated") || b.contains("unsupported")) ||
+            b.contains("payment required") || b.contains("does not have access")
     }
+
+    // ── blacklist: models this key provably cannot use, so we never re-pick them ───────────────────
+    private fun blKey(provider: String) = "bl_$provider"
+    fun blacklist(ctx: Context, provider: String, model: String) {
+        if (model.isBlank()) return
+        val cur = p(ctx).getStringSet(blKey(provider), emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (cur.add(model.lowercase())) {
+            p(ctx).edit().putStringSet(blKey(provider), cur).apply()
+            HealthStore.note("model_blacklist", false, "$provider: $model unusable")
+        }
+    }
+    fun blacklisted(ctx: Context, provider: String): Set<String> =
+        p(ctx).getStringSet(blKey(provider), emptySet()) ?: emptySet()
 
     /** A model we've already resolved for this provider+tier, if still fresh. */
     fun cached(ctx: Context, provider: String, tier: String): String? {
         val v = p(ctx).getString("m_${provider}_$tier", null) ?: return null
         val ts = p(ctx).getLong("t_${provider}_$tier", 0L)
         return if (System.currentTimeMillis() - ts < TTL_MS) v else null
+    }
+
+    /**
+     * Pin a model we PROVED works with a real call. Applied to every tier of this provider, because a
+     * provider whose configured model is dead is usually dead on all tiers (Cerebras 402'd on paid models
+     * across the board) — and a working model beats a configured-but-broken one at any tier.
+     */
+    fun pin(ctx: Context, provider: String, tier: String, model: String) {
+        remember(ctx, provider, tier, model)
+        listOf("CHEAP", "STANDARD", "HEAVY").filter { it != tier }.forEach { t ->
+            if (cached(ctx, provider, t) == null) remember(ctx, provider, t, model)
+        }
     }
 
     private fun remember(ctx: Context, provider: String, tier: String, model: String) {
@@ -71,9 +102,20 @@ object ModelResolver {
             o.optJSONArray("data")?.let { a ->
                 for (i in 0 until a.length()) a.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }?.let(out::add)
             }
+            // Gemini: a model being LISTED does not mean it can answer a prompt — the catalogue also
+            // contains embed/vision/tuning-only models, and calling generateContent on those 404s with
+            // "no longer available". Only keep models that declare generateContent support.
             o.optJSONArray("models")?.let { a ->
-                for (i in 0 until a.length()) a.optJSONObject(i)?.optString("name")?.removePrefix("models/")
-                    ?.takeIf { it.isNotBlank() }?.let(out::add)
+                for (i in 0 until a.length()) {
+                    val m = a.optJSONObject(i) ?: continue
+                    val methods = m.optJSONArray("supportedGenerationMethods")
+                    if (methods != null) {
+                        var canChat = false
+                        for (j in 0 until methods.length()) if (methods.optString(j) == "generateContent") canChat = true
+                        if (!canChat) continue
+                    }
+                    m.optString("name").removePrefix("models/").takeIf { it.isNotBlank() }?.let(out::add)
+                }
             }
             out
         } catch (e: Exception) { Log.w(TAG, "list $provider: ${e.message}"); emptyList() }
@@ -83,9 +125,10 @@ object ModelResolver {
      * Pick the best currently-served model for [tier]. Prefers small/fast ids for CHEAP and large/pro ids
      * for HEAVY, and always avoids non-chat models (embeddings, vision-only, audio, image, TTS).
      */
-    private fun pick(models: List<String>, tier: String): String? {
+    private fun pick(models: List<String>, tier: String, exclude: Set<String> = emptySet()): String? {
         val usable = models.filter { m ->
             val l = m.lowercase()
+            l !in exclude &&
             !l.contains("embed") && !l.contains("aqa") && !l.contains("tts") && !l.contains("whisper") &&
                 !l.contains("image") && !l.contains("vision-only") && !l.contains("audio") &&
                 !l.contains("guard") && !l.contains("rerank") && !l.contains("moderation")
@@ -116,10 +159,26 @@ object ModelResolver {
         if (key.isBlank()) return null
         val models = available(provider, key)
         if (models.isEmpty()) { HealthStore.note("model_resolve", false, "$provider: couldn't list models"); return null }
-        val chosen = pick(models, tier) ?: return null
+        val chosen = pick(models, tier, blacklisted(ctx, provider)) ?: run {
+            HealthStore.note("model_resolve", false, "$provider: every candidate model is unusable"); return null
+        }
         remember(ctx, provider, tier, chosen)
         Log.i(TAG, "healed $provider/$tier → $chosen")
         return chosen
+    }
+
+    /** Ranked candidates for [tier], best first, skipping anything known-unusable. For call-and-verify healing. */
+    fun candidates(ctx: Context, provider: String, tier: String, key: String, n: Int = 4): List<String> {
+        if (key.isBlank()) return emptyList()
+        val bl = blacklisted(ctx, provider)
+        val models = available(provider, key)
+        val out = ArrayList<String>()
+        val pool = models.toMutableList()
+        repeat(n) {
+            val next = pick(pool, tier, bl + out.map { m -> m.lowercase() }.toSet()) ?: return@repeat
+            out.add(next); pool.remove(next)
+        }
+        return out
     }
 
     /** The model to actually use: a healed/cached one if we have it, else the router's default. */
