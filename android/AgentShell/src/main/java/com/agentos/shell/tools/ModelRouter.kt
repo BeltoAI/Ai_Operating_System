@@ -80,6 +80,9 @@ object ModelRouter {
     /** True if this provider has a usable key — so the UI only offers brains you can actually route to. */
     fun hasKey(ctx: Context, provider: String): Boolean = keyFor(ctx, provider).isNotBlank()
 
+    /** The resolved key for a provider — used by ApiHealth to probe the real credential SlyOS would send. */
+    fun keyForPublic(ctx: Context, provider: String): String = keyFor(ctx, provider)
+
     /**
      * The model to send for [provider]/[tier]: an explicit user override wins, then a model ModelResolver
      * healed to after the hardcoded default 404'd, then the default. Null if this provider has no default.

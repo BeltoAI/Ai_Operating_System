@@ -924,6 +924,49 @@ private fun BrainDiagnosticsCard() {
                 else Text(w.value, fontSize = T.caption, color = T.accent, maxLines = 1, modifier = Modifier.widthIn(max = 130.dp))
             }
         }
+        // ── LIVE API SWEEP: key → model → real round-trip, for every brain and integration. This is what
+        // catches "key valid but model retired" (which silently killed Gemini + Cerebras) — nothing else did.
+        Spacer(Modifier.height(16.dp))
+        Text("LIVE API CHECK", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)
+        Spacer(Modifier.height(6.dp))
+        val apiScope = rememberCoroutineScope()
+        var sweeping by remember { mutableStateOf(false) }
+        var apiResults by remember { mutableStateOf<List<com.agentos.shell.tools.ApiHealth.Result>>(emptyList()) }
+        Text(if (sweeping) "Testing every API…" else "Test every API",
+            fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                .background(if (sweeping) T.hairline else T.accent)
+                .clickable(enabled = !sweeping) {
+                    sweeping = true
+                    apiScope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            try { com.agentos.shell.tools.ApiHealth.checkAll(ctx) } catch (e: Exception) { emptyList() }
+                        }
+                        apiResults = r; sweeping = false; tick++
+                    }
+                }.padding(horizontal = 16.dp, vertical = 8.dp))
+        if (apiResults.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            apiResults.forEach { r ->
+                val dot = when { r.ok -> androidx.compose.ui.graphics.Color(0xFF3BA55D)
+                                 r.stage == "nokey" -> T.inkFaint
+                                 else -> androidx.compose.ui.graphics.Color(0xFFE0574C) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(dot))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(r.name + (if (r.model.isNotBlank()) "  ·  ${r.model}" else ""), fontSize = T.small, color = T.ink)
+                        if (!r.ok) Text("${r.stage}: ${r.detail}", fontSize = T.caption, color = T.inkFaint, maxLines = 2)
+                    }
+                    Text(if (r.ok) "${r.ms}ms" else r.stage, fontSize = T.caption, color = T.inkFaint)
+                }
+            }
+            val bad = apiResults.count { !it.ok && it.stage != "nokey" }
+            Spacer(Modifier.height(6.dp))
+            Text(if (bad == 0) "All configured APIs answered ✓" else "$bad not working",
+                fontSize = T.caption, color = if (bad == 0) T.accent else T.danger)
+        }
+
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Capture now", fontSize = T.small, color = T.bgElevated,

@@ -32,10 +32,21 @@ object HealthStore {
         val e = p(ctx).edit()
         val k = if (ok) "ok_${day()}_$provider" else "fail_${day()}_$provider"
         e.putInt(k, p(ctx).getInt(k, 0) + 1)
+        // Daily counters alone can't tell "broken NOW" from "broke earlier today and was since fixed" —
+        // a provider stays 0-ok/65-fail all day even after a fix lands. Timestamping BOTH outcomes lets
+        // the diagnostics say which one actually happened most recently.
         if (ok) e.putLong("lastok_$provider", System.currentTimeMillis())
-        else if (err.isNotBlank()) e.putString("lasterr_$provider", err.take(160))
+        else {
+            e.putLong("lastfail_$provider", System.currentTimeMillis())
+            if (err.isNotBlank()) e.putString("lasterr_$provider", err.take(160))
+        }
         e.apply()
     }
+
+    fun lastFail(ctx: Context, provider: String): Long = p(ctx).getLong("lastfail_$provider", 0L)
+    /** Current verdict for a provider: true if its most recent outcome was a success. */
+    fun healthyNow(ctx: Context, provider: String): Boolean =
+        p(ctx).getLong("lastok_$provider", 0L) >= p(ctx).getLong("lastfail_$provider", 0L)
 
     fun okToday(ctx: Context, provider: String): Int = p(ctx).getInt("ok_${day()}_$provider", 0)
     fun failToday(ctx: Context, provider: String): Int = p(ctx).getInt("fail_${day()}_$provider", 0)
