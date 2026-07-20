@@ -145,6 +145,11 @@ object ToolRouter {
                 "navigate" -> navigate(ctx, arg)
                 "share_location" -> shareLocation(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
+                // ONE action for every document format — the model picks pdf/docx/pptx/xlsx/html.
+                "create_document" -> createDocument(ctx, arg)
+                "refine_document" -> refineDocument(ctx, arg)
+                "open_document" -> openDocument(ctx, arg)
+                "send_document" -> sendDocument(ctx, arg)
                 "create_doc" -> createDoc(ctx, arg)
                 "create_sheet" -> createSheet(ctx, arg)
                 "create_slides" -> createSlides(ctx, arg)
@@ -191,7 +196,8 @@ object ToolRouter {
     private val GATED = setOf(
         "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
         "settings", "send_sms", "message", "send_photo", "send_email", "add_event", "share_location",
-        "create_doc", "create_sheet", "create_slides", "create_pdf", "trade"
+        "create_doc", "create_sheet", "create_slides", "create_pdf", "trade",
+        "create_document", "refine_document", "open_document", "send_document"
     )
 
     /**
@@ -204,7 +210,9 @@ object ToolRouter {
         "remind", "add_event" -> "remember"
         "timer", "alarm" -> "schedule"
         "send_sms", "sms", "message", "send_email", "send_photo", "share_location" -> "communicate"
-        "create_doc", "create_sheet", "create_slides", "create_pdf" -> "create"
+        "create_doc", "create_sheet", "create_slides", "create_pdf",
+        "create_document", "refine_document" -> "create"
+        "open_document", "send_document" -> "communicate"
         "trade" -> "finance"
         "identify_song", "song", "shazam", "play_music", "media", "music_control" -> "music"
         "translate" -> "translate"
@@ -234,9 +242,115 @@ object ToolRouter {
             // WIN: an action actually ran. Tag it with the feature and the what-for bucket so you can see
             // both "which features get used" and "what people use SlyOS for" from the same stream.
             try { Analytics.track(ctx, "action", a.type.take(30), categoryFor(a.type)) } catch (e: Exception) {}
+            // EVERY action taken on your behalf lands in "Sent for you" AND in the brain — recorded HERE,
+            // at the one choke point all actions pass through, rather than at individual call sites (which
+            // is why most actions were previously invisible: only ~8 places ever called OutboxStore).
+            try { recordAction(ctx, a.type, a.arg, m, userInitiated) } catch (e: Exception) {}
             if (m.isNotEmpty()) msgs.add(m)
         }
         return msgs.joinToString("  ")
+    }
+
+    /**
+     * Make a document in ANY format. arg = {"title":…,"brief":…,"format":"pdf|docx|pptx|xlsx|html"}.
+     * If no format is given we do NOT guess — we ask, because that's a real preference, and a deck
+     * delivered as a Word file is a wasted minute for everyone.
+     */
+    private fun createDocument(ctx: Context, arg: String): String {
+        val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("brief", arg) }
+        val brief = o.optString("brief").ifBlank { arg }
+        val title = o.optString("title").ifBlank {
+            brief.split(Regex("[.\\n]")).firstOrNull()?.take(60)?.trim().orEmpty().ifBlank { "Document" }
+        }
+        val fmt = o.optString("format").lowercase().ifBlank { DocForge.formatFrom(brief) }
+        if (fmt.isBlank())
+            return "What format would you like — a PDF, a Word doc (.docx), a slide deck (.pptx), or a spreadsheet (.xlsx)?"
+        val m = DocForge.create(ctx, title, brief, fmt, o.optString("kind"))
+        return if (m.ok)
+            "Made “${m.name}” ✓ — it's in your SlyOS folder. Say “open it”, “send it”, or tell me what to change."
+        else "Couldn't build that document — ${m.error}"
+    }
+
+    /** "make it shorter", "add a pricing slide", "turn it into a PDF" — edits the doc we just made. */
+    private fun refineDocument(ctx: Context, arg: String): String {
+        val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("instruction", arg) }
+        val instruction = o.optString("instruction").ifBlank { arg }
+        if (!DocForge.hasDraft(ctx)) return "There's no document to refine yet — ask me to make one first."
+        val m = DocForge.refine(ctx, instruction, o.optString("format").lowercase())
+        return if (m.ok) "Updated “${m.name}” ✓ — ${instruction.take(60)}. Say “open it” or “send it”."
+               else "Couldn't revise it — ${m.error}"
+    }
+
+    private fun latestDoc(ctx: Context, arg: String): SlyFolder.Doc? =
+        (if (arg.isNotBlank()) DocForge.find(ctx, arg) else null) ?: DocForge.library(ctx).firstOrNull()
+
+    private fun openDocument(ctx: Context, arg: String): String {
+        val d = latestDoc(ctx, arg) ?: return "I haven't made any documents yet."
+        return if (DocForge.open(ctx, d.uri, d.name)) "Opening “${d.name}”."
+               else "Couldn't open “${d.name}” — no app on this phone handles that file type."
+    }
+
+    private fun sendDocument(ctx: Context, arg: String): String {
+        val d = latestDoc(ctx, arg) ?: return "I haven't made any documents yet."
+        return if (DocForge.share(ctx, d.uri, d.name)) "Pick where to send “${d.name}”."
+               else "Couldn't share “${d.name}”."
+    }
+
+    /** Actions that are pure reads/navigation — logging every one would drown the real activity. */
+    private val NOT_WORTH_LOGGING = setOf("none", "web_search", "open_app", "settings", "camera", "look")
+
+    /** Human label for the outbox row, so "Sent for you" reads like a story, not a debug log. */
+    private fun channelFor(type: String): String = when (type) {
+        "send_email" -> "Email"
+        "send_sms", "sms", "message" -> "Message"
+        "send_photo" -> "Photo"
+        "create_doc" -> "Doc"; "create_sheet" -> "Sheet"; "create_slides" -> "Deck"; "create_pdf" -> "PDF"
+        "create_document", "refine_document", "open_document", "send_document" -> "Document"
+        "add_event" -> "Calendar"
+        "remind", "timer", "alarm" -> "Reminder"
+        "trade" -> "Trading"
+        "share_location" -> "Location"
+        "navigate" -> "Navigation"
+        "translate" -> "Translation"
+        "checklist_add", "checklist_remove", "checklist_clear" -> "Checklist"
+        "identify_song", "song", "shazam" -> "Music"
+        "play_music", "media", "music_control" -> "Media"
+        "torch", "flashlight" -> "Device"
+        "dial" -> "Call"
+        "pin_app" -> "Home"
+        else -> "Action"
+    }
+
+    /**
+     * Log ONE executed action to the outbox and the brain.
+     *
+     * Two guarantees this gives us: (1) "Sent for you" shows everything SlyOS did on your behalf, not just
+     * the handful of flows that remembered to log; (2) the action becomes recallable — asking "what did you
+     * do today" or "did you email Sarah" hits the brain and finds it, because every path writes here.
+     */
+    private fun recordAction(ctx: Context, type: String, arg: String, result: String, userInitiated: Boolean) {
+        if (type in NOT_WORTH_LOGGING) return
+        if (result.isBlank()) return
+        val channel = channelFor(type)
+        // Who/what it concerned — a name, title, or the first meaningful part of the argument.
+        val subject = try {
+            val o = JSONObject(arg)
+            listOf("to", "name", "contact", "title", "symbol", "text", "query")
+                .firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } } ?: arg
+        } catch (e: Exception) { arg }.trim().take(60).ifBlank { type }
+        val failed = result.startsWith("couldn't", true) || result.startsWith("no ", true) ||
+            result.contains("error", true) || result.contains("failed", true)
+        val why = if (userInitiated) "you asked" else "SlyOS did this autonomously"
+        try {
+            OutboxStore.record(ctx, channel, subject, type, result.take(400), why,
+                if (failed) "failed" else "sent")
+        } catch (e: Exception) {}
+        // Into the searchable brain too, so the action is recallable later like any other memory.
+        try {
+            MessageStore.insertOne(ctx, channel, "SlyOS", "system", "system",
+                "$channel · $subject — ${result.take(300)}")
+        } catch (e: Exception) {}
+        try { MemoryLog.add(ctx, "action", "$channel: $subject", result.take(400), "SlyOS") } catch (e: Exception) {}
     }
 
     /** Execute a PRACTICE buy/sell at the live price and log it to the brain. arg = {symbol,action,shares,name?}. */

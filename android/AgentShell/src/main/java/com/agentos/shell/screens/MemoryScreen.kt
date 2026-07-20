@@ -967,6 +967,82 @@ private fun BrainDiagnosticsCard() {
                 fontSize = T.caption, color = if (bad == 0) T.accent else T.danger)
         }
 
+        // ── FLOWS: every feature broken into its exact chain, so you see WHICH STEP is broken ──
+        Spacer(Modifier.height(18.dp))
+        Text("FLOWS — STEP BY STEP", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)
+        Text("Each feature's full path. A red step is the exact link that's broken.",
+            fontSize = T.caption, color = T.inkFaint)
+        Spacer(Modifier.height(6.dp))
+        var auditing by remember { mutableStateOf(false) }
+        var flowResults by remember { mutableStateOf<List<com.agentos.shell.tools.FlowAudit.FlowResult>>(emptyList()) }
+        var openFlow by remember { mutableStateOf("") }
+        Text(if (auditing) "Auditing every flow…" else "Audit all flows",
+            fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                .background(if (auditing) T.hairline else T.accent)
+                .clickable(enabled = !auditing) {
+                    auditing = true
+                    apiScope.launch {
+                        val r = withContext(Dispatchers.IO) {
+                            try { com.agentos.shell.tools.FlowAudit.runAll(ctx) } catch (e: Exception) { emptyList() }
+                        }
+                        flowResults = r; auditing = false; tick++
+                    }
+                }.padding(horizontal = 16.dp, vertical = 8.dp))
+        if (flowResults.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            flowResults.forEach { f ->
+                val dot = when {
+                    !f.ok -> androidx.compose.ui.graphics.Color(0xFFE0574C)
+                    f.degraded -> androidx.compose.ui.graphics.Color(0xFFE0A03C)
+                    else -> androidx.compose.ui.graphics.Color(0xFF3BA55D)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { openFlow = if (openFlow == f.id) "" else f.id }
+                        .padding(vertical = 7.dp)) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(dot))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(f.title, fontSize = T.small, color = T.ink)
+                        Text(if (!f.ok) "breaks at: ${f.brokenAt}" else "${f.steps.size} steps · ${f.ms}ms",
+                            fontSize = T.caption, color = if (!f.ok) T.danger else T.inkFaint)
+                    }
+                    Text(if (openFlow == f.id) "−" else "+", fontSize = T.body, color = T.inkFaint)
+                }
+                // Expanded: the literal path, step by step.
+                if (openFlow == f.id) {
+                    f.steps.forEachIndexed { i, s ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(start = 18.dp, top = 3.dp, bottom = 3.dp)) {
+                            Text(if (s.ok) "✓" else if (s.critical) "✕" else "!",
+                                fontSize = T.caption,
+                                color = if (s.ok) androidx.compose.ui.graphics.Color(0xFF3BA55D)
+                                        else if (s.critical) T.danger else androidx.compose.ui.graphics.Color(0xFFE0A03C),
+                                modifier = Modifier.width(18.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("${i + 1}. ${s.name}", fontSize = T.caption, color = if (s.ok) T.inkSoft else T.ink)
+                                Text(s.detail, fontSize = T.caption, color = T.inkFaint)
+                            }
+                        }
+                    }
+                }
+            }
+            val broken = flowResults.count { !it.ok }
+            Spacer(Modifier.height(8.dp))
+            Text(if (broken == 0) "Every flow completes end to end ✓" else "$broken flow(s) broken",
+                fontSize = T.small, color = if (broken == 0) T.accent else T.danger)
+        }
+        // Past failures — an intermittent break stays visible after it recovers.
+        val failures = remember(tick) { com.agentos.shell.tools.FlowAudit.failureHistory(ctx) }
+        if (failures.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("RECENT FAILURES", fontSize = 10.sp, color = T.inkFaint, letterSpacing = 1.sp)
+            failures.take(6).forEach { fl ->
+                val d = remember(fl.time) { java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(fl.time)) }
+                Text("$d · ${fl.flow} → ${fl.step}", fontSize = T.caption, color = T.inkFaint, maxLines = 1)
+            }
+        }
+
         // ── FEATURE SELF-TEST: does each FEATURE actually do what it claims, end to end? ──
         Spacer(Modifier.height(18.dp))
         Text("FEATURE SELF-TEST", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp)

@@ -93,7 +93,8 @@ object MetricsStore {
         "outreach", "email_reply", "send_email", "compose_email" -> 360   // ~6 min for a real email
         "social_post", "compose_post"  -> 480    // ~8 min to craft + caption a post
         "spicy_post"   -> 300
-        "create_doc", "create_sheet", "create_slides", "create_pdf" -> 420  // ~7 min to make a doc
+        "create_doc", "create_sheet", "create_slides", "create_pdf",
+        "create_document", "refine_document" -> 420  // ~7 min to make a doc
         "doc_answer"   -> 240
         "web_search"   -> 300    // a real lookup + skim
         "look"         -> 120    // identifying + finding the link yourself

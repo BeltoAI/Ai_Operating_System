@@ -54,8 +54,11 @@ object FeatureHealth {
         run("Brain", "Embeddings") {
             val prov = try { EmbeddingClient.provider(ctx) } catch (e: Exception) { null }
             if (prov.isNullOrBlank()) skip("no embedding provider configured")
-            else { val v = EmbeddingClient.embed(ctx, "health check")
-                   if (v != null && v.isNotEmpty()) pass("$prov returned ${v.size} dims") else fail("$prov returned no vector") }
+            else {
+                val v = EmbeddingClient.embed(ctx, listOf("health check"))
+                val dims = v?.firstOrNull()?.size ?: 0
+                if (dims > 0) pass("$prov returned $dims dims") else fail("$prov returned no vector")
+            }
         },
         run("Brain", "Brain context assembly") {
             val c = BrainContext.build(ctx, "what do you know about me")

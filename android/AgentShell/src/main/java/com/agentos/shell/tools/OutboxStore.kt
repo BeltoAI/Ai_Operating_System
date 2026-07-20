@@ -57,4 +57,14 @@ object OutboxStore {
     }
 
     fun unreadCount(ctx: Context): Int = recent(ctx, CAP).count { it.status == "sent" }
+
+    /** Permanently drop one entry (swipe-left to remove). */
+    fun remove(ctx: Context, id: Long) {
+        val arr = load(ctx); val out = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (o.optLong("id") != id) out.put(o)
+        }
+        save(ctx, out)
+    }
 }

@@ -3,7 +3,10 @@ package com.agentos.shell.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -47,7 +50,32 @@ fun OutboxScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize()) {
             items(items, key = { it.id }) { e ->
                 Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+                // Swipe LEFT to remove this entry, swipe RIGHT to open what it refers to.
+                var dragX by remember(e.id) { mutableStateOf(0f) }
+                val offX = androidx.compose.animation.core.animateFloatAsState(dragX, label = "outboxSwipe").value
+                Box(Modifier.fillMaxWidth()) {
+                    // Intent revealed underneath as you drag, so the gesture is discoverable.
+                    if (offX != 0f) Row(Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = if (offX < 0) Arrangement.End else Arrangement.Start) {
+                        Text(if (offX < 0) "Remove" else "Open", fontSize = T.small,
+                            color = if (offX < 0) T.danger else T.accent,
+                            modifier = Modifier.padding(horizontal = 22.dp))
+                    }
+                Column(Modifier.fillMaxWidth()
+                    .offset { androidx.compose.ui.unit.IntOffset(offX.toInt(), 0) }
+                    .pointerInput(e.id) {
+                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                            onDragEnd = {
+                                when {
+                                    dragX < -180f -> { OutboxStore.remove(ctx, e.id); items = OutboxStore.recent(ctx, 100) }
+                                    dragX > 180f -> { openEntry(ctx, e); dragX = 0f }
+                                    else -> dragX = 0f
+                                }
+                            },
+                            onHorizontalDrag = { _, d -> dragX = (dragX + d).coerceIn(-320f, 320f) })
+                    }
+                    .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
                     .border(1.dp, T.hairline, RoundedCornerShape(16.dp)).padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val who = e.contact.ifBlank { e.channel }
@@ -74,8 +102,44 @@ fun OutboxScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         })
                     }
                 }
+                }
             }
         }
+    }
+}
+
+/**
+ * Swipe-right target: open whatever this entry actually refers to — the created Doc/Sheet/Deck, the
+ * conversation, or the app it happened in. Falls back to copying the body if there's nothing to open.
+ */
+private fun openEntry(ctx: android.content.Context, e: OutboxStore.Entry) {
+    fun view(url: String) = try {
+        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (ex: Exception) {}
+    // A created document logs its URL in the body — open it directly.
+    val found = Regex("https?://[^\\s]+").find(e.body)?.value
+    if (found != null) {
+        val cleaned = found.trimEnd('.', ',').removeSuffix(")")
+        view(cleaned)
+        return
+    }
+    when (e.channel) {
+        "LinkedIn" -> view("https://www.linkedin.com/search/results/people/?keywords=" +
+            java.net.URLEncoder.encode(e.contact, "UTF-8"))
+        "Email" -> try {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("mailto:")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (ex: Exception) {}
+        "Message", "Photo" -> try {
+            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("sms:")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (ex: Exception) {}
+        "Calendar", "Reminder" -> try {
+            ctx.startActivity(ctx.packageManager.getLaunchIntentForPackage("com.google.android.calendar")
+                ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK) ?: return)
+        } catch (ex: Exception) {}
+        else -> {}
     }
 }
 
