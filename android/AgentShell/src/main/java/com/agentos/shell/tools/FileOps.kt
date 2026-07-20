@@ -35,6 +35,8 @@ object FileOps {
     fun isImage(ctx: Context, uri: Uri): Boolean = mimeOf(ctx, uri).startsWith("image/")
 
     /** Extract all text from a PDF (so the AI can read/summarise/answer questions about it). */
+    /** Extract a PDF's text. An empty result here is a real failure — the user asked about a document
+     *  and would silently get "I don't know" instead of an answer. */
     fun pdfText(ctx: Context, uri: Uri): String = try {
         ensure(ctx)
         ctx.contentResolver.openInputStream(uri)?.use { ins ->
@@ -64,10 +66,21 @@ object FileOps {
                 }
                 val bos = ByteArrayOutputStream(); doc.save(bos); doc.close()
                 val out = saveToDownloads(ctx, "filled_${displayName(ctx, uri)}", "application/pdf", bos.toByteArray())
-                if (filled == 0) out to "I couldn't match any fields to what I know about you — open it and check."
+                if (filled == 0) {
+                    Fail.log(ctx, "Forms", "fill ${displayName(ctx, uri)}",
+                        "matched 0 of ${form.fields.size} fields — profile has nothing that fits this form")
+                    out to "I couldn't match any fields to what I know about you — open it and check."
+                }
                 else out to "Filled $filled field${if (filled == 1) "" else "s"} from your profile — saved to Downloads/SlyOS."
-            } ?: (null to "Couldn't open that file.")
-        } catch (e: Exception) { Log.w(TAG, "fillForm: ${e.message}"); null to "Couldn't fill that form." }
+            } ?: run {
+                Fail.log(ctx, "Forms", "fill ${displayName(ctx, uri)}", "the file has no fillable form / couldn't be opened")
+                null to "Couldn't open that file."
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fillForm: ${e.message}")
+            Fail.log(ctx, "Forms", "fill ${displayName(ctx, uri)}", e.message ?: "unknown error")
+            null to "Couldn't fill that form."
+        }
     }
 
     /**
@@ -81,7 +94,11 @@ object FileOps {
             val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
             val f = java.io.File(ctx.cacheDir, safe); f.writeBytes(bytes)
             androidx.core.content.FileProvider.getUriForFile(ctx, "com.agentos.shell.fileprovider", f)
-        } catch (e: Exception) { Log.w(TAG, "stage: ${e.message}"); null }
+        } catch (e: Exception) {
+            Log.w(TAG, "stage: ${e.message}")
+            Fail.log(ctx, "Files", "prepare ${displayName(ctx, uri)} for sending", e.message ?: "unknown error")
+            null
+        }
     }
 
     /** Open a file in whatever app can view it (preview). Staged so external viewers can read it. */

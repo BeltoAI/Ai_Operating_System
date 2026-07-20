@@ -1032,11 +1032,48 @@ private fun BrainDiagnosticsCard() {
             Text(if (broken == 0) "Every flow completes end to end ✓" else "$broken flow(s) broken",
                 fontSize = T.small, color = if (broken == 0) T.accent else T.danger)
         }
-        // Past failures — an intermittent break stays visible after it recovers.
+        // ── EVERYTHING THAT FAILED, anywhere in the app — the debugging surface. ──
+        Spacer(Modifier.height(18.dp))
+        val failCount = remember(tick) { com.agentos.shell.tools.Fail.countSince(ctx, 24) }
+        val failAreas = remember(tick) { com.agentos.shell.tools.Fail.byArea(ctx, 24) }
+        val allFails = remember(tick) { com.agentos.shell.tools.Fail.recent(ctx, 40) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("FAILURES — LAST 24H", fontSize = 11.sp, color = T.inkFaint, letterSpacing = 1.sp,
+                modifier = Modifier.weight(1f))
+            if (allFails.isNotEmpty())
+                Text("clear", fontSize = T.caption, color = T.inkFaint,
+                    modifier = Modifier.clickable { com.agentos.shell.tools.Fail.clear(ctx); tick++ }.padding(6.dp))
+        }
+        if (allFails.isEmpty()) {
+            Text("Nothing has failed. Anything that breaks anywhere — a message that didn't send, an address " +
+                 "that couldn't be found, a model that refused — lands here automatically.",
+                fontSize = T.caption, color = T.inkFaint)
+        } else {
+            Text("$failCount failure(s) · " + failAreas.joinToString(", ") { "${it.first} ${it.second}" },
+                fontSize = T.caption, color = T.danger)
+            Spacer(Modifier.height(6.dp))
+            allFails.take(12).forEach { f ->
+                val d = remember(f.time) { java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(f.time)) }
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Box(Modifier.size(6.dp).clip(RoundedCornerShape(50))
+                        .background(if (f.severity == "warn") androidx.compose.ui.graphics.Color(0xFFE0A03C) else T.danger)
+                        .align(Alignment.CenterVertically))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${f.area} · ${f.what}" + (if (f.count > 1) "  ×${f.count}" else ""),
+                            fontSize = T.caption, color = T.ink)
+                        Text(f.why, fontSize = T.caption, color = T.inkFaint, maxLines = 2)
+                        Text(d, fontSize = 10.sp, color = T.inkFaint)
+                    }
+                }
+            }
+        }
+
+        // Flow-level break history (kept separate — these are audit runs, not live failures).
         val failures = remember(tick) { com.agentos.shell.tools.FlowAudit.failureHistory(ctx) }
         if (failures.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Text("RECENT FAILURES", fontSize = 10.sp, color = T.inkFaint, letterSpacing = 1.sp)
+            Text("FLOW AUDIT BREAKS", fontSize = 10.sp, color = T.inkFaint, letterSpacing = 1.sp)
             failures.take(6).forEach { fl ->
                 val d = remember(fl.time) { java.text.SimpleDateFormat("MMM d HH:mm", java.util.Locale.getDefault()).format(java.util.Date(fl.time)) }
                 Text("$d · ${fl.flow} → ${fl.step}", fontSize = T.caption, color = T.inkFaint, maxLines = 1)
@@ -1064,13 +1101,16 @@ private fun BrainDiagnosticsCard() {
                             featResults = r; testing = false; tick++
                         }
                     }.padding(horizontal = 16.dp, vertical = 8.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(if (deepTest) "deep: ON" else "deep: off", fontSize = T.caption,
-                color = if (deepTest) T.accent else T.inkFaint,
-                modifier = Modifier.clickable { deepTest = !deepTest }.padding(8.dp))
+            Spacer(Modifier.width(14.dp))
+            // A real switch — the old tiny "deep: off" text didn't read as tappable.
+            Switch(checked = deepTest, onCheckedChange = { deepTest = it })
+            Spacer(Modifier.width(8.dp))
+            Text("Deep test", fontSize = T.small, color = if (deepTest) T.accent else T.inkSoft,
+                modifier = Modifier.clickable { deepTest = !deepTest })
         }
-        if (deepTest) Text("Deep also creates a real Doc, Sheet and deck in your Drive to verify styling.",
-            fontSize = T.caption, color = T.inkFaint)
+        Text(if (deepTest) "Deep ON — will create a REAL Doc, Sheet and deck to prove the styling works."
+             else "Deep off — document creation is verified but no real files are made.",
+            fontSize = T.caption, color = if (deepTest) T.accent else T.inkFaint)
         if (featResults.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             featResults.groupBy { it.area }.forEach { (area, checks) ->

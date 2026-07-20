@@ -11,6 +11,9 @@ import android.app.Application
 class SlyApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // FIRST: capture every crash and give the failure log an app context, so failures anywhere in the
+        // process (including background threads with no Context in scope) can be recorded.
+        try { com.agentos.shell.tools.Fail.installCrashHandler(applicationContext) } catch (e: Exception) {}
         try {
             com.agentos.shell.tools.AgentClient.appContext = applicationContext
             com.agentos.shell.tools.ImageAI.appContext = applicationContext

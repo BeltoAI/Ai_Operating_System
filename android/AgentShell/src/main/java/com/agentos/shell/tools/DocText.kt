@@ -47,6 +47,7 @@ object DocText {
     fun retrieve(ctx: Context, query: String, maxChars: Int = 2600): String {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
         if (terms.isEmpty()) return ""
+        val stored = count(ctx)
         data class Hit(val title: String, val snippet: String, val score: Int)
         val hits = ArrayList<Hit>()
         try {
@@ -65,8 +66,18 @@ object DocText {
                     }
                 }
             }
-        } catch (e: Exception) { return "" }
-        if (hits.isEmpty()) return ""
+        } catch (e: Exception) {
+            Fail.log("Documents", "search documents for \"${query.take(50)}\"", "document index unreadable: ${e.message}")
+            return ""
+        }
+        // Asking about a document and silently getting nothing is a failure the user FEELS as "the AI
+        // doesn't know" — distinguish "we have no documents at all" from "we have some but none matched".
+        if (hits.isEmpty()) {
+            Fail.log("Documents", "search documents for \"${query.take(50)}\"",
+                if (stored == 0) "no documents are indexed yet — nothing could match"
+                else "none of the $stored indexed documents matched", "warn")
+            return ""
+        }
         val sb = StringBuilder()
         hits.sortedByDescending { it.score }.take(3).forEach { h ->
             if (sb.length < maxChars) sb.append("• “${h.title}”: ").append(h.snippet.take(maxChars - sb.length)).append("\n")

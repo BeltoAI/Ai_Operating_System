@@ -110,7 +110,10 @@ object DocForge {
                 "pptx" -> deckContent(ctx, title, brief)
                 else -> writtenContent(ctx, title, brief, k)
             }
-            if (content.isBlank()) return Made(false, error = "couldn't generate the content")
+                if (content.isBlank()) {
+                Fail.log(ctx, "Documents", "generate content for “$title”", "model returned nothing")
+                return Made(false, error = "couldn't generate the content")
+            }
             val made = buildFrom(ctx, title, brief, fmt, k, content)
             if (made.ok) {
                 remember(ctx, title, brief, fmt, k, content)
@@ -119,6 +122,7 @@ object DocForge {
             made
         } catch (e: Exception) {
             Log.w(TAG, "create: ${e.message}")
+            Fail.log(ctx, "Documents", "create $fmt “$title”", e.message ?: "unknown error")
             Made(false, error = e.message ?: "couldn't build the document")
         }
     }

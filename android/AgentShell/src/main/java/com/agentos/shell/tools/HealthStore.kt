@@ -21,6 +21,9 @@ object HealthStore {
     @Synchronized fun note(component: String, ok: Boolean, detail: String = "") {
         notes.addFirst(Note(component, ok, detail.take(140), System.currentTimeMillis()))
         while (notes.size > 60) notes.removeLast()
+        // Anything reported as NOT ok is a failure — route it to the persistent failure log automatically,
+        // so every existing and future note() call site is covered without touching any of them.
+        if (!ok) try { Fail.log(component, "health check", detail.ifBlank { "reported not ok" }, "warn") } catch (e: Exception) {}
     }
     @Synchronized fun recent(n: Int = 40): List<Note> = notes.take(n)
 

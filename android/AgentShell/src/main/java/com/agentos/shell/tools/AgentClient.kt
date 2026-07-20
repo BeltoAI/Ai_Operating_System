@@ -371,7 +371,11 @@ object AgentClient {
                     if (choice.provider == "gemini") GeminiLimit.hit(ctx)   // keep the user-facing Gemini nudge
                 }
                 Log.w("SlyOS", "llm ${choice.provider}/${choice.model} code=${r.code} — trying next provider")
-                if (ctx != null) HealthStore.recordLlm(ctx, choice.provider, false, "${r.code}: ${r.text.take(120)}")
+                if (ctx != null) {
+                    HealthStore.recordLlm(ctx, choice.provider, false, "${r.code}: ${r.text.take(120)}")
+                    Fail.log(ctx, "Brain", "${choice.provider}/${choice.model} call failed", "${r.code}: ${r.text.take(160)}",
+                        if (r.code == 429) "warn" else "error")
+                }
                 last = r.code to r.text
                 // A 400 is a malformed request (image too large, bad body) — every provider would reject it,
                 // so don't burn the others; anything else (auth/quota/5xx/network) is worth a fallback.
@@ -443,6 +447,8 @@ object AgentClient {
             append("open_url arg = a website/URL or bare domain (e.g. \"slyos.world\", \"nytimes.com\"); opens it in the BROWSER. ")
             append("create_doc={\"title\":\"…\",\"content\":\"the full document text\"} — creates a REAL Google Doc (needs Google connected). WRITE the actual document content yourself, well-structured, in the user's voice. Returns a shareable link. Use for \"write me a doc / letter / report / notes\". ")
             append("create_sheet={\"title\":\"…\",\"rows\":[[\"Name\",\"Amount\"],[\"Rent\",\"1200\"]]} — creates a REAL Google Sheet; first row = headers. Use for \"make me a spreadsheet/tracker/budget\". ")
+            append("set_mission={\"arg\":\"the goal\"} OR just the goal as the arg — opens MISSION and pursues it. Use for \"run a mission\", \"start a campaign\", \"find me customers/investors/clients for X\", \"get me a job at Y\", \"sell X to Y\". If they say \"run a mission\" with no goal, still emit it with an empty arg. ")
+            append("network_search={\"arg\":\"who they're looking for\"} — opens MY NETWORK with matching people + a ready message. Use for \"do I have anyone in X\", \"who do I know at Y\", \"anyone in my network who does Z\", \"show my network\", \"who can introduce me to…\". ")
             append("create_document={\"title\":\"…\",\"brief\":\"what it should contain\",\"format\":\"pdf|docx|pptx|xlsx|html\"} — THE PREFERRED WAY to make any document. Produces a beautifully designed file saved to the SlyOS folder. Use it for reports, memos, decks, one-pagers, proposals, trackers. If the user did NOT say which format, OMIT \"format\" and SlyOS will ask them. ")
             append("refine_document={\"instruction\":\"make it shorter / add a pricing slide / more formal\",\"format\":\"optional new format\"} — revise the document just made. Use this for ANY follow-up change to a document instead of creating a new one. ")
             append("open_document={\"name\":\"optional\"} — open the last (or named) document. send_document={\"name\":\"optional\"} — share/send it. ")
@@ -1193,12 +1199,18 @@ object AgentClient {
             if (!o.optBoolean("receipt", true)) return null
             val total = o.optDouble("total", Double.NaN)
             val merchant = o.optString("merchant").trim()
-            if (merchant.isBlank() && total.isNaN()) return null   // nothing usable → not a receipt
+            if (merchant.isBlank() && total.isNaN()) {
+                Fail.log("Expenses", "read receipt", "parsed, but no merchant and no total — nothing usable")
+                return null
+            }
             val items = o.optJSONArray("items")?.toString() ?: "[]"
             Receipt(merchant.ifBlank { "(unknown)" }, o.optString("date"), if (total.isNaN()) 0.0 else total,
                 o.optString("currency", "USD").ifBlank { "USD" }, o.optDouble("tax", 0.0),
                 o.optString("category", "Other"), items, o.optDouble("confidence", 0.7))
-        } catch (e: Exception) { null }
+        } catch (e: Exception) {
+            Fail.log("Expenses", "read receipt", "couldn't parse the model's reply: ${e.message ?: "bad JSON"}")
+            null
+        }
     }
 
     /** P2: parse a photographed receipt (vision). Null if it isn't a receipt or the call failed. */
@@ -1208,7 +1220,10 @@ object AgentClient {
                 JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imageB64)))
             .put(JSONObject().put("type", "text").put("text", "Parse this receipt. Read EVERY line item (name, qty, price), the subtotal, tax, and the final total exactly as printed."))
         val (code, text) = callContent(receiptSys(), content, 1400, OPUS)   // strong vision model for real OCR
-        if (code != 200 || looksLikeError(text)) return null
+        if (code != 200 || looksLikeError(text)) {
+            Fail.log("Expenses", "scan receipt photo", "vision call failed (code $code): ${text.take(120)}")
+            return null
+        }
         return parseReceipt(text)
     }
 
@@ -1216,7 +1231,10 @@ object AgentClient {
     fun extractReceiptText(emailText: String): Receipt? {
         if (emailText.length < 30) return null
         val (code, text) = callContent(receiptSys(), "Parse this order/receipt email:\n" + emailText.take(4500), 900, MODEL)
-        if (code != 200 || looksLikeError(text)) return null
+        if (code != 200 || looksLikeError(text)) {
+            Fail.log("Expenses", "read receipt from email", "model call failed (code $code): ${text.take(120)}")
+            return null
+        }
         return parseReceipt(text)
     }
 

@@ -130,7 +130,12 @@ object ApiHealth {
             val code = detail.substringBefore(":").trim().toIntOrNull() ?: 0
             if (ModelResolver.isModelGone(code, detail)) {
                 ModelResolver.blacklist(ctx, provider, model)
-                for (cand in ModelResolver.candidates(ctx, provider, "STANDARD", key, 4)) {
+                // A 402 is an ENTITLEMENT failure, not a missing model — so walk UP from the smallest
+                // models (what a free key can actually call) instead of trying more premium ones.
+                val entitlement = code == 402 || detail.contains("payment", true) || detail.contains("does not have access", true)
+                val tries = if (entitlement) ModelResolver.cheapestCandidates(ctx, provider, key, 6)
+                            else ModelResolver.candidates(ctx, provider, "STANDARD", key, 4)
+                for (cand in tries) {
                     if (cand.equals(model, true)) continue
                     Log.i(TAG, "$provider: $model unusable → trying $cand")
                     val (ok2, d2) = roundTrip(provider, cand, key)

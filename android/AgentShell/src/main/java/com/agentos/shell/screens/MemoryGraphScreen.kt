@@ -545,33 +545,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             }
         }
 
-        // ── MISSION: one clear button that opens the full Mission screen ──
-        Spacer(Modifier.height(10.dp))
-        androidx.compose.material3.HorizontalDivider(color = T.hairline, thickness = 1.dp)
-        Spacer(Modifier.height(10.dp))
-        val mPct = com.agentos.shell.tools.MissionStore.mission(ctx).takeIf { it.isNotBlank() }
-            ?.let { com.agentos.shell.tools.MissionStore.campaignProgress(ctx) }
-        val mGoal = com.agentos.shell.tools.MissionStore.mission(ctx)
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
-            .clickable { onMission() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Mission", fontSize = T.body, color = T.ink)
-                Text(if (mGoal.isBlank()) "Set a goal — SlyOS will plan and pursue it" else mGoal,
-                    fontSize = T.caption, color = T.inkFaint, maxLines = 1)
-            }
-            mPct?.let { Text("$it%", fontSize = T.body, color = ACCENT) }
-            Spacer(Modifier.width(10.dp))
-            Text("›", fontSize = T.body, color = T.inkFaint)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
-            .clickable { onNetwork() }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("My network", fontSize = T.body, color = T.ink)
-                Text("Find people you know & message them", fontSize = T.caption, color = T.inkFaint, maxLines = 1)
-            }
-            Text("›", fontSize = T.body, color = T.inkFaint)
-        }
+        // Mission and My-network tiles used to sit here, taking a third of the page below the graph.
+        // They're reached by ASKING now ("run a mission…", "do I have anyone in X?"), so the Memory tab
+        // is purely the brain — and the graph gets that space back.
         Spacer(Modifier.height(12.dp))
     }
 

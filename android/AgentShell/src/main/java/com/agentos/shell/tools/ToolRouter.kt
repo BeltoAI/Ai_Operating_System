@@ -328,9 +328,23 @@ object ToolRouter {
      * the handful of flows that remembered to log; (2) the action becomes recallable — asking "what did you
      * do today" or "did you email Sarah" hits the brain and finds it, because every path writes here.
      */
+    /** Actions where the user is WAITING for something back — silence here is a failure, not a no-op. */
+    private val MUST_PRODUCE_OUTPUT = setOf(
+        "create_document", "refine_document", "create_doc", "create_sheet", "create_slides", "create_pdf",
+        "expenses", "documents", "translate", "identify_song", "song", "shazam", "write_paper",
+        "find_job", "network_search", "shop", "look", "invest", "faces", "compose_post", "spicy_post")
+
     private fun recordAction(ctx: Context, type: String, arg: String, result: String, userInitiated: Boolean) {
         if (type in NOT_WORTH_LOGGING) return
-        if (result.isBlank()) return
+        if (result.isBlank()) {
+            // SILENT EMPTY RESULT — no exception, no "couldn't…", just nothing came back. This is the
+            // failure mode that used to be completely invisible: you ask for expenses, a filled form, a
+            // fetched document, and simply get no answer. If output was expected, that IS a failure.
+            if (type in MUST_PRODUCE_OUTPUT)
+                Fail.log(ctx, channelFor(type), "$type → ${arg.take(50)}",
+                    "produced NO output — you asked for something and got nothing back")
+            return
+        }
         val channel = channelFor(type)
         // Who/what it concerned — a name, title, or the first meaningful part of the argument.
         val subject = try {
@@ -338,13 +352,16 @@ object ToolRouter {
             listOf("to", "name", "contact", "title", "symbol", "text", "query")
                 .firstNotNullOfOrNull { k -> o.optString(k).takeIf { it.isNotBlank() } } ?: arg
         } catch (e: Exception) { arg }.trim().take(60).ifBlank { type }
-        val failed = result.startsWith("couldn't", true) || result.startsWith("no ", true) ||
-            result.contains("error", true) || result.contains("failed", true)
+        val failed = Fail.looksFailed(result)
         val why = if (userInitiated) "you asked" else "SlyOS did this autonomously"
         try {
             OutboxStore.record(ctx, channel, subject, type, result.take(400), why,
                 if (failed) "failed" else "sent")
         } catch (e: Exception) {}
+        // ANY action that didn't work is recorded centrally — an email address that couldn't be found, a
+        // message that didn't send, a doc that wouldn't build. This is the one place every action passes
+        // through, so nothing can fail silently.
+        if (failed) Fail.log(ctx, channel, "$type → $subject", result.take(200))
         // Into the searchable brain too, so the action is recallable later like any other memory.
         try {
             MessageStore.insertOne(ctx, channel, "SlyOS", "system", "system",

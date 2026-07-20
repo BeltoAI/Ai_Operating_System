@@ -61,7 +61,8 @@ object NetworkOutreach {
                     val msg = withContext(Dispatchers.IO) {
                         AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile, hist).take(600)
                     }
-                    if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${c.name}: couldn't draft."; onUpdate(); continue }
+                    if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${c.name}: couldn't draft."
+                        Fail.log(ctx, "Reconnect", "draft for ${c.name}", "model returned nothing usable"); onUpdate(); continue }
                     val (ok, detail) = TapSend.sendViaProfile(ctx, c.url, msg, c.name)
                     if (ok) {
                         sent++
@@ -76,6 +77,7 @@ object NetworkOutreach {
                     } else {
                         failed++; lastMsg = "Skipped ${c.name}: $detail"
                         HealthStore.note("reconnect_skip", false, "${c.name}: $detail")
+                        Fail.log(ctx, "Reconnect", "message ${c.name}", detail)
                     }
                     onUpdate()
                     if (running) delay((25_000..45_000).random().toLong())   // human-paced gap
@@ -142,6 +144,7 @@ object NetworkOutreach {
                     } else {
                         failed++; lastMsg = "Skipped ${t.name}: $detail"
                         HealthStore.note("mission_skip", false, "${t.name}: $detail")
+                        Fail.log(ctx, "Mission", "message ${t.name}", detail)
                     }
                     onUpdate()
                     if (running) delay((25_000..45_000).random().toLong())

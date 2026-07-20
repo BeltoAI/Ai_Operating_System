@@ -40,7 +40,7 @@ object DocStore {
             Doc(o.getLong("id"), o.getString("category"), o.getString("title"),
                 o.optString("summary"), o.optString("fields", "{}"), o.optLong("ts"))
         }.sortedByDescending { it.ts }
-    } catch (e: Exception) { emptyList() }
+    } catch (e: Exception) { Fail.log(ctx, "Documents", "list filed documents", "index unreadable: ${e.message}"); emptyList() }
 
     private fun save(ctx: Context, docs: List<Doc>) {
         val arr = JSONArray()

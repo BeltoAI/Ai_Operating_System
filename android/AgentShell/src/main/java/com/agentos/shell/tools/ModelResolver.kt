@@ -125,6 +125,35 @@ object ModelResolver {
      * Pick the best currently-served model for [tier]. Prefers small/fast ids for CHEAP and large/pro ids
      * for HEAVY, and always avoids non-chat models (embeddings, vision-only, audio, image, TTS).
      */
+    /**
+     * After a 402 (entitlement), the biggest/newest model is exactly the WRONG next guess — paid tiers are
+     * where the premium models live. This ranks SMALL/older models first, which is what a free key can use.
+     * That's why Cerebras kept landing on zai-glm-4.7 and failing: version-number scoring favoured it.
+     */
+    fun cheapestCandidates(ctx: Context, provider: String, key: String, n: Int = 5): List<String> {
+        if (key.isBlank()) return emptyList()
+        val bl = blacklisted(ctx, provider)
+        return available(provider, key)
+            .filter { m ->
+                val l = m.lowercase()
+                l !in bl && !l.contains("embed") && !l.contains("tts") && !l.contains("whisper") &&
+                    !l.contains("image") && !l.contains("audio") && !l.contains("guard") &&
+                    !l.contains("rerank") && !l.contains("moderation")
+            }
+            .sortedBy { m ->
+                val l = m.lowercase()
+                var s = 0
+                // smaller parameter counts first — these are the ones free tiers actually serve
+                Regex("(\\d+)\\s*b\\b").find(l)?.groupValues?.get(1)?.toIntOrNull()?.let { s += it }
+                if (l.contains("8b") || l.contains("mini") || l.contains("small") || l.contains("lite") ||
+                    l.contains("instant") || l.contains("flash")) s -= 50
+                if (l.contains("70b") || l.contains("120b") || l.contains("405b") ||
+                    l.contains("pro") || l.contains("max") || l.contains("opus")) s += 100
+                s
+            }
+            .take(n)
+    }
+
     private fun pick(models: List<String>, tier: String, exclude: Set<String> = emptySet()): String? {
         val usable = models.filter { m ->
             val l = m.lowercase()

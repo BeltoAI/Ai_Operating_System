@@ -35,6 +35,12 @@ object FlowAudit {
         val degraded: Boolean get() = ok && steps.any { !it.ok }
     }
 
+    /** A named "contact" the audit talks to, so real pipeline calls never touch a real person. */
+    private const val AUDIT_SENDER = "__flowaudit__"
+    /** Carries a real generated artefact between steps, so later steps inspect what earlier ones produced. */
+    @Volatile private var lastDraft: String = ""
+    @Volatile private var lastPlan: List<AgentAction> = emptyList()
+
     // ── reusable step verifiers (the same link appears in many flows) ─────────────────────────────
     private fun stepNotifAccess() = Step("Notification access") { ctx ->
         val on = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners")
@@ -120,8 +126,36 @@ object FlowAudit {
                     else -> "$live captured, $replyable support inline reply"
                 }
             },
-            stepBrainWrite(), stepBrainRead(), stepBrainRecall(), stepPersona(),
-            stepBrainReachable(), stepGenerate(), stepSanitise(), stepGuard(),
+            stepBrainWrite(), stepBrainRecall(),
+            // REAL PIPELINE from here: the exact calls AgentNotificationListener makes for a live message.
+            Step("Build reply context (real ReplyContext)") { ctx ->
+                val c = try { ReplyContext.forSender(ctx, "WhatsApp", AUDIT_SENDER, "are we still on for tomorrow?") }
+                        catch (e: Exception) { "" }
+                c.isNotBlank() to (if (c.isNotBlank()) "${c.length} chars assembled for this sender" else "no context — the reply would be generic")
+            },
+            stepPersona(), stepBrainReachable(),
+            Step("Draft the actual reply (real draftReplyThread)") { ctx ->
+                val mem = try { ReplyContext.forSender(ctx, "WhatsApp", AUDIT_SENDER, "are we still on for tomorrow?") } catch (e: Exception) { "" }
+                val thread = listOf("them" to "Hey, are we still on for tomorrow?")
+                val r = try { AgentClient.draftReplyThread(AUDIT_SENDER, thread, mem, null, "are we still on for tomorrow?") }
+                        catch (e: Exception) { "" }
+                lastDraft = r
+                when {
+                    r.isBlank() -> false to "the real reply path produced NOTHING"
+                    AgentClient.looksLikeError(r) -> false to "reply path errored: ${r.take(70)}"
+                    else -> true to "generated a real reply: \"${r.take(60)}\""
+                }
+            },
+            Step("Reply is clean + sendable") { _ ->
+                val r = lastDraft
+                when {
+                    r.isBlank() -> false to "nothing to check — drafting failed above"
+                    r.trimStart().startsWith("{") || r.contains("\"say\"") -> false to "RAW JSON would be sent: ${r.take(50)}"
+                    r.length > 1500 -> false to "reply too long to send (${r.length} chars)"
+                    else -> true to "${r.length} chars, no JSON, within send limits"
+                }
+            },
+            stepGuard(),
             Step("Deliver reply") { ctx ->
                 val on = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners")
                     ?.contains(ctx.packageName) == true
@@ -130,14 +164,34 @@ object FlowAudit {
             stepLogOutbox())),
 
         Flow("home_ai", "Home AI → answer + action", "You type or speak a request on Home", listOf(
-            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepSanitise(),
-            Step("Parse action plan") { ctx ->
-                val cat = ToolRouter.categoryFor("send_email")
-                (cat == "communicate") to (if (cat == "communicate") "action schema maps correctly" else "action routing table is wrong: $cat")
+            stepBrainRead(), stepBrainReachable(),
+            // REAL planner: ask() is the exact call Home makes, so this proves the live path end to end.
+            Step("Run the real planner (AgentClient.ask)") { ctx ->
+                val apps = try { ToolRouter.installedApps(ctx).take(30).map { it.label } } catch (e: Exception) { emptyList() }
+                val r = try { AgentClient.ask("set a timer for 5 minutes", apps, "") } catch (e: Exception) { null }
+                lastPlan = r?.actions ?: emptyList()
+                lastDraft = r?.say.orEmpty()
+                when {
+                    r == null -> false to "planner threw — Home AI would fail"
+                    r.say.isBlank() && r.actions.isEmpty() -> false to "planner returned nothing usable"
+                    else -> true to "said \"${r.say.take(45)}\" + ${r.actions.size} action(s)"
+                }
             },
-            Step("Execute action") { ctx ->
+            Step("Planner chose the right action") { _ ->
+                val types = lastPlan.map { it.type }
+                val good = types.any { it == "timer" || it == "alarm" || it == "remind" }
+                good to (if (good) "picked ${types.joinToString()} for a timer request"
+                         else "picked ${types.ifEmpty { listOf("nothing") }.joinToString()} — expected timer/alarm")
+            },
+            Step("Answer is clean (no raw JSON)") { _ ->
+                val s = lastDraft
+                val clean = !s.trimStart().startsWith("{") && !s.contains("\"say\"") && !s.contains("[[card:")
+                clean to (if (clean) "user-facing text is clean" else "RAW JSON/markup would be shown: ${s.take(50)}")
+            },
+            Step("Executor runs a real action") { ctx ->
                 val r = try { ToolRouter.executeAction(ctx, "translate", "{\"text\":\"hello\",\"to\":\"es\"}") } catch (e: Exception) { "" }
-                r.isNotBlank() to (if (r.isNotBlank()) "executor ran a real action" else "executor returned nothing")
+                (r.isNotBlank() && !r.startsWith("couldn't", true)) to
+                    (if (r.isNotBlank()) "executed, returned \"${r.take(40)}\"" else "executor returned nothing")
             },
             stepBrainWrite(), stepLogOutbox())),
 

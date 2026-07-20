@@ -148,6 +148,7 @@ object TapSend {
             messageFromProfile(ctx, svc, message, recipient)
         } catch (e: Exception) {
             HealthStore.note("tapsend", false, e.message ?: "error")
+            Fail.log(ctx, "LinkedIn", "tap-send to $recipient", e.message ?: "error")
             false to (e.message ?: "Tap-send error.")
         }
     }
