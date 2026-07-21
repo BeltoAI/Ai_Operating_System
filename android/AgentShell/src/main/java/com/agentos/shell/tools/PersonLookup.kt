@@ -67,7 +67,27 @@ object PersonLookup {
             }
         } catch (e: Exception) {}
 
-        // 5) Calendar — someone you're literally meeting today counts as knowing them.
+        // 5) TOTAL RECALL — anyone whose name has been on your screen. This is the strongest signal of
+        // all: if you were literally reading their WhatsApp chat, you obviously know them, regardless of
+        // whether they were ever saved anywhere. Searched by NAME (BrainContext only ever searched recall
+        // using the whole question, which rarely matches a bare name).
+        try {
+            if (MemoryStore.recallEnabled(ctx)) {
+                InteractionStore.search(ctx, query, 8)
+                    .groupBy { it.app }
+                    .entries.take(4)
+                    .forEach { (app, entries) ->
+                        val when0 = entries.maxOfOrNull { it.time } ?: 0L
+                        val ago = if (when0 > 0) friendly(System.currentTimeMillis() - when0) else ""
+                        out.add(Match(query, "on-screen",
+                            "seen in $app" + (if (ago.isNotBlank()) " $ago" else "") +
+                                " (${entries.size} time" + (if (entries.size == 1) "" else "s") + ")",
+                            30))
+                    }
+            }
+        } catch (e: Exception) {}
+
+        // 6) Calendar — someone you're literally meeting today counts as knowing them.
         try {
             if (CalendarTool.hasPermission(ctx)) {
                 CalendarTool.upcoming(ctx).lines()
@@ -88,6 +108,16 @@ object PersonLookup {
             }
             .sortedByDescending { it.score }
             .take(limit)
+    }
+
+    private fun friendly(ms: Long): String {
+        val m = ms / 60000
+        return when {
+            m < 2 -> "just now"
+            m < 60 -> "${m}m ago"
+            m < 1440 -> "${m / 60}h ago"
+            else -> "${m / 1440}d ago"
+        }
     }
 
     private fun score(name: String, q: String): Int {

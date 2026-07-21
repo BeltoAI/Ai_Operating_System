@@ -388,6 +388,66 @@ object FlowAudit {
             stepBrainRead(), stepBrainReachable())),
 
         /**
+         * TOTAL RECALL — the feature that quietly underpins everything else. If SlyOS reads your screen,
+         * it should know anyone whose name you've looked at, remember what you were doing, and be able to
+         * recall it later. Every link is checked, because a break anywhere makes the whole brain thinner
+         * without any visible symptom.
+         */
+        Flow("total_recall", "Total Recall (screen memory)", "SlyOS reads what's on your screen", listOf(
+            Step("Accessibility service running") { _ ->
+                val on = com.agentos.shell.InteractionLogService.instance != null
+                on to (if (on) "the reader is alive" else "DEAD — nothing can be captured from any screen")
+            },
+            Step("Capture switched on") { ctx ->
+                val on = try { MemoryStore.recallEnabled(ctx) } catch (e: Exception) { false }
+                on to (if (on) "recall capture is ON" else "recall capture is OFF (Settings → Total Recall)")
+            },
+            Step("Screens are actually being recorded") { ctx ->
+                val n = try { InteractionStore.count(ctx) } catch (e: Exception) { -1 }
+                when {
+                    n < 0 -> false to "recall store unreadable"
+                    n == 0 -> false to "ZERO entries — capture is on but nothing is arriving"
+                    else -> true to "$n entries recorded"
+                }
+            },
+            Step("Capture is CURRENT, not stale") { ctx ->
+                // A store full of week-old entries looks healthy but means capture silently stopped.
+                val recent = try {
+                    InteractionStore.search(ctx, "", 5).maxOfOrNull { it.time } ?: 0L
+                } catch (e: Exception) { 0L }
+                if (recent == 0L) true to "can't read timestamps (older entries may lack them)"
+                else {
+                    val ageH = (System.currentTimeMillis() - recent) / 3_600_000.0
+                    (ageH < 24) to String.format("newest capture %.1fh ago%s", ageH,
+                        if (ageH >= 24) " — capture appears to have STOPPED" else "")
+                }
+            },
+            Step("Which apps are being seen") { ctx ->
+                val apps = try { InteractionStore.appCounts(ctx).take(5) } catch (e: Exception) { emptyList() }
+                apps.isNotEmpty() to (if (apps.isNotEmpty())
+                    apps.joinToString(", ") { "${it.first} ${it.second}" }
+                else "no app has ever been captured")
+            },
+            Step("Recall is searchable") { ctx ->
+                val hits = try { InteractionStore.search(ctx, "a", 10).size } catch (e: Exception) { -1 }
+                (hits > 0) to (if (hits > 0) "$hits matches for a broad probe" else "search returns nothing — recall is write-only")
+            },
+            Step("Recall reaches the brain") { ctx ->
+                if (!MemoryStore.recallEnabled(ctx)) false to "capture off, so it can never reach the brain"
+                else {
+                    val r = try { InteractionStore.retrieve(ctx, "the", 5) } catch (e: Exception) { "" }
+                    r.isNotBlank() to (if (r.isNotBlank()) "${r.length} chars fed into answers"
+                        else "retrieve() returns EMPTY — captured screens never inform any answer")
+                }
+            },
+            Step("Ring buffer is trimming, not losing everything") { ctx ->
+                // Interactions legitimately shrink (5,000-line cap) — flag only a suspicious collapse.
+                val n = try { InteractionStore.count(ctx) } catch (e: Exception) { 0 }
+                (n > 100 || n == 0) to (if (n > 100) "$n entries (cap 5000, trims oldest)"
+                    else "only $n entries — suspiciously low for an active phone")
+            })),
+
+        /**
          * "DO I KNOW X?" — the flow that would have caught a real, embarrassing bug: phone contacts were
          * never included in the brain context at all, so SlyOS confidently answered "no" about people
          * saved in the user's own phone.
@@ -427,6 +487,24 @@ object FlowAudit {
                     ms.isNotEmpty() to (if (ms.isNotEmpty())
                         "found \"${ms.first().name}\" via ${ms.first().where}"
                     else "someone you MESSAGE is not findable — lookup is broken")
+                }
+            },
+            // TOTAL RECALL is the strongest signal of all: if their name was on your screen, you know them.
+            Step("Total Recall is capturing your screen") { ctx ->
+                val on = try { MemoryStore.recallEnabled(ctx) } catch (e: Exception) { false }
+                val n = try { InteractionStore.count(ctx) } catch (e: Exception) { -1 }
+                when {
+                    !on -> false to "screen capture is OFF — SlyOS can't learn anyone from what you read"
+                    n <= 0 -> false to "capture is ON but NOTHING has been recorded — the service isn't feeding it"
+                    else -> true to "$n screen entries captured"
+                }
+            },
+            Step("On-screen names are searchable") { ctx ->
+                if (!MemoryStore.recallEnabled(ctx)) true to "recall off — nothing to search"
+                else {
+                    val probe = try { InteractionStore.search(ctx, "a", 5).size } catch (e: Exception) { -1 }
+                    (probe >= 0) to (if (probe > 0) "$probe on-screen matches for a broad probe"
+                        else "recall search returns NOTHING — names you've read can't be recalled")
                 }
             },
             Step("Name is extracted from natural phrasing") { _ ->
