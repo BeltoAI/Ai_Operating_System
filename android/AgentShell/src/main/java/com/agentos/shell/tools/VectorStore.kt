@@ -15,10 +15,13 @@ import java.nio.ByteOrder
 object VectorStore {
     data class Hit(val contact: String, val role: String, val body: String, val score: Float)
 
-    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_vec.db", null, 1) {
+    private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_vec.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS vmem(contact TEXT, role TEXT, body TEXT, provider TEXT, dim INTEGER, v BLOB, ts INTEGER)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_pending ON vmem(dim)")
+            // Without this the per-insert duplicate check is a full table scan.
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_dedupe ON vmem(contact, body)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON vmem(ts)")
         }
         override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) = onCreate(db)  // never drop the brain
     }
@@ -38,14 +41,88 @@ object VectorStore {
         return FloatArray(bytes.size / 4) { b.getFloat() }
     }
 
-    /** Queue text for later embedding — instant, no network. Called whenever the brain gains a message. */
-    fun enqueue(ctx: Context, contact: String, role: String, body: String) {
-        val t = body.trim(); if (t.length < 3) return
-        try {
-            db(ctx).execSQL("INSERT INTO vmem(contact,role,body,provider,dim,v,ts) VALUES(?,?,?,'',0,NULL,?)",
-                arrayOf(contact, role, t.take(4000), System.currentTimeMillis()))
-        } catch (e: Exception) {}
+    /**
+     * Queue text for later embedding — instant, no network.
+     *
+     * DEDUPE: there was no uniqueness check, so the same text could be embedded many times over. On a real
+     * device that produced 72,422 vectors for 41,807 messages (173%) — wasted embedding calls, wasted
+     * storage, and duplicate hits crowding out genuinely different memories at retrieval time.
+     */
+    fun enqueue(ctx: Context, contact: String, role: String, body: String): Boolean {
+        val t = body.trim(); if (t.length < 3) return false
+        val clipped = t.take(4000)
+        return try {
+            val d = db(ctx)
+            val dup = d.rawQuery("SELECT 1 FROM vmem WHERE contact=? AND body=? LIMIT 1",
+                arrayOf(contact, clipped)).use { it.moveToFirst() }
+            if (dup) return false
+            d.execSQL("INSERT INTO vmem(contact,role,body,provider,dim,v,ts) VALUES(?,?,?,'',0,NULL,?)",
+                arrayOf(contact, role, clipped, System.currentTimeMillis()))
+            true
+        } catch (e: Exception) { false }
     }
+
+    /**
+     * Ingest EVERY kind of memory, not just chat messages.
+     *
+     * The gap this closes: only MessageStore ever fed the vector index. Documents, photo captions/OCR,
+     * on-screen recall, CRM contacts and the LinkedIn network were NEVER embedded — so semantic search
+     * could not find anything from them, no matter how relevant. That is the bulk of the brain, and it
+     * is why recall felt useless: it was searching a fraction of what the user believes is stored.
+     *
+     * Idempotent (enqueue dedupes), so it is safe to run on every launch.
+     */
+    fun ingestAllSources(ctx: Context, perSource: Int = 400): Int {
+        var added = 0
+        // NOTE: enqueue() reports whether it actually inserted. Counting the table before/after each row
+        // would mean two full COUNT(*) scans per memory — thousands of scans on a real brain.
+        fun add(contact: String, role: String, body: String) {
+            if (body.isBlank()) return
+            if (enqueue(ctx, contact, role, body)) added++
+        }
+        // Documents the user has filed or fed in — their actual content, chunked so long docs are findable.
+        try {
+            DocText.recent(ctx, 200).forEach { (title, body) ->
+                body.chunked(1200).take(6).forEach { chunk -> add("Document: $title", "doc", chunk) }
+            }
+        } catch (e: Exception) {}
+        // Photo understanding: captions, labels and OCR text are real memories of what the user saw.
+        try { PhotoIndex.searchableText(ctx, perSource).forEach { (name, text) -> add("Photo: $name", "photo", text) } }
+        catch (e: Exception) {}
+        // Total Recall — what was actually on screen. The single richest source and it was never indexed.
+        try {
+            InteractionStore.search(ctx, "", perSource).forEach { e ->
+                add("Seen in ${e.app}", "screen", e.text)
+            }
+        } catch (e: Exception) {}
+        // People: CRM + network, so "who did I meet at X" is answerable semantically.
+        try {
+            LeadStore.all(ctx).take(perSource).forEach { l ->
+                add("Contact: ${l.name}", "crm",
+                    listOfNotNull(l.name, l.role.ifBlank { null }, l.company.ifBlank { null },
+                        l.email.ifBlank { null }, l.notes.ifBlank { null }).joinToString(" · "))
+            }
+        } catch (e: Exception) {}
+        try {
+            ConnectionStore.recent(ctx, perSource).forEach { c ->
+                add("Network: ${c.name}", "network",
+                    listOfNotNull(c.name, c.role.ifBlank { null }, c.company.ifBlank { null }).joinToString(" · "))
+            }
+        } catch (e: Exception) {}
+        if (added > 0) HealthStore.note("vec_ingest", true, "queued $added new memories from all sources")
+        return added
+    }
+
+    /** Remove exact-duplicate rows left behind by the old no-dedupe insert. Returns rows deleted. */
+    fun purgeDuplicates(ctx: Context): Int = try {
+        val d = db(ctx)
+        val before = d.rawQuery("SELECT count(*) FROM vmem", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        d.execSQL("DELETE FROM vmem WHERE rowid NOT IN (SELECT MIN(rowid) FROM vmem GROUP BY contact, body)")
+        val after = d.rawQuery("SELECT count(*) FROM vmem", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        val removed = before - after
+        if (removed > 0) HealthStore.note("vec_dedupe", true, "removed $removed duplicate vectors")
+        removed
+    } catch (e: Exception) { 0 }
 
     /** One-time seed: pull EVERY message already in the brain into the queue (existing imported history
      *  pre-dates the live hook, so without this the index only sees new messages). Runs once. */
@@ -132,18 +209,36 @@ object VectorStore {
         val provider = EmbeddingClient.provider(ctx) ?: return emptyList()
         // P3: HARD-CAP the query embedding (a network call) at ~4s. On a Gemini throttle/stall this returns
         // null and the caller degrades to keyword recall — semantic recall can NEVER block a reply.
-        val qv = embedBounded(ctx, query, 4000L) ?: return emptyList()
+        // 8s, not 4s: on a cold Gemini call 4s frequently timed out, silently returning NO semantic recall
+        // at all — the user experiences that as "my brain forgot everything".
+        val qv = embedBounded(ctx, query, 8000L) ?: run {
+            Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
+                "query embedding timed out — fell back to keyword search only", "warn")
+            return emptyList()
+        }
         val hits = ArrayList<Hit>()
         try {
-            db(ctx).rawQuery("SELECT contact, role, body, v, dim FROM vmem WHERE v IS NOT NULL AND provider=? AND dim=?",
-                arrayOf(provider, qv.size.toString())).use { c ->
+            // Match on DIMENSION only, not provider. Vectors written under an older provider label (or after
+            // a model heal) were previously invisible forever — the index looked full while returning nothing.
+            // Newest first, and capped: cosine over every row in Kotlin does not scale past a few tens of
+            // thousands, and a slow search is indistinguishable from a broken one.
+            db(ctx).rawQuery(
+                "SELECT contact, role, body, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 30000",
+                arrayOf(qv.size.toString())).use { c ->
                 while (c.moveToNext()) {
                     val v = toVec(c.getBlob(3))
                     val score = EmbeddingClient.cosine(qv, v)
-                    if (score > 0.55f) hits.add(Hit(c.getString(0), c.getString(1), c.getString(2), score))
+                    // NO hard cutoff. A fixed 0.55 floor meant a query whose best match scored 0.54 returned
+                    // absolutely nothing. Collect everything, rank, and let the caller take the best k.
+                    if (score > 0.20f) hits.add(Hit(c.getString(0), c.getString(1), c.getString(2), score))
                 }
             }
-        } catch (e: Exception) { return emptyList() }
+        } catch (e: Exception) {
+            Fail.log(ctx, "Brain", "semantic search", e.message ?: "query failed")
+            return emptyList()
+        }
+        if (hits.isEmpty()) Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
+            "nothing scored above 0.20 across ${embeddedCount(ctx)} vectors", "warn")
         return hits.sortedByDescending { it.score }.take(k)
     }
 

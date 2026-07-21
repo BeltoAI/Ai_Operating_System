@@ -151,7 +151,14 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
 
         Spacer(Modifier.height(20.dp))
         val groups = notes.groupBy { it.title.ifBlank { it.app } }.map { it.key to it.value }
-        Text("WAITING · ${groups.size}", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        // Clear-all lives on the section header, next to the count it clears. Swiping every card left
+        // one at a time was the only way to empty this screen.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("WAITING · ${groups.size}", fontSize = 11.sp, color = T.inkFaint,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            Text("Clear all", fontSize = T.caption, color = T.danger,
+                modifier = Modifier.clickable { NotificationStore.dismissAll() }.padding(4.dp))
+        }
         Spacer(Modifier.height(10.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(groups, key = { it.first }) { (contact, group) -> NoteGroupCard(ctx, contact, group) }

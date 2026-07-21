@@ -169,6 +169,21 @@ object NotificationStore {
         remove(key)
     }
 
+    /**
+     * Dismiss EVERYTHING waiting, in the shade as well as in SlyOS.
+     *
+     * There was only [clearAllDrafts], which cleared unsent drafts — so a Now screen holding forty
+     * notifications could only be emptied by swiping each card left, one at a time. Returns how many
+     * were cleared so the UI can confirm what happened.
+     */
+    fun dismissAll(): Int {
+        val keys = notes.map { it.key }
+        for (k in keys) try { listener?.cancelNotification(k) } catch (e: Exception) { Log.w(TAG, "dismissAll failed", e) }
+        notes.clear()
+        stagedDrafts.clear()   // a draft for a notification that no longer exists is just clutter
+        return keys.size
+    }
+
     /** Open what the notification points at — its own tap intent (exact thread/screen), and if that's
      *  dead or blocked, launch the app's main screen. Opts into background-activity-start where needed. */
     fun open(ctx: Context, note: Note): Boolean {

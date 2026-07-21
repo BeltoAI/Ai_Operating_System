@@ -177,6 +177,18 @@ object ConnectionStore {
      * Search your connections by name / company / role for the Memory Ask — works for ANY query
      * (people, companies, roles, schools…), with plural/singular stemming and light synonym boosts.
      */
+    /** Most-recent connections regardless of query — search("") returns empty by design, so indexing
+     *  needs its own accessor. */
+    fun recent(ctx: Context, limit: Int = 400): List<Conn> = try {
+        db(ctx).rawQuery("SELECT name, company, role, connectedOn, url, source, reachedOut FROM conns LIMIT ?",
+            arrayOf(limit.toString())).use { c ->
+            val out = ArrayList<Conn>()
+            while (c.moveToNext()) out.add(Conn(c.getString(0) ?: "", c.getString(1) ?: "", c.getString(2) ?: "",
+                c.getString(3) ?: "", c.getString(4) ?: "", c.getString(5) ?: "LinkedIn", c.getInt(6) == 1))
+            out
+        }
+    } catch (e: Exception) { emptyList() }
+
     fun search(ctx: Context, query: String, limit: Int = 40): List<Conn> {
         val raw = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 2 && it !in STOP }
         if (raw.isEmpty()) return emptyList()

@@ -18,9 +18,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.agentos.shell.theme.T
 
-/** True when the text contains LaTeX math delimiters worth rendering with MathJax. */
-fun hasMath(s: String): Boolean =
-    Regex("\\$\\$[^$]+\\$\\$|(?<![A-Za-z0-9])\\$[^$\\n]+\\$|\\\\\\((.|\\n)+?\\\\\\)|\\\\\\[(.|\\n)+?\\\\\\]").containsMatchIn(s)
+/**
+ * True when the text contains LaTeX math delimiters worth rendering with MathJax.
+ *
+ * THE MONEY BUG: `$...$` is both LaTeX inline math and the way everyone writes prices. A reply
+ * containing "between $500 and $2K" has two dollar signs on one line, so the old pattern matched
+ * "500 and $" as math — the whole answer got handed to MathJax and rendered as italic gibberish.
+ * Any answer mentioning two prices was mangled, which is most financial answers.
+ *
+ * A single-dollar span only counts as math now if it does NOT look like currency: money is a digit
+ * (or a space then a digit) straight after the `$`, so we require the content to be non-money-ish.
+ * Display math ($$…$$) and the unambiguous \( \) / \[ \] forms are untouched — they're never prices.
+ */
+fun hasMath(s: String): Boolean {
+    if (Regex("\\$\\$[^$]+\\$\\$|\\\\\\((.|\\n)+?\\\\\\)|\\\\\\[(.|\\n)+?\\\\\\]").containsMatchIn(s)) return true
+    // Inline $…$: reject anything where either delimiter is doing duty as a currency symbol.
+    return Regex("(?<![A-Za-z0-9$])\\$([^$\\n]{1,120})\\$(?![0-9])").findAll(s).any { m ->
+        val body = m.groupValues[1]
+        val looksLikeMoney = Regex("^\\s*[\\d,.]").containsMatchIn(body) ||   // "$500 and 2K$"
+            Regex("[\\d,]{2,}\\s*(k|m|bn?|million|billion|usd|eur)?\\s*$", RegexOption.IGNORE_CASE)
+                .containsMatchIn(body) && !body.contains("\\")
+        // Real math almost always carries a LaTeX command, an operator, or a superscript/subscript.
+        val looksLikeMath = Regex("\\\\[a-zA-Z]+|[\\^_{}]|\\\\frac|=|\\+|/|\\\\times").containsMatchIn(body)
+        looksLikeMath && !looksLikeMoney
+    }
+}
 
 private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 

@@ -154,9 +154,24 @@ object RichParse {
         }
 
         // Yes / No — a clear affirmative or negative opener on a concise answer.
+        //
+        // A giant YES or NO is the most assertive thing this app can put on screen, so it has to be
+        // right. Two ways it was wrong:
+        //
+        //  1. NUANCE. "No, he's not in your contacts, but I did find him in your messages" opened with
+        //     "No" and got a huge NO headline sitting directly above a body saying the person WAS
+        //     found. The card flatly contradicted the answer underneath it. Any pivot word means the
+        //     answer is qualified, and a qualified answer has no business being reduced to one word.
+        //  2. IDIOM. "No problem", "No worries", "Yes please" aren't answers to a yes/no question at
+        //     all — they're conversational filler that happens to start with the right token.
         if (r.length < 280) Regex("(?i)^(yes|yep|yeah|correct|absolutely|no|nope|nah)\\b[,.!: ]").find(r)?.let { m ->
             val w = m.groupValues[1].lowercase()
-            return Hero.YesNo(w in setOf("yes", "yep", "yeah", "correct", "absolutely"), firstSentence(r))
+            val idiom = Regex("(?i)^(no (problem|worries|need|rush|idea)|yes please|yeah sure)\\b").containsMatchIn(r)
+            val qualified = Regex("(?i)\\b(but|however|although|though|that said|on the other hand|technically|" +
+                "sort of|kind of|depends|unless|except)\\b").containsMatchIn(r)
+            if (!idiom && !qualified) {
+                return Hero.YesNo(w in setOf("yes", "yep", "yeah", "correct", "absolutely"), firstSentence(r))
+            }
         }
         return null
     }
@@ -194,10 +209,25 @@ object RichParse {
         return m ?: "Market"
     }
 
+    /**
+     * The card's one-line subtitle.
+     *
+     * The old version cut at a hard character count, which lands mid-word — a subtitle about a venture
+     * investor rendered as "VC S", which looks like a rendering fault rather than an abbreviation. If
+     * there's no sentence break to use, back up to the last whole word and mark the cut with an
+     * ellipsis so it reads as deliberately shortened.
+     */
     private fun firstSentence(s: String): String {
         val cut = s.indexOfFirst { it == '.' || it == '\n' }
-        val one = if (cut in 12..96) s.substring(0, cut) else s.take(84)
-        return one.trim()
+        if (cut in 12..96) return s.substring(0, cut).trim()
+        val t = s.trim()
+        if (t.length <= 84) return t
+        val slice = t.substring(0, 84)
+        val lastSpace = slice.lastIndexOf(' ')
+        // Only honour the word boundary if it doesn't gut the line — otherwise a single long token
+        // would leave us with almost nothing.
+        val body = if (lastSpace >= 40) slice.substring(0, lastSpace) else slice
+        return body.trimEnd().trimEnd(',', ';', ':', '-', '—') + "…"
     }
 }
 

@@ -46,8 +46,43 @@ private fun inlineMd(s: String): AnnotatedString = buildAnnotatedString {
 }
 
 /**
- * Renders an answer as elegant markdown — headings, bold/italic/code, bullet and numbered lists, block
- * quotes and dividers — so EVERY reply reads as a polished document instead of a wall of text.
+ * A markdown table, rendered as a real table: a weighted header row, hairline rules, and alternating
+ * row tint. Columns share width by weight rather than a fixed grid, so a two-column comparison and a
+ * five-column figure table both look deliberate.
+ *
+ * Long cells wrap instead of being clipped — truncating a number is worse than a taller row.
+ */
+@Composable
+private fun MarkdownTable(header: List<String>, rows: List<List<String>>) {
+    val cols = maxOf(header.size, rows.maxOfOrNull { it.size } ?: 0)
+    if (cols == 0) return
+    fun padded(r: List<String>) = List(cols) { r.getOrElse(it) { "" } }
+    Spacer(Modifier.height(8.dp))
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+            padded(header).forEach { c ->
+                Text(inlineMd(c), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = T.ink,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp))
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(T.hairline))
+        rows.forEachIndexed { idx, r ->
+            Row(Modifier.fillMaxWidth()
+                .background(if (idx % 2 == 1) T.bg else androidx.compose.ui.graphics.Color.Transparent)
+                .padding(horizontal = 10.dp, vertical = 7.dp)) {
+                padded(r).forEach { c ->
+                    Text(inlineMd(c), fontSize = 13.sp, color = T.inkSoft,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp))
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+/**
+ * Renders an answer as elegant markdown — headings, bold/italic/code, tables, bullet and numbered
+ * lists, block quotes and dividers — so EVERY reply reads as a polished document, not a wall of text.
  */
 @Composable
 fun MarkdownText(text: String, modifier: Modifier = Modifier) {
@@ -78,6 +113,20 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                 continue
             }
             val line = raw.trim()
+            // GitHub-style table. There was NO table support at all, so every table the model produced
+            // arrived as a wall of literal pipes and dashes — the single ugliest thing in the app, and
+            // the models emit tables constantly for comparisons and figures.
+            if (line.startsWith("|") && line.indexOf('|', 1) > 0 && i + 1 < lines.size &&
+                Regex("^\\|?[\\s:|-]*-[\\s:|-]*\\|?$").matches(lines[i + 1].trim()) &&
+                lines[i + 1].contains("-")) {
+                fun cells(l: String) = l.trim().trim('|').split("|").map { it.trim() }
+                val header = cells(raw)
+                i += 2
+                val rows = ArrayList<List<String>>()
+                while (i < lines.size && lines[i].trim().startsWith("|")) { rows.add(cells(lines[i])); i++ }
+                MarkdownTable(header, rows)
+                continue
+            }
             when {
                 line.isEmpty() -> Spacer(Modifier.height(7.dp))
                 line == "---" || line == "***" || line == "___" -> {

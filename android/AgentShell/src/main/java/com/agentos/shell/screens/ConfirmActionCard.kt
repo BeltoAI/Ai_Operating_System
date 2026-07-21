@@ -32,7 +32,13 @@ import org.json.JSONObject
  */
 object ActionConfirm {
     // Only these action types get a confirm card; everything else runs immediately.
-    val CONFIRM_TYPES = setOf("add_event", "send_sms", "message", "send_email", "remind")
+    // "remind" is deliberately NOT here. Everything in this set reaches someone else or writes to a
+    // shared calendar, so a tap of confirmation is worth the friction. A reminder is a private local
+    // notification — no different in kind from a timer or an alarm, both of which fire immediately.
+    // Gating it meant "remind me in 30 minutes to call mum" set nothing until the user tapped again,
+    // and the confirm card only ever exposed an "at" field, so relative ("in 20 minutes") reminders
+    // came out blank. Reminders now just get set, like the user asked.
+    val CONFIRM_TYPES = setOf("add_event", "send_sms", "message", "send_email")
 
     data class Field(val key: String, val label: String, val multiline: Boolean = false)
 

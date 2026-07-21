@@ -26,4 +26,28 @@ object DesignStore {
     } catch (e: Exception) { null }
 
     fun clear(ctx: Context, empId: String) = p(ctx).edit().remove(empId).apply()
+
+    /**
+     * The newest working document belonging to ANY agent.
+     *
+     * Why this exists: designs are keyed per agent, but a person in a team chat doesn't think in those
+     * terms. They ask the designer for a deck, then say "send it as a PDF" — and whichever agent picks
+     * that message up looks up ITS OWN slot, finds nothing (or something stale from last week), and
+     * either goes silent or delivers the wrong file entirely. "The document" means the one that was
+     * just being worked on, whoever happened to be holding the pen.
+     */
+    fun mostRecent(ctx: Context): Pair<String, Doc>? = try {
+        p(ctx).all.keys.mapNotNull { id -> get(ctx, id)?.let { id to it } }.maxByOrNull { it.second.ts }
+    } catch (e: Exception) { null }
+
+    /**
+     * This agent's document, or — when it has none — the freshest one on the team, if it's recent
+     * enough to plausibly be what the person means. The window matters: silently grabbing a
+     * three-week-old file would be its own wrong-document bug.
+     */
+    fun currentOrTeam(ctx: Context, empId: String, withinMs: Long = 6L * 60 * 60 * 1000): Doc? {
+        get(ctx, empId)?.let { return it }
+        val (_, doc) = mostRecent(ctx) ?: return null
+        return if (System.currentTimeMillis() - doc.ts <= withinMs) doc else null
+    }
 }

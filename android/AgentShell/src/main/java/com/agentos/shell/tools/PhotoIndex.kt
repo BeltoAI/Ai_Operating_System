@@ -81,6 +81,25 @@ object PhotoIndex {
     }
 
     /** Uris that already have on-device analysis (a non-empty kind). */
+    /** Everything SlyOS understood about each photo — caption, labels and OCR text — so photos become
+     *  part of semantic memory instead of only being keyword-searchable. */
+    fun searchableText(ctx: Context, limit: Int = 400): List<Pair<String, String>> = try {
+        db(ctx).rawQuery("SELECT name, caption, labels, ocr FROM photos ORDER BY ts DESC LIMIT ?",
+            arrayOf(limit.toString())).use { c ->
+            val out = ArrayList<Pair<String, String>>()
+            while (c.moveToNext()) {
+                val name = c.getString(0) ?: ""
+                val text = listOfNotNull(
+                    c.getString(1)?.takeIf { it.isNotBlank() },
+                    c.getString(2)?.takeIf { it.isNotBlank() },
+                    c.getString(3)?.takeIf { it.isNotBlank() }
+                ).joinToString(" · ")
+                if (text.isNotBlank()) out.add(name to text)
+            }
+            out
+        }
+    } catch (e: Exception) { emptyList() }
+
     fun analyzedUris(ctx: Context): Set<String> = try {
         val out = HashSet<String>()
         db(ctx).rawQuery("SELECT uri FROM photos WHERE kind IS NOT NULL AND kind != ''", null).use { while (it.moveToNext()) out.add(it.getString(0)) }

@@ -540,8 +540,20 @@ object ToolRouter {
         } catch (e: Exception) { "I couldn't set that reminder." }
     }
 
+    /**
+     * Seconds from a duration argument.
+     *
+     * The old version stripped every digit out of the string and glued them together, so "1h30"
+     * became 130 — then multiplied by 3600, giving a 32-hour timer. "2 minutes 30 seconds" became
+     * 230 minutes. Any compound duration was silently, wildly wrong.
+     *
+     * Now: a bare number is seconds (what ScreenIntent emits); anything else goes through the same
+     * unit-aware parser the intent layer uses, so both paths agree.
+     */
     private fun parseDuration(s: String): Int {
         val t = s.trim().lowercase()
+        if (Regex("^\\d+$").matches(t)) return t.toIntOrNull() ?: 0
+        ScreenIntent.durationSeconds(t)?.let { return it }
         val num = t.filter { it.isDigit() }.toIntOrNull() ?: return 0
         return when {
             t.contains('h') -> num * 3600

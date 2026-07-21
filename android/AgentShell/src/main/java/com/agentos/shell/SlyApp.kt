@@ -27,6 +27,28 @@ class SlyApp : Application() {
             com.agentos.shell.tools.ImageAI.appContext = applicationContext
             com.agentos.shell.tools.AgentClient.discloseAi = com.agentos.shell.tools.MemoryStore.discloseAi(applicationContext)
         } catch (e: Exception) {}
+        // MEMORY BACKFILL. The vector index was only ever fed by MessageStore, so documents, photos,
+        // on-screen recall, CRM leads and network contacts were invisible to semantic search — the brain
+        // physically could not recall them. And with no dedupe, the same text was embedded many times,
+        // so a handful of repeated lines crowded out everything else. Both are fixed at the source now;
+        // this makes the fix RETROACTIVE for data already on the phone. Throttled to once a day.
+        Thread {
+            try {
+                val ctx = applicationContext
+                val p = ctx.getSharedPreferences("slyos_mem_maint", MODE_PRIVATE)
+                val last = p.getLong("last_backfill", 0L)
+                if (System.currentTimeMillis() - last > 24L * 60 * 60 * 1000) {
+                    val dupes = com.agentos.shell.tools.VectorStore.purgeDuplicates(ctx)
+                    val added = com.agentos.shell.tools.VectorStore.ingestAllSources(ctx)
+                    p.edit().putLong("last_backfill", System.currentTimeMillis()).apply()
+                    com.agentos.shell.tools.HealthStore.note(
+                        "memory_backfill", true, "queued $added new · removed $dupes duplicates")
+                }
+            } catch (e: Exception) {
+                try { com.agentos.shell.tools.Fail.log(applicationContext, "Brain", "memory backfill",
+                    e.message ?: "failed", "warn") } catch (e2: Exception) {}
+            }
+        }.start()
         // GUARANTEE semantic memory: if there's no cloud embedder (no Gemini/OpenAI key) and the on-device
         // embedder isn't downloaded yet, fetch it in the background and switch to it. It's a tiny ~6MB model
         // and embedding is lightweight (no phone heat), so memory can never go dark for a free-brain user.

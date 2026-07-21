@@ -31,9 +31,26 @@ object BrainContext {
         fun fmt(role: String, contact: String, body: String, ts: Long = 0L) =
             (if (ts > 0) "[" + dfmt.format(java.util.Date(ts)) + "] " else "") +
             (if (role == "me") "you→$contact" else contact) + ": " + body.trim()
-        try { VectorStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
-        try { MessageStore.search(ctx, q, 8).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body, it.ts), 0.62f)) } } catch (e: Exception) {}
-        if (cands.isEmpty()) return ""
+        // Pull MORE candidates than we can show and let ranking decide — 8+8 was too tight to survive
+        // dedupe, so a good memory could be crowded out by near-duplicates before it was ever considered.
+        try { VectorStore.search(ctx, q, 20).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
+        // Keyword hits used to get a FLAT 0.62 — higher than most genuine semantic matches, so exact-word
+        // noise consistently outranked true meaning matches. Score them by how much of the query they
+        // actually contain, capped below a strong semantic hit.
+        try {
+            val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
+            MessageStore.search(ctx, q, 20).forEach { h ->
+                val low = h.body.lowercase()
+                val hit = if (terms.isEmpty()) 0 else terms.count { low.contains(it) }
+                val frac = if (terms.isEmpty()) 0f else hit.toFloat() / terms.size
+                cands.add(Cand(fmt(h.role, h.contact, h.body, h.ts), 0.35f + 0.30f * frac))
+            }
+        } catch (e: Exception) {}
+        if (cands.isEmpty()) {
+            try { Fail.log(ctx, "Brain", "recall for \"${q.take(40)}\"",
+                "NOTHING found by meaning or keyword across the whole brain", "warn") } catch (e: Exception) {}
+            return ""
+        }
         // Dedupe by normalized text, keeping the highest score.
         val best = HashMap<String, Cand>()
         for (c in cands) {

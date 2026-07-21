@@ -116,7 +116,9 @@ object EmployeeRunner {
                 }
                 "edit_doc" -> {
                     val instruction = act!!.optString("text").ifBlank { act.optString("body") }
-                    val cur = DesignStore.get(ctx, emp.id)
+                    // Team-wide: "make the header bigger" should edit the document that was just made,
+                    // not fail because a different agent happens to be answering this message.
+                    val cur = DesignStore.currentOrTeam(ctx, emp.id)
                     if (cur == null) "no document in progress to edit — make one first" else if (instruction.isBlank()) "" else {
                         val html = AgentClient.editHtml(cur.html, instruction)
                         if (html.length < 100) "couldn't apply that edit" else finalizeDoc(ctx, emp, cur.title, cur.kind, html, "edited")
@@ -130,7 +132,11 @@ object EmployeeRunner {
                         val recips = resolveAudience(ctx, audience)
                         if (recips.isEmpty()) "no one in your CRM matches “$audience” — save some contacts first (or widen the audience)" else {
                             val everyMin = act.optJSONObject("extra")?.optInt("everyMin", 60)?.takeIf { it > 0 } ?: 60
-                            val attach = DesignStore.get(ctx, emp.id)?.pdfPath?.takeIf { it.isNotBlank() && java.io.File(it).exists() } ?: ""
+                            // THE WRONG-ATTACHMENT BUG: this read only this agent's own slot, so an
+                            // outreach campaign either went out with no attachment or with whatever stale
+                            // file that agent last touched — never the document just discussed.
+                            val attach = DesignStore.currentOrTeam(ctx, emp.id)?.pdfPath
+                                ?.takeIf { it.isNotBlank() && java.io.File(it).exists() } ?: ""
                             // Personalize per-recipient at send time via [Name]; enqueue once each.
                             val queued = recips.map { OutreachQueue.Recipient(it.name, it.email) }
                             val n = OutreachQueue.enqueue(ctx, queued, subject, bodyT, attach, everyMin, campaign = audience)
@@ -160,7 +166,7 @@ object EmployeeRunner {
                     }
                 }
                 "deploy" -> {
-                    val cur = DesignStore.get(ctx, emp.id)
+                    val cur = DesignStore.currentOrTeam(ctx, emp.id)
                     val html = act!!.optString("text").ifBlank { cur?.html.orEmpty() }
                     val name = act.optString("title").ifBlank { cur?.title ?: "site" }
                     if (html.length < 60) "there's no site built yet to deploy — create it first, then deploy" else {
@@ -241,7 +247,10 @@ object EmployeeRunner {
 
     /** User said they're happy / wants the PDF → convert the current working doc once and send it. */
     private fun exportPdf(ctx: Context, emp: EmployeeStore.Employee): String {
-        val cur = DesignStore.get(ctx, emp.id) ?: return ""
+        // currentOrTeam, not get: in a team chat the person asks whoever is listening to "send the PDF",
+        // and that agent may not be the one holding the document. Falling back to the team's freshest
+        // document is what "it" actually means to a human.
+        val cur = DesignStore.currentOrTeam(ctx, emp.id) ?: return ""
         return finalizeDoc(ctx, emp, cur.title, cur.kind, cur.html, "finalized", finalize = true)
     }
 
@@ -278,7 +287,7 @@ object EmployeeRunner {
         // FAST PATH: "make it a PDF" / "finalize" / "export it" / "I'm happy, convert it" on a doc that's already
         // in progress → skip the model entirely and do the single HTML→PDF conversion. Reliable + instant.
         // FAST PATH: "deploy it / ship it / go live" on a SITE in progress → deploy to Vercel now (skip the model).
-        val cur0 = DesignStore.get(ctx, emp.id)
+        val cur0 = DesignStore.currentOrTeam(ctx, emp.id)
         val curIsSite = cur0?.kind?.lowercase()?.let { it.contains("site") || it.contains("web") || it.contains("app") || it.contains("landing") } ?: false
         val wantsDeploy = Regex("(?i)\\b(deploy( it| this)?|ship it( live)?|go live|publish( it| this)?|put (it|this) live|make (it|this) live)\\b").containsMatchIn(task)
         if (wantsDeploy && cur0 != null && curIsSite) {
@@ -290,7 +299,13 @@ object EmployeeRunner {
             return ChainResult(if (ok) "It's live — $url" else err, "", if (ok) 1 else 0, 0, 0)
         }
         val wantsPdf = Regex("(?i)\\b(make (it|this).*(pdf|final)|to pdf|as (a )?pdf|export|finali[sz]e|convert.*pdf|i'?m happy|we'?re done|looks good.*(send|final|pdf)|lock it in)\\b").containsMatchIn(task)
-        if (wantsPdf && DesignStore.get(ctx, emp.id) != null && !curIsSite) {
+        // A site was previously excluded outright, so once something was built as a "site" it could NEVER
+        // be turned into a PDF — "send me that as a PDF" just fell through to the model and came back as
+        // prose. A site is HTML like everything else and renders fine. The only reason to hold back is the
+        // ambiguous case: a vague "export"/"finalize" on a site probably means deploy, not print. So we
+        // require the person to have actually said PDF.
+        val saidPdfExplicitly = Regex("(?i)\\bpdf\\b").containsMatchIn(task)
+        if (wantsPdf && cur0 != null && (!curIsSite || saidPdfExplicitly)) {
             val r = try { exportPdf(ctx, emp) } catch (e: Exception) { "couldn't render the PDF" }
             if (r.isNotBlank()) return ChainResult(r, "", if (r.startsWith("couldn't")) 0 else 1, 0, 0)
         }

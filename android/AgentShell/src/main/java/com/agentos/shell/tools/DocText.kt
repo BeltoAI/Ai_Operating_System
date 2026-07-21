@@ -44,6 +44,17 @@ object DocText {
     } catch (e: Exception) { 0 }
 
     /** Pull the most relevant passages for [query] across all stored documents, up to [maxChars]. */
+    /** Title+body of the most recent documents — so their CONTENT can be embedded and found
+     *  semantically, not only by exact keyword. */
+    fun recent(ctx: Context, limit: Int = 200): List<Pair<String, String>> = try {
+        db(ctx).rawQuery("SELECT title, body FROM doctext ORDER BY ts DESC LIMIT ?",
+            arrayOf(limit.toString())).use { c ->
+            val out = ArrayList<Pair<String, String>>()
+            while (c.moveToNext()) out.add((c.getString(0) ?: "") to (c.getString(1) ?: ""))
+            out
+        }
+    } catch (e: Exception) { emptyList() }
+
     fun retrieve(ctx: Context, query: String, maxChars: Int = 2600): String {
         val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
         if (terms.isEmpty()) return ""

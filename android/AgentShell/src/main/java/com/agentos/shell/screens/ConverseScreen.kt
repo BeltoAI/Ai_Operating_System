@@ -111,6 +111,16 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         deviceSpeak(text)
     }
 
+    /**
+     * Strip the machine-readable hero-card tag before anything human touches the text.
+     *
+     * The planner prefixes replies with `[[card:price;...]]` so the Home screen can render a visual
+     * card 100% reliably. Voice mode has no card UI, so the tag was never consumed — it was read
+     * ALOUD ("open bracket open bracket card colon…"), shown on screen, and written into the brain as
+     * part of the memory, poisoning future recall with markup.
+     */
+    fun clean(s: String): String = try { RichParse.fromTag(s).second } catch (e: Exception) { s }
+
     fun answer(prompt: String) {
         phase = "thinking"
         scope.launch {
@@ -122,7 +132,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             val out = (withTimeoutOrNull(60000L) {
                 withContext(Dispatchers.IO) { AgentLoop.run(ctx, prompt, brain, history, userInitiated = true) }
             }) ?: AgentLoop.Result("That took too long — let's try again.", emptyList())
-            val say = out.answer.ifBlank { "Done." }
+            val say = clean(out.answer).ifBlank { "Done." }
             reply = say
             history = (history + (prompt to say)).takeLast(12)   // P4: keep more context across turns
             // Every exchange feeds the brain.
@@ -206,7 +216,7 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         scope.launch {
             if (confirm) {
                 val msg = withContext(Dispatchers.IO) { ToolRouter.executeActions(ctx, acts) }
-                val done = msg.ifBlank { "Done." }
+                val done = clean(msg).ifBlank { "Done." }
                 reply = done
                 speak(done)
             } else {
