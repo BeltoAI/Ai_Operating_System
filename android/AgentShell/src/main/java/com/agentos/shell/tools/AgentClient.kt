@@ -345,6 +345,30 @@ object AgentClient {
                     Log.i("SlyOS", "llm ${choice.provider}/${choice.model} OK in=${r.inTokens} out=${r.outTokens}")
                     return 200 to r.text
                 }
+                // REQUEST TOO LARGE (413 / context_length_exceeded). SlyOS assembles ~24k chars of brain
+                // context and sends it to whatever model the router picked — but small models (Groq's
+                // llama-3.1-8b-instant especially) can't hold that, so every big-context call failed.
+                // That was ~30% of all Groq traffic. Retry once with the context cut down instead of
+                // burning the provider.
+                if (r.code == 413 || r.text.contains("too large", true) ||
+                    r.text.contains("context_length", true) || r.text.contains("maximum context", true)) {
+                    val smallSys = system.take(2500)
+                    val smallMsgs = trimForSmallContext(messages, 6000)
+                    Log.w("SlyOS", "llm ${choice.provider}/${choice.model} 413 — retrying with trimmed context")
+                    r = LlmProviders.call(choice.provider, choice.model, choice.apiKey, smallSys, smallMsgs, maxTokens, readMs, effTools)
+                    if (r.code == 200) {
+                        if (ctx != null) {
+                            CostStore.record(ctx, choice.provider, choice.model, r.inTokens, r.outTokens)
+                            FreeTierMeter.record(ctx, choice.provider)
+                            HealthStore.recordLlm(ctx, choice.provider, true)
+                            Fail.log(ctx, "Brain", "${choice.provider}/${choice.model} needed a smaller context",
+                                "succeeded after trimming — this model can't take the full brain context", "warn")
+                        }
+                        lastInTok = r.inTokens; lastOutTok = r.outTokens
+                        lastProvider = choice.provider; lastModel = choice.model
+                        return 200 to r.text
+                    }
+                }
                 // MODEL RETIRED (404 "no longer available" / "does not exist") → the hardcoded id has rotted and
                 // EVERY future call to this brain would fail forever. Ask the provider what it actually serves,
                 // cache that, and retry once right now instead of writing the provider off.
@@ -2291,6 +2315,34 @@ object AgentClient {
     /** Public entry point for the same sanitiser the UI paths use — so FeatureHealth can PROVE the
      *  "Home AI must never show raw JSON" guarantee still holds, instead of us assuming it does. */
     fun sanitizeForUi(raw: String): String = cleanSay(raw)
+
+    /**
+     * Cut a message list down to fit a small model's context window. Keeps the FIRST message (which
+     * usually carries the task) and the MOST RECENT ones (which carry the immediate conversation),
+     * dropping the middle — that's where the least-load-bearing history lives.
+     */
+    fun trimForSmallContext(messages: JSONArray, budgetChars: Int): JSONArray {
+        if (messages.length() <= 2) return messages
+        val kept = ArrayList<JSONObject>()
+        var used = 0
+        // newest first, until the budget is spent
+        for (i in messages.length() - 1 downTo 0) {
+            val o = messages.optJSONObject(i) ?: continue
+            val len = o.optString("content").length
+            if (used + len > budgetChars && kept.isNotEmpty()) break
+            kept.add(0, o); used += len
+        }
+        // always keep the opening message if we dropped it — it usually states the actual task
+        val first = messages.optJSONObject(0)
+        if (first != null && kept.firstOrNull() !== first) kept.add(0, first)
+        val out = JSONArray()
+        kept.forEach { m ->
+            // hard-truncate any single oversized message so one huge blob can't blow the budget alone
+            val c = m.optString("content")
+            out.put(if (c.length > budgetChars) JSONObject(m.toString()).put("content", c.take(budgetChars)) else m)
+        }
+        return out
+    }
 
     private fun cleanSay(raw: String): String {
         var s = raw.trim()

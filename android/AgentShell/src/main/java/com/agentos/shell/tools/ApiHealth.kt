@@ -222,8 +222,12 @@ object ApiHealth {
         // name, prompt, and a validator on the reply
         Triple("instruction", "Reply with exactly the single word: banana. No punctuation, no other words.",
             { r: String -> r.trim().lowercase().trim('.', '!', '"').contains("banana") }),
-        Triple("json", "Output ONLY compact JSON, no prose, no code fence: {\"city\":\"Paris\",\"n\":7}",
-            { r: String -> r.contains("\"city\"") && r.contains("Paris") }),
+        // NOTE: the old prompt ("...JSON: {city:Paris,n:7}") was AMBIGUOUS — Claude reasonably read it as
+        // "give me 7 places in Paris" and returned different (valid) JSON, so a good model was marked FAIL.
+        // The test must be unmistakable: echo this exact object back.
+        Triple("json", "Echo this exact JSON object back, byte for byte, with no prose and no code fence: " +
+            "{\"city\":\"Paris\",\"n\":7}",
+            { r: String -> r.contains("\"city\"") && r.contains("Paris") && r.contains("7") }),
         Triple("action_schema",
             "Output ONLY compact JSON: {\"say\":\"<short reply>\",\"action\":{\"type\":\"timer\",\"arg\":\"5 minutes\"}}. " +
                 "The user said: set a timer for 5 minutes.",
@@ -241,10 +245,20 @@ object ApiHealth {
             val reply = try { rawComplete(provider, model, key, prompt) } catch (e: Exception) { "" }
             val ms = System.currentTimeMillis() - t
             val ok = reply.isNotBlank() && check(reply)
+            // A blank reply means the CALL failed (quota, network, entitlement) — that is a provider
+            // outage, not a capability gap. Saying "gpt-4o cannot follow instructions" when the real
+            // cause is a 429 is actively misleading.
+            val errored = reply.isBlank()
             out.add(Cap(provider, model, name, ok,
-                if (reply.isBlank()) "no reply" else if (ok) reply.trim().take(48) else "WRONG: " + reply.trim().take(60), ms))
-            if (!ok) Fail.log(ctx, "Brain", "$provider/$model cannot do \"$name\"",
-                if (reply.isBlank()) "returned nothing" else "answered: " + reply.trim().take(120), "warn")
+                when {
+                    errored -> "call failed (quota/network/entitlement) — capability UNKNOWN"
+                    ok -> reply.trim().take(48)
+                    else -> "WRONG: " + reply.trim().take(60)
+                }, ms))
+            if (!ok) Fail.log(ctx, "Brain",
+                if (errored) "$provider/$model unreachable for \"$name\"" else "$provider/$model cannot do \"$name\"",
+                if (errored) "no reply — provider is erroring, capability not proven either way"
+                else "answered: " + reply.trim().take(120), "warn")
         }
         return out
     }

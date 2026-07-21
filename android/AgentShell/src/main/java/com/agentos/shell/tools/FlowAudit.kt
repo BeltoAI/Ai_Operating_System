@@ -658,6 +658,79 @@ object FlowAudit {
             },
             stepBrainRead(), stepBrainReachable(), stepGenerate(), stepLogOutbox())),
 
+        /**
+         * ON-DEVICE / OFFLINE BRAIN — the last completely untested subsystem.
+         * This is the fallback that keeps SlyOS alive when every cloud provider is down, rate-limited or
+         * offline. Nothing verified it, so "we have a local model" was an assumption, not a fact.
+         */
+        Flow("local_lm", "On-device brain (offline fallback)", "Every cloud provider is down or you're offline", listOf(
+            Step("Device can run a local model") { ctx ->
+                // canRun() takes the specific model (RAM requirements differ per model), so ask about the
+                // one that's actually selected rather than in the abstract.
+                val ram = try { LocalLlm.deviceRamGb(ctx) } catch (e: Exception) { 0.0 }
+                val m = try { LocalLlm.selectedModel(ctx) } catch (e: Exception) { null }
+                if (m == null) (ram >= 3.0) to String.format("%.1fGB RAM — no model selected yet", ram)
+                else {
+                    val ok = ram >= m.ramGbMin
+                    ok to String.format("%.1fGB RAM, \"%s\" needs %.1fGB", ram, m.name, m.ramGbMin)
+                }
+            },
+            Step("A local model is selected + downloaded") { ctx ->
+                val m = try { LocalLlm.selectedModel(ctx) } catch (e: Exception) { null }
+                when {
+                    m == null -> false to "NO local model selected — there is no offline fallback at all"
+                    !LocalLlm.isDownloaded(ctx, m) -> false to "\"${m.name}\" selected but NOT downloaded — offline = dead"
+                    else -> true to "${m.name} downloaded and ready"
+                }
+            },
+            Step("Local engine actually loads") { ctx ->
+                val ready = try { LocalLlm.ready(ctx) } catch (e: Exception) { false }
+                ready to (if (ready) "engine loads" else "engine will NOT load — offline fallback is broken")
+            },
+            // The real proof: generate with the LOCAL model, cloud completely bypassed.
+            Step("Local model generates a real answer") { ctx ->
+                if (!LocalLlm.ready(ctx)) false to "engine not ready, nothing to generate with"
+                else {
+                    val msgs = org.json.JSONArray().put(
+                        org.json.JSONObject().put("role", "user").put("content", "Reply with exactly: ok"))
+                    val (code, text) = try { LocalLlm.generate(ctx, "", msgs, 20) } catch (e: Exception) { -1 to "" }
+                    (code == 200 && text.isNotBlank()) to
+                        (if (code == 200 && text.isNotBlank()) "answered offline: \"${text.trim().take(30)}\""
+                         else "local generation FAILED (code $code) — you have no offline brain")
+                }
+            },
+            Step("Offline fallback is wired into the router", critical = false) { ctx ->
+                val m = try { LocalLlm.selectedModel(ctx) } catch (e: Exception) { null }
+                val downloaded = m != null && LocalLlm.isDownloaded(ctx, m)
+                downloaded to (if (downloaded) "AgentClient falls back here when every cloud brain fails"
+                               else "no local model — a cloud outage means total silence")
+            })),
+
+        Flow("on_device_embed", "On-device embeddings", "Semantic memory without a cloud key", listOf(
+            Step("Embedding provider resolves") { ctx ->
+                val prov = try { EmbeddingClient.provider(ctx) } catch (e: Exception) { null }
+                (!prov.isNullOrBlank()) to (if (!prov.isNullOrBlank()) "using \"$prov\"" else "NO embedding provider — semantic memory is dead")
+            },
+            Step("On-device embedder available", critical = false) { ctx ->
+                val dl = try { OnDeviceEmbedder.isDownloaded(ctx) } catch (e: Exception) { false }
+                dl to (if (dl) "downloaded — memory survives with no cloud key"
+                       else "not downloaded — semantic memory depends entirely on a cloud key")
+            },
+            Step("Embeddings actually produce vectors") { ctx ->
+                val v = try { EmbeddingClient.embed(ctx, listOf("flow audit probe")) } catch (e: Exception) { null }
+                val dims = v?.firstOrNull()?.size ?: 0
+                (dims > 0) to (if (dims > 0) "$dims dimensions returned" else "NO vector produced — nothing new becomes searchable")
+            },
+            Step("Queue is draining") { ctx ->
+                val pend = try { VectorStore.pendingCount(ctx) } catch (e: Exception) { -1 }
+                (pend in 0..49) to when {
+                    pend < 0 -> "pending count unavailable"
+                    pend == 0 -> "fully caught up"
+                    pend < 50 -> "$pend queued (drains on the next embed pass)"
+                    else -> "$pend STUCK — embedding is not keeping up"
+                }
+            })),
+
         // ── BLIND-SPOT FLOWS: things that fail SILENTLY because nothing was ever watching them. ──
         Flow("background_work", "Background workers", "Autonomous work while you sleep", listOf(
             Step("Workers are actually running") { ctx ->

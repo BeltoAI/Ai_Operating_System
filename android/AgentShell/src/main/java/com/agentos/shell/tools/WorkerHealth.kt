@@ -23,11 +23,21 @@ object WorkerHealth {
     private fun p(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Expected cadence in hours — used to detect a worker that has gone silent. 0 = on-demand only. */
+    // These MUST match the real PeriodicWorkRequest cadences in ShellActivity/schedulers — guessing them
+    // produced false "OVERDUE" alarms for workers that were perfectly healthy.
     private val EXPECTED_HOURS = mapOf(
-        "BackupWorker" to 24, "EmbedWorker" to 6, "PhotoScanWorker" to 12,
-        "GmailSyncWorker" to 6, "MemoryConsolidationWorker" to 24,
-        "SpicyWorker" to 24, "ReconnectWorker" to 168, "ChecklistReminderWorker" to 24,
-        "MissionWorker" to 24, "TradeWorker" to 24, "EmployeeWorker" to 6)
+        "EmbedWorker" to 1, "EmployeeWorker" to 1,          // both every 15 min → 1h is a generous window
+        "GmailSyncWorker" to 1, "PhotoScanWorker" to 1,
+        "ChecklistReminderWorker" to 3, "BackupWorker" to 6,
+        "MemoryConsolidationWorker" to 24, "MissionWorker" to 24,
+        "SpicyWorker" to 24, "TradeWorker" to 24, "ReconnectWorker" to 168)
+
+    /** When worker tracking first became available. Before this, absence of data means nothing. */
+    private fun trackingSince(ctx: Context): Long {
+        val t = p(ctx).getLong("tracking_since", 0L)
+        if (t == 0L) { val now = System.currentTimeMillis(); p(ctx).edit().putLong("tracking_since", now).apply(); return now }
+        return t
+    }
 
     data class Run(val worker: String, val at: Long, val ok: Boolean, val ms: Long, val detail: String)
 
@@ -79,7 +89,11 @@ object WorkerHealth {
         return EXPECTED_HOURS.map { (w, hours) ->
             val last = p(ctx).getLong("last_$w", 0L)
             // Overdue = expected to run on a cadence, but hasn't within 2x that window. Silence is failure.
-            val overdue = hours > 0 && (last == 0L || now - last > hours * 3_600_000L * 2)
+            // A worker that has never reported is only OVERDUE once tracking has existed longer than its
+            // cadence — otherwise every worker looks broken for the first day after an update.
+            val watched = now - trackingSince(ctx)
+            val overdue = hours > 0 && watched > hours * 3_600_000L * 2 &&
+                (last == 0L || now - last > hours * 3_600_000L * 2)
             Status(w, last, p(ctx).getBoolean("lastok_$w", true),
                 p(ctx).getString("lastdetail_$w", "").orEmpty(),
                 p(ctx).getInt("runs_$w", 0), p(ctx).getInt("fails_$w", 0),
