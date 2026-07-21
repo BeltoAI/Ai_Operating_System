@@ -147,6 +147,18 @@ object BrainContext {
             if (dayLog.isNotBlank()) append("\nWhat flowed through your brain in the time window you asked about (newest first, with times — use these to answer the date question):\n").append(dayLog)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
+            // WHO IS THIS PERSON — searched across contacts, message history, network, CRM and calendar.
+            // Without this, "do I have Randor?" was answered from the phone contacts DB alone and came
+            // back a confident "No" about someone the user messages on WhatsApp every day.
+            try {
+                val who = PersonLookup.subjectOf(q)
+                if (who.isNotBlank()) {
+                    val brief = PersonLookup.brief(ctx, who)
+                    if (brief.isNotBlank()) append("\n").append(brief)
+                    else append("\nYou searched every source (contacts, messages, network, CRM, calendar) " +
+                        "for \"").append(who).append("\" and found NOTHING — it is safe to say you don't know them.\n")
+                }
+            } catch (e: Exception) {}
             if (paperList.isNotBlank()) append("\nYour research papers (these are the papers you have):\n").append(paperList)
             if (papers.isNotBlank()) append("\nFrom your own research papers (use ONLY if relevant):\n").append(papers)
             if (docText.isNotBlank()) append("\nFrom your loaded document (use ONLY if relevant):\n").append(docText)

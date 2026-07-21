@@ -387,6 +387,57 @@ object FlowAudit {
             },
             stepBrainRead(), stepBrainReachable())),
 
+        /**
+         * "DO I KNOW X?" — the flow that would have caught a real, embarrassing bug: phone contacts were
+         * never included in the brain context at all, so SlyOS confidently answered "no" about people
+         * saved in the user's own phone.
+         */
+        Flow("who_is", "Do I know this person?", "\"Do I have Randor?\" / \"Who is Sarah?\"", listOf(
+            Step("Contacts permission") { ctx ->
+                val ok = try { ContactsTool.canRead(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — phone contacts invisible")
+            },
+            Step("Phone contacts are searchable") { ctx ->
+                if (!ContactsTool.canRead(ctx)) false to "no permission"
+                else {
+                    val n = try { ContactsTool.findCandidates(ctx, "a", 20).size } catch (e: Exception) { -1 }
+                    (n > 0) to (if (n > 0) "$n contacts matched a broad query" else "contact search returned NOTHING")
+                }
+            },
+            // THE ACTUAL BUG: contacts existed but were never fed to the model.
+            Step("Contacts reach the BRAIN, not just the phone") { ctx ->
+                val name = try {
+                    ContactsTool.findCandidates(ctx, "a", 5).firstOrNull()?.name?.split(" ")?.firstOrNull().orEmpty()
+                } catch (e: Exception) { "" }
+                if (name.length < 2) true to "no contact available to probe with"
+                else {
+                    val brief = try { PersonLookup.brief(ctx, name) } catch (e: Exception) { "" }
+                    brief.isNotBlank() to (if (brief.isNotBlank())
+                        "\"$name\" resolves through PersonLookup into the brain context"
+                    else "a REAL contact (\"$name\") is INVISIBLE to the brain — the AI would answer \"no\"")
+                }
+            },
+            Step("Lookup spans every source") { ctx ->
+                val name = try {
+                    MessageStore.topContacts(ctx, 5).firstOrNull()?.first.orEmpty()
+                } catch (e: Exception) { "" }
+                if (name.length < 2) true to "no message contacts to probe with"
+                else {
+                    val ms = try { PersonLookup.find(ctx, name.split(" ").first(), 5) } catch (e: Exception) { emptyList() }
+                    ms.isNotEmpty() to (if (ms.isNotEmpty())
+                        "found \"${ms.first().name}\" via ${ms.first().where}"
+                    else "someone you MESSAGE is not findable — lookup is broken")
+                }
+            },
+            Step("Name is extracted from natural phrasing") { _ ->
+                val a = PersonLookup.subjectOf("do I have Randor?")
+                val b = PersonLookup.subjectOf("there literally is Randor, I checked in whatsapp")
+                (a.equals("Randor", true) && b.equals("Randor", true)) to
+                    (if (a.equals("Randor", true) && b.equals("Randor", true))
+                        "both question-shaped and conversational phrasing resolve"
+                    else "phrasing not understood (got \"$a\" / \"$b\") — lookup wouldn't trigger")
+            })),
+
         Flow("contacts_sms", "Message a person", "\"Text Sarah I'm running late\"", listOf(
             Step("Contacts readable") { ctx ->
                 val ok = try { ContactsTool.canRead(ctx) } catch (e: Exception) { false }
