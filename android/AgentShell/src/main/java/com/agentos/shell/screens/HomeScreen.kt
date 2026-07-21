@@ -714,7 +714,25 @@ fun HomeScreen(
             val snap = com.agentos.shell.tools.ScreenSnap.take()
             val screenCtx = if (snap.first.isNotBlank()) "WHAT WAS ON SCREEN (" + snap.second + "):\n" + snap.first + "\n\n" else ""
             val context = screenCtx + withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
-            val result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
+            var result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
+            // SAFETY NET: opening a screen or building a document must NOT depend on how clever the model
+            // is. Those action types were listed in the schema without descriptions, so weaker brains
+            // (Groq's 8B, which the CHEAP tier actually uses) never emitted them and the pages simply never
+            // opened. If the model missed an unmistakable request, synthesise the action ourselves so the
+            // feature works identically on every provider — and record the miss so we can see how often
+            // the model is falling short.
+            run {
+                val wanted = com.agentos.shell.tools.ScreenIntent.detect(q)
+                if (wanted != null && result.actions.none { it.type == wanted.action }) {
+                    result = result.copy(actions = result.actions +
+                        com.agentos.shell.tools.AgentAction(wanted.action, wanted.arg))
+                    try {
+                        com.agentos.shell.tools.Fail.log(ctx, "Planner",
+                            "model missed \"${wanted.action}\" (${com.agentos.shell.tools.ScreenIntent.screenName(wanted.action)})",
+                            "recovered locally for: ${q.take(80)}", "warn")
+                    } catch (e: Exception) {}
+                }
+            }
             // Auto-grow the brain: durable facts learned in conversation are saved automatically
             // (to the separate learned-facts store, not your curated About).
             if (result.remember.isNotBlank()) MemoryStore.addLearnedFact(ctx, result.remember)

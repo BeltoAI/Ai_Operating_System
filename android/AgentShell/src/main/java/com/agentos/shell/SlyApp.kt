@@ -14,6 +14,14 @@ class SlyApp : Application() {
         // FIRST: capture every crash and give the failure log an app context, so failures anywhere in the
         // process (including background threads with no Context in scope) can be recorded.
         try { com.agentos.shell.tools.Fail.installCrashHandler(applicationContext) } catch (e: Exception) {}
+        // One-time cleanup: strip screen-recall entries from noisy apps (chess, keyboards, system chrome)
+        // that had crowded out real memories. Without this the fix only helps new captures.
+        Thread {
+            try {
+                val n = com.agentos.shell.tools.InteractionStore.purgeNoise(applicationContext)
+                if (n > 0) com.agentos.shell.tools.HealthStore.note("recall_purge", true, "removed $n noise entries")
+            } catch (e: Exception) {}
+        }.start()
         try {
             com.agentos.shell.tools.AgentClient.appContext = applicationContext
             com.agentos.shell.tools.ImageAI.appContext = applicationContext

@@ -440,6 +440,27 @@ object FlowAudit {
                         else "retrieve() returns EMPTY — captured screens never inform any answer")
                 }
             },
+            // A single noisy app can silently evict everything valuable from a fixed-size buffer.
+            Step("No single app is crowding out the rest") { ctx ->
+                val apps = try { InteractionStore.appCounts(ctx) } catch (e: Exception) { emptyList() }
+                val total = apps.sumOf { it.second }
+                val top = apps.maxByOrNull { it.second }
+                when {
+                    total == 0 || top == null -> true to "nothing captured yet"
+                    else -> {
+                        val share = top.second * 100 / total
+                        (share < 50) to "${top.first} holds $share% of recall" +
+                            (if (share >= 50) " — it is EVICTING your real memories" else "")
+                    }
+                }
+            },
+            Step("The apps that matter are being captured") { ctx ->
+                val apps = try { InteractionStore.appCounts(ctx).map { it.first.lowercase() } } catch (e: Exception) { emptyList() }
+                val people = listOf("whatsapp", "telegram", "messages", "gmail", "instagram", "signal", "slack")
+                val seen = people.filter { p -> apps.any { it.contains(p) } }
+                seen.isNotEmpty() to (if (seen.isNotEmpty()) "capturing ${seen.joinToString()}"
+                    else "NO messaging app captured — SlyOS can't learn people from your screen")
+            },
             Step("Ring buffer is trimming, not losing everything") { ctx ->
                 // Interactions legitimately shrink (5,000-line cap) — flag only a suspicious collapse.
                 val n = try { InteractionStore.count(ctx) } catch (e: Exception) { 0 }

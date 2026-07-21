@@ -24,7 +24,33 @@ object InteractionStore {
     @Volatile private var lastText = ""
 
     @Synchronized
+    /**
+     * Apps that generate constant screen churn with no memory value — system chrome, keyboards, always-on
+     * displays, and games that repaint every move.
+     *
+     * WHY THIS EXISTS: the recall buffer holds 5,000 entries and was completely unfiltered, so a single
+     * noisy app could evict everything worth remembering. On a real device Chess alone occupied 3,167 of
+     * 4,375 entries (72%) while WhatsApp — where the actual people are — held 30. That's precisely why
+     * "have I seen this person on screen?" came back empty: the useful memories had been pushed out by a
+     * chess board repainting itself.
+     */
+    private val NOISE_APPS = setOf(
+        "chess", "system ui", "systemui", "samsung keyboard", "gboard", "keyboard",
+        "alwaysondisplay", "always on display", "android system", "one ui home", "launcher",
+        "biometrics", "voice wake-up", "voice wake up", "settings", "clock", "calculator")
+
+    private fun isNoise(app: String): Boolean {
+        val a = app.trim().lowercase()
+        return NOISE_APPS.any { a == it || a.contains(it) }
+    }
+
+    /** No single app may occupy more than this share of the buffer — keeps one chatty app from crowding out
+     *  everything else even if it isn't on the noise list. */
+    private const val MAX_APP_SHARE = 0.35
+
     fun record(ctx: Context, app: String, textRaw: String) {
+        // Drop UI chrome outright — it is never the thing you want to recall later.
+        if (isNoise(app)) return
         var text = textRaw.trim().replace("\\s+".toRegex(), " ")
         if (text.length < MIN_LEN) return
         if (text.length > MAX_TEXT) text = text.substring(0, MAX_TEXT)
@@ -38,11 +64,51 @@ object InteractionStore {
         } catch (e: Exception) { /* ignore IO hiccups */ }
     }
 
+    /**
+     * Trim FAIRLY. The old version kept the most recent N lines regardless of source, so whichever app was
+     * loudest at the time survived and everything else was discarded — which is how months of WhatsApp
+     * context could vanish behind an afternoon of chess.
+     *
+     * Now: if one app exceeds [MAX_APP_SHARE] of the buffer, its OLDEST entries are dropped first, and only
+     * then do we fall back to plain age-based trimming. Quiet-but-valuable apps survive.
+     */
     private fun maybeTrim(ctx: Context) {
         val f = file(ctx)
         val lines = try { f.readLines() } catch (e: Exception) { return }
         if (lines.size <= MAX_LINES) return
-        try { f.writeText(lines.takeLast(TRIM_TO).joinToString("\n") + "\n") } catch (e: Exception) {}
+        try {
+            data class L(val raw: String, val app: String, val t: Long)
+            val parsed = lines.mapNotNull {
+                try { val o = JSONObject(it); L(it, o.optString("a"), o.optLong("t")) } catch (e: Exception) { null }
+            }
+            if (parsed.isEmpty()) { f.writeText(lines.takeLast(TRIM_TO).joinToString("\n") + "\n"); return }
+
+            val cap = (TRIM_TO * MAX_APP_SHARE).toInt().coerceAtLeast(50)
+            val byApp = parsed.groupBy { it.app }
+            val keep = ArrayList<L>()
+            byApp.forEach { (_, entries) ->
+                // Any single app keeps at most `cap` entries — its newest ones.
+                keep.addAll(if (entries.size > cap) entries.sortedBy { it.t }.takeLast(cap) else entries)
+            }
+            // Still over budget after per-app capping? Drop globally oldest.
+            val finalKeep = keep.sortedBy { it.t }.let { if (it.size > TRIM_TO) it.takeLast(TRIM_TO) else it }
+            f.writeText(finalKeep.joinToString("\n") { it.raw } + "\n")
+        } catch (e: Exception) {
+            try { f.writeText(lines.takeLast(TRIM_TO).joinToString("\n") + "\n") } catch (e2: Exception) {}
+        }
+    }
+
+    /** One-time cleanup of buffers already polluted by noisy apps, so the fix applies retroactively. */
+    fun purgeNoise(ctx: Context): Int {
+        val f = file(ctx)
+        val lines = try { f.readLines() } catch (e: Exception) { return 0 }
+        if (lines.isEmpty()) return 0
+        val kept = lines.filter {
+            try { !isNoise(JSONObject(it).optString("a")) } catch (e: Exception) { true }
+        }
+        val removed = lines.size - kept.size
+        if (removed > 0) try { f.writeText(kept.joinToString("\n") + "\n") } catch (e: Exception) { return 0 }
+        return removed
     }
 
     data class Entry(val time: Long, val app: String, val text: String)
