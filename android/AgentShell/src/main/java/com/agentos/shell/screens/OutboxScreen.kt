@@ -34,13 +34,36 @@ import com.agentos.shell.tools.OutboxStore
 fun OutboxScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var items by remember { mutableStateOf(OutboxStore.recent(ctx, 100)) }
+    var confirmClear by remember { mutableStateOf(false) }
     val clip = androidx.compose.ui.platform.LocalClipboardManager.current
 
     Column(modifier) {
         ScreenHeader("Sent for you", onBack)
         Spacer(Modifier.height(4.dp))
-        Text("Everything the agent did on your behalf — what, to whom, and why. Recall copies a retraction you can paste.",
+        Text("Everything the agent did on your behalf — what, to whom, and why. Swipe left to remove, right to open.",
             fontSize = T.caption, color = T.inkFaint)
+        if (items.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${items.size} entries", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+                // Two-tap confirm — clearing the whole record of what SlyOS did shouldn't be a stray tap.
+                if (confirmClear) {
+                    Text("Clear all?", fontSize = T.small, color = T.inkSoft)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Yes", fontSize = T.small, color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.danger)
+                            .clickable {
+                                OutboxStore.clearAll(ctx); items = OutboxStore.recent(ctx, 100); confirmClear = false
+                            }.padding(horizontal = 14.dp, vertical = 6.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Cancel", fontSize = T.small, color = T.inkSoft,
+                        modifier = Modifier.clickable { confirmClear = false }.padding(vertical = 6.dp))
+                } else {
+                    Text("Clear all", fontSize = T.small, color = T.danger,
+                        modifier = Modifier.clickable { confirmClear = true }.padding(horizontal = 8.dp, vertical = 6.dp))
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         if (items.isEmpty()) {

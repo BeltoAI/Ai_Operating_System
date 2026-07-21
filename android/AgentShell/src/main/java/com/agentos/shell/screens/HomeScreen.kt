@@ -13,6 +13,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -1077,6 +1078,9 @@ fun HomeScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        // A ringing alarm/timer takes over the top of Home until you deal with it.
+        RingingWidget(ctx)
+
         // Live timer countdown + next alarm — visible only when active.
         TimerWidget(ctx)
 
@@ -1768,6 +1772,66 @@ private fun CtrlIcon(kind: String, tint: androidx.compose.ui.graphics.Color, onC
     }
     Icon(iv, contentDescription = kind, tint = tint,
         modifier = Modifier.size(34.dp).clip(RoundedCornerShape(50)).clickable { onClick() }.padding(4.dp))
+}
+
+/**
+ * THE RINGING CARD — appears the instant an alarm or timer goes off.
+ *
+ * It physically shakes so it's unmistakable in peripheral vision, and carries the two actions you
+ * actually want at that moment: swipe LEFT to stop the sound, swipe RIGHT to snooze 5 minutes.
+ * Nothing else on Home matters while something is ringing, so it sits at the top.
+ */
+@Composable
+private fun RingingWidget(ctx: android.content.Context) {
+    val AR = com.agentos.shell.tools.AlarmRinger
+    if (!AR.ringing.value) return
+    val label = AR.label.value
+
+    // Continuous shake while ringing — stops the moment it's silenced.
+    val shake = rememberInfiniteTransition(label = "ring")
+    val dx = shake.animateFloat(
+        initialValue = -7f, targetValue = 7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(90, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse), label = "shakeX").value
+
+    var drag by remember { mutableStateOf(0f) }
+    Box(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        // What each direction will do, revealed as you drag.
+        if (drag != 0f) Row(Modifier.fillMaxWidth().padding(vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (drag < 0) Arrangement.End else Arrangement.Start) {
+            Text(if (drag < 0) "Stop" else "Snooze 5 min", fontSize = T.small,
+                color = if (drag < 0) T.danger else T.accent,
+                modifier = Modifier.padding(horizontal = 22.dp))
+        }
+        Column(Modifier.fillMaxWidth()
+            .offset { androidx.compose.ui.unit.IntOffset((drag + dx).toInt(), 0) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            drag < -160f -> AR.stop(ctx)
+                            drag > 160f -> AR.snooze(ctx, 5)
+                            else -> drag = 0f
+                        }
+                        drag = 0f
+                    }
+                ) { _, d -> drag = (drag + d).coerceIn(-300f, 300f) }
+            }
+            .clip(RoundedCornerShape(18.dp))
+            .background(T.danger.copy(alpha = 0.16f))
+            .border(1.dp, T.danger, RoundedCornerShape(18.dp))
+            .padding(18.dp)) {
+            Text(if (label.contains("Timer", true)) "Timer" else "Alarm",
+                fontSize = T.caption, color = T.danger, letterSpacing = 1.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(label.ifBlank { "Reminder" }, fontSize = T.body, color = T.ink,
+                fontWeight = FontWeight.Medium, maxLines = 2)
+            Spacer(Modifier.height(10.dp))
+            Text("← swipe to stop     ·     snooze 5 min →", fontSize = T.caption, color = T.inkFaint)
+        }
+    }
 }
 
 /** Live timer countdown (in-app) + the next system alarm. Both appear only when set. */

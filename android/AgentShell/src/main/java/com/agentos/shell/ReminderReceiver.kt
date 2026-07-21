@@ -19,6 +19,11 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(ctx: Context, intent: Intent) {
+        // Stop / snooze arrive back here as actions, so the shade can silence a ringing alarm too.
+        when (intent.getStringExtra("cmd")) {
+            "stop" -> { com.agentos.shell.tools.AlarmRinger.stop(ctx); return }
+            "snooze" -> { com.agentos.shell.tools.AlarmRinger.snooze(ctx, 5); return }
+        }
         val text = intent.getStringExtra("text")?.takeIf { it.isNotBlank() } ?: "Reminder"
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
@@ -62,18 +67,21 @@ class ReminderReceiver : BroadcastReceiver() {
             .setSound(alarmTone)                              // pre-26 sound
             .setVibrate(longArrayOf(0, 400, 200, 400))
             .setFullScreenIntent(openPi, true)                // surfaces even if the screen is off
+            .setOngoing(true)                                  // can't be swiped away while ringing
+            // Stop / Snooze straight from the shade, so you never have to open the app to silence it.
+            .addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, "Stop",
+                PendingIntent.getBroadcast(ctx, 22,
+                    Intent(ctx, ReminderReceiver::class.java).putExtra("cmd", "stop"),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).build())
+            .addAction(Notification.Action.Builder(null as android.graphics.drawable.Icon?, "Snooze 5 min",
+                PendingIntent.getBroadcast(ctx, 23,
+                    Intent(ctx, ReminderReceiver::class.java).putExtra("cmd", "snooze"),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)).build())
             .build()
-        nm.notify((System.currentTimeMillis() % 100000).toInt(), note)
-        // BELT AND BRACES: if the device is silent/DND or the channel was muted by the user, the
-        // notification can still be inaudible. Play the alarm tone on the ALARM stream directly so a
-        // reminder you explicitly asked for actually makes a noise.
-        try {
-            val r = android.media.RingtoneManager.getRingtone(ctx, alarmTone)
-            r?.audioAttributes = android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-            r?.play()
-        } catch (e: Exception) {}
+        nm.notify(com.agentos.shell.tools.AlarmRinger.REMINDER_NOTIF_ID, note)
+        // Ring through AlarmRinger, which OWNS the tone + vibration so it can actually be stopped.
+        // (The earlier version called Ringtone.play() with no handle — it could never be silenced.)
+        com.agentos.shell.tools.AlarmRinger.start(ctx, text)
         // Log the firing into the brain so "what was I reminded about?" recalls it.
         try { com.agentos.shell.tools.MessageStore.insertOne(ctx, "Reminders", "Reminder", "system", "system", "Reminder fired: $text") } catch (e: Exception) {}
     }

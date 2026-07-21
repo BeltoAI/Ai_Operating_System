@@ -58,6 +58,9 @@ object OutboxStore {
 
     fun unreadCount(ctx: Context): Int = recent(ctx, CAP).count { it.status == "sent" }
 
+    /** Wipe the whole outbox — "clear all" once the list has served its purpose. */
+    fun clearAll(ctx: Context) = prefs(ctx).edit().remove(KEY).apply()
+
     /** Permanently drop one entry (swipe-left to remove). */
     fun remove(ctx: Context, id: Long) {
         val arr = load(ctx); val out = JSONArray()
