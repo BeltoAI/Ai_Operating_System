@@ -23,7 +23,6 @@ object InteractionStore {
     @Volatile private var lastApp = ""
     @Volatile private var lastText = ""
 
-    @Synchronized
     /**
      * Apps that generate constant screen churn with no memory value — system chrome, keyboards, always-on
      * displays, and games that repaint every move.
@@ -48,6 +47,7 @@ object InteractionStore {
      *  everything else even if it isn't on the noise list. */
     private const val MAX_APP_SHARE = 0.35
 
+    @Synchronized
     fun record(ctx: Context, app: String, textRaw: String) {
         // Drop UI chrome outright — it is never the thing you want to recall later.
         if (isNoise(app)) return
