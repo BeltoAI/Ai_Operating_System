@@ -625,6 +625,37 @@ object FlowAudit {
                     android.content.pm.PackageManager.PERMISSION_GRANTED
                 g to (if (g) "can alert you" else "DENIED — the reminder fires silently")
             },
+            // THE BUG THAT HID FOR MONTHS: notification channels are immutable, so a channel first created
+            // with low importance stays silent forever no matter what the code asks for. Read back the
+            // channel Android ACTUALLY has and confirm it can make noise.
+            Step("Reminder channel is audible") { ctx ->
+                if (android.os.Build.VERSION.SDK_INT < 26) true to "pre-Android 8: sound set on the notification"
+                else {
+                    val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                    val ch = nm.getNotificationChannel(com.agentos.shell.ReminderReceiver.CHANNEL)
+                    when {
+                        ch == null -> true to "channel not created yet (created on first reminder)"
+                        ch.importance < android.app.NotificationManager.IMPORTANCE_DEFAULT ->
+                            false to "channel importance is ${ch.importance} — reminders will be SILENT"
+                        ch.sound == null -> false to "channel has NO sound — reminders will be silent"
+                        else -> true to "audible (importance ${ch.importance}, vibration ${ch.shouldVibrate()})"
+                    }
+                }
+            },
+            Step("Timer actually schedules a ring") { ctx ->
+                // A timer used to only draw a countdown — nothing was scheduled, so it never rang.
+                val at = System.currentTimeMillis() + 3_600_000
+                val ok = com.agentos.shell.ReminderScheduler.schedule(ctx, at, "__flowaudit_timer__")
+                try {
+                    val am = ctx.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+                    val i = android.content.Intent(ctx, com.agentos.shell.ReminderReceiver::class.java)
+                        .putExtra("text", "__flowaudit_timer__")
+                    val pi = android.app.PendingIntent.getBroadcast(ctx, (at % 1_000_000).toInt(), i,
+                        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+                    am.cancel(pi); pi.cancel()
+                } catch (e: Exception) {}
+                ok to (if (ok) "timers schedule a real ring" else "timer would count down SILENTLY")
+            },
             stepBrainWrite(), stepLogOutbox()))
     )
 

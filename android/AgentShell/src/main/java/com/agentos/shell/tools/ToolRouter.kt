@@ -425,8 +425,16 @@ object ToolRouter {
         val label = arg.replace(Regex("(?i)\\b(timer|set|for|a|an|minutes?|mins?|seconds?|secs?|hours?|hrs?|\\d+)\\b"), " ").replace(Regex("\\s+"), " ").trim()
         TimerStore.start(ctx, secs, label)
         val pretty = if (secs >= 3600) "${secs / 3600}h ${(secs % 3600) / 60}m" else if (secs >= 60) "${secs / 60} min" else "$secs sec"
+        // THE TIMER BUG: this only started an on-screen countdown — NOTHING was ever scheduled to fire, so
+        // a timer could never ring. It just silently reached zero. Schedule a real alarm-toned reminder at
+        // the end so the timer actually goes off, whether or not you're looking at the Home screen.
+        val fired = try {
+            com.agentos.shell.ReminderScheduler.schedule(ctx, System.currentTimeMillis() + secs * 1000L,
+                (label.ifBlank { "Timer" }) + " — $pretty is up")
+        } catch (e: Exception) { false }
+        if (!fired) Fail.log(ctx, "Reminder", "timer for $pretty", "could not schedule the ring — it will count down silently")
         try { MessageStore.insertOne(ctx, "Timers", "Timer", "me", "me", "Timer set for $pretty") } catch (e: Exception) {}
-        return "Timer set for $pretty — counting down on your Home screen."
+        return "Timer set for $pretty — counting down on your Home screen, and it'll ring when it's up."
     }
 
     /** Public entry so UI (e.g. the wake-up suggestion chip) can set an alarm directly. */
@@ -444,8 +452,22 @@ object ToolRouter {
             .putExtra(AlarmClock.EXTRA_HOUR, h)
             .putExtra(AlarmClock.EXTRA_MINUTES, m)
             .apply { if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label) }
+            .putExtra(AlarmClock.EXTRA_VIBRATE, true)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
         val pretty = prettyTime(h, m)
+        // BACKUP RING: handing the alarm to the system clock app is the right primary path, but we cannot
+        // verify it actually landed — some OEM clock apps (Samsung especially) create an alarm from
+        // EXTRA_SKIP_UI and leave it DISABLED, so nothing ever rings and nothing reports a problem.
+        // SlyOS therefore schedules its own alarm-toned reminder for the same moment as a safety net.
+        try {
+            val cal = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, h); set(java.util.Calendar.MINUTE, m)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+                if (timeInMillis <= System.currentTimeMillis()) add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            com.agentos.shell.ReminderScheduler.schedule(ctx, cal.timeInMillis,
+                label.ifBlank { "Alarm" } + " — $pretty")
+        } catch (e: Exception) { Fail.log(ctx, "Reminder", "backup alarm for $pretty", e.message ?: "failed") }
         val note = "Alarm set for $pretty" + (if (label.isNotBlank()) " — “$label”" else "")
         try { MessageStore.insertOne(ctx, "Alarms", "Alarm", "me", "me", note) } catch (e: Exception) {}
         try { MemoryLog.add(ctx, "action", "Alarm", note, "SlyOS") } catch (e: Exception) {}
