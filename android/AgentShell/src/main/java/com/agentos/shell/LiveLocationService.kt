@@ -151,6 +151,7 @@ class LiveLocationService : Service(), LocationListener {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onDestroy() {
+        com.agentos.shell.tools.ServiceHealth.died(applicationContext, "LiveLocationService")
         try { (getSystemService(Context.LOCATION_SERVICE) as? LocationManager)?.removeUpdates(this) } catch (e: Exception) {}
     }
 

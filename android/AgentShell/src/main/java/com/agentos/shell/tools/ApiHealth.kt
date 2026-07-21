@@ -203,12 +203,111 @@ object ApiHealth {
         return out
     }
 
+    /**
+     * CAPABILITY MATRIX — every capability × every keyed provider.
+     *
+     * The gap this closes: the flow audit only ever exercises whichever provider the router happens to
+     * pick (in practice Groq for CHEAP). So a provider can pass the basic round-trip yet be useless for
+     * the things SlyOS actually needs — following an action schema, returning parseable JSON, obeying a
+     * format instruction, handling a long prompt. When the router falls back to that provider mid-task,
+     * the feature breaks in a way no other test would have caught.
+     *
+     * Each capability is a REAL call with a checkable answer, so a pass means the provider can genuinely
+     * do the job, not merely that it responded.
+     */
+    data class Cap(val provider: String, val model: String, val capability: String, val ok: Boolean,
+                   val detail: String, val ms: Long)
+
+    private val CAPABILITIES = listOf(
+        // name, prompt, and a validator on the reply
+        Triple("instruction", "Reply with exactly the single word: banana. No punctuation, no other words.",
+            { r: String -> r.trim().lowercase().trim('.', '!', '"').contains("banana") }),
+        Triple("json", "Output ONLY compact JSON, no prose, no code fence: {\"city\":\"Paris\",\"n\":7}",
+            { r: String -> r.contains("\"city\"") && r.contains("Paris") }),
+        Triple("action_schema",
+            "Output ONLY compact JSON: {\"say\":\"<short reply>\",\"action\":{\"type\":\"timer\",\"arg\":\"5 minutes\"}}. " +
+                "The user said: set a timer for 5 minutes.",
+            { r: String -> r.contains("\"action\"") && r.contains("timer") })
+    )
+
+    /** Run every capability against one provider using the model SlyOS would really send. */
+    fun capabilitiesFor(ctx: Context, provider: String): List<Cap> {
+        val key = try { ModelRouter.keyForPublic(ctx, provider) } catch (e: Exception) { "" }
+        if (key.isBlank()) return emptyList()
+        val model = ModelRouter.modelFor(ctx, provider, ModelRouter.Tier.STANDARD) ?: return emptyList()
+        val out = ArrayList<Cap>()
+        CAPABILITIES.forEach { (name, prompt, check) ->
+            val t = System.currentTimeMillis()
+            val reply = try { rawComplete(provider, model, key, prompt) } catch (e: Exception) { "" }
+            val ms = System.currentTimeMillis() - t
+            val ok = reply.isNotBlank() && check(reply)
+            out.add(Cap(provider, model, name, ok,
+                if (reply.isBlank()) "no reply" else if (ok) reply.trim().take(48) else "WRONG: " + reply.trim().take(60), ms))
+            if (!ok) Fail.log(ctx, "Brain", "$provider/$model cannot do \"$name\"",
+                if (reply.isBlank()) "returned nothing" else "answered: " + reply.trim().take(120), "warn")
+        }
+        return out
+    }
+
+    /** A full completion (not max_tokens=1) so the reply can actually be checked. */
+    private fun rawComplete(provider: String, model: String, key: String, prompt: String): String {
+        val (code, text) = when (provider) {
+            "anthropic" -> req("https://api.anthropic.com/v1/messages",
+                mapOf("x-api-key" to key, "anthropic-version" to "2023-06-01"),
+                JSONObject().put("model", model).put("max_tokens", 100)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt))).toString())
+            "gemini" -> req("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key",
+                emptyMap(), JSONObject().put("contents", JSONArray().put(JSONObject().put("parts",
+                    JSONArray().put(JSONObject().put("text", prompt))))).toString())
+            else -> {
+                val base = when (provider) {
+                    "openai" -> "https://api.openai.com/v1"; "groq" -> "https://api.groq.com/openai/v1"
+                    "cerebras" -> "https://api.cerebras.ai/v1"; "mistral" -> "https://api.mistral.ai/v1"
+                    "nvidia" -> "https://integrate.api.nvidia.com/v1"; "openrouter" -> "https://openrouter.ai/api/v1"
+                    "githubmodels" -> "https://models.inference.ai.azure.com"
+                    else -> return ""
+                }
+                req("$base/chat/completions", mapOf("Authorization" to "Bearer $key"),
+                    JSONObject().put("model", model).put("max_tokens", 100)
+                        .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt))).toString())
+            }
+        }
+        if (code !in 200..299) return ""
+        return try {
+            val o = JSONObject(text)
+            when {
+                o.has("content") -> o.optJSONArray("content")?.optJSONObject(0)?.optString("text").orEmpty()
+                o.has("candidates") -> o.optJSONArray("candidates")?.optJSONObject(0)
+                    ?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text").orEmpty()
+                else -> o.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content").orEmpty()
+            }
+        } catch (e: Exception) { "" }
+    }
+
+    /** The whole matrix — every keyed provider × every capability. */
+    fun capabilityMatrix(ctx: Context): List<Cap> {
+        val out = ArrayList<Cap>()
+        BRAINS.forEach { p -> try { out.addAll(capabilitiesFor(ctx, p)) } catch (e: Exception) {} }
+        val e = p(ctx).edit()
+        e.putLong("caps_at", System.currentTimeMillis())
+        out.groupBy { it.provider }.forEach { (prov, caps) ->
+            e.putString("cap_$prov", caps.joinToString(";") {
+                it.capability + "=" + (if (it.ok) "ok" else "FAIL") + "@" + it.ms
+            } + "|" + (caps.firstOrNull()?.model ?: ""))
+        }
+        e.apply()
+        return out
+    }
+
     /** Probe EVERYTHING and persist, so both the UI and the adb pull see identical live state. */
     fun checkAll(ctx: Context): List<Result> {
         val out = ArrayList<Result>()
         BRAINS.forEach { pr -> out.add(try { checkBrain(ctx, pr) } catch (e: Exception) { Result(pr, false, "key", e.message?.take(60) ?: "error", 0) }) }
         out.addAll(checkIntegrations(ctx))
         persist(ctx, out)
+        // Also run the capability matrix: a provider can pass a round-trip yet be unable to follow an
+        // action schema — which only surfaces when the router falls back to it mid-task.
+        try { capabilityMatrix(ctx) } catch (e: Exception) {}
         return out
     }
 

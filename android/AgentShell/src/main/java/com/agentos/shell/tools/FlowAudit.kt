@@ -431,9 +431,10 @@ object FlowAudit {
                 ok to (if (ok) "granted" else "DENIED — cannot listen")
             },
             Step("AudD token") { ctx ->
-                val k = try { MemoryStore.providerKey(ctx, "audd") } catch (e: Exception) { "" }
-                val t = k.ifBlank { try { MemoryStore.providerKey(ctx, "audd_token") } catch (e: Exception) { "" } }
-                true to (if (t.isNotBlank()) "token set" else "no AudD token — song ID will return nothing")
+                // NOTE: stored as "audd_token", NOT "audd_key" — providerKey() would look up the wrong
+                // pref and report a configured token as missing (same bug class as github/netlify).
+                val t = try { MemoryStore.musicIdToken(ctx) } catch (e: Exception) { "" }
+                t.isNotBlank() to (if (t.isNotBlank()) "token set" else "no AudD token — song ID returns nothing")
             })),
 
         Flow("translate", "Translate", "\"Translate this to Spanish\"", listOf(
@@ -529,6 +530,75 @@ object FlowAudit {
                 true to (if (on) "enabled" else "OFF by default — codes are never read (this is the safe default)")
             },
             stepNotifAccess())),
+
+        // ── BLIND-SPOT FLOWS: things that fail SILENTLY because nothing was ever watching them. ──
+        Flow("background_work", "Background workers", "Autonomous work while you sleep", listOf(
+            Step("Workers are actually running") { ctx ->
+                val silent = try { WorkerHealth.silent(ctx) } catch (e: Exception) { emptyList() }
+                val all = try { WorkerHealth.statuses(ctx) } catch (e: Exception) { emptyList() }
+                val ran = all.count { it.lastRun > 0 }
+                when {
+                    all.isEmpty() -> false to "worker tracking unavailable"
+                    ran == 0 -> false to "NO worker has ever reported a run — autonomous work may be entirely dead"
+                    silent.isNotEmpty() -> false to "OVERDUE: ${silent.joinToString { it.worker }} — past their cadence"
+                    else -> true to "$ran/${all.size} workers reporting on schedule"
+                }
+            },
+            Step("Recent worker failures") { ctx ->
+                val bad = try { WorkerHealth.statuses(ctx).filter { it.fails > 0 } } catch (e: Exception) { emptyList() }
+                bad.isEmpty() to (if (bad.isEmpty()) "no worker failures recorded"
+                    else "failing: " + bad.joinToString { "${it.worker}(${it.fails})" })
+            })),
+
+        Flow("services", "Long-running services", "The bot, accessibility, location stay alive", listOf(
+            Step("No service has silently died") { ctx ->
+                val ghosts = try { ServiceHealth.ghosts(ctx) } catch (e: Exception) { emptyList() }
+                ghosts.isEmpty() to (if (ghosts.isEmpty()) "none believed-alive-but-dead"
+                    else "GHOSTS (think they're running, Android says no): ${ghosts.joinToString()}")
+            },
+            Step("Accessibility engine alive") { _ ->
+                val on = com.agentos.shell.InteractionLogService.instance != null
+                on to (if (on) "running" else "DEAD — tap-send, screen actions and call answering are all off")
+            },
+            Step("Telegram bot service") { ctx ->
+                if (!TelegramClient.configured()) true to "no bot in this build (nothing to keep alive)"
+                else {
+                    val alive = try { ServiceHealth.reallyRunning(ctx, "TelegramService") } catch (e: Exception) { false }
+                    alive to (if (alive) "service running" else "NOT running — the bot will not answer anyone")
+                }
+            })),
+
+        Flow("data_integrity", "Data integrity", "The brain stays consistent as it grows", listOf(
+            // Real bug visible in the live data: embeddings show 'pending 1' on every single pull.
+            Step("Embedding queue drains") { ctx ->
+                val pend = try { VectorStore.pendingCount(ctx) } catch (e: Exception) { -1 }
+                when {
+                    pend < 0 -> true to "pending count unavailable"
+                    pend == 0 -> true to "queue empty — everything is embedded"
+                    pend < 50 -> true to "$pend waiting (normal, drains on the next embed pass)"
+                    else -> false to "$pend STUCK unembedded — semantic recall is degrading"
+                }
+            },
+            Step("Semantic index matches the brain") { ctx ->
+                val msgs = try { MessageStore.count(ctx) } catch (e: Exception) { 0 }
+                val vecs = try { VectorStore.embeddedCount(ctx) } catch (e: Exception) { 0 }
+                if (msgs == 0) true to "nothing to compare yet"
+                else {
+                    val pct = vecs * 100.0 / msgs
+                    (pct > 50) to "$vecs vectors for $msgs messages (${pct.toInt()}%)" +
+                        (if (pct <= 50) " — most of the brain is NOT searchable by meaning" else "")
+                }
+            },
+            Step("No duplicate contacts") { ctx ->
+                val leads = try { LeadStore.all(ctx) } catch (e: Exception) { emptyList() }
+                val dupes = leads.groupBy { it.email.lowercase().trim() }
+                    .filter { it.key.isNotBlank() && it.value.size > 1 }.size
+                (dupes == 0) to (if (dupes == 0) "${leads.size} contacts, no duplicates" else "$dupes duplicated email(s) in the CRM")
+            },
+            Step("Brain is growing") { ctx ->
+                val n = try { MessageStore.count(ctx) } catch (e: Exception) { 0 }
+                (n > 0) to "$n messages stored"
+            })),
 
         Flow("reminders", "Reminders + alarms", "\"Remind me in 20 minutes\"", listOf(
             stepBrainReachable(),

@@ -18,13 +18,16 @@ import com.agentos.shell.tools.ChecklistStore
 class ChecklistReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "ChecklistReminderWorker")
         val ctx = applicationContext
         val open = ChecklistStore.load(ctx).filter { !it.done }
-        if (open.isEmpty()) return Result.success()
+        if (open.isEmpty()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "ChecklistReminderWorker", true).let { Result.success() }
 
         val prefs = ctx.getSharedPreferences("slyos_checklist_nudge", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        if (now - prefs.getLong("last", 0L) < 5 * 60 * 60 * 1000L) return Result.success()
+        if (now - prefs.getLong("last", 0L) < 5 * 60 * 60 * 1000L) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "ChecklistReminderWorker", true).let { Result.success() }
         prefs.edit().putLong("last", now).apply()
 
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -48,6 +51,6 @@ class ChecklistReminderWorker(ctx: Context, params: WorkerParameters) : Coroutin
             .setAutoCancel(true)
             .build()
         nm.notify(9912, note)
-        return Result.success()
+        return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "ChecklistReminderWorker", true).let { Result.success() }
     }
 }

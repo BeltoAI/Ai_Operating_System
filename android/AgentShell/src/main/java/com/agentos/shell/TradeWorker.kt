@@ -22,10 +22,13 @@ import com.agentos.shell.tools.TradeStore
  */
 class TradeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "TradeWorker")
         val ctx = applicationContext
-        if (!TradeStore.started(ctx)) return Result.success()
+        if (!TradeStore.started(ctx)) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "TradeWorker", true).let { Result.success() }
         val holdings = TradeStore.holdings(ctx)
-        if (holdings.isEmpty()) return Result.success()
+        if (holdings.isEmpty()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "TradeWorker", true).let { Result.success() }
 
         val q = QuoteClient.quotes(holdings.map { it.symbol })
         val value = TradeStore.cash(ctx) + holdings.sumOf { (q[it.symbol]?.price ?: it.avgCost) * it.shares }
@@ -72,6 +75,6 @@ class TradeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
                 }
             }
         } catch (e: Exception) {}
-        return Result.success()
+        return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "TradeWorker", true).let { Result.success() }
     }
 }

@@ -90,6 +90,7 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
+        com.agentos.shell.tools.ServiceHealth.started(applicationContext, "OverlayNavService")
         super.onCreate()
         instance = this
         savedStateController.performRestore(null)
@@ -257,6 +258,7 @@ class OverlayNavService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedS
     }
 
     override fun onDestroy() {
+        com.agentos.shell.tools.ServiceHealth.died(applicationContext, "OverlayNavService")
         running = false
         instance = null
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED

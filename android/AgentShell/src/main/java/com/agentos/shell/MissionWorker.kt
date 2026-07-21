@@ -28,9 +28,12 @@ import kotlinx.coroutines.withContext
 class MissionWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "MissionWorker")
         val ctx = applicationContext
         val mission = MissionStore.mission(ctx)
-        if (mission.isBlank() || !AgentClient.hasKey()) return Result.success()
+        if (mission.isBlank() || !AgentClient.hasKey()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "MissionWorker", true).let { Result.success() }
 
         val prev = MissionStore.latest(ctx)?.percent ?: 0
         val a = withContext(Dispatchers.IO) {
@@ -53,7 +56,7 @@ class MissionWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             val days = ((System.currentTimeMillis() - MissionStore.since(ctx)) / 86_400_000L)
             AgentClient.assessMission(mission, context, "$days days ago")
         }
-        if (a.percent < 0) return Result.retry()   // transient (rate limit / no reachable model)
+        if (a.percent < 0) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "MissionWorker", false, "retrying").let { Result.retry() }   // transient (rate limit / no reachable model)
         MissionStore.addCheck(ctx, a.percent, a.argument, a.next)
 
         val checks = MissionStore.checks(ctx)
@@ -65,7 +68,7 @@ class MissionWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ct
             jumped -> notify(ctx, "Progress: ${a.percent}%", "Up from $prev%. ${a.argument.take(120)}")
             stalled -> notify(ctx, "Mission stalled at ${a.percent}%", "No movement lately. Next: ${a.next.take(120)}")
         }
-        return Result.success()
+        return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "MissionWorker", true).let { Result.success() }
     }
 
     private fun notify(ctx: Context, title: String, body: String) {

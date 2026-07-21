@@ -37,8 +37,16 @@ class InteractionLogService : AccessibilityService() {
     // The last snapshot the planner saw — actions reference nodes by index into this list.
     @Volatile private var snapshot: List<Pair<AccessibilityNodeInfo, ScreenNode>> = emptyList()
 
-    override fun onServiceConnected() { instance = this }
-    override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
+    override fun onServiceConnected() {
+        instance = this
+        com.agentos.shell.tools.ServiceHealth.started(applicationContext, "InteractionLogService")
+    }
+    override fun onDestroy() {
+        // If this dies, tap-send / screen actions / WhatsApp answering all stop working silently.
+        com.agentos.shell.tools.ServiceHealth.died(applicationContext, "InteractionLogService")
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
 
     /** A structured, actionable dump of the current screen + a fresh snapshot for tapping by index. */
     @Synchronized

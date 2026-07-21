@@ -19,11 +19,14 @@ import kotlinx.coroutines.withContext
 class SpicyWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
-        if (!AgentClient.hasKey()) return Result.success()
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "SpicyWorker")
+        if (!AgentClient.hasKey()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "SpicyWorker", true).let { Result.success() }
         val post = withContext(Dispatchers.IO) { AgentClient.spicyPost("", MemoryStore.about(applicationContext)) }
-        if (post.isBlank() || post.startsWith("[")) return Result.retry()
+        if (post.isBlank() || post.startsWith("[")) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "SpicyWorker", false, "retrying").let { Result.retry() }
         notify(applicationContext, post)
-        return Result.success()
+        return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "SpicyWorker", true).let { Result.success() }
     }
 
     private fun notify(ctx: Context, post: String) {

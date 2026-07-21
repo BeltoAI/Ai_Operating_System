@@ -35,6 +35,7 @@ class TelegramService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        com.agentos.shell.tools.ServiceHealth.started(applicationContext, "TelegramService")
         if (!running && TelegramClient.configured()) {
             running = true
             startForeground(7, notif())
@@ -43,7 +44,11 @@ class TelegramService : Service() {
         return START_STICKY
     }
 
-    override fun onDestroy() { running = false; scope.cancel() }
+    override fun onDestroy() {
+        // The bot going quiet used to be invisible — now a death is recorded with how long it lived.
+        com.agentos.shell.tools.ServiceHealth.died(applicationContext, "TelegramService")
+        running = false; scope.cancel()
+    }
 
     private suspend fun loop() {
         // Warm getMe so the bot's @username + name are cached before any group message arrives — otherwise the

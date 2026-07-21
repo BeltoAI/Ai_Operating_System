@@ -12,6 +12,9 @@ import com.agentos.shell.tools.PhotoIndex
  */
 class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "PhotoScanWorker")
         return try {
             // Bigger batches so a large gallery gets fully understood in days, not never.
             PhotoIndex.analyzeRecent(applicationContext, 200)
@@ -25,6 +28,7 @@ class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
             try { com.agentos.shell.tools.AlarmPlanner.tick(applicationContext) } catch (e: Exception) {}
             Result.success()
         } catch (e: Exception) {
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "PhotoScanWorker", true)
             Result.success()
         }
     }

@@ -14,6 +14,9 @@ import com.agentos.shell.tools.EmployeeStore
 class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        // Record that this worker actually ran. Ten of eleven workers previously recorded
+        // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
+        com.agentos.shell.tools.WorkerHealth.started(applicationContext, "EmployeeWorker")
         val ctx = applicationContext
         // Self-heal the Telegram poller: if Android froze/killed the foreground service in the background, revive
         // it every worker cycle so incoming @mentions get answered instead of silently dropped.
@@ -30,7 +33,7 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     try { com.agentos.shell.tools.TeamChat.post(ctx, "Outreach", line) } catch (e: Exception) {}
                 }
             } catch (e: Exception) {}
-            if (!com.agentos.shell.tools.AgentClient.hasKey()) return Result.success()   // nothing to spend, skip
+            if (!com.agentos.shell.tools.AgentClient.hasKey()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "EmployeeWorker", true).let { Result.success() }   // nothing to spend, skip
             val now = System.currentTimeMillis()
             val due = EmployeeStore.all(ctx).filter { e ->
                 e.intervalMin > 0 && (now - e.lastRun) >= e.intervalMin * 60_000L
