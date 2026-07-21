@@ -531,6 +531,133 @@ object FlowAudit {
             },
             stepNotifAccess())),
 
+        // ── THE REMAINING SCREENS: every user-facing surface now has a traced flow. ──
+        Flow("chat", "Chat", "A normal back-and-forth conversation", listOf(
+            Step("Threads persist") { ctx ->
+                val n = try { ChatStore.threads(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n saved chat thread(s)" else "chat store unreadable")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepSanitise(),
+            Step("Web search available to chat") { ctx ->
+                val web = ModelRouter.hasKey(ctx, "anthropic") || ModelRouter.hasKey(ctx, "gemini")
+                web to (if (web) "a web-capable brain is keyed" else "no web-capable brain — chat can't look things up")
+            },
+            stepBrainWrite())),
+
+        Flow("research", "Research / papers", "\"Research X and write it up\"", listOf(
+            stepBrainRead(), stepBrainReachable(),
+            Step("Document knowledge loaded", critical = false) { ctx ->
+                val has = try { KnowledgeStore.hasDoc(ctx) } catch (e: Exception) { false }
+                true to (if (has) "a source document is loaded" else "no source doc (research runs from the web instead)")
+            },
+            Step("Web-capable brain for sources") { ctx ->
+                val web = ModelRouter.hasKey(ctx, "anthropic") || ModelRouter.hasKey(ctx, "gemini")
+                web to (if (web) "can browse for sources" else "NO web brain — research would be from memory only")
+            },
+            stepGenerate(), stepFolder(), stepIndexDoc(), stepLogOutbox())),
+
+        Flow("look", "Look (point the camera)", "\"What am I looking at?\"", listOf(
+            Step("Camera permission") { ctx ->
+                val g = ctx.checkSelfPermission(android.Manifest.permission.CAMERA) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                g to (if (g) "granted" else "DENIED — Look cannot see anything")
+            },
+            Step("Vision brain keyed") { ctx ->
+                val v = ModelRouter.hasKey(ctx, "gemini") || ModelRouter.hasKey(ctx, "anthropic") ||
+                    ModelRouter.hasKey(ctx, "openai") || ModelRouter.hasKey(ctx, "githubmodels")
+                v to (if (v) "vision-capable brain available" else "NO vision brain — images can't be understood")
+            },
+            Step("Receipt/document capture path") { ctx ->
+                val n = try { DocStore.list(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n captured documents filed" else "document store unreadable")
+            },
+            stepBrainWrite())),
+
+        Flow("faces", "Faces / people", "SlyOS recognises who's in a photo", listOf(
+            Step("People store readable") { ctx ->
+                val n = try { PeopleStore.list(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n > 0) "$n people saved" else if (n == 0) "no faces saved yet" else "people store unreadable")
+            },
+            Step("Photo index to match against") { ctx ->
+                val n = try { PhotoIndex.count(ctx) } catch (e: Exception) { 0 }
+                (n > 0) to (if (n > 0) "$n photos indexed" else "no photos indexed — nothing to match faces in")
+            },
+            Step("Vision brain keyed") { ctx ->
+                val v = ModelRouter.hasKey(ctx, "gemini") || ModelRouter.hasKey(ctx, "anthropic") ||
+                    ModelRouter.hasKey(ctx, "openai") || ModelRouter.hasKey(ctx, "githubmodels")
+                v to (if (v) "available" else "no vision brain")
+            })),
+
+        Flow("shop", "Shopping", "\"Find me the best X under Y\"", listOf(
+            Step("Web-capable brain") { ctx ->
+                val web = ModelRouter.hasKey(ctx, "anthropic") || ModelRouter.hasKey(ctx, "gemini")
+                web to (if (web) "can search the live web" else "NO web brain — shopping results would be invented, not real")
+            },
+            stepBrainRead(), stepGenerate(), stepSanitise(), stepLogOutbox())),
+
+        Flow("converse", "Converse (voice chat)", "A spoken back-and-forth", listOf(
+            Step("Microphone") { ctx ->
+                val ok = try { SongId.hasMic(ctx) } catch (e: Exception) { false }
+                ok to (if (ok) "granted" else "DENIED — cannot hear you")
+            },
+            Step("Voice sample for your cloned voice", critical = false) { ctx ->
+                val has = try { VoiceSampleStore.hasSample(ctx) } catch (e: Exception) { false }
+                true to (if (has) "voice sample recorded" else "no sample — uses the default voice")
+            },
+            Step("Speech output", critical = false) { ctx ->
+                val el = try { ElevenLabs.available(ctx) } catch (e: Exception) { false }
+                true to (if (el) "ElevenLabs available" else "system voice (no ElevenLabs key)")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepSanitise())),
+
+        Flow("cowork", "Cowork", "Long-form work sessions with SlyOS", listOf(
+            Step("Cowork sessions persist") { ctx ->
+                val n = try { CoworkChatStore.list(ctx).size } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n cowork session(s)" else "cowork store unreadable")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(),
+            Step("Can produce real documents") { ctx ->
+                val ok = GoogleAuth.isConnected(ctx)
+                true to (if (ok) "Google connected — can create Docs/Sheets/Slides" else "no Google — falls back to PDF/Office files")
+            },
+            stepFolder(), stepLogOutbox())),
+
+        Flow("architect", "Architect (build an app)", "\"Build me an app that…\"", listOf(
+            stepBrainReachable(),
+            Step("Code-capable brain") { ctx ->
+                val strong = ModelRouter.hasKey(ctx, "anthropic") || ModelRouter.hasKey(ctx, "openai")
+                strong to (if (strong) "a strong coding brain is keyed" else "only small models keyed — generated apps will be poor")
+            },
+            Step("Deploy target") { ctx ->
+                val v = try { MemoryStore.vercelToken(ctx) } catch (e: Exception) { "" }
+                val n = try { MemoryStore.netlifyToken(ctx) } catch (e: Exception) { "" }
+                (v.isNotBlank() || n.isNotBlank()) to
+                    (if (v.isNotBlank() || n.isNotBlank()) "can ship live" else "no deploy token — builds can't go live")
+            },
+            stepGenerate(), stepLogOutbox())),
+
+        Flow("store", "Power Store", "Browse and install Powers", listOf(
+            Step("Store backend reachable") { _ ->
+                val ok = try { AgentStore.configured() } catch (e: Exception) { false }
+                ok to (if (ok) "store configured" else "store not configured — nothing can be browsed or installed")
+            },
+            Step("Installed powers load") { ctx ->
+                val n = try { PowerRegistry.count(ctx) } catch (e: Exception) { -1 }
+                (n >= 0) to (if (n >= 0) "$n power(s) installed" else "power registry unreadable")
+            },
+            stepBrainRead())),
+
+        Flow("team", "Team", "Your AI employees and their work", listOf(
+            Step("Team roster") { ctx ->
+                val n = try { EmployeeStore.all(ctx).size } catch (e: Exception) { -1 }
+                (n > 0) to (if (n > 0) "$n agent(s)" else "no agents hired")
+            },
+            Step("Work is being logged") { ctx ->
+                val logged = try { EmployeeStore.all(ctx).sumOf { EmployeeStore.logFor(ctx, it.id, 50).size } } catch (e: Exception) { -1 }
+                (logged >= 0) to (if (logged > 0) "$logged logged work entries" else "no work logged yet")
+            },
+            stepBrainRead(), stepBrainReachable(), stepGenerate(), stepLogOutbox())),
+
         // ── BLIND-SPOT FLOWS: things that fail SILENTLY because nothing was ever watching them. ──
         Flow("background_work", "Background workers", "Autonomous work while you sleep", listOf(
             Step("Workers are actually running") { ctx ->
