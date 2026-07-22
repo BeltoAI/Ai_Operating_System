@@ -117,7 +117,8 @@ object DocForge {
             val made = buildFrom(ctx, title, brief, fmt, k, content)
             if (made.ok) {
                 remember(ctx, title, brief, fmt, k, content)
-                indexIntoBrain(ctx, made, title, brief)
+                // Pass the ACTUAL generated body, not just the brief — see indexIntoBrain.
+                indexIntoBrain(ctx, made, title, brief, content)
             }
             made
         } catch (e: Exception) {
@@ -177,8 +178,21 @@ object DocForge {
      * Feed the finished document back INTO the brain: its text becomes searchable, it lands in the outbox,
      * and the SlyOS-folder index knows about it — so it can be recalled and re-sent later.
      */
-    private fun indexIntoBrain(ctx: Context, made: Made, title: String, brief: String) {
-        try { DocText.add(ctx, made.name, "slyos", "$title\n\n$brief") } catch (e: Exception) {}
+    private fun indexIntoBrain(ctx: Context, made: Made, title: String, brief: String, content: String = "") {
+        // THE INGESTION HOLE: this used to store only "$title\n\n$brief" — the one-line prompt, never the
+        // document itself. So the brain "knew" a one-pager existed but had none of its words, and asking
+        // "what did that SlyOS deck say about pricing" recalled nothing. Store the real generated body
+        // (spreadsheets get their rows, decks their slide text) so VectorStore.ingestAllSources embeds it
+        // and it's findable by meaning. For xlsx/pptx the content is delimited; flatten it to plain text.
+        val body = content
+            .replace(Regex("(?m)^===+\\s*$"), "\n")     // slide separators → blank lines
+            .replace(Regex("<[^>]+>"), " ")             // any stray HTML → text
+            .replace(Regex("[ \\t]+"), " ").trim()
+        val forBrain = if (body.length >= 40) "$title\n\n$body" else "$title\n\n$brief"
+        try { DocText.add(ctx, made.name, "slyos", forBrain) } catch (e: Exception) {}
+        // Queue it straight into the vector index too, so it's semantically searchable immediately rather
+        // than only after the next full ingest pass.
+        try { VectorStore.enqueue(ctx, "Document: ${made.name}", "doc", forBrain.take(4000)) } catch (e: Exception) {}
         try {
             MessageStore.insertOne(ctx, "Documents", "SlyOS", "system", "system",
                 "Created ${made.format.uppercase()} “${made.name}” — $brief")

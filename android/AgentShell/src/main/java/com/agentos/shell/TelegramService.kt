@@ -105,7 +105,9 @@ class TelegramService : Service() {
         if (com.agentos.shell.tools.TeamChat.handleUpdate(applicationContext, u)) return
         if (u.chatId < 0) return   // a GROUP the team chat didn't handle → stay silent (never spam pairing in a group)
         if (!authorized(u)) return   // no brain, no persona, no logging for anyone but the paired owner
-        val mem = MemoryStore.about(applicationContext)
+        // Full identity + the Telegram character the user set (not just the About blurb), via the one voice
+        // resolver every outbound surface shares — so the bot carries the same character as everywhere else.
+        val mem = com.agentos.shell.tools.Voice.voiceFor(applicationContext, "telegram")
         val who = u.senderName.ifBlank { "Telegram ${u.chatId}" }   // brain contact name for any branch
         // Remember name → chat id so a later "forward it to <name>" can actually reach them.
         try { com.agentos.shell.tools.TgRelay.rememberChat(applicationContext, u.senderName, u.chatId) } catch (e: Exception) {}

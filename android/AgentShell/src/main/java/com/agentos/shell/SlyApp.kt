@@ -26,6 +26,11 @@ class SlyApp : Application() {
             com.agentos.shell.tools.AgentClient.appContext = applicationContext
             com.agentos.shell.tools.ImageAI.appContext = applicationContext
             com.agentos.shell.tools.AgentClient.discloseAi = com.agentos.shell.tools.MemoryStore.discloseAi(applicationContext)
+            // THE PERSONA BUG: AgentClient.styleProfile (your set writing voice/character) is a @Volatile var
+            // that was ONLY populated during onboarding (SetupScreen). Every cold start began with it EMPTY,
+            // so until you re-ran setup, replies didn't sound like you — the character you set in Settings was
+            // silently ignored on most sessions. Load it here so it's applied on EVERY process start.
+            com.agentos.shell.tools.AgentClient.styleProfile = com.agentos.shell.tools.MemoryStore.styleProfile(applicationContext)
         } catch (e: Exception) {}
         // MEMORY BACKFILL. The vector index was only ever fed by MessageStore, so documents, photos,
         // on-screen recall, CRM leads and network contacts were invisible to semantic search — the brain

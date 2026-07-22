@@ -145,6 +145,36 @@ object SlyFolder {
         return index(ctx).filter { it.name.lowercase().contains(q) || it.category.lowercase().contains(q) || it.summary.lowercase().contains(q) }
     }
 
+    /** Read a filed document's raw bytes back from its MediaStore uri. Null if it's gone. */
+    fun bytesOf(ctx: Context, doc: Doc): ByteArray? = try {
+        ctx.contentResolver.openInputStream(Uri.parse(doc.uri))?.use { it.readBytes() }
+    } catch (e: Exception) { null }
+
+    /** Best-effort mime from a file name, for re-filing restored bytes. */
+    fun mimeForName(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
+        "pdf" -> "application/pdf"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "html", "htm" -> "text/html"
+        "txt" -> "text/plain"
+        "csv" -> "text/csv"
+        "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "webp" -> "image/webp"
+        else -> "application/octet-stream"
+    }
+
+    /**
+     * Re-file bytes that came from a backup on another device, restoring the SAME drawer + summary. Used
+     * by [BrainBackup.restore] so a new phone rebuilds Documents/SlyOS/<category>/ exactly as it was, with
+     * a fresh (valid) uri in the index instead of the dead uri the old device recorded.
+     */
+    fun restoreDoc(ctx: Context, name: String, category: String, bytes: ByteArray, summary: String, ts: Long): Boolean {
+        val uri = insert(ctx, name, mimeForName(name), bytes, category.ifBlank { "Documents" }) ?: return false
+        // Preserve the original timestamp so ordering/recency survives the move to a new device.
+        record(ctx, Doc(name, category.ifBlank { "Documents" }, uri.toString(), summary, if (ts > 0) ts else System.currentTimeMillis()))
+        return true
+    }
+
     fun brief(ctx: Context): String {
         val docs = index(ctx)
         if (docs.isEmpty())

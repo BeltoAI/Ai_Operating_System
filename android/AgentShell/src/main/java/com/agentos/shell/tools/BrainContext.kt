@@ -81,7 +81,9 @@ object BrainContext {
         val recall = if (MemoryStore.recallEnabled(ctx)) InteractionStore.retrieve(ctx, q, 10) else ""
         // P4: merge keyword + semantic hits into ONE ranked, deduped list, best-first, filled to a token
         // budget — so the single most relevant memory always survives instead of being truncated away.
-        val ranked = rankedRecall(ctx, q, budgetChars = 1800)
+        // This is now the PRIMARY semantic surface (everything the phone does is embedded via Brain.remember +
+        // ingestAllSources), so it earns a larger budget than the old keyword-gated blocks around it.
+        val ranked = rankedRecall(ctx, q, budgetChars = 2600)
         val net = ConnectionStore.search(ctx, q, 6)
             .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
             .take(800)
@@ -102,7 +104,7 @@ object BrainContext {
         } catch (e: Exception) { "" }
         // Checklist: pull tasks in whenever the question is about them, or matches task text.
         val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
-        val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|outstanding|pending", RegexOption.IGNORE_CASE).containsMatchIn(q)
+        val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|outstanding|pending|need to|supposed to|my list|what.*do (today|this|next)", RegexOption.IGNORE_CASE).containsMatchIn(q)
         val tasks = if (taskQuery || terms.isNotEmpty())
             ChecklistStore.load(ctx).filter { t -> taskQuery || terms.any { t.text.lowercase().contains(it) } }
                 .joinToString(" · ") { it.text + (if (it.done) " (done)" else "") }.take(600) else ""
@@ -120,7 +122,7 @@ object BrainContext {
         } else ""
         // Finance question ("how much did I spend…", "spending review") → inject REAL totals from the
         // receipt ledger (this month), gated so it never bloats unrelated prompts.
-        val financeQuery = Regex("(?i)\\b(spen[dt]|spending|expense|expenditure|budget|receipt|how much (did|have) i|money (go|going)|cost me|this month.*spend)\\b").containsMatchIn(q)
+        val financeQuery = Regex("(?i)\\b(spen[dt]|spending|expense|expenditure|budget|receipt|finances?|afford|overspend|save|saving|savings|subscriptions?|bills?|paid|income|cash ?flow|how much (did|have|do) i|money (go|going|left)|cost me|this month.*spend|where.*money)\\b").containsMatchIn(q)
         val expenses = if (financeQuery && ExpenseStore.count(ctx) > 0) {
             val (from, to) = ExpenseStore.rangeFor("this month")
             "This month — " + ExpenseStore.summaryText(ctx, from, to)

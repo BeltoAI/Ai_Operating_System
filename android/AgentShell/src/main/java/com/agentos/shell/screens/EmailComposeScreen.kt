@@ -36,6 +36,8 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
     var subject by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var editPrompt by remember { mutableStateOf("") }
+    // Last AI-authored body, so a manual edit before send is captured as a voice-learning/preference signal.
+    var aiDraft by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var attachments by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
@@ -59,9 +61,9 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
         if (working) return
         working = true; status = ""
         scope.launch {
-            val mem = MemoryStore.fullProfile(ctx)
+            val mem = com.agentos.shell.tools.Voice.voiceFor(ctx, "email")
             val (s, b) = withContext(Dispatchers.IO) { AgentClient.composeEmail(initialTo.ifBlank { "the recipient" }, topic, mem) }
-            if (!AgentClient.looksLikeError(b)) { subject = s; body = b } else status = "Couldn't draft it — tap Regenerate."
+            if (!AgentClient.looksLikeError(b)) { subject = s; body = b; aiDraft = b } else status = "Couldn't draft it — tap Regenerate."
             working = false
         }
     }
@@ -69,10 +71,10 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
         if (working || editPrompt.isBlank() || body.isBlank()) return
         val instr = editPrompt; working = true; status = ""
         scope.launch {
-            val mem = MemoryStore.fullProfile(ctx)
+            val mem = com.agentos.shell.tools.Voice.voiceFor(ctx, "email")
             val (s, b) = withContext(Dispatchers.IO) { AgentClient.reviseEmail(subject, body, instr, mem) }
             // Never overwrite a good draft with an error string.
-            if (!AgentClient.looksLikeError(b)) { subject = s; body = b; editPrompt = "" } else status = "Edit failed — your draft is unchanged."
+            if (!AgentClient.looksLikeError(b)) { subject = s; body = b; aiDraft = b; editPrompt = "" } else status = "Edit failed — your draft is unchanged."
             working = false
         }
     }
@@ -88,7 +90,10 @@ fun EmailComposeScreen(modifier: Modifier = Modifier, initialTo: String, topic: 
                 else GmailClient.send(ctx, to.trim(), subj, body)
             }
             status = msg; working = false
-            if (ok) kotlinx.coroutines.delay(900).let { onBack() }
+            if (ok) {
+                com.agentos.shell.tools.Brain.rememberEdit(ctx, "Email", to.trim(), aiDraft, body)
+                kotlinx.coroutines.delay(900).let { onBack() }
+            }
         }
     }
     LaunchedEffect(topic) { if (topic.isNotBlank()) generate() }

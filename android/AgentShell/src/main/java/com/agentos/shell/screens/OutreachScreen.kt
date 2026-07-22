@@ -43,7 +43,7 @@ fun OutreachScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (emails.isEmpty()) { status = "No email addresses found."; return }
         working = true
         scope.launch {
-            val mem = MemoryStore.about(ctx)
+            val mem = com.agentos.shell.tools.Voice.voiceFor(ctx, "email")
             val capped = emails.distinct().take(20)
             var ok = 0; var failed = 0
             capped.forEachIndexed { i, addr ->

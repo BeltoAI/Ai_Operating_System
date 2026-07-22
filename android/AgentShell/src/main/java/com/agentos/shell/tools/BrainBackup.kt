@@ -70,8 +70,40 @@ object BrainBackup {
             if (docs.isDirectory) docs.walkTopDown().filter { it.isFile }.forEach { f ->
                 try { addEntry(zip, "files/" + f.relativeTo(ctx.filesDir).path, f) } catch (e: Exception) {}
             }
+            // THE SLYOS FOLDER — the actual generated deliverables (PDFs, decks, sheets, one-pagers) that
+            // live in the PUBLIC Documents/SlyOS via MediaStore, OUTSIDE app-private storage. Previously the
+            // backup carried only the shared_prefs index, so a restored brain "knew" about files it could no
+            // longer open — every generated document was silently lost on a new device. Zip the real bytes
+            // under slyfolder/<category>/<name> (same structure), plus a manifest so the drawer + summary +
+            // timestamp survive the move. Cap per-file size so one huge file can't blow up the snapshot.
+            addSlyFolder(ctx, zip)
         }
         return out
+    }
+
+    private const val MAX_DOC_BYTES = 25L * 1024 * 1024   // 25MB/file guard
+
+    private fun addSlyFolder(ctx: Context, zip: ZipOutputStream) {
+        try {
+            val manifest = org.json.JSONArray()
+            for (doc in SlyFolder.index(ctx)) {
+                val bytes = SlyFolder.bytesOf(ctx, doc) ?: continue
+                if (bytes.size > MAX_DOC_BYTES) continue
+                val safeCat = doc.category.ifBlank { "Documents" }.replace("/", "_")
+                val safeName = doc.name.replace("/", "_")
+                try {
+                    zip.putNextEntry(ZipEntry("slyfolder/$safeCat/$safeName"))
+                    zip.write(bytes); zip.closeEntry()
+                    manifest.put(org.json.JSONObject()
+                        .put("name", doc.name).put("category", safeCat)
+                        .put("summary", doc.summary).put("ts", doc.ts).put("path", "$safeCat/$safeName"))
+                } catch (e: Exception) { Log.w(TAG, "slyfolder skip ${doc.name}: ${e.message}") }
+            }
+            if (manifest.length() > 0) {
+                zip.putNextEntry(ZipEntry("slyfolder/_manifest.json"))
+                zip.write(manifest.toString().toByteArray()); zip.closeEntry()
+            }
+        } catch (e: Exception) { Log.w(TAG, "slyfolder backup failed: ${e.message}") }
     }
 
     private fun addEntry(zip: ZipOutputStream, name: String, file: File) {
@@ -88,22 +120,56 @@ object BrainBackup {
      */
     fun restore(ctx: Context, zip: File): Boolean {
         val root = dataDir(ctx) ?: return false
+        // slyfolder/ entries can't be written into app-private storage — they belong in the PUBLIC
+        // Documents/SlyOS via MediaStore. Buffer their bytes + the manifest during the pass, then
+        // re-file them once we're done so a new device rebuilds the same drawers with valid uris.
+        val slyBytes = HashMap<String, ByteArray>()
+        var slyManifest = ""
         return try {
             ZipInputStream(zip.inputStream().buffered()).use { zin ->
                 var e = zin.nextEntry
                 while (e != null) {
                     val name = e.name
-                    if (!name.contains("..") &&
-                        (name.startsWith("shared_prefs/") || name.startsWith("databases/") || name.startsWith("files/"))) {
-                        val target = File(root, name)
-                        target.parentFile?.mkdirs()
-                        target.outputStream().buffered().use { zin.copyTo(it) }
+                    when {
+                        name.contains("..") -> { /* path traversal — skip */ }
+                        name == "slyfolder/_manifest.json" -> slyManifest = zin.readBytes().toString(Charsets.UTF_8)
+                        name.startsWith("slyfolder/") -> slyBytes[name.removePrefix("slyfolder/")] = zin.readBytes()
+                        name.startsWith("shared_prefs/") || name.startsWith("databases/") || name.startsWith("files/") -> {
+                            val target = File(root, name)
+                            target.parentFile?.mkdirs()
+                            target.outputStream().buffered().use { zin.copyTo(it) }
+                        }
                     }
                     zin.closeEntry(); e = zin.nextEntry
                 }
             }
+            if (slyBytes.isNotEmpty()) restoreSlyFolder(ctx, slyBytes, slyManifest)
             true
         } catch (e: Exception) { Log.e(TAG, "restore failed", e); false }
+    }
+
+    /**
+     * Re-file the backed-up SlyOS documents into the public folder on this device. The shared_prefs index
+     * we just restored holds the OLD device's uris (now dead), so we clear it and rebuild it from the
+     * manifest as each file is re-filed — leaving the drawers, names, summaries and timestamps intact.
+     */
+    private fun restoreSlyFolder(ctx: Context, files: Map<String, ByteArray>, manifestJson: String) {
+        try {
+            SlyFolder.clear(ctx)   // drop stale uris; we're about to rebuild with valid ones
+            val byPath = HashMap<String, org.json.JSONObject>()
+            if (manifestJson.isNotBlank()) {
+                val arr = org.json.JSONArray(manifestJson)
+                for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { byPath[it.optString("path")] = it }
+            }
+            for ((path, bytes) in files) {
+                val meta = byPath[path]
+                val cat = meta?.optString("category") ?: path.substringBefore('/', "Documents")
+                val nm = meta?.optString("name") ?: path.substringAfterLast('/')
+                val summary = meta?.optString("summary") ?: ""
+                val ts = meta?.optLong("ts") ?: 0L
+                try { SlyFolder.restoreDoc(ctx, nm, cat, bytes, summary, ts) } catch (e: Exception) {}
+            }
+        } catch (e: Exception) { Log.w(TAG, "slyfolder restore failed: ${e.message}") }
     }
 
     /**
@@ -136,12 +202,19 @@ object BrainBackup {
         val zip = try { snapshot(ctx) } catch (e: Exception) { return "Backup failed: ${e.message}" }
         val sizeKb = zip.length() / 1024
         var drive = "Drive not connected"
+        var tree = ""
         try {
             val r = DriveBackup.upload(ctx, zip)
             drive = if (r.ok) "Drive ✓" else "Drive: ${r.error}"
+            // On top of the restore-zip, mirror the SlyOS folder to Drive as a real browsable tree so the
+            // user's documents show up in the same structure on every device, not just inside a zip.
+            if (r.ok) try {
+                val n = DriveBackup.syncFolder(ctx)
+                tree = if (n > 0) " · Files synced ($n)" else " · Files up to date"
+            } catch (e: Exception) { tree = " · file sync error" }
         } catch (e: Exception) { drive = "Drive error" }
         val dl = copyToDownloads(ctx, zip)
-        val note = "$drive · ${if (dl != null) "Downloads ✓" else "Downloads —"} · ${sizeKb}KB"
+        val note = "$drive · ${if (dl != null) "Downloads ✓" else "Downloads —"} · ${sizeKb}KB$tree"
         markBackedUp(ctx, note)
         Log.i(TAG, "brain backup: $note")
         return note

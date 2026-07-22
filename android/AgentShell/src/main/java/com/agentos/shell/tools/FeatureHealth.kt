@@ -72,6 +72,18 @@ object FeatureHealth {
         run("Brain", "Photo index") {
             val n = PhotoIndex.count(ctx)
             if (n > 0) pass("$n photos understood") else skip("no photos indexed yet")
+        },
+        run("Brain", "Ingestion choke point (Brain.remember)") {
+            // Proves the single path every feature routes through actually grows the searchable brain.
+            val before = MessageStore.count(ctx)
+            Brain.remember(ctx, "note", "__slyos_selftest__", "identity-engine self-test ${System.currentTimeMillis()}")
+            val after = MessageStore.count(ctx)
+            if (after > before) pass("remember() wrote + indexed ($before→$after)") else fail("remember() did not grow the brain")
+        },
+        run("Brain", "Voice flywheel (edit capture)") {
+            // The draft→sent corrections that make the voice converge on the real user.
+            val n = EditPairStore.count(ctx)
+            pass("$n draft→sent corrections captured (feed the voice + export as training pairs)")
         }
     )
 

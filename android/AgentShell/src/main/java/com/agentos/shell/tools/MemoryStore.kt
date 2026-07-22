@@ -121,13 +121,26 @@ object MemoryStore {
      * retrievable by semantic + keyword search too, not only via the always-injected profile block.
      */
     fun syncProfileToBrain(ctx: Context) {
-        val facts = buildList {
-            profileName(ctx).ifBlank { ownerName(ctx) }.takeIf { it.isNotBlank() }?.let { add("My name is $it.") }
-            profileEmail(ctx).takeIf { it.isNotBlank() }?.let { add("My email address is $it.") }
-            profilePhone(ctx).takeIf { it.isNotBlank() }?.let { add("My phone number is $it.") }
-            profileAddress(ctx).takeIf { it.isNotBlank() }?.let { add("My home/shipping address is $it.") }
-        }
-        for (f in facts) try { MessageStore.insertOne(ctx, "You", "Profile", "me", "me", f) } catch (e: Exception) {}
+        val now = System.currentTimeMillis()
+        val rows = ArrayList<MessageStore.Row>()
+        // role='system' (not 'me'): still fully semantically searchable, but kept out of every 'me'-filtered
+        // query (voice exemplars, "who did I message last") so profile facts never masquerade as sent messages.
+        fun fact(s: String) { if (s.isNotBlank()) rows.add(MessageStore.Row("You", "Profile", "You", "system", s, now)) }
+        profileName(ctx).ifBlank { ownerName(ctx) }.takeIf { it.isNotBlank() }?.let { fact("My name is $it.") }
+        profileEmail(ctx).takeIf { it.isNotBlank() }?.let { fact("My email address is $it.") }
+        profilePhone(ctx).takeIf { it.isNotBlank() }?.let { fact("My phone number is $it.") }
+        profileAddress(ctx).takeIf { it.isNotBlank() }?.let { fact("My home/shipping address is $it.") }
+        // The WHOLE identity — every personal field, the About text, work history, education, learned facts —
+        // so it's retrievable by MEANING anywhere, not just when fullProfile is prepended wholesale. Before this
+        // only 4 contact fields were embedded, so "what do I do for work" couldn't be found semantically.
+        PERSONAL_FIELDS.forEach { (k, lbl) -> personal(ctx, k).takeIf { it.isNotBlank() }?.let { fact("$lbl: $it") } }
+        about(ctx).takeIf { it.isNotBlank() }?.let { fact("About me: $it") }
+        positions(ctx).takeIf { it.isNotBlank() }?.let { fact("My work history: $it") }
+        education(ctx).takeIf { it.isNotBlank() }?.let { fact("My education: $it") }
+        learnedFacts(ctx).forEach { fact(it) }
+        // insertBatchDedupe skips rows already present (by content hash), so re-saving Settings never duplicates
+        // the brain, and it auto-enqueues each new fact into the semantic index.
+        try { MessageStore.insertBatchDedupe(ctx, rows) } catch (e: Exception) {}
     }
 
     /** A booking/scheduling link (e.g. Calendly) the agent shares when someone wants to talk live. */

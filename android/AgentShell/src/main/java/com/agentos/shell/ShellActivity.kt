@@ -100,7 +100,7 @@ class ShellActivity : ComponentActivity() {
             // Hourly (was every 6h) and REPLACE so the faster cadence actually takes effect on existing installs.
             val scanReq = androidx.work.PeriodicWorkRequestBuilder<PhotoScanWorker>(1, java.util.concurrent.TimeUnit.HOURS).build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_photoscan", androidx.work.ExistingPeriodicWorkPolicy.REPLACE, scanReq)
+                .enqueueUniquePeriodicWork("slyos_photoscan", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, scanReq)
         } catch (e: Exception) {}
         // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
         Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()
@@ -113,13 +113,13 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_embed", androidx.work.ExistingPeriodicWorkPolicy.KEEP, embReq)
+                .enqueueUniquePeriodicWork("slyos_embed", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, embReq)
         } catch (e: Exception) {}
         // Periodic checklist nudge (self-throttles to once/5h, and only fires if items are open).
         try {
             val chkReq = androidx.work.PeriodicWorkRequestBuilder<ChecklistReminderWorker>(3, java.util.concurrent.TimeUnit.HOURS).build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_checklist", androidx.work.ExistingPeriodicWorkPolicy.KEEP, chkReq)
+                .enqueueUniquePeriodicWork("slyos_checklist", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, chkReq)
         } catch (e: Exception) {}
         // The team's 24/7 heartbeat: every 15 min it runs any employee whose interval is due, on its own.
         try {
@@ -127,7 +127,7 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_team", androidx.work.ExistingPeriodicWorkPolicy.KEEP, empReq)
+                .enqueueUniquePeriodicWork("slyos_team", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, empReq)
         } catch (e: Exception) {}
         // Keep new inbox mail flowing into the brain in the background (deduped; no-op if not connected).
         try {
@@ -135,7 +135,7 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_gmail", androidx.work.ExistingPeriodicWorkPolicy.KEEP, gmReq)
+                .enqueueUniquePeriodicWork("slyos_gmail", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, gmReq)
         } catch (e: Exception) {}
         // Daily self-assessment of the mission (no-op if no goal set); pings only on jumps/stalls.
         try {
@@ -143,7 +143,7 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_mission", androidx.work.ExistingPeriodicWorkPolicy.KEEP, misReq)
+                .enqueueUniquePeriodicWork("slyos_mission", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, misReq)
         } catch (e: Exception) {}
         // Daily practice-portfolio update + big-move/news alert (no-op if no portfolio).
         try {
@@ -151,7 +151,7 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_trade", androidx.work.ExistingPeriodicWorkPolicy.KEEP, tradeReq)
+                .enqueueUniquePeriodicWork("slyos_trade", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, tradeReq)
         } catch (e: Exception) {}
         // P5.4: nightly memory consolidation — distill recent messages into durable facts.
         try {
@@ -159,7 +159,7 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_consolidate", androidx.work.ExistingPeriodicWorkPolicy.KEEP, consReq)
+                .enqueueUniquePeriodicWork("slyos_consolidate", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, consReq)
         } catch (e: Exception) {}
         // Continuous brain backup to Google Drive (+ local Downloads) every 6h, so the memory is never
         // one uninstall away from gone again. Plus a one-shot on launch so there's always a fresh copy.
@@ -168,13 +168,32 @@ class ShellActivity : ComponentActivity() {
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork("slyos_backup", androidx.work.ExistingPeriodicWorkPolicy.KEEP, bkReq)
+                .enqueueUniquePeriodicWork("slyos_backup", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, bkReq)
             val bkNow = androidx.work.OneTimeWorkRequestBuilder<BackupWorker>()
                 .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
                 .setInitialDelay(2, java.util.concurrent.TimeUnit.MINUTES)
                 .build()
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniqueWork("slyos_backup_boot", androidx.work.ExistingWorkPolicy.KEEP, bkNow)
+        } catch (e: Exception) {}
+        // REVIVAL KICK: switching the periodic policy to UPDATE re-enqueues stuck/cancelled workers, but the
+        // first periodic run is up to a full interval away. A past build returned Result.failure() somewhere,
+        // which permanently cancels a periodic chain — so several workers had gone silent for good. Kick the
+        // safe ones once now (short delay, deduped) so they resume immediately instead of hours/days later.
+        // (Reconnect is deliberately excluded — it sends real LinkedIn messages and must stay user-triggered.)
+        try {
+            val net = androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()
+            fun kick(name: String, req: androidx.work.OneTimeWorkRequest) =
+                androidx.work.WorkManager.getInstance(applicationContext)
+                    .enqueueUniqueWork(name, androidx.work.ExistingWorkPolicy.KEEP, req)
+            kick("slyos_photoscan_kick", androidx.work.OneTimeWorkRequestBuilder<PhotoScanWorker>()
+                .setInitialDelay(20, java.util.concurrent.TimeUnit.SECONDS).build())
+            kick("slyos_team_kick", androidx.work.OneTimeWorkRequestBuilder<EmployeeWorker>()
+                .setConstraints(net).setInitialDelay(30, java.util.concurrent.TimeUnit.SECONDS).build())
+            kick("slyos_gmail_kick", androidx.work.OneTimeWorkRequestBuilder<GmailSyncWorker>()
+                .setConstraints(net).setInitialDelay(40, java.util.concurrent.TimeUnit.SECONDS).build())
+            kick("slyos_consolidate_kick", androidx.work.OneTimeWorkRequestBuilder<MemoryConsolidationWorker>()
+                .setConstraints(net).setInitialDelay(60, java.util.concurrent.TimeUnit.SECONDS).build())
         } catch (e: Exception) {}
         // If Google is connected, pull recent Gmail (subjects, bodies, PDF attachments) into the brain.
         if (com.agentos.shell.tools.GoogleAuth.isConnected(applicationContext))

@@ -59,12 +59,23 @@ object AutoFile {
         val j = AgentClient.extractForm(b64)
         if (j != null && j.optString("category").isNotBlank() && !j.optString("category").equals("photo", true)) {
             val bmp = try { ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } } catch (e: Exception) { null }
+            val title = j.optString("title", "Document")
+            val fields = j.optJSONObject("fields") ?: JSONObject()
             val folder = if (bmp != null)
-                DocStore.add(ctx, j.optString("category", "other"), j.optString("title", "Document"),
-                    j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), bmp)
-            else DocStore.addText(ctx, j.optString("category", "other"), j.optString("title", "Document"),
-                    j.optString("summary", ""), j.optJSONObject("fields") ?: JSONObject(), "attachment")
-            return "Sorted into $folder — ${j.optString("title", "Document")}."
+                DocStore.add(ctx, j.optString("category", "other"), title,
+                    j.optString("summary", ""), fields, bmp)
+            else DocStore.addText(ctx, j.optString("category", "other"), title,
+                    j.optString("summary", ""), fields, "attachment")
+            // INGESTION HOLE: a scanned ID / letter / form was filed with only its short summary visible in
+            // the brain — the actual OCR'd content (summary + every extracted field) never reached DocText,
+            // so it wasn't keyword- or semantically searchable. Feed the full extracted text in now so the
+            // brain can actually READ what's in your documents, not just know one exists.
+            val extracted = buildString {
+                append(title).append("\n").append(j.optString("summary", ""))
+                fields.keys().forEach { k -> append("\n").append(k).append(": ").append(fields.optString(k)) }
+            }
+            try { DocText.add(ctx, title, "filed", extracted) } catch (e: Exception) {}
+            return "Sorted into $folder — $title."
         }
         return "That's a regular photo — it's already described in your brain, so you can find it by asking."
     }

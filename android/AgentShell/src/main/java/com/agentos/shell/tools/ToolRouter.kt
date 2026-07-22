@@ -489,6 +489,15 @@ object ToolRouter {
         }
         if (Regex("\\bnoon\\b").containsMatchIn(t)) return 12 to 0
         if (Regex("\\bmidnight\\b").containsMatchIn(t)) return 0 to 0
+        // "7 30 am" / "7 30" — space between hour and minutes (speech-to-text writes times this way).
+        Regex("\\b(\\d{1,2})\\s+(\\d{2})\\s*(a\\.?m\\.?|p\\.?m\\.?)?\\b").find(t)?.let { g ->
+            var hh = g.groupValues[1].toIntOrNull() ?: return@let
+            val mm = g.groupValues[2].toIntOrNull() ?: return@let
+            val ap2 = g.groupValues[3].replace(".", "")
+            if (ap2 == "pm" && hh < 12) hh += 12
+            if (ap2 == "am" && hh == 12) hh = 0
+            if (hh in 0..23 && mm in 0..59) return hh to mm
+        }
         val mtch = Regex("(\\d{1,2})(?::(\\d{2}))?\\s*(a\\.?m\\.?|p\\.?m\\.?)?").find(t) ?: return null
         var h = mtch.groupValues[1].toIntOrNull() ?: return null
         val m = mtch.groupValues[2].toIntOrNull() ?: 0

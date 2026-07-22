@@ -715,11 +715,16 @@ object AgentClient {
         content.put(JSONObject().put("type", "text").put("text",
             "Write a $platform post about: $topic. " +
                 (if (imagesB64.isNotEmpty()) "Use what you see in the photo(s). " else "") +
-                (if (memory.isNotBlank()) "Author context: $memory. " else "") +
+                "Write it in the FIRST PERSON as yourself (the account owner), in your own voice and character — " +
+                "not as a marketer writing for someone else. " +
+                (if (memory.isNotBlank()) "This is who you are and how you present on $platform: $memory. " else "") +
                 "Match $platform's tone and length, add a few fitting hashtags. " +
                 "Return ONLY the post text."))
+        // Author AS the user in their per-channel character (via Voice.voiceFor passed in as [memory]),
+        // not a generic copywriter — so the LinkedIn=professional / IG=funny character actually shows up.
         val (code, text) = callContent(
-            "You are a sharp social media copywriter.", content, 600
+            "You write social posts in the first person AS the account owner, in their exact voice and the " +
+                "character they use on this platform. Never sound like a generic brand or marketer.", content, 600
         )
         Log.i("SlyOS", "composePost code=$code imgs=${imagesB64.size} out=${text.take(120)}")
         return if (code == 200) text.trim() else "[couldn't write the post: $code $text]"
@@ -1191,6 +1196,26 @@ object AgentClient {
             "SKIP small talk, one-off logistics, and anything already obvious. Output 0-10 lines, one fact per line, " +
             "no numbering, no preamble. If nothing is durable, output nothing."
         val (code, text) = callContent(sys, "RECENT MESSAGES:\n" + recentDigest.take(9000), 500, MODEL)
+        if (code != 200) return emptyList()
+        return text.lines().map { it.trim().removePrefix("- ").trim() }
+            .filter { it.length in 4..200 && !it.startsWith("[") }.take(10)
+    }
+
+    /**
+     * Distill the USER'S OWN positions from their own messages — opinions, preferences, boundaries, values,
+     * how they operate. "Anna = designer" is a fact ABOUT someone; this captures what the USER thinks/wants,
+     * which is what the agent needs to ACT AS them (accept/decline, take a stance), not just sound like them.
+     * Input should be the user's own ('me') messages. First-person durable lines.
+     */
+    fun distillSelf(ownMessages: String): List<String> {
+        if (ownMessages.isBlank()) return emptyList()
+        val sys = "These are messages the USER themselves wrote. Extract only DURABLE things about THEM that would " +
+            "help an assistant act on their behalf — their opinions and stances, preferences and dislikes, values, " +
+            "boundaries (what they will/won't do), how they work and make decisions, recurring commitments. Write " +
+            "each as ONE first-person line ('I prefer mornings for calls', 'I don't do pay-to-play', 'I think X is " +
+            "overrated'). SKIP one-off logistics, small talk, and facts about OTHER people. Output 0-10 lines, one " +
+            "per line, no numbering, no preamble. If nothing durable, output nothing."
+        val (code, text) = callContent(sys, "MY MESSAGES:\n" + ownMessages.take(9000), 500, MODEL)
         if (code != 200) return emptyList()
         return text.lines().map { it.trim().removePrefix("- ").trim() }
             .filter { it.length in 4..200 && !it.startsWith("[") }.take(10)

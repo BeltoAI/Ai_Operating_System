@@ -38,7 +38,7 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
         if (editPrompt.isBlank() || post.isBlank()) return
         val instr = editPrompt; working = true; status = ""
         scope.launch {
-            post = withContext(Dispatchers.IO) { AgentClient.revisePost(post, instr, platform, MemoryStore.about(ctx)) }
+            post = withContext(Dispatchers.IO) { AgentClient.revisePost(post, instr, platform, com.agentos.shell.tools.Voice.voiceFor(ctx, platform)) }
             editPrompt = ""; working = false
         }
     }
@@ -46,7 +46,7 @@ fun SpicyPostScreen(modifier: Modifier = Modifier, topic: String, onBack: () -> 
     fun generate() {
         working = true; status = ""
         scope.launch {
-            post = withContext(Dispatchers.IO) { AgentClient.spicyPost(topic, platform, MemoryStore.about(ctx)) }
+            post = withContext(Dispatchers.IO) { AgentClient.spicyPost(topic, platform, com.agentos.shell.tools.Voice.voiceFor(ctx, platform)) }
             working = false
         }
     }

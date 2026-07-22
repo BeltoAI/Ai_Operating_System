@@ -88,6 +88,9 @@ fun ReplyCard(note: NotificationStore.Note) {
     var busy by remember { mutableStateOf(false) }
     var approving by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
+    // The AI's draft AS GENERATED, before the user edits it — so the edit delta (draft → what they actually
+    // sent) can be captured as the highest-value voice-learning + preference-training signal.
+    var aiDraft by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf("") }
     var copied by remember { mutableStateOf(false) }
     var eventBusy by remember { mutableStateOf(false) }
@@ -131,7 +134,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                     AgentClient.draftReplyDetailed(note.title.ifBlank { note.app }, note.text, thread, mem)
                 }
             }
-            if (!d.startsWith("[couldn't")) { draft = d; approving = true }
+            if (!d.startsWith("[couldn't")) { draft = d; aiDraft = d; approving = true }
             busy = false
         }
     }
@@ -142,7 +145,7 @@ fun ReplyCard(note: NotificationStore.Note) {
     val stagedDraft = NotificationStore.stagedDrafts[note.key]
     LaunchedEffect(stagedDraft) {
         if (!stagedDraft.isNullOrBlank() && sent.isEmpty() && !approving) {
-            draft = stagedDraft; approving = true; fromStaged = true
+            draft = stagedDraft; aiDraft = stagedDraft; approving = true; fromStaged = true
         }
     }
 
@@ -177,7 +180,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                 quick.take(3).forEach { s ->
                     Text(s, fontSize = T.small, color = T.accent, maxLines = 1,
                         modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(T.accent.copy(alpha = 0.12f))
-                            .clickable { draft = s; approving = true }.padding(horizontal = 12.dp, vertical = 7.dp))
+                            .clickable { draft = s; aiDraft = s; approving = true }.padding(horizontal = 12.dp, vertical = 7.dp))
                 }
             }
         }
@@ -224,7 +227,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                                 }
                             }
                             // Don't hand the user an error placeholder as an editable, sendable draft.
-                            if (!AgentClient.looksLikeError(d)) { draft = d; approving = true }
+                            if (!AgentClient.looksLikeError(d)) { draft = d; aiDraft = d; approving = true }
                             busy = false
                         }
                     }
@@ -246,7 +249,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                             val d = withContext(Dispatchers.IO) {
                                 AgentClient.draftReplyDetailed(note.title.ifBlank { note.app }, note.text, thread, mem)
                             }
-                            if (!d.startsWith("[couldn't")) { draft = d; approving = true }
+                            if (!d.startsWith("[couldn't")) { draft = d; aiDraft = d; approving = true }
                             busy = false
                         }
                     }
@@ -328,6 +331,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                                     val toSend = draft
                                     scope.launch {
                                         val ok = NotificationStore.sendReply(ctx, note, toSend)
+                                        if (ok) com.agentos.shell.tools.Brain.rememberEdit(ctx, note.app, note.title, aiDraft, toSend)
                                         sent = if (ok) { NotificationStore.dismiss(note.key); "Sent ✓" }
                                                else "Send failed — use Open Mail."
                                         approving = false
@@ -377,6 +381,7 @@ fun ReplyCard(note: NotificationStore.Note) {
                                 scope.launch {
                                     val ok = NotificationStore.sendReply(ctx, note, toSend)
                                     if (ok) {
+                                        com.agentos.shell.tools.Brain.rememberEdit(ctx, note.app, note.title, aiDraft, toSend)
                                         NotificationStore.dismiss(note.key)
                                         sent = "Sent: \"$toSend\""
                                     } else sent = "Send failed (see log)."

@@ -110,8 +110,10 @@ object ScreenAgent {
             var step = 0
             while (step++ < budget) {
                 if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
-                var nodes = svc.readScreen()
-                if (nodes.isEmpty()) { delay(1100); nodes = svc.readScreen() }
+                // SETTLE FIRST: wait until the screen stops changing before reading it, so the planner never
+                // acts on a half-loaded list or a mid-animation frame — the single biggest cause of misfires.
+                var nodes = settle(svc)
+                if (nodes.isEmpty()) { delay(1100); nodes = settle(svc) }
                 val pkg = svc.currentPackage()
                 val dump = nodes.joinToString("\n") { n ->
                     val st = when { n.role == "switch" -> if (n.checked) " {on}" else " {off}"; n.role == "list" -> " {scrollable}"; else -> "" }
@@ -167,7 +169,7 @@ object ScreenAgent {
                 val lastDoing = history.toString().trimEnd().substringAfterLast("• ").substringBefore("\n").take(80)
                 updateBanner(ctx, step, if (shot != null) "$lastDoing (seeing screen)" else lastDoing)
                 if (!ok) history.append("• (step had no effect)\n")
-                delay(850)   // human pace + let the UI settle before re-reading
+                delay(300)   // small floor between actions; settle() at the top of the loop does the real waiting
             }
             // Out of steps — do a final honest check instead of claiming success.
             val finalDump = try { svc.readScreen().joinToString("\n") { "${it.index}. [${it.role}] ${it.text}" }.take(3000) } catch (e: Exception) { "" }
@@ -376,6 +378,25 @@ object ScreenAgent {
         } catch (e: Exception) {}
     }
     private fun releaseWake() { try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}; wakeLock = null }
+
+    /**
+     * Poll the screen until it stops changing (two consecutive identical reads) or [maxMs] elapses, so the
+     * planner always sees a SETTLED screen instead of a half-loaded / mid-animation one. Usually returns in
+     * well under a second (already-stable screens exit on the second read); the cap bounds slow loads.
+     */
+    private suspend fun settle(svc: InteractionLogService, maxMs: Long = 2600): List<InteractionLogService.ScreenNode> {
+        val start = System.currentTimeMillis()
+        var nodes = svc.readScreen()
+        fun sig(ns: List<InteractionLogService.ScreenNode>) = ns.joinToString("|") { "${it.role}:${it.text}" }
+        while (System.currentTimeMillis() - start < maxMs) {
+            val before = sig(nodes)
+            delay(300)
+            val fresh = svc.readScreen()
+            nodes = fresh
+            if (fresh.isNotEmpty() && sig(fresh) == before) break   // stable across two reads → settled
+        }
+        return nodes
+    }
 
     @Volatile private var lastShotMs = 0L
     /** Suspend wrapper around the accessibility screenshot callback. Enforces the ~1s system rate limit so

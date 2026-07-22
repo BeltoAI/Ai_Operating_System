@@ -62,6 +62,46 @@ object BrainData {
         } catch (e: Exception) { "Export failed: ${e.message}" }
     }
 
+    // ── Training-ready export: structured JSONL, not lossy Markdown ──
+    // The endgame: when training gets cheap, everyone trains a model on their own data. That needs the corpus
+    // as STRUCTURED records (threads with platform + timestamp + a clean me/them role), the self-model
+    // (profile + style + positions), and the preference pairs (draft→sent edits) — a dataset by construction.
+    fun exportTrainingData(ctx: Context): String {
+        val name = "slyos-training-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".jsonl"
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/jsonl")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SlyOS")
+            }
+            val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return "Couldn't create the export file."
+            var msgs = 0; var pairs = 0; var self = 0
+            ctx.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { w ->
+                fun line(o: org.json.JSONObject) { w.write(o.toString()); w.write("\n") }
+                // The self-model: who you are, how you write, what you believe.
+                line(org.json.JSONObject().put("type", "profile")
+                    .put("text", MemoryStore.fullProfile(ctx))
+                    .put("style", MemoryStore.styleProfile(ctx)))
+                MemoryStore.learnedFacts(ctx).forEach { self++; line(org.json.JSONObject().put("type", "self").put("text", it)) }
+                // The episodic corpus: every message, chronological, with the fields a trainer needs. role='me'
+                // is the target completion (what YOU would say); everything else is context.
+                msgs = MessageStore.forEachRowFull(ctx) { contact, platform, role, body, ts ->
+                    line(org.json.JSONObject().put("type", "message").put("contact", contact)
+                        .put("platform", platform).put("role", role).put("text", body).put("ts", ts))
+                }
+                // The alignment data: how you corrected the AI (rejected → chosen), the preference signal.
+                EditPairStore.all(ctx).forEach { p ->
+                    pairs++
+                    line(org.json.JSONObject().put("type", "preference").put("channel", p.channel)
+                        .put("recipient", p.recipient).put("rejected", p.draft).put("chosen", p.sent).put("ts", p.ts))
+                }
+                w.flush()
+            }
+            "Exported your training corpus ($msgs messages · $self self-facts · $pairs preference pairs) to Downloads/SlyOS/$name"
+        } catch (e: Exception) { "Training export failed: ${e.message}" }
+    }
+
     // ── Import: read a previously-exported .md back into the brain ──
     private val MSG = Regex("^\\[(.+?) \\| (me|them)\\] (.*)$")
     fun importBrain(ctx: Context, uri: Uri): String {

@@ -64,7 +64,7 @@ fun ComposeScreen(
         if (editPrompt.isBlank() || caption.isBlank()) return
         val instr = editPrompt; generating = true; status = ""
         scope.launch {
-            caption = withContext(Dispatchers.IO) { AgentClient.revisePost(caption, instr, platform, MemoryStore.about(ctx)) }
+            caption = withContext(Dispatchers.IO) { AgentClient.revisePost(caption, instr, platform, com.agentos.shell.tools.Voice.voiceFor(ctx, platform)) }
             editPrompt = ""; generating = false
         }
     }
@@ -82,7 +82,7 @@ fun ComposeScreen(
         generating = true
         scope.launch {
             val (b64s, mem) = withContext(Dispatchers.IO) {
-                photos.mapNotNull { encodeImage(ctx, it) } to MemoryStore.about(ctx)
+                photos.mapNotNull { encodeImage(ctx, it) } to com.agentos.shell.tools.Voice.voiceFor(ctx, platform)
             }
             caption = withContext(Dispatchers.IO) { AgentClient.composePost(platform, topic, b64s, mem) }
             generating = false

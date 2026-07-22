@@ -1,6 +1,7 @@
 package com.agentos.shell.tools
 
 import android.content.Context
+import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,6 +29,37 @@ object NetworkOutreach {
 
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    /**
+     * Tidy a drafted message WITHOUT chopping it mid-thought.
+     *
+     * THE TRUNCATION BUG: both loops did `.take(600)`, an arbitrary character chop that sliced a 3–5
+     * sentence LinkedIn note off in the middle of a word — the recipient got a message that just… stopped.
+     * A tailored outreach is short by construction (maxTokens 350), so it almost never needs trimming; when
+     * it genuinely runs long we cut at the LAST sentence end before the ceiling, never mid-sentence.
+     */
+    private fun tidy(msg: String): String {
+        val t = msg.trim()
+        if (t.length <= 900) return t                       // normal case — send it whole
+        val head = t.substring(0, 900)
+        val lastEnd = maxOf(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "))
+        return if (lastEnd >= 300) head.substring(0, lastEnd + 1).trim() else head.trim()
+    }
+
+    /**
+     * Bring SlyOS back to the foreground after a run.
+     *
+     * THE "NEVER COMES BACK" BUG: tap-send drives LinkedIn, and when the loop finished it just left the user
+     * sitting inside LinkedIn — SlyOS never returned, so it felt like the feature wandered off and died. We
+     * relaunch our own activity at the end of every run (done, stopped, or errored) so control comes home.
+     */
+    private fun returnToSlyOS(ctx: Context) {
+        try {
+            val i = Intent(ctx, Class.forName("com.agentos.shell.ShellActivity"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            ctx.startActivity(i)
+        } catch (e: Exception) {}
+    }
 
     fun stop() {
         running = false
@@ -59,7 +91,7 @@ object NetworkOutreach {
                     // relationship instead of reading like a cold intro to someone you've talked to before.
                     val hist = withContext(Dispatchers.IO) { priorWith(ctx, c.name) }
                     val msg = withContext(Dispatchers.IO) {
-                        AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile, hist).take(600)
+                        tidy(AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile, hist))
                     }
                     if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${c.name}: couldn't draft."
                         Fail.log(ctx, "Reconnect", "draft for ${c.name}", "model returned nothing usable"); onUpdate(); continue }
@@ -84,9 +116,10 @@ object NetworkOutreach {
                 }
                 running = false
                 lastMsg = "Done — $sent sent, $failed skipped."
+                returnToSlyOS(ctx)   // come back to SlyOS instead of stranding the user in LinkedIn
                 onUpdate()
             } catch (e: Exception) {
-                running = false; lastMsg = "Stopped on an error: ${e.message}"; onUpdate()
+                running = false; lastMsg = "Stopped on an error: ${e.message}"; returnToSlyOS(ctx); onUpdate()
             }
         }
     }
@@ -127,7 +160,7 @@ object NetworkOutreach {
                     lastMsg = "Messaging ${t.name}… (${sent + failed + 1}/$total)"; onUpdate()
                     val hist = withContext(Dispatchers.IO) { priorWith(ctx, t.name) }
                     val msg = withContext(Dispatchers.IO) {
-                        AgentClient.tailoredOutreach(goal, t.name, t.role, t.company, profile, hist).take(600)
+                        tidy(AgentClient.tailoredOutreach(goal, t.name, t.role, t.company, profile, hist))
                     }
                     if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${t.name}: couldn't draft."; onUpdate(); continue }
                     val (ok, detail) = if (t.url.contains("/in/")) TapSend.sendViaProfile(ctx, t.url, msg, t.name)
@@ -151,9 +184,10 @@ object NetworkOutreach {
                 }
                 running = false
                 lastMsg = "Done — $sent sent, $failed skipped."
+                returnToSlyOS(ctx)
                 onUpdate()
             } catch (e: Exception) {
-                running = false; lastMsg = "Stopped on an error: ${e.message}"; onUpdate()
+                running = false; lastMsg = "Stopped on an error: ${e.message}"; returnToSlyOS(ctx); onUpdate()
             }
         }
     }

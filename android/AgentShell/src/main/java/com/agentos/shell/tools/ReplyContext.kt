@@ -21,6 +21,14 @@ object ReplyContext {
         val about = MemoryStore.fullProfile(ctx)   // About + facts the agent has learned on its own
         if (about.isNotBlank()) sb.append(about).append(" ")
 
+        // THE FLYWHEEL: how the user has recently FIXED the AI's drafts on this channel — the strongest
+        // signal of their real voice. Feeding these back makes each draft converge on how they actually
+        // write, instead of repeating the same off-notes. (Captured by Brain.rememberEdit on every edited send.)
+        val corrections = try { EditPairStore.recentCorrections(ctx, app, 3) } catch (e: Exception) { emptyList() }
+        if (corrections.isNotEmpty())
+            sb.append("\n⚑ HOW YOU FIX MY DRAFTS (mirror these edits — this is your true voice, learn from the change): ")
+                .append(corrections.joinToString(" · ")).append("\n")
+
         // Your real schedule — so the agent can answer "are you free Thursday?" instead of guessing.
         val cal = try { CalendarTool.upcoming(ctx) } catch (e: Exception) { "" }
         if (cal.isNotBlank())

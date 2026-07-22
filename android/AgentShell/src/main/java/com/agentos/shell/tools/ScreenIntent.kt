@@ -70,6 +70,20 @@ object ScreenIntent {
     /** Clock time as "HH:MM" (24h) from "7:30am", "at 6", "18:45", "7 pm". */
     fun clockTime(text: String): String? {
         val t = text.lowercase()
+        // "7 30 am" / "7 30" — hour and minutes separated by a space, not a colon. People (and speech-to-text)
+        // write times this way constantly; without this, "set an alarm for 7 30 am" fell through to the model
+        // and got narrated instead of scheduled.
+        Regex("\\b(\\d{1,2})\\s+(\\d{2})\\s*(am|pm)?\\b").find(t)?.let { g ->
+            var h = g.groupValues[1].toIntOrNull() ?: return@let
+            val min = g.groupValues[2].toIntOrNull() ?: return@let
+            val ap = g.groupValues[3]
+            if (ap == "pm" && h < 12) h += 12
+            if (ap == "am" && h == 12) h = 0
+            if (h in 0..23 && min in 0..59) return String.format(java.util.Locale.US, "%02d:%02d", h, min)
+        }
+        // Word times: noon / midnight.
+        if (Regex("\\bnoon\\b").containsMatchIn(t)) return "12:00"
+        if (Regex("\\bmidnight\\b").containsMatchIn(t)) return "00:00"
         val m = Regex("\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").findAll(t)
             .firstOrNull { g ->
                 val h = g.groupValues[1].toIntOrNull() ?: return@firstOrNull false

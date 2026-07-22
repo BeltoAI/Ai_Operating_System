@@ -109,6 +109,29 @@ object VectorStore {
                     listOfNotNull(c.name, c.role.ifBlank { null }, c.company.ifBlank { null }).joinToString(" · "))
             }
         } catch (e: Exception) {}
+        // Research papers — your OWN writing. Previously keyword-only, so asking your brain about an idea
+        // in your paper using different words found nothing. Chunk each paper so long ones stay findable.
+        try {
+            PaperStore.list(ctx).forEach { p ->
+                val text = PaperStore.plainText(ctx, p.id)
+                if (text.length >= 40) text.chunked(1200).take(8).forEach { chunk ->
+                    add("Paper: ${p.title}", "paper", chunk)
+                }
+            }
+        } catch (e: Exception) {}
+        // Filed documents (email attachments, scans, receipts, contracts) — the structured summary +
+        // extracted fields, so even a doc whose full body didn't reach DocText is still recallable.
+        try {
+            DocStore.list(ctx).take(perSource).forEach { d ->
+                val fields = try {
+                    val o = org.json.JSONObject(d.fieldsJson)
+                    o.keys().asSequence().joinToString(" · ") { k -> "$k: ${o.optString(k)}" }
+                } catch (e: Exception) { "" }
+                add("Filed: ${d.title}", "filed",
+                    listOfNotNull(d.title, d.category.ifBlank { null }, d.summary.ifBlank { null },
+                        fields.ifBlank { null }).joinToString(" · "))
+            }
+        } catch (e: Exception) {}
         if (added > 0) HealthStore.note("vec_ingest", true, "queued $added new memories from all sources")
         return added
     }

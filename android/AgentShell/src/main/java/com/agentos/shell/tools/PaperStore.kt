@@ -120,6 +120,10 @@ object PaperStore {
         .replace(Regex("<[^>]+>"), " ")
         .replace(Regex("\\s+"), " ").trim()
 
+    /** A paper's readable body text (HTML stripped) — so the vector index can embed it and the brain
+     *  can recall your own research by MEANING, not just exact keywords. */
+    fun plainText(ctx: Context, id: Long): String = try { stripHtml(html(ctx, id)) } catch (e: Exception) { "" }
+
     /**
      * Relevant context drawn from your OTHER papers — this is how one paper can build on another
      * through the brain. Returns excerpts most related to [query], excluding the current paper.

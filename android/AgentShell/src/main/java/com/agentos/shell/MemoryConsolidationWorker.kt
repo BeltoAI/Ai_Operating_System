@@ -27,6 +27,10 @@ class MemoryConsolidationWorker(ctx: Context, params: WorkerParameters) : Corout
             val facts = AgentClient.distillFacts(digest)
             // addLearnedFact de-dupes AND dual-writes to the unbounded brain DB (P1.5), so nothing is lost.
             facts.forEach { MemoryStore.addLearnedFact(ctx, it) }
+            // ALSO distill the user's OWN positions/opinions/boundaries from THEIR OWN messages — this is what
+            // lets the agent act AS them (take a stance, accept/decline), not just recall facts about others.
+            val ownMsgs = MessageStore.myRecentBodies(ctx, 120).joinToString("\n")
+            if (ownMsgs.length >= 40) AgentClient.distillSelf(ownMsgs).forEach { MemoryStore.addLearnedFact(ctx, it) }
             Result.success()
         } catch (e: Exception) { Result.success() }   // never crash the scheduler
     }

@@ -60,6 +60,96 @@ object DriveBackup {
 
     private fun saveId(ctx: Context, id: String) = prefs(ctx).edit().putString(K_ID, id).apply()
 
+    private const val K_TREE = "backup_tree_map"   // "cat/name" -> "driveId:size", so we skip unchanged files
+
+    /**
+     * Mirror the SlyOS folder to Drive AS A REAL, BROWSABLE TREE — SlyOS/<Category>/<file> — in addition
+     * to the single rolling zip. The zip is the machine restore path; this is so the user can open Drive
+     * on any device and see their actual documents in the same structure they have on the phone.
+     *
+     * drive.file scope only exposes files this app created, which is exactly these, so it can find its own
+     * folders again after a reinstall. Unchanged files (same name + size) are skipped to stay light on the
+     * free API quota. Best-effort: returns how many files it pushed, and never throws into the caller.
+     */
+    fun syncFolder(ctx: Context): Int {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return 0
+        return try {
+            val rootId = ensureFolder(token, SlyFolder.ROOT, "root").ifBlank { return 0 }
+            val map = try { JSONObject(prefs(ctx).getString(K_TREE, "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+            val catFolders = HashMap<String, String>()
+            var pushed = 0
+            for (doc in SlyFolder.index(ctx)) {
+                val cat = doc.category.ifBlank { "Documents" }
+                val bytes = SlyFolder.bytesOf(ctx, doc) ?: continue
+                val key = "$cat/${doc.name}"
+                val prev = map.optString(key, "")
+                val sizeTag = "${bytes.size}"
+                // Skip if we've already pushed this exact file (id present + size unchanged).
+                if (prev.isNotBlank() && prev.substringAfterLast(':') == sizeTag) continue
+                val catId = catFolders.getOrPut(cat) { ensureFolder(token, cat, rootId) }
+                if (catId.isBlank()) continue
+                val mime = SlyFolder.mimeForName(doc.name)
+                val existingId = prev.substringBefore(':', "").ifBlank { findInFolder(token, doc.name, catId) }
+                val newId = if (existingId.isNotBlank()) {
+                    val (code, _) = mediaPatch(existingId, token, bytes)
+                    if (code in 200..299) existingId else uploadInto(token, catId, doc.name, mime, bytes)
+                } else uploadInto(token, catId, doc.name, mime, bytes)
+                if (newId.isNotBlank()) { map.put(key, "$newId:$sizeTag"); pushed++ }
+            }
+            prefs(ctx).edit().putString(K_TREE, map.toString()).apply()
+            pushed
+        } catch (e: Exception) { Log.w(TAG, "folder sync failed: ${e.message}"); 0 }
+    }
+
+    /** Find (or create) a folder by name under [parentId]; returns its id, or "" on failure. */
+    private fun ensureFolder(token: String, name: String, parentId: String): String {
+        val safe = name.replace("'", "\\'")
+        val q = URLEncoder.encode(
+            "name='$safe' and mimeType='application/vnd.google-apps.folder' and trashed=false and '$parentId' in parents",
+            "UTF-8")
+        val (code, body) = req("GET",
+            "https://www.googleapis.com/drive/v3/files?q=$q&pageSize=1&fields=" +
+                URLEncoder.encode("files(id)", "UTF-8"), token, null, null)
+        if (code in 200..299) try {
+            val files = JSONObject(body).optJSONArray("files")
+            if (files != null && files.length() > 0) return files.getJSONObject(0).getString("id")
+        } catch (e: Exception) {}
+        // Create it.
+        val meta = JSONObject().put("name", name)
+            .put("mimeType", "application/vnd.google-apps.folder")
+            .put("parents", org.json.JSONArray().put(parentId))
+        val (c2, b2) = req("POST", "https://www.googleapis.com/drive/v3/files?fields=id",
+            token, "application/json; charset=UTF-8", meta.toString().toByteArray(Charsets.UTF_8))
+        return if (c2 in 200..299) try { JSONObject(b2).getString("id") } catch (e: Exception) { "" } else ""
+    }
+
+    private fun findInFolder(token: String, name: String, parentId: String): String {
+        val safe = name.replace("'", "\\'")
+        val q = URLEncoder.encode("name='$safe' and trashed=false and '$parentId' in parents", "UTF-8")
+        val (code, body) = req("GET",
+            "https://www.googleapis.com/drive/v3/files?q=$q&pageSize=1&fields=" +
+                URLEncoder.encode("files(id)", "UTF-8"), token, null, null)
+        if (code !in 200..299) return ""
+        return try {
+            val files = JSONObject(body).optJSONArray("files")
+            if (files != null && files.length() > 0) files.getJSONObject(0).getString("id") else ""
+        } catch (e: Exception) { "" }
+    }
+
+    /** Create a new file with [bytes] inside [parentId]; returns its id, or "". */
+    private fun uploadInto(token: String, parentId: String, name: String, mime: String, bytes: ByteArray): String {
+        val boundary = "slyosDoc" + System.currentTimeMillis()
+        val meta = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(parentId)).toString()
+        val head = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n" +
+            "--$boundary\r\nContent-Type: $mime\r\n\r\n").toByteArray(Charsets.UTF_8)
+        val tail = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+        val (code, resp) = req("POST",
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+            token, "multipart/related; boundary=$boundary", head + bytes + tail)
+        return if (code in 200..299) try { JSONObject(resp).getString("id") } catch (e: Exception) { "" } else ""
+    }
+
     /** Newest file with this name that the app created. "" if none. */
     private fun findByName(token: String, name: String): String {
         val q = URLEncoder.encode("name='$name' and trashed=false", "UTF-8")

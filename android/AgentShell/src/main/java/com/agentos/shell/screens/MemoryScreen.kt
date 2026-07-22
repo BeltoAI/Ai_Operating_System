@@ -1584,7 +1584,8 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             fontSize = T.small, color = T.inkFaint)
         Spacer(Modifier.height(8.dp))
         listOf("linkedin" to "LinkedIn", "instagram" to "Instagram", "x" to "X", "reddit" to "Reddit",
-            "whatsapp" to "WhatsApp", "telegram" to "Telegram").forEach { (key, label) ->
+            "whatsapp" to "WhatsApp", "telegram" to "Telegram", "messenger" to "Messenger", "signal" to "Signal",
+            "discord" to "Discord", "slack" to "Slack", "sms" to "SMS", "email" to "Email").forEach { (key, label) ->
             var v by remember { mutableStateOf(MemoryStore.styleFor(ctx, key)) }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
                 Text(label, fontSize = T.small, color = T.inkSoft, modifier = Modifier.width(78.dp))
@@ -1722,6 +1723,13 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
                     .clickable { brainImportPicker.launch(arrayOf("*/*")) }.padding(horizontal = 14.dp, vertical = 9.dp))
         }
+        Spacer(Modifier.height(8.dp))
+        Text("Export training data (JSONL)", fontSize = T.small, color = T.accent,
+            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                .clickable { brainMsg = "Building training corpus…"; scope.launch { brainMsg = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainData.exportTrainingData(ctx) } } }
+                .padding(horizontal = 14.dp, vertical = 9.dp))
+        Text("Structured threads + your positions + the draft→sent corrections — the dataset to one day train a model that's you.",
+            fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 4.dp))
         if (brainMsg.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(brainMsg, fontSize = T.caption, color = T.accent) }
 
         }
