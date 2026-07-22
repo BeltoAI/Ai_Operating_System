@@ -361,10 +361,29 @@ fun HomeScreen(
         ttsRef.value = engine
         onDispose { engine.stop(); engine.shutdown() }
     }
+    val voicePlayer = remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+    fun deviceSpeak(s: String) = ttsRef.value?.apply {
+        language = java.util.Locale.getDefault(); speak(s, TextToSpeech.QUEUE_FLUSH, null, "slyos")
+    }
     val speak: (String) -> Unit = { s ->
-        if (s.isNotBlank()) ttsRef.value?.apply {
-            language = java.util.Locale.getDefault()
-            speak(s, TextToSpeech.QUEUE_FLUSH, null, "slyos")
+        if (s.isNotBlank()) {
+            // Cloned voice everywhere it's configured — not just the "hold brain" screen. If the user pasted
+            // an ElevenLabs key + voice, Home speaks in THEIR voice; any failure falls back to device TTS so
+            // it never goes silent. (Before this, Home always used the generic system voice.)
+            if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+                scope.launch {
+                    val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, s) }
+                    if (f == null) deviceSpeak(s)
+                    else try {
+                        try { voicePlayer.value?.release() } catch (e: Exception) {}
+                        val mp = android.media.MediaPlayer()
+                        mp.setDataSource(f.absolutePath)
+                        mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {} }
+                        mp.setOnErrorListener { _, _, _ -> true }
+                        mp.prepare(); mp.start(); voicePlayer.value = mp
+                    } catch (e: Exception) { deviceSpeak(s) }
+                }
+            } else deviceSpeak(s)
         }
     }
 
@@ -876,6 +895,13 @@ fun HomeScreen(
                     val out = withContext(Dispatchers.IO) { AgentLoop.run(ctx, q, context, history, userInitiated = true) }
                     reply = out.answer
                     pendingConfirm = out.actions.ifEmpty { null }   // P0: consequential steps → confirm card
+                }
+                actionable.isEmpty() -> {
+                    // PURE QUESTION → the dedicated high-quality answer path (strong model, FULL brain in
+                    // context, live web when needed). This replaces the old one-sentence `say` that came out
+                    // of the action-selection prompt — the reason answers felt shallow and recall felt broken.
+                    reply = withContext(Dispatchers.IO) { AgentClient.answerWell(q, context, history) }
+                    pendingConfirm = null
                 }
                 else -> {
                     // Concrete benign actions (open app/url, play music…) — just execute them.

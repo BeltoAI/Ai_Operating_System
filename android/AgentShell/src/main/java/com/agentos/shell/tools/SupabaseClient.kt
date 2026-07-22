@@ -102,6 +102,19 @@ object SupabaseClient {
         return code in 200..299
     }
 
+    /**
+     * Fire-and-forget INSERT with the ANON key (no login required) — used for bug reports / feedback so ANY
+     * user can send one. Needs a table with an RLS policy allowing anon inserts (see BugReport for the SQL).
+     */
+    fun insertAnon(table: String, row: JSONObject): Boolean {
+        if (!configured()) return false
+        val c = open("/rest/v1/$table", "POST")   // bearer defaults to the anon key
+        c.setRequestProperty("Prefer", "return=minimal")
+        val (code, txt) = send(c, JSONArray().put(row).toString())
+        if (code !in 200..299) lastError = "HTTP $code ${txt.take(160)}"
+        return code in 200..299
+    }
+
     /** Pull rows for the user changed since [sinceMs]. Returns the parsed array (empty on failure). */
     fun pull(table: String, accessToken: String, userId: String, sinceMs: Long): JSONArray {
         if (!configured()) return JSONArray()

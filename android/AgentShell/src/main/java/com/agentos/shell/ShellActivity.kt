@@ -239,7 +239,7 @@ class ShellActivity : ComponentActivity() {
             var tradePrompt by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
-            LaunchedEffect(Unit) { delay(1600); if (screen == Screen.Boot) screen = Screen.Lock }
+            LaunchedEffect(Unit) { delay(2300); if (screen == Screen.Boot) screen = Screen.Lock }
 
             // Pressing Home from anywhere returns to Home (or Manual if paused).
             BackHandler(enabled = screen != Screen.Home && screen != Screen.Boot) {

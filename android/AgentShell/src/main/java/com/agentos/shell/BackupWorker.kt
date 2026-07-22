@@ -31,8 +31,8 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         return try {
             BrainBackup.backupNow(ctx)
             com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", true, "backed up").let { Result.success() }
-        } catch (e: Exception) {
-            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", false, e.message ?: "error").let { Result.retry() }
+        } catch (t: Throwable) {   // Throwable, not Exception — an OOM on a huge brain must never crash the app
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", false, t.message ?: "error").let { Result.retry() }
         }
     }
 }

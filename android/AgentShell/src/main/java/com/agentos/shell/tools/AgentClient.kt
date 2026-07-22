@@ -551,12 +551,51 @@ object AgentClient {
             messages.put(JSONObject().put("role", "assistant").put("content", a))
         }
         messages.put(JSONObject().put("role", "user").put("content", prompt))
-        val (code, text) = callMessages(system, messages, 1400)   // was 400 — truncated longer answers mid-sentence
+        // STANDARD tier, not CHEAP: the main Home answer is the most important interaction, and it carries the
+        // FULL brain context (~24k chars of retrieved memory). The cheap tier (Groq llama-3.1-8b, ~8k context)
+        // physically can't hold that, so it TRIMMED the brain away — which is why recall felt broken ("couldn't
+        // find Sharon" even though she's in the brain). STANDARD (a big-context model) holds the whole context
+        // AND reasons far better over it, so both recall quality and action accuracy jump. Free-tier routing
+        // (Groq 70B / Gemini) keeps this near-$0; the cheap tier stays for high-volume background work.
+        val (code, text) = callMessages(system, messages, 1400, VOICE)
         Log.i("SlyOS", "ask code=$code raw=${text.take(300)}")
         if (code != 200) return AgentResult("Agent error $code: $text", emptyList(), "")
         val r = parse(text)
         Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(50)}" }}")
         return r
+    }
+
+    /**
+     * THE HIGH-QUALITY ANSWER PATH for a Home question that isn't an action. The old path showed `ask().say`
+     * — a single sentence squeezed out of an action-selection prompt on the cheap model — which is why answers
+     * felt shallow and recall felt broken. This is a dedicated answer: STANDARD tier (big context, strong
+     * reasoning), the FULL brain in context, live web when needed, and a prompt whose only job is to answer
+     * brilliantly and truthfully from what SlyOS knows about the user. No JSON, no length cap contortions.
+     */
+    fun answerWell(prompt: String, memory: String = "", history: List<Pair<String, String>> = emptyList()): String {
+        val name = ownerName(memory)
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val sys = "You are SlyOS — ${if (name.isNotBlank()) "$name's" else "the user's"} personal AI, and you know them better than anyone. " +
+            "Answer their question or handle their request the way a brilliant, trusted chief-of-staff would: accurate, specific, and genuinely useful.\n" +
+            "GROUND EVERYTHING in WHAT YOU KNOW ABOUT THEM below — use their real names, dates, numbers, messages and facts; never vague, never generic. " +
+            "If they ask about a person, a message, an email, an event, or a detail from their life, answer it DIRECTLY from their data with the specifics. " +
+            "If a person appears anywhere in their contacts, emails, messages, or network, you KNOW that person — surface what you have on them; do NOT say you can't find them when they're right there in the data below.\n" +
+            "If you genuinely don't have something, say so in ONE honest line and offer the fastest way to get it — never invent a fact, name, number, date, or event.\n" +
+            "For anything current or factual you can't know from memory (news, weather, sports, prices, live facts, a public person or company), USE web search and answer with the real, up-to-date result — cite the source briefly.\n" +
+            "STYLE: reply like a sharp human who knows them — natural, direct, and EXACTLY as long as the answer needs (a word, a line, or a short paragraph; never padded, never a wall of text, never bullet-point filler). " +
+            "No JSON, no markdown headers, no preamble like 'Based on your data' or 'Sure!'. Just the answer.\n" +
+            "Current time: $now." +
+            (if (memory.isNotBlank()) "\n\nWHAT YOU KNOW ABOUT THEM:\n${memory.take(20000)}" else "")
+        val messages = JSONArray()
+        history.takeLast(8).forEach { (u, a) ->
+            messages.put(JSONObject().put("role", "user").put("content", u))
+            messages.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", prompt))
+        // VOICE = STANDARD tier (holds the full brain, reasons well); web tool on for live facts.
+        val (code, text) = callMessages(sys, messages, 1000, VOICE, 120000, webTool())
+        if (code != 200) return cleanSay(text.ifBlank { "I couldn't reach the model just now — try again in a moment." })
+        return cleanSay(text)
     }
 
     /** Fast, cheap SPOKEN reply for the voice conversation — no action JSON, no web tool, short. */

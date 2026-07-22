@@ -47,6 +47,15 @@ object PersonLookup {
                 }
         } catch (e: Exception) {}
 
+        // 2b) DIRECT message search — finds someone with even ONE message (a fresh email/DM contact, e.g. a new
+        // LinkedIn connection like Sharon) who won't appear in the top-contacts list of a large brain. This is
+        // the gap that made recently-met people invisible even though they're in the brain.
+        try {
+            MessageStore.search(ctx, query, 12)
+                .map { it.contact }.filter { it.isNotBlank() && it.lowercase().contains(q) }.distinct().take(4)
+                .forEach { name -> if (out.none { it.name.equals(name, true) }) out.add(Match(name, "messages", "you've corresponded with them", score(name, q) + 16)) }
+        } catch (e: Exception) {}
+
         // 3) LinkedIn / imported network.
         try {
             ConnectionStore.search(ctx, query, 6).forEach { c ->

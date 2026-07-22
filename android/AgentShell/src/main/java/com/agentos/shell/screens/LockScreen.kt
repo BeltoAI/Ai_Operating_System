@@ -6,7 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +29,12 @@ import kotlinx.coroutines.withContext
 fun LockScreen(modifier: Modifier = Modifier, onEnter: () -> Unit) {
     val ctx = LocalContext.current
     val notes = NotificationStore.notes
+
+    // REAL time + battery (these were hardcoded to "9:41" / "82%" — a mockup that never updated). The clock
+    // re-reads every 15s; battery is read from the system.
+    var clock by remember { mutableStateOf(nowTime()) }
+    LaunchedEffect(Unit) { while (true) { clock = nowTime(); delay(15_000) } }
+    val battery = remember { batteryPct(ctx) }
 
     // Always match the saved appearance: keeps the lock screen (the first thing shown at boot) in sync
     // with the dark/light choice, so it can never render in the wrong theme.
@@ -52,8 +62,8 @@ fun LockScreen(modifier: Modifier = Modifier, onEnter: () -> Unit) {
         ) { onEnter() }
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("9:41", fontSize = T.time, color = T.ink, fontWeight = FontWeight.Light)
-            Text("82%", fontSize = T.caption, color = T.inkFaint)
+            Text(clock, fontSize = T.time, color = T.ink, fontWeight = FontWeight.Light)
+            Text("$battery%", fontSize = T.caption, color = T.inkFaint)
         }
         Spacer(Modifier.height(18.dp))
         Text(
@@ -85,3 +95,11 @@ fun LockScreen(modifier: Modifier = Modifier, onEnter: () -> Unit) {
         }
     }
 }
+
+private fun nowTime(): String =
+    java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault()).format(java.util.Date())
+
+private fun batteryPct(ctx: android.content.Context): Int = try {
+    val bm = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+    bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
+} catch (e: Exception) { 100 }

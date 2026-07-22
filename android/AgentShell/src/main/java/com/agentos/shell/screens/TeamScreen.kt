@@ -509,6 +509,9 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         val needs = log.firstOrNull { it.needsInput }
         Dialog(onDismissRequest = { detailEmp = null }) {
             var askText by remember(e.id) { mutableStateOf("") }
+            // Keep the popup calm: knowledge-feeding + the stats grid are tucked behind this, off by default,
+            // so opening an agent leads with what matters — its question, the chat, and recent activity.
+            var showDetails by remember(e.id) { mutableStateOf(false) }
             fun approveDone() {
                 EmployeeStore.log(ctx, e.id, "You approved — marked done.", false)
                 EmployeeStore.setStatus(ctx, e.id, "idle")
@@ -590,6 +593,12 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(T.hairline).clickable { editing = false }.padding(horizontal = 16.dp, vertical = 9.dp))
                         }
                     }
+                    // Secondary controls (knowledge + stats) collapsed by default — tap to reveal.
+                    Spacer(Modifier.height(10.dp))
+                    Text(if (showDetails) "Hide details ⌃" else "Knowledge & stats ⌄",
+                        fontSize = 11.sp, color = T.inkSoft, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable { showDetails = !showDetails }.padding(vertical = 2.dp))
+                    if (showDetails) {
                     // ── Feed this agent PDFs — they become its PRIMARY knowledge (on top of brain + web) ──
                     var kbCount by remember(e.id) { mutableStateOf(com.agentos.shell.tools.AgentKnowledge.count(ctx, e.id)) }
                     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -647,6 +656,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             Text("${stat.shifts} shifts", fontSize = 9.sp, color = T.inkFaint)
                         }
                     }
+                    }   // end showDetails
                     if (needs != null) {
                         val isPost = Regex("(?i)post|comment|r/|reddit|paste this|publish|tweet").containsMatchIn(needs.line)
                         val isConn = Regex("(?i)connect|hubspot|api key|set ?up|integrat|sign ?in|log ?in|credential").containsMatchIn(needs.line)
@@ -685,7 +695,7 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     }
                     Spacer(Modifier.height(14.dp))
                     Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-                    log.forEach { l ->
+                    log.take(if (showDetails) 10 else 5).forEach { l ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                             Text(agoLabel(l.ts), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(52.dp))
                             Text(l.line, fontSize = T.caption, color = if (l.needsInput) T.danger else T.inkSoft, modifier = Modifier.weight(1f))

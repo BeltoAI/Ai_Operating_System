@@ -24,22 +24,79 @@ object DriveBackup {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
-    /** Upload (create or update-in-place) the snapshot. Returns ok + the Drive file id. */
+    /**
+     * Upload (create or update-in-place) the snapshot by STREAMING the zip straight to Drive — never loading
+     * it into memory. The old path did file.readBytes() then built a multipart byte array, so a large brain
+     * (tens of thousands of messages + vectors) OOM'd — and an OutOfMemoryError is an Error, not an Exception,
+     * so nothing caught it and the whole launcher crashed. Streaming holds ~64KB at a time regardless of size,
+     * and we catch Throwable as a final belt so a backup can never take the app down again.
+     */
     fun upload(ctx: Context, file: File): Result {
         val token = GoogleAuth.accessToken(ctx)
         if (token.isBlank()) return Result(false, "not connected")
-        val bytes = file.readBytes()
         // Prefer the id we already know; otherwise look it up by name (survives a wipe).
         var id = prefs(ctx).getString(K_ID, "").orEmpty()
         if (id.isBlank()) id = findByName(token, BrainBackup.FILE_NAME)
         return try {
             if (id.isNotBlank()) {
-                val (code, body) = mediaPatch(id, token, bytes)
+                val (code, body) = mediaPatchStream(id, token, file)
                 if (code in 200..299) { saveId(ctx, id); Result(true, id = id) }
-                else if (code == 404) createMultipart(ctx, token, bytes)   // was deleted → recreate
+                else if (code == 404) createMultipartStream(ctx, token, file)   // was deleted → recreate
                 else Result(false, errOf(body, code))
-            } else createMultipart(ctx, token, bytes)
-        } catch (e: Exception) { Result(false, e.message ?: "network error") }
+            } else createMultipartStream(ctx, token, file)
+        } catch (t: Throwable) { Result(false, t.message ?: "backup error") }
+    }
+
+    /** Stream a raw-media PATCH of the zip file (no in-memory copy). */
+    private fun mediaPatchStream(id: String, token: String, file: File): Pair<Int, String> =
+        reqStream("PATCH", "https://www.googleapis.com/upload/drive/v3/files/$id?uploadType=media",
+            token, "application/zip", null, file, null)
+
+    /** Stream a NEW multipart upload of the zip file (metadata head + streamed file + tail). */
+    private fun createMultipartStream(ctx: Context, token: String, file: File): Result {
+        val boundary = "slyosBrain" + System.currentTimeMillis()
+        val meta = JSONObject().put("name", BrainBackup.FILE_NAME).toString()
+        val head = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n" +
+            "--$boundary\r\nContent-Type: application/zip\r\n\r\n").toByteArray(Charsets.UTF_8)
+        val tail = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+        val (code, resp) = reqStream("POST",
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+            token, "multipart/related; boundary=$boundary", head, file, tail)
+        return if (code in 200..299) {
+            val newId = try { JSONObject(resp).getString("id") } catch (e: Exception) { "" }
+            if (newId.isNotBlank()) saveId(ctx, newId)
+            Result(true, id = newId)
+        } else Result(false, errOf(resp, code))
+    }
+
+    /**
+     * HTTP request that STREAMS a file body (optional head/tail wrapper bytes) with fixed-length streaming
+     * mode, so HttpURLConnection sends it in chunks instead of buffering the whole body. Catches Throwable
+     * (incl. OutOfMemoryError) so an upload can never crash the process.
+     */
+    private fun reqStream(method: String, url: String, token: String, contentType: String,
+                          head: ByteArray?, file: File, tail: ByteArray?): Pair<Int, String> {
+        return try {
+            val total = (head?.size ?: 0).toLong() + file.length() + (tail?.size ?: 0)
+            val c = (URL(url).openConnection() as HttpURLConnection).apply {
+                if (method == "PATCH") { requestMethod = "POST"; setRequestProperty("X-HTTP-Method-Override", "PATCH") }
+                else requestMethod = method
+                connectTimeout = 20000; readTimeout = 120000
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", contentType)
+                doOutput = true
+                setFixedLengthStreamingMode(total)   // stream — never hold the whole body in memory
+            }
+            c.outputStream.use { os ->
+                head?.let { os.write(it) }
+                file.inputStream().use { it.copyTo(os, 64 * 1024) }
+                tail?.let { os.write(it) }
+                os.flush()
+            }
+            val code = c.responseCode
+            val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
+            code to text
+        } catch (t: Throwable) { -1 to (t.message ?: "network error") }
     }
 
     /** Find the most recent backup on Drive, download it, and restore into the app. */

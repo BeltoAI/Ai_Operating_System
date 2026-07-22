@@ -390,7 +390,44 @@ private fun BrainBackupCard() {
     }
 }
 
-/** Efficiency as its own top-level card — score, weekly trend, and the 14-day time-saved chart. */
+/** Simple in-app bug reporting — sends centrally so we see every report. */
+@Composable
+private fun BugReportCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var msg by remember { mutableStateOf("") }
+    var contact by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    Collapsible("Report a bug", "Something broke? Tell us — we read every one",
+        keywords = "bug report feedback problem crash issue support broken") {
+        Text("Describe what happened — what you did, and what went wrong. Basic diagnostics (app version, device) are attached automatically; your messages and personal data are not.",
+            fontSize = T.caption, color = T.inkFaint, lineHeight = 16.sp)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp)) {
+            if (msg.isEmpty()) Text("e.g. Backing up my brain crashes the app", fontSize = T.small, color = T.inkFaint)
+            BasicTextField(msg, { msg = it }, textStyle = TextStyle(color = T.ink, fontSize = T.small, lineHeight = 19.sp), modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp)) {
+            if (contact.isEmpty()) Text("Your email (optional — so we can follow up)", fontSize = T.small, color = T.inkFaint)
+            BasicTextField(contact, { contact = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small), modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(if (sending) "Sending…" else "Send report", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (msg.isBlank()) T.hairline else T.accent)
+                .clickable(enabled = !sending && msg.isNotBlank()) {
+                    sending = true; status = ""; val m = msg; val c = contact
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.BugReport.submit(ctx, m, c) }
+                        status = r; sending = false
+                        if (r.startsWith("Sent")) { msg = ""; contact = "" }
+                    }
+                }.padding(vertical = 12.dp))
+        if (status.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(status, fontSize = T.caption, color = T.accent) }
+    }
+}
+
 @Composable
 private fun EfficiencyCard() {
     val ctx = LocalContext.current
@@ -1380,6 +1417,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Efficiency as its own top-level card (promoted out of "Your writing voice").
         EfficiencyCard()
+
+        // Report a bug — dead simple, sends centrally so we see every one.
+        BugReportCard()
 
         // Brain diagnostics — live counts with trend sparklines + wiring health, for debugging.
         BrainDiagnosticsCard()
