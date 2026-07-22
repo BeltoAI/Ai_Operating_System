@@ -264,9 +264,10 @@ class AgentNotificationListener : NotificationListenerService() {
                     docMode -> AgentClient.answerFromDoc(
                         note.text, com.agentos.shell.tools.KnowledgeStore.retrieve(applicationContext, note.text), memory
                     )
-                    note.isSocial -> AgentClient.draftCommentReply(note.text,
-                        com.agentos.shell.tools.ReplyContext.forSender(applicationContext, note.app, note.title)
-                            .ifBlank { memory })
+                    // A notification we can reply to inline IS a real message/DM (LinkedIn, Instagram, X included)
+                    // — reply CONVERSATIONALLY with full thread context. The old path shunted every "social" app
+                    // to draftCommentReply (a feed-comment clapback), which is why LinkedIn DMs mis-replied /
+                    // stopped auto-sending. Comment-clapback is only right for a non-replyable feed notification.
                     else -> {
                         val thread = com.agentos.shell.tools.ConversationStore
                             .thread(applicationContext, note.app, note.title).map { it.role to it.text }

@@ -239,7 +239,8 @@ class ShellActivity : ComponentActivity() {
             var tradePrompt by remember { mutableStateOf("") }
 
             // Boot -> Lock after a calm beat.
-            LaunchedEffect(Unit) { delay(2300); if (screen == Screen.Boot) screen = Screen.Lock }
+            // Boot animation → straight to Home (the glance/lock screen was removed per the owner's request).
+            LaunchedEffect(Unit) { delay(2300); if (screen == Screen.Boot) screen = Screen.Home }
 
             // Pressing Home from anywhere returns to Home (or Manual if paused).
             BackHandler(enabled = screen != Screen.Home && screen != Screen.Boot) {

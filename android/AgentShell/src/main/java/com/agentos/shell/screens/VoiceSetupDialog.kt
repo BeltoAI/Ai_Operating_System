@@ -19,13 +19,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.VoiceSampleStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * "Set up my voice" — records a short read-aloud sample the on-device cloner uses to speak as the owner.
@@ -40,6 +44,9 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
     var status by remember { mutableStateOf("") }
     val recorder = remember { mutableStateOf<MediaRecorder?>(null) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
+    val scope = rememberCoroutineScope()
+    var cloning by remember { mutableStateOf(false) }
+    var cloned by remember { mutableStateOf(com.agentos.shell.tools.ElevenLabs.available(ctx)) }
 
     fun micGranted() = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -97,7 +104,7 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(20.dp)
         ) {
             Text("Set up my voice", fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold)
-            Text("Read the lines aloud once. SlyOS clones your voice on-device from this — it never leaves your phone.",
+            Text("Read the lines aloud once, then tap Create — SlyOS builds a clone of your voice (via your ElevenLabs key) so every spoken reply sounds like you.",
                 fontSize = T.small, color = T.inkFaint)
             Spacer(Modifier.height(16.dp))
 
@@ -128,8 +135,24 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).clickable { play() }.padding(horizontal = 16.dp, vertical = 9.dp))
                     Spacer(Modifier.width(10.dp))
                     Text("Delete", fontSize = T.small, color = T.inkSoft,
-                        modifier = Modifier.clickable { VoiceSampleStore.clear(ctx); hasSample = false; status = "Removed." }.padding(vertical = 9.dp))
+                        modifier = Modifier.clickable { VoiceSampleStore.clear(ctx); hasSample = false; cloned = false; status = "Removed." }.padding(vertical = 9.dp))
                 }
+                Spacer(Modifier.height(14.dp))
+                // THE ACTUAL CLONE: turn the recorded sample into a real voice via the user's ElevenLabs.
+                Text(if (cloning) "Creating your voice…" else if (cloned) "Your cloned voice is active ✓ · re-create" else "Create my cloned voice  →",
+                    fontSize = T.small, color = if (cloned) T.ink else Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (cloned) T.hairline else T.accent)
+                        .clickable(enabled = !cloning) {
+                            cloning = true; status = "Uploading your sample to ElevenLabs to build the clone…"
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.createVoiceFromSample(ctx) }
+                                cloning = false
+                                if (r.ok) { cloned = true; status = "Done ✓ — SlyOS now speaks in your voice everywhere." }
+                                else status = r.error
+                            }
+                        }.padding(vertical = 12.dp))
+                Text("Uses your own ElevenLabs key. Your sample is uploaded to your ElevenLabs account to build the clone (it isn't sent anywhere else).",
+                    fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
             }
 
             Spacer(Modifier.height(18.dp))
