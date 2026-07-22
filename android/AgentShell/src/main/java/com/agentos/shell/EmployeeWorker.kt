@@ -42,9 +42,9 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             due.sortedBy { it.lastRun }.take(3).forEach { e ->
                 try { EmployeeRunner.runShift(ctx, e) } catch (ex: Exception) {}
             }
-            Result.success()
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "EmployeeWorker", true, "ran ${due.size} due").let { Result.success() }
         } catch (e: Exception) {
-            Result.retry()
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "EmployeeWorker", false, e.message ?: "error").let { Result.retry() }
         }
     }
 }

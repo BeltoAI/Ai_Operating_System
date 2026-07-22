@@ -31,7 +31,9 @@ class MemoryConsolidationWorker(ctx: Context, params: WorkerParameters) : Corout
             // lets the agent act AS them (take a stance, accept/decline), not just recall facts about others.
             val ownMsgs = MessageStore.myRecentBodies(ctx, 120).joinToString("\n")
             if (ownMsgs.length >= 40) AgentClient.distillSelf(ownMsgs).forEach { MemoryStore.addLearnedFact(ctx, it) }
-            Result.success()
-        } catch (e: Exception) { Result.success() }   // never crash the scheduler
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "MemoryConsolidationWorker", true, "distilled").let { Result.success() }
+        } catch (e: Exception) {
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "MemoryConsolidationWorker", false, e.message ?: "error").let { Result.success() }
+        }   // never crash the scheduler
     }
 }

@@ -28,6 +28,11 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             val empty = try { MessageStore.count(ctx) == 0 && MemoryStore.about(ctx).isBlank() } catch (e: Exception) { false }
             if (empty) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", true).let { Result.success() }
         }
-        return try { BrainBackup.backupNow(ctx); Result.success() } catch (e: Exception) { Result.retry() }
+        return try {
+            BrainBackup.backupNow(ctx)
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", true, "backed up").let { Result.success() }
+        } catch (e: Exception) {
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "BackupWorker", false, e.message ?: "error").let { Result.retry() }
+        }
     }
 }

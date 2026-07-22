@@ -26,9 +26,9 @@ class PhotoScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
             try { com.agentos.shell.tools.StatsHistory.snapshotIfDue(applicationContext) } catch (e: Exception) {}
             // Nightly wake-up planner: at the user's chosen hour, suggest tomorrow's alarm.
             try { com.agentos.shell.tools.AlarmPlanner.tick(applicationContext) } catch (e: Exception) {}
-            Result.success()
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "PhotoScanWorker", true, "scanned").let { Result.success() }
         } catch (e: Exception) {
-            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "PhotoScanWorker", true)
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "PhotoScanWorker", false, e.message ?: "error")
             Result.success()
         }
     }

@@ -231,7 +231,15 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         scope.launch {
             // Same full-capability engine as the Telegram chat: fed knowledge (PDFs) + brain + web + real actions.
             val reply = withContext(Dispatchers.IO) {
-                val r = try { com.agentos.shell.tools.EmployeeRunner.answer(ctx, e, q) } catch (ex: Exception) { "" }
+                // Give the agent the CONTEXT of what it just did/asked, so ANSWERING its question actually
+                // continues that task. Before this, a reply arrived with no memory of the question it answered —
+                // which is why replying "felt" impossible and only Approve/Done showed up.
+                val history = try {
+                    EmployeeStore.logFor(ctx, e.id, 6).reversed().joinToString("\n") {
+                        (if (it.needsInput) "${e.name} asked you: " else "${e.name}: ") + it.line
+                    }
+                } catch (ex: Exception) { "" }
+                val r = try { com.agentos.shell.tools.EmployeeRunner.answer(ctx, e, q, history, com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "You" }) } catch (ex: Exception) { "" }
                 if (e.status == "needs_you") try { EmployeeStore.setStatus(ctx, e.id, "idle") } catch (ex: Exception) {}
                 r
             }
@@ -642,9 +650,18 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     if (needs != null) {
                         val isPost = Regex("(?i)post|comment|r/|reddit|paste this|publish|tweet").containsMatchIn(needs.line)
                         val isConn = Regex("(?i)connect|hubspot|api key|set ?up|integrat|sign ?in|log ?in|credential").containsMatchIn(needs.line)
+                        // A genuine QUESTION the agent is waiting on an answer for (not a post to approve or a
+                        // connection to set up). For these, "Approve & mark done" makes no sense — you need to REPLY.
+                        val isQuestion = !isPost && !isConn && (needs.line.contains("?") ||
+                            Regex("(?i)\\b(what|which|who|when|where|how|should i|do you|can you|could you|would you|need(s)? (you|your|to know)|budget|prefer|confirm|clarif|let me know|your (call|input|take|answer))\\b").containsMatchIn(needs.line))
                         Spacer(Modifier.height(12.dp))
                         Text(needs.line, fontSize = T.small, color = T.danger, lineHeight = 20.sp,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.danger.copy(alpha = 0.10f)).padding(12.dp))
+                        if (isQuestion) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("↓ Type your answer in the box below and send — ${e.name} will continue with it.",
+                                fontSize = T.caption, color = T.accent, lineHeight = 16.sp)
+                        }
                         if (draftObj != null && draftObj.text.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
                             Text((if (draftObj.target.isNotBlank()) "READY TO POST · ${draftObj.target}" else "READY TO POST"), fontSize = 9.sp, color = T.good, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -660,8 +677,11 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         else if (isConn) Text("Connect what it needs  →", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent).clickable { connectEmp = e; detailEmp = null }.padding(vertical = 12.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text("Approve & mark done", fontSize = T.small, color = T.good, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.good.copy(alpha = 0.14f)).clickable { approveDone() }.padding(vertical = 12.dp))
+                        // For a real question, the primary path is to ANSWER (field below); this button just
+                        // dismisses it. For a post/connection/finished task, "Approve & mark done" is right.
+                        Text(if (isQuestion) "Dismiss (no answer needed)" else "Approve & mark done",
+                            fontSize = T.small, color = if (isQuestion) T.inkSoft else T.good, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (isQuestion) T.hairline else T.good.copy(alpha = 0.14f)).clickable { approveDone() }.padding(vertical = 12.dp))
                     }
                     Spacer(Modifier.height(14.dp))
                     Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)

@@ -283,7 +283,14 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                 }
                 Spacer(Modifier.height(2.dp))
                 Text("via ${appName(ctx, latest.pkg, latest.app)}", fontSize = T.caption, color = appColor(latest.pkg))
-                if (latest.text.isNotBlank()) { Spacer(Modifier.height(3.dp)); Text(latest.text.take(100), fontSize = T.small, color = T.inkSoft, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                // Show a real chunk of the ACTUAL message (the full text is captured), not a one-line stub —
+                // so you can see what's going on without opening the app. Expands to the whole message on tap.
+                if (latest.text.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(if (expanded) latest.text else latest.text.take(320),
+                        fontSize = T.small, color = T.inkSoft,
+                        maxLines = if (expanded) 40 else 6, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+                }
             }
         }
         // Actions — Reply (opens inline draft) and Open. Nothing else.

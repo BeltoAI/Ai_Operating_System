@@ -23,7 +23,9 @@ class GmailSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
                 GmailClient.syncReceipts(ctx)     // receipts / orders / invoices → Expenses (+ brain)
                 GmailClient.syncDocs(ctx)         // invoices / forms / contracts / attachments → Documents (+ brain)
             }
-            Result.success()
-        } catch (e: Exception) { Result.retry() }
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "GmailSyncWorker", true, "synced").let { Result.success() }
+        } catch (e: Exception) {
+            com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "GmailSyncWorker", false, e.message ?: "error").let { Result.retry() }
+        }
     }
 }

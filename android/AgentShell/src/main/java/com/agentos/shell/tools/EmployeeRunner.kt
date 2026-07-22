@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|provision_db|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|provision_db|handoff|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -283,7 +283,7 @@ object EmployeeRunner {
      * automation: reversible actions (email, event, lead, note) just execute. Grounded in fed docs + brain + web.
      */
     fun runChain(ctx: Context, emp: EmployeeStore.Employee, task: String, history: String = "", speaker: String = "",
-                 maxSteps: Int = 6, tokenCap: Int = 45000): ChainResult {
+                 maxSteps: Int = 6, tokenCap: Int = 45000, depth: Int = 0): ChainResult {
         // FAST PATH: "make it a PDF" / "finalize" / "export it" / "I'm happy, convert it" on a doc that's already
         // in progress → skip the model entirely and do the single HTML→PDF conversion. Reliable + instant.
         // FAST PATH: "deploy it / ship it / go live" on a SITE in progress → deploy to Vercel now (skip the model).
@@ -317,6 +317,7 @@ object EmployeeRunner {
         val roster = try { EmployeeStore.all(ctx).filter { it.id != emp.id && it.name.isNotBlank() }.joinToString("; ") { "${it.name} (${it.role})" } } catch (e: Exception) { "" }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
         val forget = try { EmployeeStore.forgetList(ctx, emp.id) } catch (e: Exception) { "" }
+        val checklist = try { ChecklistStore.load(ctx).filter { !it.done }.take(15).joinToString("\n") { "• ${it.text}" } } catch (e: Exception) { "" }
         val isDev = Regex("(?i)dev|engineer|full.?stack|deploy|coder?").containsMatchIn(emp.role + " " + emp.tools)
         val devBlock = if (isDev) {
             val u = try { DeployClient.supabaseUrl(ctx) } catch (e: Exception) { "" }
@@ -327,13 +328,13 @@ object EmployeeRunner {
         } else ""
         val ctxBlock = "Current time: $now\n" + devBlock +
             (if (forget.isNotBlank()) "DROPPED BY THE OWNER — do NOT work on, suggest, or bring up ANY of these ever again:\n$forget\n\n" else "") +
-            (if (roster.isNotBlank()) "YOUR TEAMMATES (you know these people; refer work to them when it's their lane, but you can't do their jobs): $roster\n\n" else "") +
+            (if (checklist.isNotBlank()) "$owner'S OPEN CHECKLIST — if asked to work on it, or if an item clearly fits YOUR role, OWN it end-to-end: ask ONE precise clarifying question (via \"needs\") only if you genuinely can't do it right without a detail, otherwise execute it:\n$checklist\n\n" else "") +
             (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (your PRIMARY source):\n$kb\n\n" else "") +
             (if (cal.isNotBlank()) "YOUR CALENDAR:\n${cal.take(1000)}\n\n" else "") +
             (if (history.isNotBlank()) "RECENT TEAM-CHAT (each line 'Sender: message'):\n$history\n\n" else "") +
             "What you know about $owner:\n${brain.take(2600)}\n"
         val steps = ArrayList<String>()
-        var inSum = 0; var outSum = 0; var didAny = 0; var needs = ""
+        var inSum = 0; var outSum = 0; var didAny = 0; var needs = ""; var handoffs = 0
         for (i in 1..maxSteps.coerceIn(1, 8)) {
             val sys = "You are ${emp.name}, the ${emp.role} on $owner's team. Goal for this run: \"$task\". $caps " +
                 "HONESTY ABOUT WHAT YOU CAN DO — this is critical: your ONLY real capabilities are the actions listed in the " +
@@ -353,7 +354,8 @@ object EmployeeRunner {
                 "web search every step. MAX AUTOMATION — actually DO things (send the email, create the event, save the lead, " +
                 "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
                 "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
-                "\"say\" is a SHORT, NATURAL, FIRST-PERSON message to $owner — talk like a real teammate who's on it, warm and human, the way ${emp.name} the ${emp.role} actually would. NEVER narrate your own internal reasoning or routing: no 'this is inbox territory', no 'handing to Riri', no bullet-point status log. Just say the human thing. If it's genuinely another teammate's job, say ONE friendly line like 'that's more Kai's area — want me to loop them in?' and set done:true. For casual chat or a simple reply, answer in ONE step and set done:true — never repeat yourself across steps. " +
+                "\"say\" is a SHORT, NATURAL, FIRST-PERSON message to $owner — talk like a real teammate who's on it, warm and human, the way ${emp.name} the ${emp.role} actually would. NEVER narrate your own internal reasoning or routing: no 'this is inbox territory', no 'handing to Riri', no bullet-point status log. Just say the human thing. " +
+                "TEAMWORK — if part of this needs a teammate's specialty (e.g. you're coordinating and need the designer to make a deck, or the engineer to build a page), use the handoff action: {\"type\":\"handoff\",\"target\":\"<teammate's exact name>\",\"text\":\"<the specific subtask>\"}. You get their result back and finish the job together — don't just punt it to $owner. Only hand off what's truly their lane; do the rest yourself. For casual chat or a simple reply, answer in ONE step and set done:true — never repeat yourself across steps. " +
                 "Output ONLY compact JSON {\"say\":\"your natural message to $owner\",\"action\":$ACTION_SCHEMA," +
                 "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the goal is met (or immediately for chit-chat)." + DOC_HELP + " No prose, no fences."
             val proceed = Regex("(?i)just (do|create|build|make) it|agnostic|it'?s fine|go ahead|without.*(info|details)|don'?t need|no info|proceed").containsMatchIn(task)
@@ -369,7 +371,27 @@ object EmployeeRunner {
             val done = o?.optBoolean("done", false) ?: true
             val n = o?.optString("needs")?.trim().orEmpty()
             val act = o?.optJSONObject("action")
-            val result = execAction(ctx, emp, act, task)
+            // INTER-AGENT HANDOFF: an agent can hand a subtask to a named teammate and get their result back,
+            // so the team builds things together. HARD GUARDS against loops/cost: only from the top level
+            // (depth 0 → the teammate runs at depth 1 and CANNOT re-delegate), and at most 2 handoffs per chain.
+            val result = if (act?.optString("type") == "handoff" && depth == 0 && handoffs < 2) {
+                handoffs++
+                val tgtName = act.optString("target").trim()
+                val subtask = act.optString("text").ifBlank { act.optString("body") }.trim()
+                val teammate = try { EmployeeStore.all(ctx).firstOrNull { it.id != emp.id && it.name.isNotBlank() && it.name.equals(tgtName, true) } } catch (e: Exception) { null }
+                when {
+                    teammate == null -> "couldn't hand off — no teammate named “$tgtName”. Teammates: $roster"
+                    subtask.isBlank() -> "couldn't hand off — nothing specific to pass along"
+                    else -> {
+                        val sub = runChain(ctx, teammate, subtask, "From ${emp.name}: $task", emp.name, maxSteps = 4, depth = 1)
+                        inSum += sub.inTok; outSum += sub.outTok; if (sub.actions > 0) didAny += sub.actions
+                        "${teammate.name} handled it → ${sub.summary.take(300)}"
+                    }
+                }
+            } else if (act?.optString("type") == "handoff") {
+                // Blocked handoff (nested or over the cap) → do the useful part yourself instead of looping.
+                "(can't delegate further here — handling it directly)"
+            } else execAction(ctx, emp, act, task)
             if (result.isNotBlank() && !result.startsWith("couldn't") && !result.startsWith("action failed")) didAny++
             val line = "• " + say.ifBlank { result.ifBlank { "…" } } + (if (result.isNotBlank() && say.isNotBlank()) " → $result" else "")
             if (say.isNotBlank() || result.isNotBlank()) steps.add(line)
@@ -381,7 +403,12 @@ object EmployeeRunner {
         // GUARANTEE: a deck/doc request ALWAYS yields a file. If the chain didn't actually build one (model
         // flaked or kept asking), build it now from the task + brain + fed docs — no more "Worked on it".
         val wantsSite = Regex("(?i)\\b(web ?site|web ?app|web ?page|landing ?page|marketplace|storefront|online store|build.*site|make.*site)\\b").containsMatchIn(task)
-        if ((wantsSite || Regex("(?i)\\b(deck|one.?pager|onepager|document|slides?|presentation|brochure|pitch|proposal)\\b").containsMatchIn(task)) &&
+        // OVERKILL GUARD: only FORCE-build a document when the owner actually ASKED to create one — i.e. a
+        // create verb AND a doc noun in the SAME request. Before this, merely MENTIONING "the proposal" or
+        // "that deck" (e.g. "did you see the proposal?") made the agent build a whole unrequested document.
+        val createIntent = Regex("(?i)\\b(make|create|build|design|write|put together|draft|generate|prepare|whip up|need|want|send me|can you (make|create|build|design|do|write))\\b").containsMatchIn(task)
+        val docNoun = Regex("(?i)\\b(deck|one.?pager|onepager|document|slides?|presentation|brochure|pitch|proposal)\\b").containsMatchIn(task)
+        if ((wantsSite || (createIntent && docNoun)) &&
             steps.none { it.contains("designed", true) || it.contains("edited", true) || it.contains("ready to review", true) || it.contains("working site", true) }) {
             val docKind = when { wantsSite -> "site"; Regex("(?i)deck|slide|present|pitch").containsMatchIn(task) -> "deck"; else -> "onepager" }
             val docTitle = Regex("(?i)\\b(vera|bastard|build|create|make|design|me|my|a|an|the|please|for|can|you|u|just|do|it|agnostic|short|quick|send|to)\\b").replace(task, " ")
@@ -471,8 +498,13 @@ object EmployeeRunner {
             val kb = try { AgentKnowledge.retrieve(ctx, emp.id, emp.goal, 2000) } catch (e: Exception) { "" }
             val now = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).format(java.util.Date())
             val forget = try { EmployeeStore.forgetList(ctx, emp.id) } catch (e: Exception) { "" }
+            // The owner's open checklist — agents pick up items that fit their role, ask any clarifying
+            // question they need (via "needs"), then execute end-to-end. Items outside the agent's lane are left
+            // for the teammate who owns them.
+            val checklist = try { ChecklistStore.load(ctx).filter { !it.done }.take(15).joinToString("\n") { "• ${it.text}" } } catch (e: Exception) { "" }
             val user = "Current time: $now\n\n" + (if (live.isNotEmpty()) live.toString() else "") +
                 (if (forget.isNotBlank()) "DROPPED BY $owner — never work on, retry, or mention ANY of these again (pick something else):\n$forget\n\n" else "") +
+                (if (checklist.isNotBlank()) "$owner'S OPEN CHECKLIST — if an item clearly fits YOUR role (${emp.role}), OWN it: research it, and if you're missing a specific detail needed to do it RIGHT, set \"needs\" with ONE precise question; otherwise take a real step to execute it this shift. Ignore items outside your lane.\n$checklist\n\n" else "") +
                 (if (kb.isNotBlank()) "YOUR OWN DOCUMENTS (fed to you — your PRIMARY source, use these first):\n$kb\n\n" else "") +
                 "Your recent log:\n${recent.ifBlank { "(nothing yet)" }}\n\n" +
                 "What you know about $owner:\n${brain.take(3500)}\n\nDo your next step now."
@@ -588,7 +620,27 @@ object EmployeeRunner {
      */
     fun answer(ctx: Context, emp: EmployeeStore.Employee, message: String, history: String = "", speaker: String = ""): String {
         return try {
-            val cr = runChain(ctx, emp, message, history, speaker, maxSteps = 6)
+            // ABORT / DON'T-DO IT — works IN-APP now, not just the Telegram group. If the owner says to stop,
+            // drop, or abort a task (e.g. they see it heading the wrong way), record it so the agent never
+            // pursues or re-raises it, and stop here instead of running a whole chain.
+            val forgetKw = Regex("(?i)\\b(forget (about |it|that)?|drop (it|that|this)|stop (working on|doing|pursuing|it|that|now)|abort( it| that| this)?|never ?mind|don'?t (do|work on|pursue|bother|bring up)|cancel (it|that|this)|let (it|that) go|abandon|give up on|move on from|no longer)\\b")
+            if (forgetKw.containsMatchIn(message)) {
+                val stripped = message.replace(Regex("(?i)\\b(please|hey|ok|okay|now|just|can you|could you|would you)\\b"), " ")
+                    .replace(forgetKw, " ").replace(Regex("\\s+"), " ").trim()
+                val lastTask = try { EmployeeStore.logFor(ctx, emp.id, 1).firstOrNull()?.line.orEmpty() } catch (e: Exception) { "" }
+                val toForget = stripped.takeIf { it.length > 2 } ?: lastTask.ifBlank { "that task" }
+                try {
+                    EmployeeStore.addForget(ctx, emp.id, toForget)
+                    EmployeeStore.clearAsked(ctx, emp.id)
+                    EmployeeStore.setStatus(ctx, emp.id, "idle")
+                } catch (e: Exception) {}
+                val reply = "Done — dropping “${toForget.take(60)}”. I won't work on it or bring it up again."
+                try { EmployeeStore.log(ctx, emp.id, reply, false) } catch (e: Exception) {}
+                return reply
+            }
+            // 4, not 6: a chat reply needs research + maybe an action or two — not six passes that re-read the
+            // whole brain each time and pile on "overkill" work. Deploy/PDF have their own instant fast-paths.
+            val cr = runChain(ctx, emp, message, history, speaker, maxSteps = 4)
             val valueMin = if (cr.actions > 0) 8 * cr.actions else 4
             EmployeeStats.record(ctx, emp.id, AgentClient.lastProvider, AgentClient.lastModel, cr.inTok, cr.outTok, cr.actions, valueMin)
             try { MetricsStore.record(ctx, valueMin * 60) } catch (e: Exception) {}
