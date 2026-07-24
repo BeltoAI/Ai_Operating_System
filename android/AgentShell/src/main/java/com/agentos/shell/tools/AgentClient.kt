@@ -598,7 +598,9 @@ object AgentClient {
         // fast call with no web round-trip; only genuinely live/factual questions get the (slower) web tool.
         val needsWeb = Regex("(?i)\\b(weather|forecast|temperature|news|headline|score|who won|game|match|price|stock|worth|current|latest|today'?s?|tonight|right now|recent(ly)?|look ?up|google|search for|what'?s happening|define|meaning of|population|how (much|many|far|old|tall)|when (is|was|does|did|is the)|where (is|can|to)|release date|open now|hours|standings|results|near me|this (week|weekend|month))\\b").containsMatchIn(prompt)
         val readMs = if (needsWeb) 120000 else 45000
+        val tLlm = System.currentTimeMillis()
         val (code, text) = callMessages(sys, messages, 1000, VOICE, readMs, if (needsWeb) webTool() else null)
+        android.util.Log.i("SlyOS-Perf", "answerWell LLM ${System.currentTimeMillis() - tLlm}ms (web=$needsWeb, code=$code)")
         if (code != 200) return cleanSay(text.ifBlank { "I couldn't reach the model just now — try again in a moment." })
         return cleanSay(text)
     }

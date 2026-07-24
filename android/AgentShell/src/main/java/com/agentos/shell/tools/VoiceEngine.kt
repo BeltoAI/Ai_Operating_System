@@ -70,45 +70,59 @@ internal object VoiceEngine {
     /** Stop whatever is currently speaking (e.g. the user talks again). */
     fun stop() { synchronized(lock) { try { track?.pause(); track?.flush(); track?.stop() } catch (e: Exception) {} } }
 
-    private fun newTrack(sampleRate: Int): AudioTrack {
-        val min = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
-        val buf = maxOf(min, sampleRate)   // ~1s cushion
-        return AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            .setAudioFormat(AudioFormat.Builder()
-                .setSampleRate(sampleRate)
-                .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(buf * 4)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+    /** 16-bit PCM AudioTrack (far more universally supported than PCM_FLOAT). Null if it won't initialize. */
+    private fun newTrack(sampleRate: Int): AudioTrack? {
+        val min = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        val buf = if (min > 0) maxOf(min, sampleRate * 2) else sampleRate * 2   // ~1s of 16-bit mono
+        val t = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setAudioFormat(AudioFormat.Builder()
+                    .setSampleRate(sampleRate)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setBufferSizeInBytes(buf)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (t: Throwable) { Log.w(TAG, "AudioTrack build failed: ${t.message}"); return null }
+        if (t.state != AudioTrack.STATE_INITIALIZED) { Log.w(TAG, "AudioTrack not initialized (state=${t.state})"); try { t.release() } catch (e: Exception) {}; return null }
+        return t
     }
 
     /**
-     * Speak [text] in the owner's voice, STREAMING audio to the speaker as it's generated (low latency).
-     * Blocks until playback finishes; call it off the main thread. Returns true if it played.
+     * Speak [text] in the owner's voice, STREAMING 16-bit audio to the speaker as it's generated (low latency).
+     * Blocks until playback finishes; call it off the main thread. Returns true only if audio actually played.
      */
     fun speakStreaming(text: String, refSamples: FloatArray, refSampleRate: Int, refText: String,
                        m: LocalVoice.ModelPaths): Boolean {
-        val e = engine(m) ?: return false
+        val e = engine(m) ?: run { Log.w(TAG, "no engine"); return false }
+        val started = System.currentTimeMillis()
         return try {
             stop(); try { track?.release() } catch (ex: Exception) {}
             val sr = try { e.sampleRate() } catch (ex: Exception) { 24000 }
-            val t = newTrack(sr); track = t; t.play()
+            val t = newTrack(sr) ?: return false     // caller falls back (WAV clone → system TTS)
+            track = t; t.play()
+            var frames = 0L
             synchronized(lock) {
                 val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
                     referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
                 e.generateWithConfigAndCallback(text, gen) { chunk ->
-                    if (chunk.isNotEmpty()) try { t.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING) } catch (ex: Exception) {}
+                    if (chunk.isNotEmpty()) {
+                        val pcm = ShortArray(chunk.size) { i ->
+                            (chunk[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
+                        }
+                        try { val w = t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING); if (w > 0) frames += w } catch (ex: Exception) {}
+                    }
                     1   // keep going
                 }
             }
             try { t.stop() } catch (ex: Exception) {}
             try { t.release() } catch (ex: Exception) {}
             if (track === t) track = null
-            true
+            Log.i(TAG, "streamed $frames frames in ${System.currentTimeMillis() - started}ms")
+            frames > 0   // false → nothing came out → caller falls back to the WAV clone
         } catch (t: Throwable) { Log.w(TAG, "speakStreaming failed: ${t.message}"); false }
     }
 

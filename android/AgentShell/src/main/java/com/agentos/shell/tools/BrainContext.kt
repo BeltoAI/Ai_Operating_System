@@ -74,8 +74,11 @@ object BrainContext {
      * on-screen recall, checklist, mission, portfolio, jobs, and the current time.
      */
     fun build(ctx: Context, q: String): String {
+        val tBuild = System.currentTimeMillis()
         val mem = profileBlock(ctx)
+        val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
+        android.util.Log.i("SlyOS-Perf", "profile ${tProfile - tBuild}ms · calendar ${System.currentTimeMillis() - tProfile}ms")
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         val recall = if (MemoryStore.recallEnabled(ctx)) InteractionStore.retrieve(ctx, q, 10) else ""
@@ -155,6 +158,7 @@ object BrainContext {
             } catch (e: Exception) { "" }
         } else ""
 
+        android.util.Log.i("SlyOS-Perf", "BrainContext.build TOTAL ${System.currentTimeMillis() - tBuild}ms for \"${q.take(30)}\"")
         return buildString {
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)

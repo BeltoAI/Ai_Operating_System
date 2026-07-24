@@ -254,11 +254,17 @@ object VectorStore {
         // null and the caller degrades to keyword recall — semantic recall can NEVER block a reply.
         // 8s, not 4s: on a cold Gemini call 4s frequently timed out, silently returning NO semantic recall
         // at all — the user experiences that as "my brain forgot everything".
-        val qv = embedBounded(ctx, query, 8000L) ?: run {
+        // SPEED: 2.5s cap (was 8s). A warm embed is well under 1s; a cold/throttled one now fails FAST to
+        // keyword recall instead of freezing every reply for 8s. The profile (booking link, about, etc.) is
+        // always in context regardless, so this rarely changes the answer — it just stops the hang.
+        val tEmbed = System.currentTimeMillis()
+        val qv = embedBounded(ctx, query, 2500L) ?: run {
             Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
-                "query embedding timed out — fell back to keyword search only", "warn")
+                "query embedding >2.5s — fell back to keyword search only", "warn")
+            android.util.Log.i("SlyOS-Perf", "embed TIMEOUT ${System.currentTimeMillis() - tEmbed}ms for \"${query.take(30)}\"")
             return emptyList()
         }
+        android.util.Log.i("SlyOS-Perf", "embed ok ${System.currentTimeMillis() - tEmbed}ms")
         try {
             // SPEED WITHOUT LOSING RECALL: the real cost was loading each row's full body text (up to 4000
             // chars) during the scan — tens of thousands of big string allocations that thrashed the heap. We

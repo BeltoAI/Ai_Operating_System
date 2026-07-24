@@ -372,9 +372,21 @@ fun HomeScreen(
             // it never goes silent. (Before this, Home always used the generic system voice.)
             if (com.agentos.shell.tools.VoiceOut.canStream(ctx)) {
                 // Low-latency: stream the on-device cloned voice — starts speaking in ~1s, no full-clip wait.
+                // If streaming yields nothing, fall back to the WAV clone (still YOUR voice), then system TTS.
                 scope.launch {
                     val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.speakStreaming(ctx, s) }
-                    if (!ok) deviceSpeak(s)
+                    if (!ok) {
+                        val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
+                        if (f == null) deviceSpeak(s)
+                        else try {
+                            try { voicePlayer.value?.release() } catch (e: Exception) {}
+                            val mp = android.media.MediaPlayer()
+                            mp.setDataSource(f.absolutePath)
+                            mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {} }
+                            mp.setOnErrorListener { _, _, _ -> true }
+                            mp.prepare(); mp.start(); voicePlayer.value = mp
+                        } catch (e: Exception) { deviceSpeak(s) }
+                    }
                 }
             } else if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
                 scope.launch {
