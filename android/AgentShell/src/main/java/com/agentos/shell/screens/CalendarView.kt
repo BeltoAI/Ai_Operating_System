@@ -44,7 +44,12 @@ object CalendarQuery {
     private val trigger = Regex(
         "(?i)\\b(my (calendar|schedule|agenda)|on my (calendar|schedule|agenda)|" +
             "what'?s? on (my )?(calendar|schedule|agenda)|appointments?|" +
-            "what do i have (on|today|tomorrow|this|next)|what'?s? (on |up )?(today|tomorrow|this week))\\b"
+            "what do i have (on|today|tomorrow|this|next)|what'?s? (on |up )?(today|tomorrow|this week)|" +
+            // Natural ways people ask the SAME thing — all answered instantly from the calendar, no LLM.
+            "(any|anything|do i have (any|anything)?).{0,20}(plan|planned|scheduled|going on|on (today|tomorrow|the calendar))|" +
+            "any (plans|appointments|events|meetings)|" +
+            "am i (free|busy|booked|open)|" +
+            "(plans|free|busy) (today|tomorrow|this week|this weekend))\\b"
     )
 
     /** Returns the window a calendar-list question refers to, or null if it isn't one. */

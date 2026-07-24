@@ -19,6 +19,19 @@ object VoiceOut {
     fun available(ctx: Context): Boolean =
         try { LocalVoice.available(ctx) } catch (t: Throwable) { false } || ElevenLabs.available(ctx)
 
+    /** The low-latency STREAMING local voice is ready — speech starts as it's generated (no file, no wait). */
+    fun canStream(ctx: Context): Boolean = try { LocalVoice.available(ctx) } catch (t: Throwable) { false }
+
+    /**
+     * Speak [text] in the owner's cloned voice, streaming to the speaker (starts in ~1s). Blocks until done,
+     * so call it off the main thread. Returns true if it played; false → caller falls back (ElevenLabs/system).
+     */
+    fun speakStreaming(ctx: Context, text: String): Boolean =
+        try { LocalVoice.speakStreaming(ctx, text) } catch (t: Throwable) { false }
+
+    /** Stop any in-progress cloned-voice playback (e.g. the user starts talking again). */
+    fun stop() { try { LocalVoice.stop() } catch (t: Throwable) {} }
+
     /** Speak [text] in the owner's voice → a playable audio file, or null to fall back to system TTS. */
     fun synthesize(ctx: Context, text: String): File? {
         try { LocalVoice.synthesize(ctx, text)?.let { return it } } catch (t: Throwable) {}

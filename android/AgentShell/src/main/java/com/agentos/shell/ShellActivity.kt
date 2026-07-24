@@ -93,6 +93,8 @@ class ShellActivity : ComponentActivity() {
         // If a voice sample + ElevenLabs key exist but no clone was ever created, build it now (once) so the
         // cloned voice actually speaks everywhere without the user having to find the "Create" button.
         Thread { try { com.agentos.shell.tools.ElevenLabs.ensureVoice(applicationContext) } catch (e: Exception) {} }.start()
+        // Preload the on-device cloned voice so the first spoken reply doesn't pay the model-load cost.
+        Thread { try { com.agentos.shell.tools.LocalVoice.warm(applicationContext) } catch (e: Exception) {} }.start()
         // Warm the Brain graph in the background so swiping into it is instant (no first-open rebuild jank).
         Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery

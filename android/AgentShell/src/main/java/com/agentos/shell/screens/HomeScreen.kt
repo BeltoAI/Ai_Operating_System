@@ -370,7 +370,13 @@ fun HomeScreen(
             // Cloned voice everywhere it's configured — not just the "hold brain" screen. If the user pasted
             // an ElevenLabs key + voice, Home speaks in THEIR voice; any failure falls back to device TTS so
             // it never goes silent. (Before this, Home always used the generic system voice.)
-            if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
+            if (com.agentos.shell.tools.VoiceOut.canStream(ctx)) {
+                // Low-latency: stream the on-device cloned voice — starts speaking in ~1s, no full-clip wait.
+                scope.launch {
+                    val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.speakStreaming(ctx, s) }
+                    if (!ok) deviceSpeak(s)
+                }
+            } else if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
                 scope.launch {
                     val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
                     if (f == null) deviceSpeak(s)
@@ -733,7 +739,16 @@ fun HomeScreen(
             val snap = com.agentos.shell.tools.ScreenSnap.take()
             val screenCtx = if (snap.first.isNotBlank()) "WHAT WAS ON SCREEN (" + snap.second + "):\n" + snap.first + "\n\n" else ""
             val context = screenCtx + withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
-            var result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
+            // SPEED (same quality): a clearly-interrogative question has no action to detect, so skip the
+            // action-selection LLM round-trip — the routing below then flows straight to answerWell (the
+            // dedicated high-quality answer path). Halves latency for plain Q&A. Explicit commands
+            // (send/open/add/remind…) never match, so they still get full action detection; and the
+            // ScreenIntent backstop just below catches screen-opens locally if this ever under-fires.
+            val interrog = q.trimEnd().endsWith("?") || Regex("(?i)^\\s*(what|why|how|when|who|where|which|whose|is|are|am|was|were|do|does|did|can|could|would|should|will|has|have|tell me|explain|summari|give me|what'?s|who'?s|when'?s|where'?s)\\b").containsMatchIn(q)
+            val actiony = Regex("(?i)\\b(send|text|email|message|dm|reply|call|dial|open|launch|start|play|pause|skip|add|remove|delete|clear|remind|set|create|make|build|design|write|draft|schedule|book|cancel|move|share|navigate|directions|buy|order|pay|trade|post|translate|remember|save|track|log|turn (on|off)|enable|disable)\\b").containsMatchIn(q)
+            val pureQ = interrog && !actiony
+            var result = if (pureQ) com.agentos.shell.tools.AgentResult("", emptyList())
+                         else withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
             // SAFETY NET: opening a screen or building a document must NOT depend on how clever the model
             // is. Those action types were listed in the schema without descriptions, so weaker brains
             // (Groq's 8B, which the CHEAP tier actually uses) never emitted them and the pages simply never

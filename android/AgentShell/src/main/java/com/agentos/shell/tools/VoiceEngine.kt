@@ -1,6 +1,10 @@
 package com.agentos.shell.tools
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
 import android.util.Log
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
@@ -12,21 +16,24 @@ import java.io.File
 /**
  * The neural engine behind [LocalVoice] — sherpa-onnx running the ZipVoice zero-shot cloner. ZipVoice clones
  * at SYNTHESIS time: every call takes the owner's reference clip + its transcript and speaks new text in that
- * voice, so there's no separate "train" step. Output is 24 kHz mono, saved as a WAV the normal speak() plays.
+ * voice, so there's no separate "train" step.
  *
- * The OfflineTts handle is heavy to build (loads the ONNX models), so it's created once and reused. All access
- * is synchronized — the engine isn't reentrant.
+ * LATENCY: the engine STREAMS. [speakStreaming] plays audio through an AudioTrack as each chunk is generated,
+ * so speech starts in ~1s instead of after the whole clip renders. The OfflineTts handle is heavy to build
+ * (loads the ONNX models), so it's created once, reused, and can be [warm]ed ahead of first use. Access is
+ * synchronized — the engine isn't reentrant.
  */
 internal object VoiceEngine {
     private const val TAG = "SlyOS-VoiceEngine"
 
-    // Tunables surfaced here so on-device tuning is a one-line change:
-    //  numSteps — flow-matching steps; more = higher quality but slower (8 is a good phone default).
-    //  speed    — 1.0 = natural pace.
-    private const val NUM_STEPS = 8
+    // Tunables (on-device tuning is a one-line change here):
+    //  NUM_STEPS — flow-matching steps. The distill model is built for FEW steps; 4 is fast + still clean.
+    //  SPEED     — 1.0 = natural pace.
+    private const val NUM_STEPS = 4
     private const val SPEED = 1.0f
 
     @Volatile private var tts: OfflineTts? = null
+    @Volatile private var track: AudioTrack? = null
     private val lock = Any()
 
     /** True if the sherpa native library actually loaded (AAR present + .so for this ABI). */
@@ -37,6 +44,7 @@ internal object VoiceEngine {
         tts?.let { return it }
         return synchronized(lock) {
             tts ?: try {
+                val cores = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
                 val cfg = OfflineTtsConfig(
                     model = OfflineTtsModelConfig(
                         zipvoice = OfflineTtsZipVoiceModelConfig(
@@ -47,7 +55,7 @@ internal object VoiceEngine {
                             dataDir = m.dataDir.absolutePath,
                             lexicon = m.lexicon.absolutePath
                         ),
-                        numThreads = 2,
+                        numThreads = cores,
                         provider = "cpu"
                     )
                 )
@@ -56,27 +64,70 @@ internal object VoiceEngine {
         }
     }
 
-    /** Speak [text] in the owner's voice → write a 24 kHz WAV to [out]; return it, or null on failure. */
-    fun synthesize(ctx: Context, text: String, refSamples: FloatArray, refSampleRate: Int, refText: String,
+    /** Preload the ONNX models so the FIRST spoken reply doesn't pay the model-load cost. Safe to call early. */
+    fun warm(m: LocalVoice.ModelPaths) { try { engine(m) } catch (t: Throwable) {} }
+
+    /** Stop whatever is currently speaking (e.g. the user talks again). */
+    fun stop() { synchronized(lock) { try { track?.pause(); track?.flush(); track?.stop() } catch (e: Exception) {} } }
+
+    private fun newTrack(sampleRate: Int): AudioTrack {
+        val min = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
+        val buf = maxOf(min, sampleRate)   // ~1s cushion
+        return AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setAudioFormat(AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(buf * 4)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+    }
+
+    /**
+     * Speak [text] in the owner's voice, STREAMING audio to the speaker as it's generated (low latency).
+     * Blocks until playback finishes; call it off the main thread. Returns true if it played.
+     */
+    fun speakStreaming(text: String, refSamples: FloatArray, refSampleRate: Int, refText: String,
+                       m: LocalVoice.ModelPaths): Boolean {
+        val e = engine(m) ?: return false
+        return try {
+            stop(); try { track?.release() } catch (ex: Exception) {}
+            val sr = try { e.sampleRate() } catch (ex: Exception) { 24000 }
+            val t = newTrack(sr); track = t; t.play()
+            synchronized(lock) {
+                val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
+                    referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
+                e.generateWithConfigAndCallback(text, gen) { chunk ->
+                    if (chunk.isNotEmpty()) try { t.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING) } catch (ex: Exception) {}
+                    1   // keep going
+                }
+            }
+            try { t.stop() } catch (ex: Exception) {}
+            try { t.release() } catch (ex: Exception) {}
+            if (track === t) track = null
+            true
+        } catch (t: Throwable) { Log.w(TAG, "speakStreaming failed: ${t.message}"); false }
+    }
+
+    /** Non-streaming: synth [text] to a WAV file (kept for callers that need a file, e.g. saving). */
+    fun synthesize(text: String, refSamples: FloatArray, refSampleRate: Int, refText: String,
                    m: LocalVoice.ModelPaths, out: File): File? {
         val e = engine(m) ?: return null
         return try {
             synchronized(lock) {
-                val gen = GenerationConfig(
-                    speed = SPEED,
-                    referenceAudio = refSamples,
-                    referenceSampleRate = refSampleRate,
-                    referenceText = refText,
-                    numSteps = NUM_STEPS
-                )
+                val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
+                    referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
                 val audio = e.generateWithConfig(text, gen)
                 if (audio.samples.isEmpty()) return null
-                audio.save(out.absolutePath)   // sherpa writes a valid WAV
+                audio.save(out.absolutePath)
             }
             if (out.exists() && out.length() > 44) out else null
         } catch (t: Throwable) { Log.w(TAG, "synthesize failed: ${t.message}"); null }
     }
 
     /** Drop the cached engine (e.g. after a re-clone) so the next synth rebuilds it. */
-    fun reset() { synchronized(lock) { try { tts?.release() } catch (e: Exception) {}; tts = null } }
+    fun reset() { synchronized(lock) { stop(); try { tts?.release() } catch (e: Exception) {}; tts = null } }
 }

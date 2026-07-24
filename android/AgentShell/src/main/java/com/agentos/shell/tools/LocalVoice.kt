@@ -146,20 +146,44 @@ object LocalVoice {
                 .putInt("ref_sr", pcm.sampleRate)
                 .putString("ref_text", VoiceSampleStore.TRAINING_SCRIPT)
                 .apply()
-            VoiceEngine.reset()
+            // Preload the engine now so the FIRST spoken reply is fast (the reference is passed per-synth, so a
+            // re-clone doesn't need a rebuild).
+            VoiceEngine.warm(paths(ctx))
             Result(true)
         } catch (t: Throwable) { Result(false, t.message ?: "clone failed") }
     }
 
-    /** Speak [text] in the owner's cloned voice → a WAV the existing speak() plays. Null on any failure. */
+    private fun ref(ctx: Context): Triple<FloatArray, Int, String>? {
+        val samples = AudioDecode.readFloats(refFile(ctx)) ?: return null
+        val sr = prefs(ctx).getInt("ref_sr", 0); if (sr <= 0) return null
+        val text = prefs(ctx).getString("ref_text", VoiceSampleStore.TRAINING_SCRIPT) ?: ""
+        return Triple(samples, sr, text)
+    }
+
+    /**
+     * LOW-LATENCY speak: streams the owner's cloned voice to the speaker as it's generated (speech starts in
+     * ~1s instead of after the whole clip renders). Blocks until done — call off the main thread. Returns
+     * true if it played; false → caller falls back to ElevenLabs / system TTS.
+     */
+    fun speakStreaming(ctx: Context, text: String): Boolean {
+        if (!available(ctx) || text.isBlank()) return false
+        val (samples, sr, refText) = ref(ctx) ?: return false
+        return VoiceEngine.speakStreaming(text.take(1000), samples, sr, refText, paths(ctx))
+    }
+
+    /** Stop any in-progress cloned-voice playback (e.g. the user starts talking again). */
+    fun stop() { VoiceEngine.stop() }
+
+    /** Preload the engine so the first spoken reply is fast. Safe to call on a background thread at startup. */
+    fun warm(ctx: Context) { if (enginePresent() && modelReady(ctx)) VoiceEngine.warm(paths(ctx)) }
+
+    /** Speak [text] in the owner's cloned voice → a WAV file (for callers that need a file). Null on failure. */
     fun synthesize(ctx: Context, text: String): File? {
         if (!available(ctx) || text.isBlank()) return null
         return try {
-            val ref = AudioDecode.readFloats(refFile(ctx)) ?: return null
-            val sr = prefs(ctx).getInt("ref_sr", 0); if (sr <= 0) return null
-            val refText = prefs(ctx).getString("ref_text", VoiceSampleStore.TRAINING_SCRIPT) ?: ""
+            val (samples, sr, refText) = ref(ctx) ?: return null
             val out = File(ctx.cacheDir, "lv_${System.currentTimeMillis()}.wav")
-            VoiceEngine.synthesize(ctx, text.take(1000), ref, sr, refText, paths(ctx), out)
+            VoiceEngine.synthesize(text.take(1000), samples, sr, refText, paths(ctx), out)
         } catch (t: Throwable) { Log.w(TAG, "synthesize: ${t.message}"); null }
     }
 }
