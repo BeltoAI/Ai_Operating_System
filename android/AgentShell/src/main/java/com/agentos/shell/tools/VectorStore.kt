@@ -13,6 +13,11 @@ import java.nio.ByteOrder
  * so the agent recalls by MEANING. Fully degrades to the keyword path if embeddings are unavailable.
  */
 object VectorStore {
+    /** Newest-first vectors scanned per search, and the wall-clock ceiling for that scan. Together these keep
+     *  semantic recall useful while guaranteeing it can never dominate response time (it once cost 21s). */
+    private const val SCAN_CAP = 6000
+    private const val SCAN_BUDGET_MS = 900L
+
     data class Hit(val contact: String, val role: String, val body: String, val score: Float)
 
     private class Helper(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "slyos_vec.db", null, 2) {
@@ -266,20 +271,25 @@ object VectorStore {
         }
         android.util.Log.i("SlyOS-Perf", "embed ok ${System.currentTimeMillis() - tEmbed}ms")
         try {
-            // SPEED WITHOUT LOSING RECALL: the real cost was loading each row's full body text (up to 4000
-            // chars) during the scan — tens of thousands of big string allocations that thrashed the heap. We
-            // now rank on the VECTORS ONLY (rowid + vector), then fetch text for just the top-k winners. Because
-            // that's so much cheaper, the scan cap stays HIGH (50k, newest-first) so old memories are still
-            // searched by MEANING — no recall regression. (A true ANN index is the long-term answer past ~50k.)
-            val scored = ArrayList<Pair<Long, Float>>(50000)
+            // HARD LATENCY BUDGET. Measured on-device: scanning 50k vectors meant reading ~150MB of BLOBs from
+            // SQLite and cost 21 SECONDS on every single message — it, not the model, was the wait. We scan
+            // newest-first and stop at whichever comes first: SCAN_CAP rows or SCAN_BUDGET_MS. Newest-first
+            // means we always rank the memories most likely to matter, and recall degrades gracefully (a few
+            // of the very oldest may be skipped on a slow device) instead of freezing the whole app.
+            val tScan = System.currentTimeMillis()
+            val scored = ArrayList<Pair<Long, Float>>(SCAN_CAP)
+            var seen = 0
             db(ctx).rawQuery(
-                "SELECT rowid, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 50000",
+                "SELECT rowid, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT $SCAN_CAP",
                 arrayOf(qv.size.toString())).use { c ->
                 while (c.moveToNext()) {
                     val score = EmbeddingClient.cosine(qv, toVec(c.getBlob(1)))
                     if (score > 0.20f) scored.add(c.getLong(0) to score)
+                    // Check the clock every 512 rows (cheap) so a slow device can't blow the budget.
+                    if (++seen and 511 == 0 && System.currentTimeMillis() - tScan > SCAN_BUDGET_MS) break
                 }
             }
+            android.util.Log.i("SlyOS-Perf", "vector scan ${System.currentTimeMillis() - tScan}ms over $seen vectors")
             if (scored.isEmpty()) {
                 Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
                     "nothing scored above 0.20 across ${embeddedCount(ctx)} vectors", "warn")

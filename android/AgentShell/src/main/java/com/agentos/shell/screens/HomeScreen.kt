@@ -418,7 +418,15 @@ fun HomeScreen(
         // INSTANT SMALL-TALK: a greeting / thanks / quick ack doesn't need the brain, action detection, or two
         // LLM calls. One fast CHEAP-tier reply so "hey" returns in ~1s instead of a full brain build + double call.
         // Tight match (short message, greeting words only, anchored) so real questions/commands never fall in here.
-        if (q.split(Regex("\\s+")).size <= 5 && Regex("(?i)^(hey+|hi+|hello+|yo+|sup|howdy|hiya|hey +there|good (morning|afternoon|evening|night)|g'?(day|morning|night)|morning|evening|thank ?(you|s)( so much| a lot)?|ty|cheers|ok(ay)?|kk?|cool|nice|great|awesome|perfect|sweet|word|gotcha|got ?it|sounds good|no worries|lol+|lmao|haha+|hehe+|what'?s up|whats up|wassup|how are you|how'?s it going|how you doin[g']?|you good|yes+|yep|yup|yeah|nah|nope|bye+|goodnight|good night|see ?ya|later|peace)\\b[\\s!.,?]*$").containsMatchIn(q.trim())) {
+        // Allow a greeting FOLLOWED BY a pleasantry ("hey how are you doing?", "hi, what's up") — the earlier
+        // pattern demanded the greeting be the entire message, so the most natural opener still took the slow path.
+        val greetWord = "(hey+|hi+|hello+|yo+|sup|howdy|hiya|good (morning|afternoon|evening|night)|g'?(day|morning|night)|morning|evening)"
+        val pleasantry = "(how (are|r) (you|u|ya|things)( doing| going)?|how'?s it going|how'?s your (day|morning|evening)|how you doin[g']?|what'?s up|whats up|wassup|you good|everything (ok|good|alright))"
+        val ackWord = "(thank ?(you|s)( so much| a lot)?|ty|cheers|ok(ay)?|kk?|cool|nice|great|awesome|perfect|sweet|word|gotcha|got ?it|sounds good|no worries|lol+|lmao|haha+|hehe+|yes+|yep|yup|yeah|nah|nope|bye+|goodnight|good night|see ?ya|later|peace)"
+        val tail = "[\\s!.,?'’]*"
+        if (q.split(Regex("\\s+")).size <= 7 && Regex(
+                "(?i)^$tail(($greetWord([\\s,!.]+$pleasantry)?)|$pleasantry|$ackWord)$tail$"
+            ).containsMatchIn(q.trim())) {
             text = ""; thinking = true; reply = ""; lastQuery = q
             scope.launch {
                 val prof = withContext(Dispatchers.IO) { com.agentos.shell.tools.MemoryStore.about(ctx) }
@@ -771,7 +779,15 @@ fun HomeScreen(
             // this question is answered in context (one-shot — cleared after use).
             val snap = com.agentos.shell.tools.ScreenSnap.take()
             val screenCtx = if (snap.first.isNotBlank()) "WHAT WAS ON SCREEN (" + snap.second + "):\n" + snap.first + "\n\n" else ""
-            val context = screenCtx + withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
+            // HARD CEILING on context assembly. Home had NO timeout, so one slow store (the vector scan was
+            // measured at 21s) froze the whole reply even though the model itself answers in ~1.7s. If the full
+            // build overruns, fall back to the profile + self-model — which already carries who the user is —
+            // so an answer is always fast and still grounded. (Converse has used this pattern all along.)
+            val context = screenCtx + (kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
+            } ?: withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.BrainDigest.getOrFull(ctx) + "\n" + com.agentos.shell.tools.BrainContext.profileBlock(ctx)
+            })
             // SPEED (same quality): a clearly-interrogative question has no action to detect, so skip the
             // action-selection LLM round-trip — the routing below then flows straight to answerWell (the
             // dedicated high-quality answer path). Halves latency for plain Q&A. Explicit commands

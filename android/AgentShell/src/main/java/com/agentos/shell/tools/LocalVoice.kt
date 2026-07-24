@@ -157,10 +157,24 @@ object LocalVoice {
         } catch (t: Throwable) { Result(false, t.message ?: "clone failed") }
     }
 
+    /** Seconds of reference audio handed to ZipVoice. Zero-shot cloners want a SHORT clean clip (~3-10s);
+     *  the full ~24s recording made synthesis crawl (measured: it never returned). Timbre is captured fine
+     *  from the first several seconds. */
+    private const val REF_SECONDS = 9
+
     private fun ref(ctx: Context): Triple<FloatArray, Int, String>? {
-        val samples = AudioDecode.readFloats(refFile(ctx)) ?: return null
+        val all = AudioDecode.readFloats(refFile(ctx)) ?: return null
         val sr = prefs(ctx).getInt("ref_sr", 0); if (sr <= 0) return null
-        val text = prefs(ctx).getString("ref_text", VoiceSampleStore.TRAINING_SCRIPT) ?: ""
+        val fullText = prefs(ctx).getString("ref_text", VoiceSampleStore.TRAINING_SCRIPT) ?: ""
+        // Trim audio AND transcript together — ZipVoice requires the reference text to match the reference
+        // audio, so we cut the script to the same fraction (on a word boundary) that we cut the audio to.
+        val want = REF_SECONDS * sr
+        if (all.size <= want) return Triple(all, sr, fullText)
+        val samples = all.copyOfRange(0, want)
+        val frac = want.toDouble() / all.size
+        val cut = (fullText.length * frac).toInt().coerceIn(20, fullText.length)
+        val text = fullText.take(cut).substringBeforeLast(' ').trim().ifBlank { fullText.take(cut) }
+        Log.i(TAG, "reference trimmed ${all.size}→${samples.size} samples (${REF_SECONDS}s), transcript ${fullText.length}→${text.length} chars")
         return Triple(samples, sr, text)
     }
 
