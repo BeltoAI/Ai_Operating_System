@@ -403,6 +403,27 @@ fun HomeScreen(
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
         }
+        // INSTANT SMALL-TALK: a greeting / thanks / quick ack doesn't need the brain, action detection, or two
+        // LLM calls. One fast CHEAP-tier reply so "hey" returns in ~1s instead of a full brain build + double call.
+        // Tight match (short message, greeting words only, anchored) so real questions/commands never fall in here.
+        if (q.split(Regex("\\s+")).size <= 5 && Regex("(?i)^(hey+|hi+|hello+|yo+|sup|howdy|hiya|hey +there|good (morning|afternoon|evening|night)|g'?(day|morning|night)|morning|evening|thank ?(you|s)( so much| a lot)?|ty|cheers|ok(ay)?|kk?|cool|nice|great|awesome|perfect|sweet|word|gotcha|got ?it|sounds good|no worries|lol+|lmao|haha+|hehe+|what'?s up|whats up|wassup|how are you|how'?s it going|how you doin[g']?|you good|yes+|yep|yup|yeah|nah|nope|bye+|goodnight|good night|see ?ya|later|peace)\\b[\\s!.,?]*$").containsMatchIn(q.trim())) {
+            text = ""; thinking = true; reply = ""; lastQuery = q
+            scope.launch {
+                val prof = withContext(Dispatchers.IO) { com.agentos.shell.tools.MemoryStore.about(ctx) }
+                val r = withContext(Dispatchers.IO) { AgentClient.smalltalk(q, prof, history) }
+                val clean = RichParse.fromTag(r).second
+                reply = r; thinking = false
+                if (doSpeak) speak(clean)
+                history = (history + (q to clean)).takeLast(12)
+                withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.HomeChatStore.add(ctx, q, clean)
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                    if (clean.isNotBlank()) com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", clean)
+                }
+                saved = MetricsStore.savedMinutesToday(ctx)
+            }
+            return@submit
+        }
         // Nightly alarm-planner config in plain language ("remind me at 10pm to set my alarm", "wake me 90 min
         // before", "turn off alarm suggestions"). Handled deterministically so preferences actually stick.
         if (Regex("(?i)(alarm|wake).{0,25}(suggest|remind|before|nightly|each night|every night|plan)|(suggest|remind).{0,20}alarm").containsMatchIn(q)) {

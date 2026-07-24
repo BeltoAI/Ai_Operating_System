@@ -622,6 +622,25 @@ object AgentClient {
         return if (code == 200) text.trim() else "Sorry, I couldn't get that just now."
     }
 
+    /**
+     * INSTANT small-talk — greetings, thanks, quick acknowledgements. No brain build, no action detection, no
+     * web: just ONE fast CHEAP-tier call (routes to Groq for the user) with the persona, so "hey" comes back in
+     * ~1s and still sounds like them. [memory] should be a SMALL persona/profile blob, never the full brain.
+     */
+    fun smalltalk(prompt: String, memory: String = "", history: List<Pair<String, String>> = emptyList()): String {
+        val sys = persona(memory) +
+            "This is casual small-talk (a greeting, thanks, or a quick acknowledgement). Reply in ONE short, warm, " +
+            "natural sentence, in character. No markdown, no lists, no follow-up questions unless it's genuinely natural."
+        val messages = JSONArray()
+        history.takeLast(2).forEach { (u, a) ->
+            messages.put(JSONObject().put("role", "user").put("content", u))
+            messages.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", prompt))
+        val (code, text) = callMessages(sys, messages, 120, MODEL)   // CHEAP tier → fast
+        return if (code == 200) text.trim() else "Hey!"
+    }
+
     /** Vision Q&A: answer a question about photos. Returns plain text. */
     fun askVision(prompt: String, imagesB64: List<String>, memory: String = "", model: String = MODEL, maxTokens: Int = 700): String {
         val content = JSONArray()
