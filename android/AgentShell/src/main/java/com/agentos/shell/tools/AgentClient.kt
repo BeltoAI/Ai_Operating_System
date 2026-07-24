@@ -615,7 +615,10 @@ object AgentClient {
             messages.put(JSONObject().put("role", "assistant").put("content", a))
         }
         messages.put(JSONObject().put("role", "user").put("content", prompt))
-        val (code, text) = callMessages(sys, messages, 300, MODEL)   // cheap tier, short → fast
+        // STANDARD tier (big-context, far smarter) — the voice conversation is a headline feature and was
+        // running on the weakest cheap model. STANDARD (Groq 70B / Gemini) is still fast enough for a live
+        // reply but dramatically better; kept short (spoken) via the token cap.
+        val (code, text) = callMessages(sys, messages, 400, VOICE)
         return if (code == 200) text.trim() else "Sorry, I couldn't get that just now."
     }
 
@@ -1578,7 +1581,7 @@ object AgentClient {
         val sys = persona(memory) +
             "You are texting on Telegram. Reply helpfully, warm and concise. " +
             (if (doc.isNotBlank()) "If relevant, use this document:\n$doc\n" else "")
-        val (code, t) = call(sys, text)
+        val (code, t) = callContent(sys, text, 600, VOICE)   // STANDARD tier — the bot's replies were on cheap
         return if (code == 200) t.trim() else "Hmm, I hit an error ($code)."
     }
 
@@ -1589,7 +1592,7 @@ object AgentClient {
             "Answer the question using ONLY the document excerpts below — if the answer isn't in them, " +
             "say it's not in the document and don't make things up. Keep it natural and texty, in your " +
             "own voice, not a formal report.\nDOCUMENT:\n" + excerpts
-        val (code, text) = call(sys, question)
+        val (code, text) = callContent(sys, question, 700, VOICE)   // STANDARD tier — document Q&A needs it
         return if (code == 200) text.trim() else "Couldn't check the document ($code)."
     }
 
@@ -1618,7 +1621,7 @@ object AgentClient {
             "Write in PLAIN TEXT — no markdown, no ** asterisks **, no # headers; if you list people use simple " +
             "'• ' bullets, one per line.\n" +
             "MEMORIES:\n" + memories.joinToString("\n")
-        val (code, text) = callContent(sys, query, 900)
+        val (code, text) = callContent(sys, query, 900, VOICE)   // STANDARD tier — reasoning over memory needs it
         return if (code == 200) text.trim() else "Couldn't search memory ($code)."
     }
 
