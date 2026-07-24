@@ -5,60 +5,73 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SlyOS — Any AI. Any repo. One phone.</title>
 <meta name="description" content="SlyOS makes the phone's operating system the agent: it answers every message in your voice, plugs into every app, turns any GitHub repo into a power, and runs on any AI.">
-<meta property="og:type" content="website">
 <meta property="og:title" content="Why SlyOS — your phone, with a mind of its own">
 <meta property="og:description" content="Any model. Any repo. Unlimited agents. One phone.">
 <meta property="og:url" content="https://slyos.world/value.html">
 <meta property="og:image" content="https://slyos.world/og.png">
 <meta name="theme-color" content="#15120E">
 <script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;1,300;1,400;1,500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css">
 <style>
-  section{ padding:38px 0; }
+  :root{ --bg:#15120E; --ink:#F4EFE6; --soft:#C7BEB0; --faint:#8C8275; --accent:#F0703A; --line:#2B2620; --script:'Cormorant',Georgia,serif; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); line-height:1.5; -webkit-font-smoothing:antialiased;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  a{ color:inherit; }
+  .wrap{ max-width:1060px; margin:0 auto; padding:0 22px; }
+  nav{ display:flex; align-items:center; justify-content:space-between; padding:18px 0; border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:9; background:color-mix(in srgb,var(--bg) 90%,transparent); backdrop-filter:blur(10px); }
+  .logo{ font-family:var(--script); font-size:34px; font-weight:500; text-decoration:none; color:var(--ink); }
+  .logo b{ color:var(--accent); }
+  .navlinks{ display:flex; gap:20px; align-items:center; }
+  .navlinks a{ color:var(--soft); text-decoration:none; font-size:14px; }
+  .navlinks a:hover{ color:var(--ink); }
+  .navdl{ background:var(--accent); color:#fff!important; padding:8px 14px; border-radius:10px; font-weight:700; }
+  .navtoggle{ display:none; background:none; border:0; color:var(--ink); font-size:24px; cursor:pointer; }
+  .eyebrow{ color:var(--accent); font-weight:700; font-size:12px; letter-spacing:.14em; text-transform:uppercase; margin:0 0 8px; }
+  h1{ font-family:var(--script); font-weight:300; font-size:66px; line-height:1; margin:0 0 14px; }
+  h2{ font-family:var(--script); font-weight:400; font-style:italic; font-size:40px; line-height:1.02; margin:0 0 6px; }
+  .muted{ color:var(--soft); font-size:15px; } .sub{ color:var(--faint); font-size:13px; margin:12px 0 0; }
+  .btn{ display:inline-block; background:var(--accent); color:#fff; text-decoration:none; font-size:18px; font-weight:700; padding:14px 26px; border-radius:12px; }
+  em{ font-style:italic; color:var(--accent); }
+  section{ padding:40px 0; }
   .ctr{ text-align:center; }
-  .vhero{ padding:56px 0 4px; text-align:center; }
-  .vhero h1{ font-size:64px; margin:0 auto 14px; max-width:15ch; }
-  .vhero .lede{ max-width:50ch; margin:0 auto; font-size:20px; }
-  /* METRICS */
+  .vhero{ padding:58px 0 4px; text-align:center; }
+  .vhero h1{ margin:0 auto 14px; max-width:15ch; }
+  .vhero .lede{ max-width:48ch; margin:0 auto; font-size:20px; color:var(--soft); }
+  /* metrics */
   .metrics{ display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin:34px 0 8px; }
-  .metric{ border:1px solid var(--line); border-radius:16px; padding:22px 12px; text-align:center; position:relative; }
-  .metric .num{ font-family:var(--script); font-style:italic; font-size:40px; line-height:1; color:var(--ink); letter-spacing:-.5px; }
+  .metric{ border:1px solid var(--line); border-radius:16px; padding:22px 10px; text-align:center; position:relative; }
+  .metric .num{ font-family:var(--script); font-style:italic; font-size:38px; line-height:1; letter-spacing:-.5px; }
   .metric .num b{ color:var(--accent); font-weight:400; }
-  .metric .lab{ display:block; font-size:11.5px; color:var(--faint); margin-top:9px; }
-  .metric .live{ position:absolute; top:11px; right:11px; width:6px; height:6px; border-radius:999px; background:#3fbf6f; }
+  .metric .lab{ display:block; font-size:11px; color:var(--faint); margin-top:9px; }
+  .metric .live{ position:absolute; top:10px; right:10px; width:6px; height:6px; border-radius:50%; background:#3fbf6f; }
   html.anim .metric .live{ animation:pulse 2s infinite; }
   @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(63,191,111,.5)} 70%{box-shadow:0 0 0 7px rgba(63,191,111,0)} 100%{box-shadow:0 0 0 0 rgba(63,191,111,0)} }
   .note{ font-size:12px; color:var(--faint); text-align:center; margin:8px 0 0; }
-  /* LOGO WALL (logo on the live site, brand-color name tile as fallback) */
-  .wall{ display:grid; gap:14px; margin:22px 0; }
-  .wall.ai{ grid-template-columns:repeat(6,1fr); }
-  .wall.apps{ grid-template-columns:repeat(6,1fr); }
-  .lw{ position:relative; aspect-ratio:1/.8; border-radius:16px; display:flex; align-items:center; justify-content:center;
-       background:var(--c,#222); color:#fff; overflow:hidden; border:1px solid color-mix(in srgb,#000 12%, var(--c,#222)); }
-  .lw b{ font-size:14px; font-weight:700; letter-spacing:.01em; text-align:center; padding:0 6px; line-height:1.1; }
-  .lw img{ position:absolute; width:46%; height:46%; object-fit:contain; }
-  .lw.has b{ visibility:hidden; }
-  /* MEGA STAT */
+  /* logo grids */
+  .wall{ display:grid; gap:16px; margin:22px 0; }
+  .wall.ai{ grid-template-columns:repeat(6,1fr); } .wall.apps{ grid-template-columns:repeat(6,1fr); }
+  .cell{ text-align:center; }
+  .lw{ aspect-ratio:1/.86; border-radius:16px; background:var(--c,#222); display:flex; align-items:center; justify-content:center; }
+  .lw svg{ width:46%; height:46%; }
+  .cn{ display:block; font-size:12px; color:var(--soft); margin-top:8px; }
+  /* mega */
   .mega{ text-align:center; border:1px solid var(--line); border-radius:24px; padding:48px 22px;
     background:radial-gradient(130% 130% at 50% 0,color-mix(in srgb,var(--accent) 12%,transparent),transparent); }
   .mega .big{ font-family:var(--script); font-style:italic; font-size:96px; line-height:.92; letter-spacing:-1.5px; color:var(--accent); }
   .mega .cap{ font-size:20px; color:var(--soft); margin-top:14px; max-width:32ch; margin-inline:auto; }
   .flow{ display:flex; align-items:center; justify-content:center; gap:12px; margin-top:26px; flex-wrap:wrap; }
-  .chip{ border:1px solid var(--line); border-radius:12px; padding:11px 16px; font-size:14px; color:var(--soft); background:color-mix(in srgb,var(--ink) 4%,transparent); }
+  .chip{ border:1px solid var(--line); border-radius:12px; padding:11px 16px; font-size:14px; color:var(--soft); }
   .chip.acc{ border-color:var(--accent); color:#fff; background:var(--accent); font-weight:700; }
   .arrow{ color:var(--accent); font-size:22px; }
-  /* AGENTS */
-  .agentgrid{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:22px; max-width:600px; margin-inline:auto; }
-  .ag{ width:48px; height:48px; border-radius:999px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; }
-  html.anim .ag{ animation:pop .45s both; }
-  @keyframes pop{ from{ transform:scale(.4); opacity:0 } to{ transform:scale(1); opacity:.94 } }
+  /* agents */
+  .agentgrid{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:22px; max-width:560px; margin-inline:auto; }
+  .ag{ width:48px; height:48px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; }
   .ag.more{ background:transparent; border:1.5px dashed var(--line); color:var(--faint); font-size:24px; }
-  /* CHARTS */
-  .chartrow{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:8px 0; }
+  /* charts */
+  .chartrow{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
   .chart{ border:1px solid var(--line); border-radius:18px; padding:26px; }
   .chart h4{ margin:0; font-size:12px; color:var(--faint); font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
   .chart .fig{ font-family:var(--script); font-style:italic; font-size:48px; line-height:1; margin:4px 0 20px; }
@@ -67,14 +80,16 @@
   .bar{ width:100%; border-radius:8px 8px 0 0; background:var(--line); height:0; transition:height 1.1s cubic-bezier(.2,.8,.2,1); }
   .bar.acc{ background:var(--accent); } .bar.grn{ background:#2E9E5B; }
   .barwrap span{ font-size:11.5px; color:var(--faint); text-align:center; line-height:1.25; }
-  /* CAPS */
-  .caps{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:8px 0; }
+  /* caps */
+  .caps{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
   .cap2{ border:1px solid var(--line); border-radius:14px; padding:18px 16px; }
-  .cap2 b{ font-weight:600; font-size:15px; }
-  .cap2 span{ display:block; font-size:12.5px; color:var(--faint); margin-top:3px; }
+  .cap2 b{ font-weight:600; font-size:15px; } .cap2 i{ display:block; font-style:normal; font-size:12.5px; color:var(--faint); margin-top:3px; }
   .vcta{ text-align:center; padding:50px 0 12px; }
+  footer{ border-top:1px solid var(--line); margin-top:30px; padding:24px 0; color:var(--faint); font-size:13px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
   @media(max-width:820px){
-    .metrics{ grid-template-columns:repeat(3,1fr); } .wall.ai,.wall.apps{ grid-template-columns:repeat(3,1fr); }
+    .navlinks{ display:none; } .navlinks.open{ display:flex; flex-direction:column; position:absolute; top:64px; right:22px; background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:14px 18px; }
+    .navtoggle{ display:block; }
+    .metrics,.wall.ai,.wall.apps{ grid-template-columns:repeat(3,1fr); }
     .chartrow{ grid-template-columns:1fr; } .caps{ grid-template-columns:1fr 1fr; }
     .vhero h1{ font-size:42px; } .mega .big{ font-size:56px; }
   }
@@ -84,16 +99,13 @@
 <div class="wrap">
 
   <nav>
-    <div class="logo"><a href="/" style="color:inherit;text-decoration:none">Sly<b>OS</b></a></div>
+    <a class="logo" href="/">Sly<b>OS</b></a>
     <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
     <div class="navlinks" onclick="this.classList.remove('open')">
       <a href="/">Home</a>
       <a href="/value.html">Why SlyOS</a>
       <a href="/features.html">Features</a>
       <a href="/store.html">Powers</a>
-      <a href="/setup.html">Setup</a>
-      <a href="/vision.html">Vision</a>
-      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
       <a href="/#get" class="navdl">Download</a>
     </div>
   </nav>
@@ -108,12 +120,12 @@
   <!-- METRICS -->
   <section style="padding-top:6px">
     <div class="metrics">
-      <div class="metric"><span class="live"></span><div class="num" id="m_dl">—</div><span class="lab">downloads</span></div>
+      <div class="metric"><span class="live"></span><div class="num" id="m_dl">80</div><span class="lab">downloads</span></div>
       <div class="metric"><span class="live"></span><div class="num" id="m_visits">—</div><span class="lab">website visits</span></div>
-      <div class="metric"><span class="live"></span><div class="num" id="m_msgs">—</div><span class="lab">messages / week</span></div>
-      <div class="metric"><div class="num" id="m_saved">—</div><span class="lab">hours saved / week</span></div>
-      <div class="metric"><div class="num" id="m_tok">—</div><span class="lab">tokens / reply</span></div>
-      <div class="metric"><div class="num" id="m_pow">—</div><span class="lab">powers in store</span></div>
+      <div class="metric"><span class="live"></span><div class="num" id="m_msgs">315,212</div><span class="lab">messages / week</span></div>
+      <div class="metric"><div class="num" id="m_saved"><b>31</b>h</div><span class="lab">hours saved / week</span></div>
+      <div class="metric"><div class="num">255</div><span class="lab">tokens / reply</span></div>
+      <div class="metric"><div class="num">34</div><span class="lab">powers in store</span></div>
     </div>
     <p class="note">● Live — downloads &amp; visits update in real time from the SlyOS backend.</p>
   </section>
@@ -123,12 +135,12 @@
     <p class="eyebrow ctr">Bring any brain</p>
     <h2 class="ctr">Runs on the models you already trust.</h2>
     <div class="wall ai">
-      <div class="lw" style="--c:#D97757"><b>Claude</b><img alt="" src="https://cdn.simpleicons.org/anthropic/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#0B0B0B"><b>OpenAI</b><img alt="" src="https://cdn.simpleicons.org/openai/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#1C69FF"><b>Gemini</b><img alt="" src="https://cdn.simpleicons.org/googlegemini/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#F55036"><b>Groq</b><img alt="" src="https://cdn.simpleicons.org/groq/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#FA520F"><b>Mistral</b><img alt="" src="https://cdn.simpleicons.org/mistralai/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#3A3A3A"><b>On-device</b></div>
+      <div class="cell"><div class="lw" style="--c:#D97757"><svg viewBox="0 0 24 24" stroke="#fff" stroke-width="1.7" stroke-linecap="round"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7"/></svg></div><span class="cn">Claude</span></div>
+      <div class="cell"><div class="lw" style="--c:#0B0B0B"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5"><ellipse cx="12" cy="12" rx="8" ry="3.4"/><ellipse cx="12" cy="12" rx="8" ry="3.4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="8" ry="3.4" transform="rotate(120 12 12)"/></svg></div><span class="cn">OpenAI</span></div>
+      <div class="cell"><div class="lw" style="--c:#1C69FF"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2c.7 5.4 4.6 9.3 10 10-5.4.7-9.3 4.6-10 10-.7-5.4-4.6-9.3-10-10 5.4-.7 9.3-4.6 10-10Z"/></svg></div><span class="cn">Gemini</span></div>
+      <div class="cell"><div class="lw" style="--c:#F55036"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="5"/><circle cx="12" cy="12" r="3.2" fill="#fff" stroke="none"/></svg></div><span class="cn">Groq</span></div>
+      <div class="cell"><div class="lw" style="--c:#FA520F"><svg viewBox="0 0 24 24" fill="#fff"><rect x="4" y="5" width="16" height="3"/><rect x="4" y="10.5" width="16" height="3"/><rect x="4" y="16" width="16" height="3"/></svg></div><span class="cn">Mistral</span></div>
+      <div class="cell"><div class="lw" style="--c:#3A3A3A"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/><rect x="10" y="10" width="4" height="4" fill="#fff" stroke="none"/><path d="M9 6.5V4M15 6.5V4M9 20v-2.5M15 20v-2.5M6.5 9H4M6.5 15H4M20 9h-2.5M20 15h-2.5"/></svg></div><span class="cn">On-device</span></div>
     </div>
     <p class="muted ctr">Free on Gemini or Groq · bring your own Claude / GPT key · run fully local — or any OpenAI-compatible model.</p>
   </section>
@@ -140,10 +152,8 @@
       <div class="big" id="m_repos">395,000,000</div>
       <div class="cap">public GitHub repositories — <strong>every one</strong> installs into SlyOS as a new power.</div>
       <div class="flow">
-        <span class="chip">any GitHub repo</span>
-        <span class="arrow">→</span>
-        <span class="chip acc">one tap</span>
-        <span class="arrow">→</span>
+        <span class="chip">any GitHub repo</span><span class="arrow">→</span>
+        <span class="chip acc">one tap</span><span class="arrow">→</span>
         <span class="chip">your phone can now do it</span>
       </div>
     </div>
@@ -153,8 +163,12 @@
   <section>
     <p class="eyebrow ctr">Your own workforce</p>
     <h2 class="ctr">Build <em>unlimited</em> agents. They work 24/7.</h2>
-    <div class="agentgrid" id="agents"></div>
-    <p class="muted ctr">Hire a team into a pixel office — inbox, research, decks, outreach — all from your brain.</p>
+    <div class="agentgrid">
+      <div class="ag">M</div><div class="ag">R</div><div class="ag">V</div><div class="ag">A</div><div class="ag">S</div>
+      <div class="ag">J</div><div class="ag">K</div><div class="ag">N</div><div class="ag">P</div><div class="ag">D</div>
+      <div class="ag more">∞</div>
+    </div>
+    <p class="muted ctr">Each circle is an agent you hire into a pixel office — inbox, research, decks, outreach — all from your brain.</p>
   </section>
 
   <!-- APP WALL -->
@@ -162,18 +176,18 @@
     <p class="eyebrow ctr">Connect your apps</p>
     <h2 class="ctr">It plugs into your whole phone.</h2>
     <div class="wall apps">
-      <div class="lw" style="--c:#25D366"><b>WhatsApp</b><img alt="" src="https://cdn.simpleicons.org/whatsapp/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#E1306C"><b>Instagram</b><img alt="" src="https://cdn.simpleicons.org/instagram/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#26A5E4"><b>Telegram</b><img alt="" src="https://cdn.simpleicons.org/telegram/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#111111"><b>X</b><img alt="" src="https://cdn.simpleicons.org/x/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#0A66C2"><b>LinkedIn</b><img alt="" src="https://cdn.simpleicons.org/linkedin/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#FF4500"><b>Reddit</b><img alt="" src="https://cdn.simpleicons.org/reddit/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#EA4335"><b>Gmail</b><img alt="" src="https://cdn.simpleicons.org/gmail/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#1DB954"><b>Spotify</b><img alt="" src="https://cdn.simpleicons.org/spotify/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#0084FF"><b>Messenger</b><img alt="" src="https://cdn.simpleicons.org/messenger/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#4285F4"><b>Calendar</b><img alt="" src="https://cdn.simpleicons.org/googlecalendar/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#1FA855"><b>Drive</b><img alt="" src="https://cdn.simpleicons.org/googledrive/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
-      <div class="lw" style="--c:#111111"><b>GitHub</b><img alt="" src="https://cdn.simpleicons.org/github/white" onload="this.parentNode.classList.add('has')" onerror="this.remove()"></div>
+      <div class="cell"><div class="lw" style="--c:#25D366"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3.7A8.3 8.3 0 0 0 4.7 16l-1 3.6 3.7-1A8.3 8.3 0 1 0 12 3.7Zm0 1.7a6.6 6.6 0 0 1 5.6 10.1l.6 2.2-2.3-.6A6.6 6.6 0 1 1 12 5.4Zm-2.4 2.9c-.2 0-.4.1-.6.3-.2.2-.7.7-.7 1.7s.7 1.9.8 2.1c.1.2 1.4 2.3 3.6 3.1 1.7.7 2.1.6 2.5.5.6-.1 1.2-.5 1.4-1 .2-.5.2-.9.1-1l-.6-.3-1.4-.7c-.2-.1-.3-.1-.5.1l-.6.8c-.1.1-.2.1-.4.1-.6-.3-1.2-.5-1.8-1.4-.1-.2 0-.3.1-.5l.4-.5c.1-.2 0-.3 0-.4l-.7-1.7c-.2-.4-.3-.4-.5-.4h-.4Z"/></svg></div><span class="cn">WhatsApp</span></div>
+      <div class="cell"><div class="lw" style="--c:#E1306C"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4.5" y="4.5" width="15" height="15" rx="4.5"/><circle cx="12" cy="12" r="3.6"/><circle cx="16.6" cy="7.4" r="1.1" fill="#fff" stroke="none"/></svg></div><span class="cn">Instagram</span></div>
+      <div class="cell"><div class="lw" style="--c:#26A5E4"><svg viewBox="0 0 24 24" fill="#fff"><path d="M21.5 5 2.8 12.2l5 1.6L17 7.5l-7 7.2v3.9l3-3 3.7 2.8Z"/></svg></div><span class="cn">Telegram</span></div>
+      <div class="cell"><div class="lw" style="--c:#111"><svg viewBox="0 0 24 24" fill="#fff"><path d="M5 4h3.7l3.5 4.9L16.4 4H19l-5.3 6.8L19.7 20H16l-3.9-5.4L7.5 20H5l5.7-7.3Z"/></svg></div><span class="cn">X</span></div>
+      <div class="cell"><div class="lw" style="--c:#0A66C2"><svg viewBox="0 0 24 24" fill="#fff"><rect x="4" y="9.5" width="3" height="9.5"/><circle cx="5.5" cy="6" r="1.9"/><path d="M10 9.5h2.9v1.4c.5-.9 1.6-1.7 3.1-1.7 2.3 0 3.5 1.4 3.5 4V19h-3v-4.6c0-1.2-.5-2-1.6-2s-1.9.8-1.9 2V19h-3Z"/></svg></div><span class="cn">LinkedIn</span></div>
+      <div class="cell"><div class="lw" style="--c:#FF4500"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="6.4" fill="#fff"/><circle cx="9.6" cy="13" r="1.05" fill="#FF4500"/><circle cx="14.4" cy="13" r="1.05" fill="#FF4500"/><path d="M9.4 15.6c1.6 1.1 3.6 1.1 5.2 0" stroke="#FF4500" stroke-width="1" fill="none" stroke-linecap="round"/><circle cx="18" cy="6.5" r="1.6" fill="#fff"/><path d="M12.2 7.6 13 4.6l3.6.8" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg></div><span class="cn">Reddit</span></div>
+      <div class="cell"><div class="lw" style="--c:#EA4335"><svg viewBox="0 0 24 24" fill="#fff"><path d="M4 7.5 12 13l8-5.5V17h-3v-6l-5 3.5L7 11v6H4Z"/></svg></div><span class="cn">Gmail</span></div>
+      <div class="cell"><div class="lw" style="--c:#1DB954"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="#fff"/><path d="M7.5 10c3-.9 6-.5 8.4 1M7.8 12.7c2.4-.7 4.8-.4 6.7.9M8.2 15.2c1.9-.6 3.6-.3 4.9.6" stroke="#1DB954" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg></div><span class="cn">Spotify</span></div>
+      <div class="cell"><div class="lw" style="--c:#0084FF"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 3.5c-4.7 0-8.3 3.5-8.3 8 0 2.5 1.1 4.6 3 6v3l2.8-1.5c.8.2 1.6.3 2.5.3 4.7 0 8.3-3.5 8.3-8s-3.6-7.8-8.3-7.8Z" opacity=".0"/><path d="M12 3.6c-4.6 0-8.2 3.4-8.2 7.9 0 2.5 1.2 4.6 3 6.1v2.9l2.7-1.5c.8.2 1.6.3 2.5.3 4.6 0 8.2-3.4 8.2-7.8S16.6 3.6 12 3.6Zm.8 10.4-2.1-2.2-4 2.2 4.4-4.6 2.1 2.2 3.9-2.2Z"/></svg></div><span class="cn">Messenger</span></div>
+      <div class="cell"><div class="lw" style="--c:#4285F4"><svg viewBox="0 0 24 24"><rect x="4.5" y="5.5" width="15" height="14" rx="2.5" fill="#fff"/><rect x="4.5" y="5.5" width="15" height="4.2" rx="2.5" fill="#4285F4"/><rect x="7.5" y="12" width="3" height="3" fill="#4285F4"/><rect x="13.5" y="12" width="3" height="3" fill="#4285F4"/></svg></div><span class="cn">Calendar</span></div>
+      <div class="cell"><div class="lw" style="--c:#1FA855"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"><path d="M9 4h6l5.5 9.5H14.5zM9 4 3.5 13.5 6.5 19l5.5-9.5zM6.5 19h11l3-5.5H9.5z"/></svg></div><span class="cn">Drive</span></div>
+      <div class="cell"><div class="lw" style="--c:#111"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2C6.5 2 2 6.6 2 12.2c0 4.5 2.9 8.3 6.8 9.6.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.4-3.4-1.4-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.4.1-2.8 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.5.1 2.8.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.7c0 .3.2.6.7.5 3.9-1.3 6.8-5.1 6.8-9.6C22 6.6 17.5 2 12 2Z"/></svg></div><span class="cn">GitHub</span></div>
     </div>
   </section>
 
@@ -204,18 +218,18 @@
   <section>
     <p class="eyebrow ctr">Everything it does</p>
     <div class="caps">
-      <div class="cap2"><b>Replies in your voice</b><span>Every app, your exact tone</span></div>
-      <div class="cap2"><b>Answers your calls</b><span>Screens, summarises, blocks spam</span></div>
-      <div class="cap2"><b>A memory that's you</b><span>On-device brain of your life</span></div>
-      <div class="cap2"><b>Writes &amp; publishes papers</b><span>Real citations, DOI on Zenodo</span></div>
-      <div class="cap2"><b>Ships real apps</b><span>Live on Vercel + Supabase</span></div>
-      <div class="cap2"><b>Sees screen &amp; camera</b><span>Reads, scans, recognises — on-device</span></div>
-      <div class="cap2"><b>Invests in practice mode</b><span>$1,000 paper portfolio</span></div>
-      <div class="cap2"><b>Runs missions</b><span>"Find me a job" → it applies</span></div>
-      <div class="cap2"><b>Works offline</b><span>Full agent with no signal</span></div>
-      <div class="cap2"><b>Private by default</b><span>Your brain never leaves the phone</span></div>
-      <div class="cap2"><b>Unlimited agents</b><span>A team that works 24/7</span></div>
-      <div class="cap2"><b>Auto-backup</b><span>Your whole brain, to your Drive</span></div>
+      <div class="cap2"><b>Replies in your voice</b><i>Every app, your exact tone</i></div>
+      <div class="cap2"><b>Answers your calls</b><i>Screens, summarises, blocks spam</i></div>
+      <div class="cap2"><b>A memory that's you</b><i>On-device brain of your life</i></div>
+      <div class="cap2"><b>Writes &amp; publishes papers</b><i>Real citations, DOI on Zenodo</i></div>
+      <div class="cap2"><b>Ships real apps</b><i>Live on Vercel + Supabase</i></div>
+      <div class="cap2"><b>Sees screen &amp; camera</b><i>Reads, scans, recognises — on-device</i></div>
+      <div class="cap2"><b>Invests in practice mode</b><i>$1,000 paper portfolio</i></div>
+      <div class="cap2"><b>Runs missions</b><i>"Find me a job" → it applies</i></div>
+      <div class="cap2"><b>Works offline</b><i>Full agent with no signal</i></div>
+      <div class="cap2"><b>Private by default</b><i>Your brain never leaves the phone</i></div>
+      <div class="cap2"><b>Unlimited agents</b><i>A team that works 24/7</i></div>
+      <div class="cap2"><b>Auto-backup</b><i>Your whole brain, to your Drive</i></div>
     </div>
   </section>
 
@@ -226,52 +240,34 @@
     <p class="sub">Free · Gemini/Groq free or your own key · Android 10+</p>
   </div>
 
-  <footer style="border-top:1px solid var(--line);margin-top:30px;padding:24px 0;color:var(--faint);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+  <footer>
     <span>© SlyOS — a Belto project.</span>
-    <span><a href="/privacy.html" style="color:inherit">Privacy</a> · <a href="/vision.html" style="color:inherit">Vision</a></span>
+    <span><a href="/privacy.html">Privacy</a> · <a href="/vision.html">Vision</a></span>
   </footer>
 
 </div>
 
 <script>
-/* Live metrics — real SlyOS backend (same sources as the homepage). */
+/* Live numbers — overlays the static defaults with real backend data when online. */
 const U='https://xfftheaprdedypqlcvzg.supabase.co', K='sb_publishable_AxUM6xdI_3L-no-9MbNsxQ__u_eLmsQ';
 const CTR='https://abacus.jasoncameron.dev', NS='slyos-world', DL_BASE=80;
 const nf=new Intl.NumberFormat('en-US');
 const set=(id,t)=>{const e=document.getElementById(id); if(e) e.innerHTML=t;};
-function countTo(id,target,ms=1500){ const el=document.getElementById(id); if(!el) return; const s=performance.now();
+function countTo(id,target,ms=1400){ const el=document.getElementById(id); if(!el) return; const s=performance.now();
   (function step(t){ const k=Math.min(1,(t-s)/ms), e=1-Math.pow(1-k,3); el.innerHTML=nf.format(Math.round(target*e)); if(k<1) requestAnimationFrame(step); })(s); }
 const rows=q=>fetch(U+'/rest/v1/'+q,{headers:{apikey:K,Authorization:'Bearer '+K}}).then(r=>r.json());
-
-async function boot(){
-  // known-good constants
-  set('m_tok','255');
-  countTo('m_pow',34);                 // curated powers in the store (baked-in catalogue)
-  countTo('m_repos',395000000,1900);
-  // unlimited-agents grid
-  const ag=document.getElementById('agents'); if(ag){ 'MRVASJKNPD'.split('').forEach((c,i)=>{ const d=document.createElement('div'); d.className='ag'; d.textContent=c; d.style.animationDelay=(i*0.05)+'s'; ag.appendChild(d); });
-    const m=document.createElement('div'); m.className='ag more'; m.textContent='∞'; ag.appendChild(m); }
-  // charts grow
+document.addEventListener('DOMContentLoaded',async()=>{
+  countTo('m_repos',395000000,1800);
   requestAnimationFrame(()=>document.querySelectorAll('.bar').forEach(b=>b.style.height=(b.dataset.h||0)+'%'));
-
-  // downloads (Supabase: base 80 + one row per real download)
   try{ const r=await rows('downloads?select=id'); let n=DL_BASE+(Array.isArray(r)?r.length:0);
     try{const f=parseInt(localStorage.getItem('slyos_dlmax')||'0',10)||0; if(n<f)n=f; else localStorage.setItem('slyos_dlmax',String(n));}catch(e){}
-    countTo('m_dl',n);
-  }catch(e){ countTo('m_dl',DL_BASE); }
-
-  // website visits — global site counter, total (this view increments it)
-  try{ const j=await fetch(CTR+'/hit/'+NS+'/pageview').then(r=>r.json()); if(j&&typeof j.value==='number') countTo('m_visits',j.value);
-  }catch(e){ set('m_visits','—'); }
-
-  // phone-pushed usage: messages/week + hours saved/week
+    countTo('m_dl',n); }catch(e){}
+  try{ const j=await fetch(CTR+'/hit/'+NS+'/pageview').then(r=>r.json()); if(j&&typeof j.value==='number') countTo('m_visits',j.value); }catch(e){}
   try{ const s=await fetch('/stats.json',{cache:'no-store'}).then(r=>r.json());
-    countTo('m_msgs', s.messages || 315212);
-    set('m_saved','<b>'+Math.round(s.savedHoursWeek!=null? s.savedHoursWeek : 31)+'</b>h');
-    if(s.tokensPerResponse) set('m_tok',String(s.tokensPerResponse));
-  }catch(e){ countTo('m_msgs',315212); set('m_saved','<b>31</b>h'); }
-}
-document.addEventListener('DOMContentLoaded', boot);
+    if(s.messages) countTo('m_msgs',s.messages);
+    if(s.savedHoursWeek!=null) set('m_saved','<b>'+Math.round(s.savedHoursWeek)+'</b>h');
+  }catch(e){}
+});
 </script>
 </body>
 </html>
