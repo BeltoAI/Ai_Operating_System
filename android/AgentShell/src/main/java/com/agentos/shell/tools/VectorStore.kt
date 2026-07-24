@@ -50,7 +50,9 @@ object VectorStore {
      */
     fun enqueue(ctx: Context, contact: String, role: String, body: String): Boolean {
         val t = body.trim(); if (t.length < 3) return false
-        val clipped = t.take(4000)
+        // 1200, not 4000: the stored body is only for embedding + a short recall snippet (display clips to ~280).
+        // Storing 4000 chars/row is what bloated the vector DB to 200MB and made every recall read hundreds of MB.
+        val clipped = t.take(1200)
         return try {
             val d = db(ctx)
             val dup = d.rawQuery("SELECT 1 FROM vmem WHERE contact=? AND body=? LIMIT 1",
@@ -180,9 +182,27 @@ object VectorStore {
         db(ctx).rawQuery("SELECT count(*) FROM vmem WHERE v IS NOT NULL", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     } catch (e: Exception) { 0 }
 
+    /**
+     * ONE-TIME COMPACTION — shrink an already-bloated index. Older rows stored up to 4000 chars of body each,
+     * which grew the DB to ~200MB and made every recall read hundreds of MB. Truncate those bodies to 1200 and
+     * VACUUM to reclaim the space. Guarded to run once; background-only (VACUUM rewrites the file).
+     */
+    fun compactOnce(ctx: Context) {
+        val meta = ctx.getSharedPreferences("slyos_vec_meta", Context.MODE_PRIVATE)
+        if (meta.getBoolean("compacted_v1", false)) return
+        try {
+            val d = db(ctx)
+            d.execSQL("UPDATE vmem SET body = substr(body, 1, 1200) WHERE length(body) > 1200")
+            d.execSQL("VACUUM")
+            meta.edit().putBoolean("compacted_v1", true).apply()
+            HealthStore.note("vec_compact", true, "truncated bodies + vacuumed the vector index")
+        } catch (e: Exception) { HealthStore.note("vec_compact", false, e.message ?: "failed") }
+    }
+
     /** Embed up to [cap] queued rows, in batches. Safe to call on app start (off the main thread). */
     fun backfill(ctx: Context, cap: Int = 1000) {
         val provider = EmbeddingClient.provider(ctx) ?: return
+        compactOnce(ctx)    // one-time: shrink the over-bloated index so recall isn't reading hundreds of MB
         ensureSeeded(ctx)   // make sure existing history is queued before we start embedding
         var processed = 0
         try {
@@ -239,30 +259,41 @@ object VectorStore {
                 "query embedding timed out — fell back to keyword search only", "warn")
             return emptyList()
         }
-        val hits = ArrayList<Hit>()
         try {
-            // Match on DIMENSION only, not provider. Vectors written under an older provider label (or after
-            // a model heal) were previously invisible forever — the index looked full while returning nothing.
-            // Newest first, and capped: cosine over every row in Kotlin does not scale past a few tens of
-            // thousands, and a slow search is indistinguishable from a broken one.
+            // SPEED: rank on the VECTORS ONLY — do NOT load each row's body text (up to 4000 chars) during the
+            // scan. The old query pulled `body` for every row, so a 200MB vector DB meant reading hundreds of MB
+            // per query (the reason recall crawled). We load just rowid+vector, score, take the top-k, THEN
+            // fetch text for only those winners. Also cap the scan at 12k (newest-first) — brute-force cosine in
+            // Kotlin doesn't scale past that, and recent vectors + the keyword path cover the rest.
+            val scored = ArrayList<Pair<Long, Float>>(12000)
             db(ctx).rawQuery(
-                "SELECT contact, role, body, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 30000",
+                "SELECT rowid, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 12000",
                 arrayOf(qv.size.toString())).use { c ->
                 while (c.moveToNext()) {
-                    val v = toVec(c.getBlob(3))
-                    val score = EmbeddingClient.cosine(qv, v)
-                    // NO hard cutoff. A fixed 0.55 floor meant a query whose best match scored 0.54 returned
-                    // absolutely nothing. Collect everything, rank, and let the caller take the best k.
-                    if (score > 0.20f) hits.add(Hit(c.getString(0), c.getString(1), c.getString(2), score))
+                    val score = EmbeddingClient.cosine(qv, toVec(c.getBlob(1)))
+                    if (score > 0.20f) scored.add(c.getLong(0) to score)
                 }
             }
+            if (scored.isEmpty()) {
+                Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
+                    "nothing scored above 0.20 across ${embeddedCount(ctx)} vectors", "warn")
+                return emptyList()
+            }
+            val top = scored.sortedByDescending { it.second }.take(k)
+            val scoreById = top.associate { it.first to it.second }
+            val ids = top.joinToString(",") { it.first.toString() }
+            val hits = ArrayList<Hit>(top.size)
+            db(ctx).rawQuery("SELECT rowid, contact, role, body FROM vmem WHERE rowid IN ($ids)", null).use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    hits.add(Hit(c.getString(1), c.getString(2), c.getString(3), scoreById[id] ?: 0f))
+                }
+            }
+            return hits.sortedByDescending { it.score }
         } catch (e: Exception) {
             Fail.log(ctx, "Brain", "semantic search", e.message ?: "query failed")
             return emptyList()
         }
-        if (hits.isEmpty()) Fail.log(ctx, "Brain", "semantic recall for \"${query.take(40)}\"",
-            "nothing scored above 0.20 across ${embeddedCount(ctx)} vectors", "warn")
-        return hits.sortedByDescending { it.score }.take(k)
     }
 
     /** P1.6: remove one person's vectors so forgotten content can't resurface in semantic search. */
