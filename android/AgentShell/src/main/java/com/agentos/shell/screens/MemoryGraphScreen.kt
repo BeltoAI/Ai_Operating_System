@@ -230,6 +230,15 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
                 com.agentos.shell.tools.MessageStore.search(ctx, q, 70)
                     .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body }
             }
+            // SEMANTIC recall — search the whole brain by MEANING. This panel was keyword-only (never touched
+            // the vector index), which is why it could "barely find anything". Embeds the real question and
+            // pulls the closest memories across EVERY source (messages, docs, photos, screen, CRM, papers).
+            val semHits = withContext(Dispatchers.IO) {
+                try {
+                    com.agentos.shell.tools.VectorStore.search(ctx, query, 30)
+                        .map { (if (it.role == "me") "You to ${it.contact}" else it.contact) + ": " + it.body }
+                } catch (e: Exception) { emptyList() }
+            }
             // Your written papers' CONTENT (not just titles) — so Ask can answer from your research.
             val paperHits = withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 3000) }
                 .split("\n\n").map { it.trim() }.filter { it.isNotBlank() }
@@ -265,8 +274,9 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             // "what's my address / email / phone / where did I work" is answerable no matter the wording.
             val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.profileBlock(ctx) }
                 .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "About you: $it" }
-            // Lead with whatever the question is really about.
-            val ordered = profile + when {
+            // Lead with whatever the question is really about — but always fold in the semantic hits (best
+            // meaning-matches) high up, right after the core profile.
+            val ordered = profile + semHits + when {
                 paperQuery -> paperTitles + paperHits + conns + dbHits + docHits + taskLines + rankedExtra
                 schedQ     -> calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
                 taskQuery  -> taskLines + conns + dbHits + paperHits + docHits + rankedExtra
