@@ -65,8 +65,10 @@ object MemoryStore {
         val a = about(ctx); val l = learnedFacts(ctx); val p = positions(ctx); val e = education(ctx)
         val pi = personalProfile(ctx)
         val c = shippingProfile(ctx)   // Name / Email / Phone / Address from Settings — real contact details for letterheads, résumés, forms.
+        val book = effectiveBookingLink(ctx)   // Calendly/booking link — must be answerable ("what's my calendly link?").
         return buildString {
             if (c.isNotBlank()) append("My contact details (use verbatim in résumé headers, cover-letter sender blocks, and signatures):\n").append(c)
+            if (book.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My booking / scheduling link (Calendly): ").append(book) }
             if (pi.isNotBlank()) { if (isNotEmpty()) append("\n"); append("About me (personal): ").append(pi) }
             if (a.isNotBlank()) { if (isNotEmpty()) append("\n"); append(a) }
             if (p.isNotBlank()) { if (isNotEmpty()) append("\n"); append("My work history (from LinkedIn):\n").append(p) }

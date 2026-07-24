@@ -43,7 +43,7 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
-    val totalSteps = 4
+    val totalSteps = 5
 
     // ---- Step 0: brain / free key ----
     var keyStatus by remember { mutableStateOf("") }
@@ -138,6 +138,32 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     fun openNotif() { try { ctx.startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
 
+    // ---- Special access (deep-link Settings — can't be batched into a runtime-permission dialog) ----
+    // These three are why the headline features actually work for a new user, and the old wizard asked for
+    // NONE of them: accessibility = reply/tap-send on WhatsApp/Instagram/LinkedIn; battery-unrestricted =
+    // the 24/7 team + auto-reply survive Doze (Samsung kills them otherwise); overlay = the floating brain.
+    fun accessibilityOn(): Boolean = com.agentos.shell.InteractionLogService.instance != null
+    fun openAccessibility() { try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+    fun batteryOn(): Boolean = try {
+        (ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager)
+            .isIgnoringBatteryOptimizations(ctx.packageName)
+    } catch (e: Exception) { false }
+    fun askBattery() {
+        try {
+            @android.annotation.SuppressLint("BatteryLife")
+            val i = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(i)
+        } catch (e: Exception) {
+            try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e2: Exception) {}
+        }
+    }
+    fun overlayOn(): Boolean = try { android.provider.Settings.canDrawOverlays(ctx) } catch (e: Exception) { false }
+    fun askOverlay() { try { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        android.net.Uri.parse("package:" + ctx.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {} }
+
     @Composable
     fun bigButton(label: String, primary: Boolean = true, enabled: Boolean = true, onClick: () -> Unit) {
         Text(label, fontSize = T.small, textAlign = TextAlign.Center,
@@ -230,8 +256,35 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Text("Calendar · Contacts · Messages · Microphone · Notifications", fontSize = T.caption, color = T.inkFaint)
                 if (permsStatus.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(permsStatus, fontSize = T.caption, color = T.accent) }
             }
-            // ---------- 3: HOME ----------
+            // ---------- 3: SPECIAL ACCESS (the powers that make the headline features work) ----------
             3 -> {
+                val accOn = accessibilityOn(); val batOn = batteryOn(); val ovOn = overlayOn()
+                Text("Give SlyOS its powers", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(6.dp))
+                Text("Three quick switches unlock the big stuff — replying inside your apps, staying awake 24/7, " +
+                    "and the floating brain. Each opens a Settings page; flip the switch, then come back.",
+                    fontSize = T.small, color = T.inkSoft)
+                Spacer(Modifier.height(16.dp))
+
+                bigButton(if (accOn) "Reply in your apps  ✓" else "Let SlyOS reply in your apps", primary = !accOn) { openAccessibility() }
+                Spacer(Modifier.height(4.dp))
+                Text("Find “SlyOS” under Accessibility and turn it on. This is what sends replies on WhatsApp, " +
+                    "Instagram and LinkedIn — where there's no built-in reply box.", fontSize = T.caption, color = T.inkFaint)
+
+                Spacer(Modifier.height(16.dp))
+                bigButton(if (batOn) "Runs 24/7  ✓" else "Keep SlyOS awake in the background", primary = !batOn) { askBattery() }
+                Spacer(Modifier.height(4.dp))
+                Text("Tap “Allow.” Without this, your AI team and auto-replies get frozen when the screen's off.",
+                    fontSize = T.caption, color = T.inkFaint)
+
+                Spacer(Modifier.height(16.dp))
+                bigButton(if (ovOn) "Floating brain on  ✓" else "Let the brain float over apps", primary = !ovOn) { askOverlay() }
+                Spacer(Modifier.height(4.dp))
+                Text("Turn on “Display over other apps” so you can tap the brain on any screen to read and remember it.",
+                    fontSize = T.caption, color = T.inkFaint)
+            }
+            // ---------- 4: HOME ----------
+            4 -> {
                 Text("Make SlyOS your home", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(6.dp))
                 Text("SlyOS replaces your home screen — it’s your phone now, not an app you reopen. Tap below and pick " +

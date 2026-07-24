@@ -592,8 +592,13 @@ object AgentClient {
             messages.put(JSONObject().put("role", "assistant").put("content", a))
         }
         messages.put(JSONObject().put("role", "user").put("content", prompt))
-        // VOICE = STANDARD tier (holds the full brain, reasons well); web tool on for live facts.
-        val (code, text) = callMessages(sys, messages, 1000, VOICE, 120000, webTool())
+        // WEB ONLY WHEN THE QUESTION IS PLAUSIBLY LIVE/FACTUAL. Attaching the web tool unconditionally is what
+        // made a PERSONAL question the model couldn't instantly answer (e.g. "what's my calendly link", before
+        // that link was in context) spin for ~2 minutes web-searching. Personal/brain questions now do a single
+        // fast call with no web round-trip; only genuinely live/factual questions get the (slower) web tool.
+        val needsWeb = Regex("(?i)\\b(weather|forecast|temperature|news|headline|score|who won|game|match|price|stock|worth|current|latest|today'?s?|tonight|right now|recent(ly)?|look ?up|google|search for|what'?s happening|define|meaning of|population|how (much|many|far|old|tall)|when (is|was|does|did|is the)|where (is|can|to)|release date|open now|hours|standings|results|near me|this (week|weekend|month))\\b").containsMatchIn(prompt)
+        val readMs = if (needsWeb) 120000 else 45000
+        val (code, text) = callMessages(sys, messages, 1000, VOICE, readMs, if (needsWeb) webTool() else null)
         if (code != 200) return cleanSay(text.ifBlank { "I couldn't reach the model just now — try again in a moment." })
         return cleanSay(text)
     }
