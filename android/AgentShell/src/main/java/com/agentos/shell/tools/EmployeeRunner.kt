@@ -47,7 +47,53 @@ object EmployeeRunner {
         "(what it does, the key pages, the data model, auth, payments, and the look/feel). I turn it into a one-tap Lovable build link the owner opens — no key needed. Use build_app for full apps; use make_doc kind \"site\" + deploy only for a simple static/marketing page." +
         " provision_db: run the app's backend SQL (CREATE TABLE, Row-Level-Security policies, seed data) against the owner's Supabase — put the SQL in \"text\". Do this so a deployed site WORKS on first load instead of hitting missing tables. Typical full flow you own end-to-end: make_doc kind \"site\" (frontend wired to Supabase) → provision_db (schema) → deploy (live URL). To refine later: edit_doc the site, then deploy again."
 
-    /** Execute ONE action fully (MAX automation — reversible things just happen). Returns a human result line. */
+    private fun isoFmt() = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US)
+
+    /** Human-friendly time range from ISO strings, for an approval card ("Fri Jul 25, 3:00–3:30 PM"). */
+    private fun prettyRange(startIso: String, endIso: String): String = try {
+        val s = isoFmt().parse(startIso)
+        val day = java.text.SimpleDateFormat("EEE MMM d", java.util.Locale.getDefault())
+        val t = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        val e = try { isoFmt().parse(endIso) } catch (ex: Exception) { null }
+        if (s == null) startIso else day.format(s) + ", " + t.format(s) + (if (e != null) "–" + t.format(e) else "")
+    } catch (e: Exception) { startIso }
+
+    /**
+     * GATE: a teammate NEVER sends email itself. It drafts the email and drops it in the owner's Now feed for a
+     * one-swipe approval. Returns the human line the agent says. Deduped so a re-run doesn't stack copies.
+     */
+    private fun requestEmailApproval(ctx: Context, emp: EmployeeStore.Employee, to: String, subject: String, body: String): String {
+        val subj = subject.trim().ifBlank { "(no subject)" }
+        val arg = JSONObject().put("to", to).put("subject", subj).put("body", body).toString()
+        val id = ApprovalStore.request(ctx, emp.name, "email", "Email $to",
+            "To: $to\nSubject: $subj\n\n$body", listOf(AgentAction("send_email", arg)))
+        return if (id != 0L) "drafted an email to $to — it's waiting for your OK in Now (swipe right to review)"
+               else "that email to $to is already waiting for your OK in Now"
+    }
+
+    /**
+     * GATE: a teammate NEVER writes/moves a calendar event itself. It prepares the event and drops it in the
+     * owner's Now feed for approval. If the model gave no end time, default to +30 min so the approved action
+     * has a valid range. Returns the human line the agent says.
+     */
+    private fun requestEventApproval(ctx: Context, emp: EmployeeStore.Employee, title: String, startIso: String,
+                                     endIsoIn: String, attendees: List<String>, meet: Boolean): String {
+        val endIso = endIsoIn.trim().ifBlank {
+            val s = parseIso(startIso); if (s > 0) isoFmt().format(java.util.Date(s + 1_800_000L)) else ""
+        }
+        val arg = JSONObject().put("title", title).put("start", startIso).put("end", endIso)
+            .put("meet", meet).put("attendees", org.json.JSONArray(attendees)).toString()
+        val whenStr = prettyRange(startIso, endIso)
+        val who = if (attendees.isNotEmpty()) " with ${attendees.joinToString(", ")}" else ""
+        val id = ApprovalStore.request(ctx, emp.name, "event", "Add “$title” to your calendar",
+            "$title\n$whenStr$who" + (if (meet) "\nGoogle Meet link included" else ""),
+            listOf(AgentAction("add_event", arg)))
+        return if (id != 0L) "set up “$title” for $whenStr — it's waiting for your OK in Now (swipe right to review)"
+               else "that event is already waiting for your OK in Now"
+    }
+
+    /** Execute ONE action fully (reversible things just happen; email + calendar go to the owner for approval).
+     *  Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
         val type = act?.optString("type").orEmpty()
         return try {
@@ -60,8 +106,11 @@ object EmployeeRunner {
                     if (ownerEmail.isNotBlank() && to.equals(ownerEmail, ignoreCase = true)) {
                         ""   // silently skip; the chain will just reply in chat
                     } else if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
-                        val (ok, msg) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
-                        if (ok) "sent email to $to ✓" else "couldn't send to $to ($msg)"
+                        // Auto agents send now; Draft agents (default) queue it for the owner's approval in Now.
+                        if (emp.autonomous) {
+                            val (ok, msg) = GmailClient.send(ctx, to, act.optString("subject").ifBlank { "(no subject)" }, body)
+                            if (ok) "sent email to $to ✓" else "couldn't send to $to ($msg)"
+                        } else requestEmailApproval(ctx, emp, to, act.optString("subject"), body)
                     } else ""
                 }
                 "add_event" -> {
@@ -70,7 +119,10 @@ object EmployeeRunner {
                     val end = if (e2 > s) e2 else s + 1_800_000L
                     val attendees = act.optJSONArray("attendees")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
                     val wantMeet = act.optBoolean("meet", false) || Regex("(?i)meet|video ?call|zoom|hangout|google meet").containsMatchIn(srcMessage)
-                    if (title.isBlank() || s <= 0) "" else if (wantMeet && GoogleAuth.isConnected(ctx)) {
+                    if (title.isBlank() || s <= 0) "" else if (!emp.autonomous) {
+                        // Draft agent (default): prepare it → owner approves in the Now feed.
+                        requestEventApproval(ctx, emp, title, act.optString("start"), act.optString("end"), attendees, wantMeet)
+                    } else if (wantMeet && GoogleAuth.isConnected(ctx)) {
                         val r = GoogleCalendarClient.createEvent(ctx, title, s, end, attendees, true)
                         if (r.ok) "created “$title”" + (if (r.meetLink.isNotBlank()) " ✓ Meet: ${r.meetLink}" else " ✓") else "couldn't create it (${r.error.take(40)})"
                     } else if (CalendarTool.hasPermission(ctx)) {
@@ -351,8 +403,15 @@ object EmployeeRunner {
                 "email and drafts replies, it does NOT post to Reddit or research LinkedIn profiles. If the most useful step is " +
                 "outside your job, say so briefly ('that's for the research/reddit teammate') and take action 'none' instead of doing it. " +
                 "You work in STEPS: each step you may take ONE action; you'll then see its result and continue. You have live " +
-                "web search every step. MAX AUTOMATION — actually DO things (send the email, create the event, save the lead, " +
-                "draft the post) without asking permission for reversible actions. Only set \"needs\" if you literally cannot " +
+                "web search every step. MAX AUTOMATION — actually DO the reversible things (save the lead, take the note, " +
+                "draft the post/doc) without asking. " +
+                (if (emp.autonomous)
+                    "You're in AUTO mode: send_email and add_event fire immediately, so only use them when you're sure. "
+                else
+                    "You're in DRAFT mode: SENDING EMAIL and CHANGING $owner's CALENDAR don't fire on their own — use send_email / " +
+                    "add_event and they go to $owner's Now feed for a one-swipe approval. Phrase it honestly: 'drafted an email for " +
+                    "your approval' / 'set up that event for your OK' — NEVER 'sent' or 'added' it. ") +
+                "Only set \"needs\" if you literally cannot " +
                 "proceed without $owner (a missing address, a private detail, a genuine judgment call). " +
                 "\"say\" is a SHORT, NATURAL, FIRST-PERSON message to $owner — talk like a real teammate who's on it, warm and human, the way ${emp.name} the ${emp.role} actually would. NEVER narrate your own internal reasoning or routing: no 'this is inbox territory', no 'handing to Riri', no bullet-point status log. Just say the human thing. " +
                 "TEAMWORK — if part of this needs a teammate's specialty (e.g. you're coordinating and need the designer to make a deck, or the engineer to build a page), use the handoff action: {\"type\":\"handoff\",\"target\":\"<teammate's exact name>\",\"text\":\"<the specific subtask>\"}. You get their result back and finish the job together — don't just punt it to $owner. Only hand off what's truly their lane; do the rest yourself. For casual chat or a simple reply, answer in ONE step and set done:true — never repeat yourself across steps. " +
@@ -485,6 +544,8 @@ object EmployeeRunner {
                 "\"action\":{\"type\":\"send_email|add_event|note|post|save_lead|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
                 "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\"," +
                 "\"target\":\"\",\"text\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}}. " +
+                (if (emp.autonomous) "You're in AUTO mode: send_email and add_event fire immediately — use them only when sure. "
+                 else "You're in DRAFT mode: send_email + add_event DON'T fire on their own — they go to $owner's Now feed for a one-swipe approval, so say you 'drafted' / 'set up' it for approval, never that you 'sent' or 'added' it. ") +
                 "send_email only to a REAL EXTERNAL person, in $owner's own voice — NEVER email $owner (you talk to them in the app/chat, not their inbox). add_event uses local ISO times. " +
                 "note saves a finding to $owner's brain. " +
                 "post: for a Reddit comment/post or any social reply. Put the subreddit in \"target\" (e.g. \"r/LocalLLaMA\") — " +
@@ -535,16 +596,34 @@ object EmployeeRunner {
                         if (ownerEmail.isNotBlank() && to.equals(ownerEmail, ignoreCase = true)) {
                             // never email the owner — that's what the app/chat is for
                         } else if (to.contains("@") && body.isNotBlank() && !AgentClient.looksLikeError(body)) {
-                            val (ok, msg) = GmailClient.send(ctx, to, subj.ifBlank { "(no subject)" }, body)
-                            outcome = if (ok) "Sent email to $to" else "Couldn't send: $msg"; if (ok) didAction = 1
+                            if (emp.autonomous) {
+                                // Auto agent: send now.
+                                val (ok, msg) = GmailClient.send(ctx, to, subj.ifBlank { "(no subject)" }, body)
+                                outcome = if (ok) "Sent email to $to" else "Couldn't send: $msg"; if (ok) didAction = 1
+                            } else {
+                                // Draft agent (default): queue it for the owner's approval in Now.
+                                requestEmailApproval(ctx, emp, to, subj, body)
+                                outcome = "Drafted an email to $to — waiting for your approval"
+                                postNeed = "Approve the email to $to — open Now to review & send."
+                            }
                         }
                     }
                     "add_event" -> {
                         val title = act!!.optString("title").trim()
-                        val s = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
-                        if (title.isNotBlank() && s > 0 && CalendarTool.hasPermission(ctx)) {
-                            val r = CalendarTool.addEvent(ctx, title, s, if (e2 > s) e2 else s + 1_800_000L)
-                            if (!r.startsWith("ERR")) { outcome = "Added to calendar: $title"; didAction = 1 } else outcome = "Couldn't add event ($r)"
+                        val s = parseIso(act.optString("start"))
+                        if (title.isNotBlank() && s > 0) {
+                            if (emp.autonomous) {
+                                // Auto agent: write the calendar now.
+                                val e2 = parseIso(act.optString("end"))
+                                val r = CalendarTool.addEvent(ctx, title, s, if (e2 > s) e2 else s + 1_800_000L)
+                                if (!r.startsWith("ERR")) { outcome = "Added to calendar: $title"; didAction = 1 } else outcome = "Couldn't add event ($r)"
+                            } else {
+                                // Draft agent (default): queue it for the owner's approval in Now.
+                                val attendees = act.optJSONArray("attendees")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+                                requestEventApproval(ctx, emp, title, act.optString("start"), act.optString("end"), attendees, act.optBoolean("meet", false))
+                                outcome = "Set up “$title” — waiting for your approval"
+                                postNeed = "Approve the calendar event “$title” — open Now to review."
+                            }
                         }
                     }
                     "note" -> {
