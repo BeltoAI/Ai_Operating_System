@@ -47,7 +47,15 @@ object BrainBackup {
      * Build a full snapshot zip in the cache dir and return it. Includes the shared_prefs and databases
      * folders (with any -wal/-shm files so no committed data is lost), plus the Cowork workspace files.
      */
-    fun snapshot(ctx: Context): File {
+    /**
+     * @param lean when true, produce a SMALLER zip for cloud SYNC (Supabase has a per-object size limit —
+     *   a full brain 413'd). Lean drops the big RE-DERIVABLE data: the vector index (re-embeds from messages
+     *   on the restored device) and the photo index (re-scans the new device's gallery), plus the media files
+     *   (scanned doc photos, generated PDFs, cowork files). The irreplaceable core — every message, all your
+     *   settings/facts/personas/keys, CRM, connections, expenses, document text, team — is always included.
+     *   The full Drive backup (lean=false) still carries everything.
+     */
+    fun snapshot(ctx: Context, lean: Boolean = false): File {
         val out = File(ctx.cacheDir, FILE_NAME)
         val root = dataDir(ctx)
         ZipOutputStream(out.outputStream().buffered()).use { zip ->
@@ -55,28 +63,32 @@ object BrainBackup {
                 for (sub in listOf("shared_prefs", "databases")) {
                     val d = File(root, sub)
                     if (d.isDirectory) d.listFiles()?.forEach { f ->
-                        if (f.isFile) addEntry(zip, "$sub/${f.name}", f)
+                        if (!f.isFile) return@forEach
+                        // Skip the big re-derivable indexes in a lean cloud sync — they rebuild on restore.
+                        if (lean && sub == "databases" && (f.name.startsWith("slyos_vec") || f.name.startsWith("slyos_photos"))) return@forEach
+                        addEntry(zip, "$sub/${f.name}", f)
                     }
                 }
             }
-            // Cowork workspace files live under files/cowork — back those up too.
-            val cowork = File(ctx.filesDir, "cowork")
-            if (cowork.isDirectory) cowork.listFiles()?.forEach { f ->
-                if (f.isFile) addEntry(zip, "files/cowork/${f.name}", f)
+            // Media files below are only in the FULL (Drive) backup — they're what makes the zip too big for
+            // cloud object limits, and they either re-derive or aren't the core "brain".
+            if (!lean) {
+                // Cowork workspace files live under files/cowork — back those up too.
+                val cowork = File(ctx.filesDir, "cowork")
+                if (cowork.isDirectory) cowork.listFiles()?.forEach { f ->
+                    if (f.isFile) addEntry(zip, "files/cowork/${f.name}", f)
+                }
+                // Sorted document photos (scanned/filed docs) live under files/documents/<category> — include
+                // them so a restored brain has the actual pictures, not just the index.
+                val docs = File(ctx.filesDir, "documents")
+                if (docs.isDirectory) docs.walkTopDown().filter { it.isFile }.forEach { f ->
+                    try { addEntry(zip, "files/" + f.relativeTo(ctx.filesDir).path, f) } catch (e: Exception) {}
+                }
+                // THE SLYOS FOLDER — the actual generated deliverables (PDFs, decks, sheets, one-pagers) in the
+                // PUBLIC Documents/SlyOS via MediaStore. Zip the real bytes under slyfolder/<category>/<name>
+                // plus a manifest so the drawer + summary + timestamp survive the move.
+                addSlyFolder(ctx, zip)
             }
-            // Sorted document photos (scanned/filed docs) live under files/documents/<category> — include them
-            // so a restored brain has the actual pictures, not just the index.
-            val docs = File(ctx.filesDir, "documents")
-            if (docs.isDirectory) docs.walkTopDown().filter { it.isFile }.forEach { f ->
-                try { addEntry(zip, "files/" + f.relativeTo(ctx.filesDir).path, f) } catch (e: Exception) {}
-            }
-            // THE SLYOS FOLDER — the actual generated deliverables (PDFs, decks, sheets, one-pagers) that
-            // live in the PUBLIC Documents/SlyOS via MediaStore, OUTSIDE app-private storage. Previously the
-            // backup carried only the shared_prefs index, so a restored brain "knew" about files it could no
-            // longer open — every generated document was silently lost on a new device. Zip the real bytes
-            // under slyfolder/<category>/<name> (same structure), plus a manifest so the drawer + summary +
-            // timestamp survive the move. Cap per-file size so one huge file can't blow up the snapshot.
-            addSlyFolder(ctx, zip)
         }
         return out
     }

@@ -43,7 +43,7 @@ object BrainCloud {
             // on the WHOLE brain, which OOM-crashed the app on a large brain (an OutOfMemoryError is an Error,
             // not an Exception, so nothing caught it). Fixed-length streaming holds ~64KB at a time; Throwable
             // catch means a sync can never take the app down again.
-            val zip = BrainBackup.snapshot(ctx)
+            val zip = BrainBackup.snapshot(ctx, lean = true)   // cloud sync = lean (fits Supabase's object size limit)
             val c = (URL(objectUrl(uid)).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 20000; readTimeout = 120000
                 setRequestProperty("Authorization", "Bearer $token")
@@ -58,7 +58,13 @@ object BrainCloud {
             if (code in 200..299) {
                 prefs(ctx).edit().putLong("last_push", System.currentTimeMillis()).apply()
                 Result(true, "Your whole brain is saved to your account (${zip.length() / 1024} KB).")
-            } else { Log.w(TAG, "push $code: ${resp.take(200)}"); Result(false, "Couldn't upload ($code).") }
+            } else {
+                Log.w(TAG, "push $code: ${resp.take(200)}")
+                val friendly = if (code == 413 || resp.contains("maximum allowed size", true) || resp.contains("too large", true))
+                    "Your brain is larger than your account's cloud limit. Raise it in Supabase → Storage → Settings (global file size limit) — meanwhile your on-device + Google Drive backups already hold everything."
+                else "Couldn't upload ($code)."
+                Result(false, friendly)
+            }
         } catch (t: Throwable) { Log.w(TAG, "push: ${t.message}"); Result(false, "Upload failed: ${t.message}") }
     }
 
