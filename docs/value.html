@@ -41,7 +41,7 @@
   .vhero h1{ margin:0 auto 14px; max-width:15ch; }
   .vhero .lede{ max-width:48ch; margin:0 auto; font-size:20px; color:var(--soft); }
   /* metrics */
-  .metrics{ display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin:34px 0 8px; }
+  .metrics{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:34px 0 8px; }
   .metric{ border:1px solid var(--line); border-radius:16px; padding:22px 10px; text-align:center; position:relative; }
   .metric .num{ font-family:var(--script); font-style:italic; font-size:38px; line-height:1; letter-spacing:-.5px; }
   .metric .num b{ color:var(--accent); font-weight:400; }
@@ -54,8 +54,9 @@
   .wall{ display:grid; gap:16px; margin:22px 0; }
   .wall.ai{ grid-template-columns:repeat(6,1fr); } .wall.apps{ grid-template-columns:repeat(6,1fr); }
   .cell{ text-align:center; }
-  .lw{ aspect-ratio:1/.86; border-radius:16px; background:var(--c,#222); display:flex; align-items:center; justify-content:center; }
+  .lw{ position:relative; aspect-ratio:1/.86; border-radius:16px; background:var(--c,#222); display:flex; align-items:center; justify-content:center; }
   .lw svg{ width:46%; height:46%; }
+  .lw img{ position:absolute; width:46%; height:46%; object-fit:contain; }
   .cn{ display:block; font-size:12px; color:var(--soft); margin-top:8px; }
   /* mega */
   .mega{ text-align:center; border:1px solid var(--line); border-radius:24px; padding:48px 22px;
@@ -121,13 +122,12 @@
   <section style="padding-top:6px">
     <div class="metrics">
       <div class="metric"><span class="live"></span><div class="num" id="m_dl">80</div><span class="lab">downloads</span></div>
-      <div class="metric"><span class="live"></span><div class="num" id="m_visits">—</div><span class="lab">website visits</span></div>
       <div class="metric"><span class="live"></span><div class="num" id="m_msgs">315,212</div><span class="lab">messages / week</span></div>
       <div class="metric"><div class="num" id="m_saved"><b>31</b>h</div><span class="lab">hours saved / week</span></div>
       <div class="metric"><div class="num">255</div><span class="lab">tokens / reply</span></div>
-      <div class="metric"><div class="num">34</div><span class="lab">powers in store</span></div>
+      <div class="metric"><div class="num"><b>∞</b></div><span class="lab">powers in store</span></div>
     </div>
-    <p class="note">● Live — downloads &amp; visits update in real time from the SlyOS backend.</p>
+    <p class="note">● Live — downloads update in real time from the SlyOS backend.</p>
   </section>
 
   <!-- BRING ANY AI -->
@@ -249,20 +249,32 @@
 
 <script>
 /* Live numbers — overlays the static defaults with real backend data when online. */
-const U='https://xfftheaprdedypqlcvzg.supabase.co', K='sb_publishable_AxUM6xdI_3L-no-9MbNsxQ__u_eLmsQ';
-const CTR='https://abacus.jasoncameron.dev', NS='slyos-world', DL_BASE=80;
+const U='https://xfftheaprdedypqlcvzg.supabase.co', K='sb_publishable_AxUM6xdI_3L-no-9MbNsxQ__u_eLmsQ', DL_BASE=80;
 const nf=new Intl.NumberFormat('en-US');
 const set=(id,t)=>{const e=document.getElementById(id); if(e) e.innerHTML=t;};
 function countTo(id,target,ms=1400){ const el=document.getElementById(id); if(!el) return; const s=performance.now();
   (function step(t){ const k=Math.min(1,(t-s)/ms), e=1-Math.pow(1-k,3); el.innerHTML=nf.format(Math.round(target*e)); if(k<1) requestAnimationFrame(step); })(s); }
 const rows=q=>fetch(U+'/rest/v1/'+q,{headers:{apikey:K,Authorization:'Bearer '+K}}).then(r=>r.json());
+/* Real brand logos: load the authentic simpleicons SVG over the inline fallback where available. */
+const SI={Claude:'claude',OpenAI:'openai',Gemini:'googlegemini',Groq:'groq',Mistral:'mistralai',
+  WhatsApp:'whatsapp',Instagram:'instagram',Telegram:'telegram',X:'x',LinkedIn:'linkedin',Reddit:'reddit',
+  Gmail:'gmail',Spotify:'spotify',Messenger:'messenger',Calendar:'googlecalendar',Drive:'googledrive',GitHub:'github'};
+function loadRealLogos(){
+  document.querySelectorAll('.wall .cell').forEach(cell=>{
+    const nm=(cell.querySelector('.cn')||{}).textContent; const slug=SI[(nm||'').trim()]; const lw=cell.querySelector('.lw');
+    if(!slug||!lw) return;
+    const img=new Image(); img.alt=nm; img.decoding='async';
+    img.onload=()=>{ const s=lw.querySelector('svg'); if(s) s.style.display='none'; lw.appendChild(img); };
+    img.src='https://cdn.simpleicons.org/'+slug+'/white';
+  });
+}
 document.addEventListener('DOMContentLoaded',async()=>{
+  loadRealLogos();
   countTo('m_repos',395000000,1800);
   requestAnimationFrame(()=>document.querySelectorAll('.bar').forEach(b=>b.style.height=(b.dataset.h||0)+'%'));
   try{ const r=await rows('downloads?select=id'); let n=DL_BASE+(Array.isArray(r)?r.length:0);
     try{const f=parseInt(localStorage.getItem('slyos_dlmax')||'0',10)||0; if(n<f)n=f; else localStorage.setItem('slyos_dlmax',String(n));}catch(e){}
     countTo('m_dl',n); }catch(e){}
-  try{ const j=await fetch(CTR+'/hit/'+NS+'/pageview').then(r=>r.json()); if(j&&typeof j.value==='number') countTo('m_visits',j.value); }catch(e){}
   try{ const s=await fetch('/stats.json',{cache:'no-store'}).then(r=>r.json());
     if(s.messages) countTo('m_msgs',s.messages);
     if(s.savedHoursWeek!=null) set('m_saved','<b>'+Math.round(s.savedHoursWeek)+'</b>h');
