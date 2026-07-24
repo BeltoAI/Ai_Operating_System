@@ -32,6 +32,9 @@ android {
         // installs OVER the old one as an update. Makes republishing effortless — just rebuild.
         versionCode = ((System.currentTimeMillis() / 60000) - 28_900_000).toInt()
         versionName = "0.3." + (((System.currentTimeMillis() / 86_400_000) - 19_700)).toString()
+        // On-device voice cloning (sherpa-onnx) ships native .so per ABI. Restrict to arm64-v8a — every
+        // Android-10+ phone (our minSdk) is 64-bit — so the cloner's libs don't quadruple the APK.
+        ndk { abiFilters += "arm64-v8a" }
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "TWITTER_API_KEY", "\"${apiKeyProps.getProperty("TWITTER_API_KEY", "")}\"")
         buildConfigField("String", "TWITTER_API_SECRET", "\"${apiKeyProps.getProperty("TWITTER_API_SECRET", "")}\"")
@@ -126,4 +129,9 @@ dependencies {
     implementation("com.google.mediapipe:tasks-genai:0.10.24")
     // On-device text embeddings (Universal Sentence Encoder) — free, private, unlimited semantic memory.
     implementation("com.google.mediapipe:tasks-text:0.10.21")
+    // ON-DEVICE VOICE CLONING (free, offline, in the owner's voice). sherpa-onnx bundles ONNX Runtime +
+    // the ZipVoice zero-shot cloner's JNI. The model itself is downloaded at runtime (not in the APK).
+    implementation(files("libs/sherpa-onnx-1.13.4.aar"))
+    // Extract the .tar.bz2 the ZipVoice model ships as (Android has no built-in bzip2). Pure-Java, safe here.
+    implementation("org.apache.commons:commons-compress:1.26.2")
 }

@@ -42,12 +42,15 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
     var elapsed by remember { mutableStateOf(0) }
     var hasSample by remember { mutableStateOf(VoiceSampleStore.hasSample(ctx)) }
     // Surface why a prior (auto-)clone attempt failed, so it's never a silent failure.
-    var status by remember { mutableStateOf(if (!com.agentos.shell.tools.ElevenLabs.available(ctx)) com.agentos.shell.tools.ElevenLabs.lastCloneError(ctx) else "") }
+    var status by remember { mutableStateOf(if (!com.agentos.shell.tools.LocalVoice.enginePresent() && !com.agentos.shell.tools.ElevenLabs.available(ctx)) com.agentos.shell.tools.ElevenLabs.lastCloneError(ctx) else "") }
     val recorder = remember { mutableStateOf<MediaRecorder?>(null) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     val scope = rememberCoroutineScope()
     var cloning by remember { mutableStateOf(false) }
-    var cloned by remember { mutableStateOf(com.agentos.shell.tools.ElevenLabs.available(ctx)) }
+    // Prefer the FREE on-device cloner (sherpa-onnx/ZipVoice) when its engine is in this build; fall back to
+    // the user's own ElevenLabs otherwise.
+    val useLocal = remember { com.agentos.shell.tools.LocalVoice.enginePresent() }
+    var cloned by remember { mutableStateOf(if (useLocal) com.agentos.shell.tools.LocalVoice.available(ctx) else com.agentos.shell.tools.ElevenLabs.available(ctx)) }
 
     fun micGranted() = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -105,7 +108,10 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
                 .verticalScroll(rememberScrollState()).padding(20.dp)
         ) {
             Text("Set up my voice", fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Bold)
-            Text("Read the lines aloud once, then tap Create — SlyOS builds a clone of your voice (via your ElevenLabs key) so every spoken reply sounds like you.",
+            Text(if (useLocal)
+                    "Read the lines aloud once, then tap Create — SlyOS builds a clone of your voice right on your phone (free, private, offline) so every spoken reply sounds like you."
+                 else
+                    "Read the lines aloud once, then tap Create — SlyOS builds a clone of your voice (via your ElevenLabs key) so every spoken reply sounds like you.",
                 fontSize = T.small, color = T.inkFaint)
             Spacer(Modifier.height(16.dp))
 
@@ -139,20 +145,28 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
                         modifier = Modifier.clickable { VoiceSampleStore.clear(ctx); hasSample = false; cloned = false; status = "Removed." }.padding(vertical = 9.dp))
                 }
                 Spacer(Modifier.height(14.dp))
-                // THE ACTUAL CLONE: turn the recorded sample into a real voice via the user's ElevenLabs.
+                // THE ACTUAL CLONE: on-device (sherpa/ZipVoice) when present, else the user's ElevenLabs.
                 Text(if (cloning) "Creating your voice…" else if (cloned) "Your cloned voice is active ✓ · re-create" else "Create my cloned voice  →",
                     fontSize = T.small, color = if (cloned) T.ink else Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (cloned) T.hairline else T.accent)
                         .clickable(enabled = !cloning) {
-                            cloning = true; status = "Uploading your sample to ElevenLabs to build the clone…"
+                            cloning = true
+                            status = if (useLocal) "Building your voice on-device (first time downloads the model)…"
+                                     else "Uploading your sample to ElevenLabs to build the clone…"
                             scope.launch {
-                                val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.createVoiceFromSample(ctx) }
+                                val r = withContext(Dispatchers.IO) {
+                                    if (useLocal) com.agentos.shell.tools.LocalVoice.createFromSample(ctx).let { it.ok to it.error }
+                                    else com.agentos.shell.tools.ElevenLabs.createVoiceFromSample(ctx).let { it.ok to it.error }
+                                }
                                 cloning = false
-                                if (r.ok) { cloned = true; status = "Done ✓ — SlyOS now speaks in your voice everywhere." }
-                                else status = r.error
+                                if (r.first) { cloned = true; status = "Done ✓ — SlyOS now speaks in your voice everywhere." }
+                                else status = r.second
                             }
                         }.padding(vertical = 12.dp))
-                Text("Uses your own ElevenLabs key. Your sample is uploaded to your ElevenLabs account to build the clone (it isn't sent anywhere else).",
+                Text(if (useLocal)
+                        "Runs entirely on your phone — your recording never leaves the device. First time downloads a ~110 MB voice model."
+                     else
+                        "Uses your own ElevenLabs key. Your sample is uploaded to your ElevenLabs account to build the clone (it isn't sent anywhere else).",
                     fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 6.dp))
             }
 
