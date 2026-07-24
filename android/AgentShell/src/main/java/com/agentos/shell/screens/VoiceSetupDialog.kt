@@ -41,7 +41,8 @@ fun VoiceSetupDialog(onClose: () -> Unit) {
     var recording by remember { mutableStateOf(false) }
     var elapsed by remember { mutableStateOf(0) }
     var hasSample by remember { mutableStateOf(VoiceSampleStore.hasSample(ctx)) }
-    var status by remember { mutableStateOf("") }
+    // Surface why a prior (auto-)clone attempt failed, so it's never a silent failure.
+    var status by remember { mutableStateOf(if (!com.agentos.shell.tools.ElevenLabs.available(ctx)) com.agentos.shell.tools.ElevenLabs.lastCloneError(ctx) else "") }
     val recorder = remember { mutableStateOf<MediaRecorder?>(null) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     val scope = rememberCoroutineScope()

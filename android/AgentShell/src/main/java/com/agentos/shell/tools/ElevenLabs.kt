@@ -26,10 +26,19 @@ object ElevenLabs {
         if (available(ctx)) return true
         if (MemoryStore.elevenKey(ctx).isBlank() || !VoiceSampleStore.hasSample(ctx)) return false
         val meta = ctx.getSharedPreferences("slyos_eleven", Context.MODE_PRIVATE)
-        if (meta.getBoolean("autocreate_done", false)) return false
-        meta.edit().putBoolean("autocreate_done", true).apply()   // set BEFORE the call so a retry can't duplicate the voice
-        return createVoiceFromSample(ctx).ok
+        // Rate-limit, don't permanently block: retry at most every ~12h so a FAILED attempt (e.g. a free plan
+        // that can't clone yet) doesn't lock the user out — it auto-creates once they upgrade. Success stops it
+        // (available()==true). Record the failure reason so Settings can tell the user WHY.
+        if (System.currentTimeMillis() - meta.getLong("autocreate_at", 0L) < 12 * 3600_000L) return false
+        meta.edit().putLong("autocreate_at", System.currentTimeMillis()).apply()
+        val r = createVoiceFromSample(ctx)
+        meta.edit().putString("autocreate_error", if (r.ok) "" else r.error).apply()
+        return r.ok
     }
+
+    /** The last reason auto-creating the cloned voice failed (for Settings to surface), or "". */
+    fun lastCloneError(ctx: Context): String =
+        ctx.getSharedPreferences("slyos_eleven", Context.MODE_PRIVATE).getString("autocreate_error", "").orEmpty()
 
     /**
      * ACTUALLY CREATE THE CLONE. Uploads the user's recorded voice sample to THEIR ElevenLabs account via
@@ -67,9 +76,15 @@ object ElevenLabs {
             if (code !in 200..299) {
                 val err = c.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 val msg = try { org.json.JSONObject(err).optJSONObject("detail")?.optString("message") } catch (e: Exception) { null }
-                return CloneResult(false, error = (msg ?: "").ifBlank {
-                    if (code == 401) "ElevenLabs rejected the key." else "Couldn't create the voice (HTTP $code). Instant cloning needs a paid ElevenLabs plan."
-                })
+                val blob = (msg ?: "") + " " + err
+                val friendly = when {
+                    blob.contains("instant_voice_cloning", true) || blob.contains("can_not_use", true) ||
+                        blob.contains("voice_limit", true) || blob.contains("upgrade", true) ->
+                        "Voice cloning isn't available on your ElevenLabs plan. Upgrade to the Starter plan (~$5/mo) at elevenlabs.io, then it'll create your voice automatically."
+                    code == 401 -> "ElevenLabs rejected the key — check it in Brain → API keys."
+                    else -> (msg ?: "").ifBlank { "Couldn't create the voice (HTTP $code)." }
+                }
+                return CloneResult(false, error = friendly)
             }
             val resp = c.inputStream.bufferedReader().use { it.readText() }
             val id = org.json.JSONObject(resp).optString("voice_id")
