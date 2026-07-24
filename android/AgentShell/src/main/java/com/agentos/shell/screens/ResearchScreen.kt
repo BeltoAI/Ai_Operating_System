@@ -168,7 +168,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
         busy = true; status = "Opus is researching the web + writing…"
         scope.launch {
             val source = if (useDoc && KnowledgeStore.hasDoc(ctx)) KnowledgeStore.retrieve(ctx, prompt, 12000) else ""
-            val mem = MemoryStore.about(ctx)
+            val mem = com.agentos.shell.tools.BrainDigest.getOrFull(ctx)   // whole-brain self-model, not just the settings card
             val lib = withContext(Dispatchers.IO) { PaperStore.libraryContext(ctx, 0L, prompt) }
             val dt = docType; val th = thesis
             val out = withContext(Dispatchers.IO) { AgentClient.writePaper(prompt, source, web, mem, lib, dt, th) }
@@ -322,7 +322,7 @@ fun ResearchScreen(modifier: Modifier = Modifier, initialTopic: String = "", onW
         PaperStore.addChat(ctx, currentId, "you", instr); chat = PaperStore.chatLog(ctx, currentId)
         chatInput = ""; busy = true; status = ""
         scope.launch {
-            val mem = MemoryStore.about(ctx)
+            val mem = com.agentos.shell.tools.BrainDigest.getOrFull(ctx)   // whole-brain self-model, not just the settings card
             val title = titleOf(html, "")
             val outline = outlineOf(html)
             val chaps = chapters(html)

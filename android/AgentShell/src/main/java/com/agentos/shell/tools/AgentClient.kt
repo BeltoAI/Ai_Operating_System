@@ -1275,6 +1275,27 @@ object AgentClient {
      * which is what the agent needs to ACT AS them (accept/decline, take a stance), not just sound like them.
      * Input should be the user's own ('me') messages. First-person durable lines.
      */
+    /**
+     * Synthesize a COMPREHENSIVE self-model from the raw material of the whole brain — ONE call. Dense,
+     * organized, first-person-usable, so any surface that includes it can speak/act AS the user with FULL
+     * context (not just the settings card). Built in the background + cached by [BrainDigest]; [targetChars]
+     * keeps it tight enough to fit in a normal context window.
+     */
+    fun buildSelfDigest(raw: String, targetChars: Int = 10000): String {
+        if (raw.isBlank()) return ""
+        val sys = "You are building a COMPLETE dossier on a person from the raw material of their digital life — " +
+            "their profile/settings, their messages, contacts and network, calendar, documents, tasks, and recent " +
+            "activity. Synthesize EVERYTHING that matters into a dense, organized, first-person-usable profile an " +
+            "assistant can use to genuinely BE them: who they are; what they are working on RIGHT NOW; their goals, " +
+            "projects and ventures; their key people and relationships; what's going on in their life recently and " +
+            "who they've been talking to; their commitments, schedule and open tasks; and their opinions, preferences, " +
+            "voice and style. Be SPECIFIC — real names, numbers, dates, facts from the material. Organize under clear " +
+            "headers. Include everything important; cut only noise, duplication, and boilerplate. Target about " +
+            "$targetChars characters — comprehensive but tight. No preamble, no meta-commentary — just the dossier."
+        val (code, text) = callContent(sys, raw.take(60000), 4000, VOICE)
+        return if (code == 200) text.trim() else ""
+    }
+
     fun distillSelf(ownMessages: String): List<String> {
         if (ownMessages.isBlank()) return emptyList()
         val sys = "These are messages the USER themselves wrote. Extract only DURABLE things about THEM that would " +

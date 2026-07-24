@@ -95,6 +95,9 @@ class ShellActivity : ComponentActivity() {
         Thread { try { com.agentos.shell.tools.ElevenLabs.ensureVoice(applicationContext) } catch (e: Exception) {} }.start()
         // Preload the on-device cloned voice so the first spoken reply doesn't pay the model-load cost.
         Thread { try { com.agentos.shell.tools.LocalVoice.warm(applicationContext) } catch (e: Exception) {} }.start()
+        // Rebuild the whole-brain self-model in the background (at most ~twice a day) so replies are grounded in
+        // everything the brain knows, not just the settings card. One synthesis call; cached for instant reuse.
+        Thread { try { Thread.sleep(6000); com.agentos.shell.tools.BrainDigest.ensureFresh(applicationContext) } catch (e: Exception) {} }.start()
         // Warm the Brain graph in the background so swiping into it is instant (no first-open rebuild jank).
         Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery

@@ -27,9 +27,10 @@ internal object VoiceEngine {
     private const val TAG = "SlyOS-VoiceEngine"
 
     // Tunables (on-device tuning is a one-line change here):
-    //  NUM_STEPS — flow-matching steps. The distill model is built for FEW steps; 4 is fast + still clean.
+    //  NUM_STEPS — flow-matching steps. 8 = the value that produced clean audio in the first working build
+    //  (4 may have been too few and yielded silence); tune down later once output is confirmed good.
     //  SPEED     — 1.0 = natural pace.
-    private const val NUM_STEPS = 4
+    private const val NUM_STEPS = 8
     private const val SPEED = 1.0f
 
     @Volatile private var tts: OfflineTts? = null

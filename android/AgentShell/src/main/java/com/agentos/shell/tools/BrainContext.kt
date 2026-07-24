@@ -159,7 +159,12 @@ object BrainContext {
         } else ""
 
         android.util.Log.i("SlyOS-Perf", "BrainContext.build TOTAL ${System.currentTimeMillis() - tBuild}ms for \"${q.take(30)}\"")
+        // The comprehensive self-model (whole brain distilled) leads the context so EVERY reply is grounded in
+        // who the user actually is + what's going on — not just the settings card. Cached; falls back to the
+        // card until the first digest is built. Bounded so query-specific recall below still has room.
+        val digest = try { BrainDigest.get(ctx) } catch (e: Exception) { "" }
         return buildString {
+            if (digest.isNotBlank()) append("WHO YOU ARE (comprehensive self-model):\n").append(digest.take(9000)).append("\n\n")
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)
                 .append(" photos described in your brain; you can find pictures by describing them (e.g. \"a cute selfie\").")

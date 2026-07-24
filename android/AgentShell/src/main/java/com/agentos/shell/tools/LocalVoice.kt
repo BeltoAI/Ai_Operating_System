@@ -68,7 +68,11 @@ object LocalVoice {
     fun enginePresent(): Boolean = VoiceEngine.runtimeAvailable()
 
     /** The one check callers use — a cloned local voice is ready to speak. Mirrors ElevenLabs.available(). */
-    fun available(ctx: Context): Boolean = enginePresent() && modelReady(ctx) && hasProfile(ctx)
+    fun available(ctx: Context): Boolean {
+        val eng = enginePresent(); val model = modelReady(ctx); val prof = hasProfile(ctx)
+        if (!(eng && model && prof)) Log.i(TAG, "available=false (engine=$eng model=$model profile=$prof)")
+        return eng && model && prof
+    }
 
     // ── Model download ────────────────────────────────────────────────────────────────────────────
 
@@ -167,8 +171,13 @@ object LocalVoice {
      */
     fun speakStreaming(ctx: Context, text: String): Boolean {
         if (!available(ctx) || text.isBlank()) return false
-        val (samples, sr, refText) = ref(ctx) ?: return false
-        return VoiceEngine.speakStreaming(text.take(1000), samples, sr, refText, paths(ctx))
+        val r = ref(ctx)
+        if (r == null) { Log.w(TAG, "speakStreaming: no cached reference (re-run Create my voice)"); return false }
+        val (samples, sr, refText) = r
+        Log.i(TAG, "speakStreaming: ref=${samples.size} samples @ ${sr}Hz, text=\"${text.take(40)}\"")
+        val ok = VoiceEngine.speakStreaming(text.take(1000), samples, sr, refText, paths(ctx))
+        Log.i(TAG, "speakStreaming result=$ok")
+        return ok
     }
 
     /** Stop any in-progress cloned-voice playback (e.g. the user starts talking again). */
