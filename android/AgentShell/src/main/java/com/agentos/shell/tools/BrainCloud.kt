@@ -39,23 +39,27 @@ object BrainCloud {
         val token = AccountStore.freshAccessToken(ctx); val uid = AccountStore.userId(ctx)
         if (token.isBlank() || uid.isBlank()) return Result(false, "Session expired — sign in again.")
         return try {
+            // STREAM the zip straight to Supabase — never load it into memory. The old path did zip.readBytes()
+            // on the WHOLE brain, which OOM-crashed the app on a large brain (an OutOfMemoryError is an Error,
+            // not an Exception, so nothing caught it). Fixed-length streaming holds ~64KB at a time; Throwable
+            // catch means a sync can never take the app down again.
             val zip = BrainBackup.snapshot(ctx)
-            val bytes = zip.readBytes()
             val c = (URL(objectUrl(uid)).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true; connectTimeout = 20000; readTimeout = 120000
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("apikey", anon())
                 setRequestProperty("Content-Type", "application/zip")
                 setRequestProperty("x-upsert", "true")   // overwrite if it already exists
+                setFixedLengthStreamingMode(zip.length())
             }
-            c.outputStream.use { it.write(bytes) }
+            c.outputStream.use { os -> zip.inputStream().use { it.copyTo(os, 64 * 1024) } }
             val code = c.responseCode
             val resp = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             if (code in 200..299) {
                 prefs(ctx).edit().putLong("last_push", System.currentTimeMillis()).apply()
-                Result(true, "Your whole brain is saved to your account (${bytes.size / 1024} KB).")
+                Result(true, "Your whole brain is saved to your account (${zip.length() / 1024} KB).")
             } else { Log.w(TAG, "push $code: ${resp.take(200)}"); Result(false, "Couldn't upload ($code).") }
-        } catch (e: Exception) { Log.w(TAG, "push: ${e.message}"); Result(false, "Upload failed: ${e.message}") }
+        } catch (t: Throwable) { Log.w(TAG, "push: ${t.message}"); Result(false, "Upload failed: ${t.message}") }
     }
 
     /** Download the brain saved to your account and restore it. The caller should restart the app afterward. */
@@ -72,12 +76,13 @@ object BrainCloud {
             }
             val code = c.responseCode
             if (code == 200) {
-                val bytes = c.inputStream.use { it.readBytes() }
-                val f = File(ctx.cacheDir, "brain_cloud_restore.zip"); f.writeBytes(bytes)
+                // STREAM the download to disk (don't hold the whole brain zip in memory → no OOM).
+                val f = File(ctx.cacheDir, "brain_cloud_restore.zip")
+                c.inputStream.use { input -> f.outputStream().use { input.copyTo(it, 64 * 1024) } }
                 val ok = BrainBackup.restore(ctx, f)
                 if (ok) Result(true, "Restored your brain from your account.") else Result(false, "Downloaded it, but the restore failed.")
             } else if (code == 404 || code == 400) Result(false, "No brain saved to your account yet — back it up on your other device first.")
             else Result(false, "Couldn't download ($code).")
-        } catch (e: Exception) { Log.w(TAG, "pull: ${e.message}"); Result(false, "Download failed: ${e.message}") }
+        } catch (t: Throwable) { Log.w(TAG, "pull: ${t.message}"); Result(false, "Download failed: ${t.message}") }
     }
 }

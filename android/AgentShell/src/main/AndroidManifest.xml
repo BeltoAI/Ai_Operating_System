@@ -53,6 +53,7 @@
         android:label="SlyOS"
         android:theme="@style/Theme.SlyOS"
         android:supportsRtl="true"
+        android:largeHeap="true"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"><!-- P0.4: keep the brain + keys off adb backup / cloud backup -->

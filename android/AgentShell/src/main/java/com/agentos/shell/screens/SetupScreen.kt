@@ -18,9 +18,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.agentos.shell.theme.T
+import com.agentos.shell.tools.AccountStore
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.ConnectionStore
 import com.agentos.shell.tools.KeyProbe
@@ -43,7 +45,14 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
-    val totalSteps = 5
+    val totalSteps = 6
+
+    // ---- Account / backup (optional final step) ----
+    var acctEmail by remember { mutableStateOf("") }
+    var acctPass by remember { mutableStateOf("") }
+    var acctBusy by remember { mutableStateOf(false) }
+    var acctMsg by remember { mutableStateOf("") }
+    var acctDone by remember { mutableStateOf(AccountStore.signedIn(ctx)) }
 
     // ---- Step 0: brain / free key ----
     var keyStatus by remember { mutableStateOf("") }
@@ -302,6 +311,52 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("If it asks again after Finish: press Home → SlyOS → Always. Everything else lives in Brain → Settings.",
+                    fontSize = T.caption, color = T.inkFaint)
+            }
+            // ---------- 5: PROTECT YOUR BRAIN (optional) ----------
+            5 -> {
+                Text("Protect your brain", fontSize = T.body, color = T.ink, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(6.dp))
+                Text("Your brain is everything SlyOS learns about you — and it's irreplaceable. Create a free account so it's " +
+                    "backed up in the cloud and syncs to any device you sign in on. Totally optional — you can also do this " +
+                    "anytime in Brain → Settings.", fontSize = T.small, color = T.inkSoft)
+                Spacer(Modifier.height(16.dp))
+                if (acctDone) {
+                    Text("Signed in — your brain will back up and sync automatically ✓", fontSize = T.small, color = T.accent, fontWeight = FontWeight.Medium)
+                } else {
+                    BasicTextField(acctEmail, { acctEmail = it }, singleLine = true, textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+                        decorationBox = { inner -> if (acctEmail.isEmpty()) Text("Email", fontSize = T.small, color = T.inkFaint); inner() })
+                    BasicTextField(acctPass, { acctPass = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                        textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(10.dp)).background(T.bgElevated).padding(12.dp),
+                        decorationBox = { inner -> if (acctPass.isEmpty()) Text("Password (min 6 characters)", fontSize = T.small, color = T.inkFaint); inner() })
+                    Spacer(Modifier.height(10.dp))
+                    bigButton(if (acctBusy) "Creating your account…" else "Create account & back up", enabled = !acctBusy && acctEmail.contains("@") && acctPass.length >= 6) {
+                        acctBusy = true; acctMsg = ""
+                        scope.launch {
+                            val (ok, m) = withContext(Dispatchers.IO) { AccountStore.signUp(ctx, acctEmail.trim(), acctPass) }
+                            acctBusy = false; acctMsg = m
+                            if (ok && AccountStore.signedIn(ctx)) {
+                                acctDone = true; acctPass = ""
+                                withContext(Dispatchers.IO) { try { com.agentos.shell.tools.BrainSync.syncInBackground(ctx) } catch (e: Exception) {} }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Already have an account? Sign in", fontSize = T.caption, color = T.accent,
+                        modifier = Modifier.clickable(enabled = !acctBusy && acctEmail.contains("@") && acctPass.length >= 6) {
+                            acctBusy = true; acctMsg = ""
+                            scope.launch {
+                                val (ok, m) = withContext(Dispatchers.IO) { AccountStore.signIn(ctx, acctEmail.trim(), acctPass) }
+                                acctBusy = false; acctMsg = m
+                                if (ok && AccountStore.signedIn(ctx)) { acctDone = true; acctPass = ""; withContext(Dispatchers.IO) { try { com.agentos.shell.tools.BrainSync.syncInBackground(ctx) } catch (e: Exception) {} } }
+                            }
+                        })
+                    if (acctMsg.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(acctMsg, fontSize = T.caption, color = T.inkSoft) }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("No account needed to use SlyOS — skip this and your brain still lives safely on your phone (and backs up to Google Drive if you connect it).",
                     fontSize = T.caption, color = T.inkFaint)
             }
         }
