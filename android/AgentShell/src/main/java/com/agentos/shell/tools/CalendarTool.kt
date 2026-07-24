@@ -130,6 +130,60 @@ object CalendarTool {
         } catch (e: Exception) { emptyList() }
     }
 
+    data class Found(val id: Long, val title: String, val begin: Long, val end: Long)
+
+    /**
+     * Find the single best event matching [titleQuery] to move or cancel — nearest [aroundMs] if given,
+     * otherwise the closest to now. Searches ±120 days. Used by the agent's move/cancel actions so it can
+     * resolve "my dentist appointment" to a real event id before proposing a change for your approval.
+     */
+    fun findEvent(ctx: Context, titleQuery: String, aroundMs: Long = 0L): Found? {
+        if (!hasPermission(ctx)) return null
+        val q = titleQuery.trim().lowercase()
+        if (q.isBlank()) return null
+        return try {
+            val ref = if (aroundMs > 0) aroundMs else System.currentTimeMillis()
+            val span = 1000L * 60 * 60 * 24 * 120
+            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
+                ContentUris.appendId(it, ref - span); ContentUris.appendId(it, ref + span); it.build()
+            }
+            val proj = arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.BEGIN, CalendarContract.Instances.END)
+            val cands = ArrayList<Found>()
+            ctx.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
+                while (c.moveToNext()) {
+                    val t = (c.getString(1) ?: "").trim()
+                    if (t.isNotBlank() && (t.lowercase().contains(q) || q.contains(t.lowercase())))
+                        cands.add(Found(c.getLong(0), t, c.getLong(2), c.getLong(3)))
+                }
+            }
+            cands.minByOrNull { kotlin.math.abs(it.begin - ref) }
+        } catch (e: Exception) { null }
+    }
+
+    /** Reschedule an event (by id) to a new time. Edits sync back to Google when it's a Google event.
+     *  Note: on a recurring series this shifts the base event; single events are the common case. */
+    fun moveEvent(ctx: Context, eventId: Long, newStart: Long, newEnd: Long): String {
+        if (!canWrite(ctx)) return "ERR_PERM"
+        return try {
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.DTSTART, newStart)
+                put(CalendarContract.Events.DTEND, if (newEnd > newStart) newEnd else newStart + 1_800_000L)
+            }
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            if (ctx.contentResolver.update(uri, values, null, null) > 0) "OK" else "ERR_UPDATE"
+        } catch (e: Exception) { "ERR_UPDATE" }
+    }
+
+    /** Cancel/delete an event (by id). Deletes sync back to Google when it's a Google event. */
+    fun cancelEvent(ctx: Context, eventId: Long): String {
+        if (!canWrite(ctx)) return "ERR_PERM"
+        return try {
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            if (ctx.contentResolver.delete(uri, null, null) > 0) "OK" else "ERR_DELETE"
+        } catch (e: Exception) { "ERR_DELETE" }
+    }
+
     /** Your schedule over the next month, as plain text — so the agent knows when you're blocked. */
     fun upcoming(ctx: Context): String {
         if (!hasPermission(ctx)) return ""

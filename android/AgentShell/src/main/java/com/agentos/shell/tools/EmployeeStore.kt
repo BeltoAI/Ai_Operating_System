@@ -65,7 +65,18 @@ object EmployeeStore {
         db(ctx).delete("employees", "id=?", arrayOf(id)); db(ctx).delete("employee_log", "emp_id=?", arrayOf(id)); Unit
     } catch (e: Exception) { Unit }
 
+    // One-time safety migration: before the Draft/Auto toggle existed, agents were hardcoded to "autonomous",
+    // so they'd email/schedule on their own. Nobody actually CHOSE that. Flip every existing agent to Draft
+    // once, so the owner opts INTO auto per-agent. Guarded by a pref → no-op after the first run.
+    private fun migrateDraftDefault(ctx: Context) {
+        val p = ctx.getSharedPreferences("slyos_staff_meta", Context.MODE_PRIVATE)
+        if (p.getBoolean("draft_default_v1", false)) return
+        try { db(ctx).execSQL("UPDATE employees SET autonomous=0") } catch (e: Exception) {}
+        p.edit().putBoolean("draft_default_v1", true).apply()
+    }
+
     fun all(ctx: Context): List<Employee> = try {
+        migrateDraftDefault(ctx)
         val out = ArrayList<Employee>()
         db(ctx).rawQuery("SELECT id,name,role,goal,tools,interval_min,autonomous,created_at,last_run,status FROM employees ORDER BY created_at DESC", null).use { c ->
             while (c.moveToNext()) out.add(Employee(
@@ -79,6 +90,11 @@ object EmployeeStore {
     fun count(ctx: Context): Int = try {
         db(ctx).rawQuery("SELECT count(*) FROM employees", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
     } catch (e: Exception) { 0 }
+
+    /** Draft ⇄ Auto per agent: false = it drafts email/calendar for your approval; true = it sends/schedules on its own. */
+    fun setAutonomous(ctx: Context, id: String, autonomous: Boolean) = try {
+        db(ctx).update("employees", ContentValues().apply { put("autonomous", if (autonomous) 1 else 0) }, "id=?", arrayOf(id)); Unit
+    } catch (e: Exception) { Unit }
 
     fun setStatus(ctx: Context, id: String, status: String, touchRun: Boolean = false) = try {
         db(ctx).update("employees", ContentValues().apply {

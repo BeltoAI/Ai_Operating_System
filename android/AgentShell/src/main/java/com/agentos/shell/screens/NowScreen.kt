@@ -79,6 +79,21 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         }
         Spacer(Modifier.height(14.dp))
 
+        // ── Team approvals: a teammate wants to send an email or change your calendar — you decide.
+        //    Swipe LEFT to decline, swipe RIGHT to open the full details and approve. Nothing leaves the
+        //    phone in your name until you say so.
+        com.agentos.shell.tools.ApprovalStore.ensureLoaded(ctx)
+        val approvals = com.agentos.shell.tools.ApprovalStore.items
+        if (approvals.isNotEmpty()) {
+            Text("NEEDS YOUR OK · ${approvals.size}", fontSize = 11.sp, color = T.accent,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            approvals.toList().forEach { a ->
+                Spacer(Modifier.height(8.dp))
+                ApprovalCard(a)
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+
         // ── Proactive proposals (P5.3): one-tap suggestions like "add this booking to your calendar" ──
         com.agentos.shell.tools.ProposalStore.ensureLoaded(ctx)
         val proposals = com.agentos.shell.tools.ProposalStore.items
@@ -162,6 +177,83 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         Spacer(Modifier.height(10.dp))
         LazyColumn(Modifier.weight(1f)) {
             items(groups, key = { it.first }) { (contact, group) -> NoteGroupCard(ctx, contact, group) }
+        }
+    }
+}
+
+/**
+ * A pending team approval. Compact by default (who + what). Swipe RIGHT to open the full details (the actual
+ * email, or the event's time + attendees) and approve; swipe LEFT to decline. Approving runs the real action
+ * through the same gated ToolRouter path; declining drops it and records that you said no.
+ */
+@Composable
+private fun ApprovalCard(a: com.agentos.shell.tools.ApprovalStore.Approval) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var dragX by remember { mutableStateOf(0f) }
+    var expanded by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    val isEmail = a.kind == "email"
+    val icon = if (isEmail) "✉" else "📅"
+    val verb = if (isEmail) "Approve & send" else "Approve & add"
+    val whatLine = "${a.agent} wants to ${if (isEmail) "email" else "add to your calendar"}"
+
+    fun decline() {
+        com.agentos.shell.tools.OutboxStore.record(ctx, a.agent, a.title, a.kind,
+            "You declined ${a.agent}'s ${a.kind}", "you swiped left / declined", "declined")
+        com.agentos.shell.tools.ApprovalStore.remove(ctx, a.id)
+    }
+    fun approve() {
+        if (working) return
+        working = true
+        scope.launch {
+            val msg = withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.ToolRouter.executeActions(ctx, a.actions, userInitiated = true)
+            }
+            com.agentos.shell.tools.OutboxStore.record(ctx, a.agent, a.title, a.kind,
+                msg.ifBlank { "done" }, "you approved ${a.agent}'s ${a.kind}")
+            com.agentos.shell.tools.ApprovalStore.remove(ctx, a.id)
+        }
+    }
+
+    Column(
+        Modifier.fillMaxWidth()
+            .offset { IntOffset(dragX.roundToInt(), 0) }
+            .pointerInput(a.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (dragX < -120f) decline() else if (dragX > 120f) expanded = true
+                        dragX = 0f
+                    },
+                    onDragCancel = { dragX = 0f }
+                ) { _, dx -> dragX += dx }
+            }
+            .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(icon, fontSize = T.body)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(whatLine, fontSize = T.caption, color = T.inkFaint)
+                Text(a.title, fontSize = T.body, color = T.ink,
+                    maxLines = if (expanded) 4 else 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (expanded) {
+            Spacer(Modifier.height(10.dp))
+            Text(a.detail, fontSize = T.small, color = T.inkSoft)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (working) "Working…" else verb, fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable(enabled = !working) { approve() }.padding(horizontal = 20.dp, vertical = 9.dp))
+                Spacer(Modifier.width(14.dp))
+                Text("Decline", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clickable { decline() }.padding(6.dp))
+            }
+        } else {
+            Spacer(Modifier.height(6.dp))
+            Text("Swipe → to review  ·  ← to decline", fontSize = T.caption, color = T.inkFaint)
         }
     }
 }

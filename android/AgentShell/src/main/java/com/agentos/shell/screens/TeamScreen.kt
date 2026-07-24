@@ -178,7 +178,9 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
         busy = true; flash = "Hiring ${p.name}…"
         scope.launch {
             val nm = uniqueName(p.name, staff.map { it.name })
-            withContext(Dispatchers.IO) { EmployeeStore.hire(ctx, nm, p.role, p.goal, p.tools, p.interval, true) }
+            // Draft by default (autonomous=false): a new agent drafts email/calendar for your approval until
+            // you flip it to Auto in its detail sheet. Safe out of the box.
+            withContext(Dispatchers.IO) { EmployeeStore.hire(ctx, nm, p.role, p.goal, p.tools, p.interval, false) }
             refresh(); flash = "Hired $nm — ${p.role} ✓"; busy = false
         }
     }
@@ -549,6 +551,20 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                         Text(if (e.intervalMin > 0) "runs every ${e.intervalMin} min" else "runs on demand", fontSize = T.caption, color = T.inkFaint)
                     }
                 }
+                // ── Draft ⇄ Auto: does this agent send email / change your calendar itself, or draft it for
+                //    your approval in the Now feed? Draft is the safe default; flip to Auto to let it act. ──
+                var auto by remember(e.id) { mutableStateOf(e.autonomous) }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Draft", fontSize = T.small, color = if (!auto) Color.White else T.inkSoft, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (!auto) T.accent else Color.Transparent)
+                            .clickable { auto = false; EmployeeStore.setAutonomous(ctx, e.id, false); refresh(); detailEmp = EmployeeStore.get(ctx, e.id) }.padding(vertical = 8.dp))
+                    Text("Auto", fontSize = T.small, color = if (auto) Color.White else T.inkSoft, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (auto) T.accent else Color.Transparent)
+                            .clickable { auto = true; EmployeeStore.setAutonomous(ctx, e.id, true); refresh(); detailEmp = EmployeeStore.get(ctx, e.id) }.padding(vertical = 8.dp))
+                }
+                Text(if (auto) "Sends email & adds calendar events on its own." else "Drafts email & calendar changes for your approval in Now.",
+                    fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 5.dp))
                 // ── scrollable middle so the action bar below is ALWAYS reachable ──
                 Column(Modifier.weight(1f, true).verticalScroll(rememberScrollState())) {
                     var editing by remember(e.id) { mutableStateOf(false) }
