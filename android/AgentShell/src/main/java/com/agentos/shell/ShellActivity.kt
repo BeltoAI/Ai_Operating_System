@@ -90,6 +90,9 @@ class ShellActivity : ComponentActivity() {
         }
         // Pull the whole calendar (past + future) into the brain so the agent knows every appointment.
         Thread { com.agentos.shell.tools.CalendarTool.syncAllToBrain(applicationContext) }.start()
+        // If a voice sample + ElevenLabs key exist but no clone was ever created, build it now (once) so the
+        // cloned voice actually speaks everywhere without the user having to find the "Create" button.
+        Thread { try { com.agentos.shell.tools.ElevenLabs.ensureVoice(applicationContext) } catch (e: Exception) {} }.start()
         // Warm the Brain graph in the background so swiping into it is instant (no first-open rebuild jank).
         Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery

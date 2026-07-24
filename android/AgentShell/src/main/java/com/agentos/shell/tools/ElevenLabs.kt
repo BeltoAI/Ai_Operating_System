@@ -17,6 +17,21 @@ object ElevenLabs {
     data class CloneResult(val ok: Boolean, val voiceId: String = "", val error: String = "")
 
     /**
+     * Make the cloned voice "just work": if the user has an ElevenLabs key + a recorded sample but no voice
+     * yet (they set it up but never tapped Create), build the clone automatically. Guarded to run ONCE so we
+     * never create duplicate voices in their account on repeated launches; the Settings button re-creates on
+     * demand. Returns true if a cloned voice is now available. Safe to call on startup (background thread).
+     */
+    fun ensureVoice(ctx: Context): Boolean {
+        if (available(ctx)) return true
+        if (MemoryStore.elevenKey(ctx).isBlank() || !VoiceSampleStore.hasSample(ctx)) return false
+        val meta = ctx.getSharedPreferences("slyos_eleven", Context.MODE_PRIVATE)
+        if (meta.getBoolean("autocreate_done", false)) return false
+        meta.edit().putBoolean("autocreate_done", true).apply()   // set BEFORE the call so a retry can't duplicate the voice
+        return createVoiceFromSample(ctx).ok
+    }
+
+    /**
      * ACTUALLY CREATE THE CLONE. Uploads the user's recorded voice sample to THEIR ElevenLabs account via
      * Instant Voice Cloning (/v1/voices/add), saves the returned voice id, and from then on every spoken
      * reply (Home, hold-brain, camera, calls) plays in their real voice. The sample is STREAMED (never held

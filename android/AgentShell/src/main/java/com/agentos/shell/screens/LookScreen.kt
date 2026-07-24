@@ -93,8 +93,27 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
-    DisposableEffect(Unit) { val e = TextToSpeech(ctx) {}; tts.value = e; onDispose { e.stop(); e.shutdown() } }
-    fun speak(s: String) { if (s.isNotBlank()) tts.value?.apply { language = Locale.getDefault(); speak(s, TextToSpeech.QUEUE_FLUSH, null, "look") } }
+    val voicePlayer = remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+    DisposableEffect(Unit) { val e = TextToSpeech(ctx) {}; tts.value = e; onDispose { e.stop(); e.shutdown(); try { voicePlayer.value?.release() } catch (ex: Exception) {} } }
+    fun deviceSpeak(s: String) { tts.value?.apply { language = Locale.getDefault(); speak(s, TextToSpeech.QUEUE_FLUSH, null, "look") } }
+    fun speak(s: String) {
+        if (s.isBlank()) return
+        // Cloned voice in the camera too — not just Home/hold-brain. Falls back to device TTS on any failure.
+        if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+            scope.launch {
+                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, s) }
+                if (f == null) deviceSpeak(s)
+                else try {
+                    try { voicePlayer.value?.release() } catch (e: Exception) {}
+                    val mp = android.media.MediaPlayer()
+                    mp.setDataSource(f.absolutePath)
+                    mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {} }
+                    mp.setOnErrorListener { _, _, _ -> true }
+                    mp.prepare(); mp.start(); voicePlayer.value = mp
+                } catch (e: Exception) { deviceSpeak(s) }
+            }
+        } else deviceSpeak(s)
+    }
 
     val detector = remember { ObjectDetection.getClient(ObjectDetectorOptions.Builder().setDetectorMode(ObjectDetectorOptions.SINGLE_IMAGE_MODE).enableMultipleObjects().build()) }
     DisposableEffect(Unit) { onDispose { try { detector.close() } catch (e: Exception) {} } }
