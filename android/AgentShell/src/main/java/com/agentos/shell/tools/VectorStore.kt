@@ -260,14 +260,14 @@ object VectorStore {
             return emptyList()
         }
         try {
-            // SPEED: rank on the VECTORS ONLY — do NOT load each row's body text (up to 4000 chars) during the
-            // scan. The old query pulled `body` for every row, so a 200MB vector DB meant reading hundreds of MB
-            // per query (the reason recall crawled). We load just rowid+vector, score, take the top-k, THEN
-            // fetch text for only those winners. Also cap the scan at 12k (newest-first) — brute-force cosine in
-            // Kotlin doesn't scale past that, and recent vectors + the keyword path cover the rest.
-            val scored = ArrayList<Pair<Long, Float>>(12000)
+            // SPEED WITHOUT LOSING RECALL: the real cost was loading each row's full body text (up to 4000
+            // chars) during the scan — tens of thousands of big string allocations that thrashed the heap. We
+            // now rank on the VECTORS ONLY (rowid + vector), then fetch text for just the top-k winners. Because
+            // that's so much cheaper, the scan cap stays HIGH (50k, newest-first) so old memories are still
+            // searched by MEANING — no recall regression. (A true ANN index is the long-term answer past ~50k.)
+            val scored = ArrayList<Pair<Long, Float>>(50000)
             db(ctx).rawQuery(
-                "SELECT rowid, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 12000",
+                "SELECT rowid, v FROM vmem WHERE v IS NOT NULL AND dim=? ORDER BY ts DESC LIMIT 50000",
                 arrayOf(qv.size.toString())).use { c ->
                 while (c.moveToNext()) {
                     val score = EmbeddingClient.cosine(qv, toVec(c.getBlob(1)))
