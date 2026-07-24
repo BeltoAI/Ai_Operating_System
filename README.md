@@ -19,9 +19,6 @@
 
 </div>
 
----
-
-> _The animation above is a live SVG. For the real thing, a 30–60s screen recording (`docs/demo.gif`) converts best — open SlyOS → "text Anna I'm running late" → point the camera at a shoe → "invest $1000". One take, no cuts._
 
 ## The idea
 
