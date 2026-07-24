@@ -20,7 +20,7 @@ object EmployeeRunner {
 
     // Full JSON schema for an executable action, shared by the shift + chat + chain prompts.
     private const val ACTION_SCHEMA =
-        "{\"type\":\"send_email|add_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|provision_db|handoff|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
+        "{\"type\":\"send_email|add_event|move_event|cancel_event|save_lead|post|note|make_doc|edit_doc|outreach|deploy|build_app|provision_db|handoff|none\",\"to\":\"\",\"subject\":\"\",\"body\":\"\"," +
         "\"title\":\"\",\"start\":\"2026-07-15T15:00\",\"end\":\"2026-07-15T15:30\",\"meet\":false,\"attendees\":[]," +
         "\"target\":\"\",\"text\":\"\",\"kind\":\"\",\"name\":\"\",\"email\":\"\",\"role\":\"\",\"company\":\"\",\"extra\":{}}"
 
@@ -92,6 +92,44 @@ object EmployeeRunner {
                else "that event is already waiting for your OK in Now"
     }
 
+    private fun prettyMs(ms: Long): String = try {
+        java.text.SimpleDateFormat("EEE MMM d, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(ms))
+    } catch (e: Exception) { "" }
+
+    /** GATE: reschedule goes to the owner's Now feed for approval (Draft mode). */
+    private fun requestMoveApproval(ctx: Context, emp: EmployeeStore.Employee, found: CalendarTool.Found, newStartMs: Long, newEndMs: Long): String {
+        val arg = JSONObject().put("id", found.id).put("title", found.title).put("start_ms", newStartMs).put("end_ms", newEndMs).toString()
+        val detail = "Move “${found.title}”\nFrom: ${prettyMs(found.begin)}\nTo: ${prettyMs(newStartMs)}"
+        val id = ApprovalStore.request(ctx, emp.name, "event", "Move “${found.title}”", detail, listOf(AgentAction("move_event", arg)))
+        return if (id != 0L) "set up moving “${found.title}” to ${prettyMs(newStartMs)} — waiting for your OK in Now (swipe right to review)"
+               else "that change is already waiting for your OK in Now"
+    }
+
+    /** GATE: cancellation goes to the owner's Now feed for approval (Draft mode). */
+    private fun requestCancelApproval(ctx: Context, emp: EmployeeStore.Employee, found: CalendarTool.Found): String {
+        val arg = JSONObject().put("id", found.id).put("title", found.title).toString()
+        val detail = "Cancel “${found.title}”\n${prettyMs(found.begin)}"
+        val id = ApprovalStore.request(ctx, emp.name, "event", "Cancel “${found.title}”", detail, listOf(AgentAction("cancel_event", arg)))
+        return if (id != 0L) "set up canceling “${found.title}” (${prettyMs(found.begin)}) — waiting for your OK in Now (swipe right to review)"
+               else "that change is already waiting for your OK in Now"
+    }
+
+    /** GATE: a bulk outreach campaign goes to the owner's Now feed for approval — with the exact recipient
+     *  count + a sample — so no blast leaves in the owner's name unattended. */
+    private fun requestOutreachApproval(ctx: Context, emp: EmployeeStore.Employee, recips: List<LeadStore.Lead>,
+                                        subject: String, body: String, attach: String, everyMin: Int, campaign: String): String {
+        val arr = org.json.JSONArray()
+        recips.forEach { arr.put(JSONObject().put("name", it.name).put("email", it.email)) }
+        val arg = JSONObject().put("recipients", arr).put("subject", subject).put("body", body)
+            .put("attach", attach).put("everyMin", everyMin).put("campaign", campaign).toString()
+        val names = recips.take(5).joinToString(", ") { it.name.ifBlank { it.email } }
+        val more = if (recips.size > 5) " +${recips.size - 5} more" else ""
+        val detail = "To ${recips.size} people ($names$more), ≈1 every ${everyMin}m\nSubject: $subject\n\n$body"
+        val id = ApprovalStore.request(ctx, emp.name, "email", "Outreach to ${recips.size} ${if (recips.size == 1) "person" else "people"} — “$campaign”", detail, listOf(AgentAction("outreach", arg)))
+        return if (id != 0L) "lined up outreach to ${recips.size} ${if (recips.size == 1) "person" else "people"} — waiting for your OK in Now (swipe right to review who + the message)"
+               else "that outreach is already waiting for your OK in Now"
+    }
+
     /** Execute ONE action fully (reversible things just happen; email + calendar go to the owner for approval).
      *  Returns a human result line. */
     private fun execAction(ctx: Context, emp: EmployeeStore.Employee, act: org.json.JSONObject?, srcMessage: String): String {
@@ -129,6 +167,30 @@ object EmployeeRunner {
                         val r = CalendarTool.addEvent(ctx, title, s, end, attendees)
                         if (!r.startsWith("ERR")) "added “$title” to your calendar ✓" else "couldn't add event"
                     } else ""
+                }
+                "move_event" -> {
+                    // Reschedule an existing event. Resolve which one by title, then Draft → approval / Auto → do it.
+                    val q = act!!.optString("title").ifBlank { act.optString("text") }.trim()
+                    val newStart = parseIso(act.optString("start")); val e2 = parseIso(act.optString("end"))
+                    if (q.isBlank() || newStart <= 0) "tell me which event and the new time to move it to" else {
+                        val found = CalendarTool.findEvent(ctx, q)
+                        if (found == null) "couldn't find an event matching “$q” to move" else {
+                            val newEnd = if (e2 > newStart) e2 else newStart + (found.end - found.begin).coerceAtLeast(1_800_000L)
+                            if (!emp.autonomous) requestMoveApproval(ctx, emp, found, newStart, newEnd)
+                            else { val r = CalendarTool.moveEvent(ctx, found.id, newStart, newEnd); if (r == "OK") "moved “${found.title}” ✓" else "couldn't move it" }
+                        }
+                    }
+                }
+                "cancel_event" -> {
+                    // Cancel an existing event. Resolve by title, then Draft → approval / Auto → do it.
+                    val q = act!!.optString("title").ifBlank { act.optString("text") }.trim()
+                    if (q.isBlank()) "tell me which event to cancel" else {
+                        val found = CalendarTool.findEvent(ctx, q)
+                        if (found == null) "couldn't find an event matching “$q” to cancel" else {
+                            if (!emp.autonomous) requestCancelApproval(ctx, emp, found)
+                            else { val r = CalendarTool.cancelEvent(ctx, found.id); if (r == "OK") "canceled “${found.title}” ✓" else "couldn't cancel it" }
+                        }
+                    }
                 }
                 "save_lead" -> {
                     val nm = act!!.optString("name").trim(); val em = act.optString("email").trim()
@@ -189,12 +251,18 @@ object EmployeeRunner {
                             // file that agent last touched — never the document just discussed.
                             val attach = DesignStore.currentOrTeam(ctx, emp.id)?.pdfPath
                                 ?.takeIf { it.isNotBlank() && java.io.File(it).exists() } ?: ""
-                            // Personalize per-recipient at send time via [Name]; enqueue once each.
-                            val queued = recips.map { OutreachQueue.Recipient(it.name, it.email) }
-                            val n = OutreachQueue.enqueue(ctx, queued, subject, bodyT, attach, everyMin, campaign = audience)
-                            if (n > 0) "queued outreach to $n ${if (n == 1) "person" else "people"} matching “$audience” — sending ~1 every ${everyMin}m so we stay out of spam ✓" +
-                                (if (attach.isNotBlank()) " (your document attached)" else "")
-                            else "those contacts are already queued"
+                            // GATED like individual email: a Draft agent lines the campaign up for the owner's
+                            // approval (with the exact recipient count + a sample). Auto agents queue it directly.
+                            if (!emp.autonomous) {
+                                requestOutreachApproval(ctx, emp, recips, subject, bodyT, attach, everyMin, audience)
+                            } else {
+                                // Personalize per-recipient at send time via [Name]; enqueue once each.
+                                val queued = recips.map { OutreachQueue.Recipient(it.name, it.email) }
+                                val n = OutreachQueue.enqueue(ctx, queued, subject, bodyT, attach, everyMin, campaign = audience)
+                                if (n > 0) "queued outreach to $n ${if (n == 1) "person" else "people"} matching “$audience” — sending ~1 every ${everyMin}m so we stay out of spam ✓" +
+                                    (if (attach.isNotBlank()) " (your document attached)" else "")
+                                else "those contacts are already queued"
+                            }
                         }
                     }
                 }
@@ -416,7 +484,9 @@ object EmployeeRunner {
                 "\"say\" is a SHORT, NATURAL, FIRST-PERSON message to $owner — talk like a real teammate who's on it, warm and human, the way ${emp.name} the ${emp.role} actually would. NEVER narrate your own internal reasoning or routing: no 'this is inbox territory', no 'handing to Riri', no bullet-point status log. Just say the human thing. " +
                 "TEAMWORK — if part of this needs a teammate's specialty (e.g. you're coordinating and need the designer to make a deck, or the engineer to build a page), use the handoff action: {\"type\":\"handoff\",\"target\":\"<teammate's exact name>\",\"text\":\"<the specific subtask>\"}. You get their result back and finish the job together — don't just punt it to $owner. Only hand off what's truly their lane; do the rest yourself. For casual chat or a simple reply, answer in ONE step and set done:true — never repeat yourself across steps. " +
                 "Output ONLY compact JSON {\"say\":\"your natural message to $owner\",\"action\":$ACTION_SCHEMA," +
-                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the goal is met (or immediately for chit-chat)." + DOC_HELP + " No prose, no fences."
+                "\"needs\":\"empty unless truly blocked\",\"done\":false}. Set done:true the moment the goal is met (or immediately for chit-chat)." + DOC_HELP +
+                " move_event: reschedule an existing event — put the event's name in \"title\" (I match it on the calendar) and the NEW time in \"start\"/\"end\". cancel_event: put the event's name in \"title\" to cancel it. Both follow the same approval flow as add_event." +
+                " No prose, no fences."
             val proceed = Regex("(?i)just (do|create|build|make) it|agnostic|it'?s fine|go ahead|without.*(info|details)|don'?t need|no info|proceed").containsMatchIn(task)
             val user = ctxBlock + "\nSTEPS DONE SO FAR:\n" + (if (steps.isEmpty()) "(none yet)" else steps.joinToString("\n")) +
                 "\n\n" + (if (speaker.isNotBlank() && !speaker.equals(owner, true) && speaker != "You") "Request from $speaker: " else "") + task +

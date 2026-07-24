@@ -132,6 +132,8 @@ object ToolRouter {
                 }
                 "identify_song", "song", "shazam" -> SongId.identify(ctx)
                 "add_event" -> addEvent(ctx, arg)
+                "move_event" -> moveEventRoute(ctx, arg)
+                "cancel_event" -> cancelEventRoute(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
                 "message" -> sendMessage(ctx, arg)
                 "send_photo" -> sendPhoto(ctx, arg)
@@ -145,6 +147,7 @@ object ToolRouter {
                 "navigate" -> navigate(ctx, arg)
                 "share_location" -> shareLocation(ctx, arg)
                 "send_email" -> sendEmail(ctx, arg)
+                "outreach" -> outreachRoute(ctx, arg)
                 // ONE action for every document format — the model picks pdf/docx/pptx/xlsx/html.
                 "create_document" -> createDocument(ctx, arg)
                 "refine_document" -> refineDocument(ctx, arg)
@@ -195,7 +198,7 @@ object ToolRouter {
      */
     private val GATED = setOf(
         "open_url", "open_app", "web_search", "dial", "sms", "navigate", "play_music", "camera",
-        "settings", "send_sms", "message", "send_photo", "send_email", "add_event", "share_location",
+        "settings", "send_sms", "message", "send_photo", "send_email", "outreach", "add_event", "move_event", "cancel_event", "share_location",
         "create_doc", "create_sheet", "create_slides", "create_pdf", "trade",
         "create_document", "refine_document", "open_document", "send_document"
     )
@@ -207,9 +210,9 @@ object ToolRouter {
      */
     /** Map a concrete action to the "what for" bucket, so the analytics stream doubles as intent data. */
     fun categoryFor(type: String): String = when (type) {
-        "remind", "add_event" -> "remember"
+        "remind", "add_event", "move_event", "cancel_event" -> "remember"
         "timer", "alarm" -> "schedule"
-        "send_sms", "sms", "message", "send_email", "send_photo", "share_location" -> "communicate"
+        "send_sms", "sms", "message", "send_email", "outreach", "send_photo", "share_location" -> "communicate"
         "create_doc", "create_sheet", "create_slides", "create_pdf",
         "create_document", "refine_document" -> "create"
         "open_document", "send_document" -> "communicate"
@@ -302,11 +305,12 @@ object ToolRouter {
     /** Human label for the outbox row, so "Sent for you" reads like a story, not a debug log. */
     private fun channelFor(type: String): String = when (type) {
         "send_email" -> "Email"
+        "outreach" -> "Outreach"
         "send_sms", "sms", "message" -> "Message"
         "send_photo" -> "Photo"
         "create_doc" -> "Doc"; "create_sheet" -> "Sheet"; "create_slides" -> "Deck"; "create_pdf" -> "PDF"
         "create_document", "refine_document", "open_document", "send_document" -> "Document"
-        "add_event" -> "Calendar"
+        "add_event", "move_event", "cancel_event" -> "Calendar"
         "remind", "timer", "alarm" -> "Reminder"
         "trade" -> "Trading"
         "share_location" -> "Location"
@@ -629,6 +633,52 @@ object ToolRouter {
         } catch (e: Exception) {
             Log.e("SlyOS", "addEvent failed", e); "I couldn't read those times."
         }
+    }
+
+    /** Enqueue a spam-safe outreach drip the agent resolved (arg = {recipients:[{name,email}], subject, body,
+     *  attach, everyMin, campaign}). One email per recipient, paced. */
+    private fun outreachRoute(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val body = o.optString("body")
+            if (body.isBlank()) return "There's nothing to send."
+            val recips = ArrayList<OutreachQueue.Recipient>()
+            o.optJSONArray("recipients")?.let { a ->
+                for (i in 0 until a.length()) { val r = a.optJSONObject(i) ?: continue; recips.add(OutreachQueue.Recipient(r.optString("name"), r.optString("email"))) }
+            }
+            if (recips.isEmpty()) return "No recipients to send to."
+            val everyMin = o.optInt("everyMin", 60).coerceIn(1, 1440)
+            val n = OutreachQueue.enqueue(ctx, recips, o.optString("subject").ifBlank { "Hello" }, body, o.optString("attach"), everyMin, o.optString("campaign"))
+            if (n > 0) "Queued outreach to $n ${if (n == 1) "person" else "people"} — sending ≈1 every ${everyMin}m ✓"
+            else "Those contacts are already queued."
+        } catch (e: Exception) { Log.e("SlyOS", "outreach failed", e); "Couldn't queue that outreach." }
+    }
+
+    /** Reschedule an event the agent already resolved to an id (arg = {id, title, start_ms, end_ms}). */
+    private fun moveEventRoute(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg)
+            val id = o.optLong("id"); val s = o.optLong("start_ms"); val e = o.optLong("end_ms")
+            if (id <= 0 || s <= 0) return "I couldn't identify that event."
+            val r = CalendarTool.moveEvent(ctx, id, s, if (e > s) e else s + 1_800_000L)
+            if (r == "OK") {
+                MemoryLog.add(ctx, "response", "Calendar: move", "Moved “${o.optString("title")}”", "Calendar")
+                "Moved “${o.optString("title")}” ✓"
+            } else "Couldn't move that event."
+        } catch (e: Exception) { Log.e("SlyOS", "moveEvent failed", e); "Couldn't move that event." }
+    }
+
+    /** Cancel an event the agent already resolved to an id (arg = {id, title}). */
+    private fun cancelEventRoute(ctx: Context, arg: String): String {
+        return try {
+            val o = JSONObject(arg); val id = o.optLong("id")
+            if (id <= 0) return "I couldn't identify that event."
+            val r = CalendarTool.cancelEvent(ctx, id)
+            if (r == "OK") {
+                MemoryLog.add(ctx, "response", "Calendar: cancel", "Canceled “${o.optString("title")}”", "Calendar")
+                "Canceled “${o.optString("title")}” ✓"
+            } else "Couldn't cancel that event."
+        } catch (e: Exception) { Log.e("SlyOS", "cancelEvent failed", e); "Couldn't cancel that event." }
     }
 
     /** Send/draft a message on a SPECIFIC app. SMS sends directly; WhatsApp opens pre-filled (one tap);
