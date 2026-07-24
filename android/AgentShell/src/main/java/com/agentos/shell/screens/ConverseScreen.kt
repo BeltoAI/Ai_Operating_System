@@ -93,9 +93,9 @@ fun ConverseScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         phase = "speaking"
         // P6 paid add-on: if the user pasted their own ElevenLabs key + voice, speak in their CLONED voice;
         // any failure falls back to the free device voice so a call never goes silent.
-        if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+        if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
             scope.launch {
-                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, text) }
+                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, text) }
                 if (f == null) { deviceSpeak(text); return@launch }
                 try {
                     try { player.value?.release() } catch (e: Exception) {}

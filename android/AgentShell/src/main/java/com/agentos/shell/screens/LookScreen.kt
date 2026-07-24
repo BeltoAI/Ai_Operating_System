@@ -99,9 +99,9 @@ fun LookScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     fun speak(s: String) {
         if (s.isBlank()) return
         // Cloned voice in the camera too — not just Home/hold-brain. Falls back to device TTS on any failure.
-        if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+        if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
             scope.launch {
-                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, s) }
+                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
                 if (f == null) deviceSpeak(s)
                 else try {
                     try { voicePlayer.value?.release() } catch (e: Exception) {}

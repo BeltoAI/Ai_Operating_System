@@ -370,9 +370,9 @@ fun HomeScreen(
             // Cloned voice everywhere it's configured — not just the "hold brain" screen. If the user pasted
             // an ElevenLabs key + voice, Home speaks in THEIR voice; any failure falls back to device TTS so
             // it never goes silent. (Before this, Home always used the generic system voice.)
-            if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+            if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
                 scope.launch {
-                    val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, s) }
+                    val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
                     if (f == null) deviceSpeak(s)
                     else try {
                         try { voicePlayer.value?.release() } catch (e: Exception) {}

@@ -189,11 +189,11 @@ class CallAgentService : Service() {
     // ── Speak (out the speaker so the caller hears it) ────────────────────────────────────────────
     private fun speak(text: String) {
         speaking = true
-        Log.i(TAG, "speak: \"${text.take(60)}\"  (elevenlabs=${ElevenLabs.available(applicationContext)})")
-        if (ElevenLabs.available(applicationContext)) {
+        Log.i(TAG, "speak: \"${text.take(60)}\"  (voice=${com.agentos.shell.tools.VoiceOut.available(applicationContext)})")
+        if (com.agentos.shell.tools.VoiceOut.available(applicationContext)) {
             scope.launch {
-                val f = withContext(Dispatchers.IO) { ElevenLabs.synthesize(applicationContext, text) }
-                if (f == null) { Log.w(TAG, "elevenlabs synth null → device voice"); deviceSpeak(text); return@launch }
+                val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(applicationContext, text) }
+                if (f == null) { Log.w(TAG, "cloned-voice synth null → device voice"); deviceSpeak(text); return@launch }
                 try {
                     try { player?.release() } catch (e: Exception) {}
                     val mp = MediaPlayer()
