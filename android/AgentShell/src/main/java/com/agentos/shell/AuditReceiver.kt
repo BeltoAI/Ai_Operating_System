@@ -23,6 +23,12 @@ class AuditReceiver : BroadcastReceiver() {
                 else if (mode == "import") com.agentos.shell.tools.VoiceAudit.importFile(app,
                     intent.getStringExtra("path") ?: "/sdcard/Download/slyos_chats.zip")
                 else if (mode == "search") com.agentos.shell.tools.VoiceAudit.searchProbe(app, intent.getStringExtra("q") ?: "Berk")
+                else if (mode == "uselocal") {
+                    com.agentos.shell.tools.MemoryStore.setEmbedProvider(app, "local")
+                    android.util.Log.i("SlyOS-Audit", "embed provider forced to LOCAL (free, on-device, unlimited)")
+                    com.agentos.shell.tools.VoiceAudit.reembed(app, 60)
+                }
+                else if (mode == "reembed") com.agentos.shell.tools.VoiceAudit.reembed(app)
                 else if (mode == "stats") com.agentos.shell.tools.VoiceAudit.brainStats(app)
                 else if (mode == "matrix") com.agentos.shell.tools.VoiceAudit.matrix(app)
                 else if (mode == "questions") com.agentos.shell.tools.BrainQuestions.forceRefresh(app)

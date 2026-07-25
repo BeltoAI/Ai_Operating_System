@@ -135,6 +135,25 @@ object VoiceAudit {
         Log.i(TAG, "══════ END SEARCH PROBE ══════")
     }
 
+    /** Force the semantic index to rebuild in the CURRENT provider's space, reporting progress. */
+    fun reembed(ctx: Context, rounds: Int = 40) {
+        Log.i(TAG, "══════ RE-EMBED ══════")
+        Log.i(TAG, "provider=${EmbeddingClient.provider(ctx)} sidelined=${EmbeddingClient.unhealthyReason(ctx).ifBlank { "-" }}")
+        Log.i(TAG, "before: embedded=${VectorStore.embeddedCount(ctx)} of ${MessageStore.count(ctx)} messages")
+        val t0 = System.currentTimeMillis()
+        repeat(rounds) { i ->
+            try { VectorStore.backfill(ctx, 1000) } catch (t: Throwable) { Log.w(TAG, "round $i: ${t.message}") }
+            if (i % 5 == 0) Log.i(TAG, "  round $i: embedded=${VectorStore.embeddedCount(ctx)} (${(System.currentTimeMillis() - t0) / 1000}s)")
+        }
+        Log.i(TAG, "after: embedded=${VectorStore.embeddedCount(ctx)} in ${(System.currentTimeMillis() - t0) / 1000}s")
+        try {
+            val hits = VectorStore.search(ctx, "who is Carlos", 5)
+            Log.i(TAG, "semantic test 'who is Carlos' -> ${hits.size} hits")
+            hits.take(3).forEach { Log.i(TAG, "   [${it.contact}] ${it.body.take(100)}") }
+        } catch (t: Throwable) { Log.w(TAG, "test: ${t.message}") }
+        Log.i(TAG, "══════ END RE-EMBED ══════")
+    }
+
     fun brainStats(ctx: Context) {
         Log.i(TAG, "══════ BRAIN COVERAGE ══════")
         try { Log.i(TAG, "total messages: ${MessageStore.count(ctx)}") } catch (t: Throwable) {}

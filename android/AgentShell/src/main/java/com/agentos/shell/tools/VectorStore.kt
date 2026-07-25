@@ -219,6 +219,8 @@ object VectorStore {
         // 768-dim to the on-device 100-dim), those old vectors can never match a query again — search filters
         // on dim. Clear them so the loop below re-embeds them in the CURRENT space.
         try {
+            // Any provider switch invalidates stored vectors — search filters on dim, so 768-dim vectors are
+            // invisible to a 100-dim query. Clear whatever no longer matches the ACTIVE space, not just local.
             val want = if (provider == "local") OnDeviceEmbedder.DIM else 0
             if (want > 0) {
                 val stale = db(ctx).compileStatement("SELECT count(*) FROM vmem WHERE v IS NOT NULL AND dim<>$want").simpleQueryForLong()

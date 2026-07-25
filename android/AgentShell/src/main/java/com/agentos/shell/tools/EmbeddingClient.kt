@@ -45,6 +45,10 @@ object EmbeddingClient {
         val local = OnDeviceEmbedder.ready(ctx)
         return when {
             pref == "local" && local -> "local"       // on-device: free, unlimited, private, key-independent
+            // If every CLOUD embedder is sidelined (quota/auth) and the free on-device model is present, USE
+            // IT. Failing over from one paid provider to another paid provider left semantic memory dead:
+            // 23,000+ messages unembedded and every semantic query returning 0 hits.
+            local && isUnhealthy(ctx, "gemini") && (MemoryStore.openaiKey(ctx).isBlank() || isUnhealthy(ctx, "openai")) -> "local"
             pref == "openai" && oai -> "openai"       // forced paid path (reliable when Gemini is throttled)
             pref == "gemini" && gem -> "gemini"
             gem -> "gemini"                            // auto: free Gemini first
