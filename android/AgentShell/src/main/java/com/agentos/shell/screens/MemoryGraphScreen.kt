@@ -219,71 +219,11 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
             val tStart = System.currentTimeMillis()
-            // No expandQuery LLM round-trip: the semantic (VectorStore) + keyword searches already cover meaning.
-            val q = query
-            val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
-            val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|what.*do|need.*do|outstanding|pending",
-                RegexOption.IGNORE_CASE).containsMatchIn(query)
-            val schedQ = Regex("free|busy|schedule|calendar|meeting|available|blocked|book|when am i", RegexOption.IGNORE_CASE).containsMatchIn(query)
-            val paperQuery = Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi",
-                RegexOption.IGNORE_CASE).containsMatchIn(query)
-
-            // Run EVERY source search in PARALLEL — the wall time becomes the single slowest search (the
-            // semantic embed), not the sum of a dozen sequential ones. This is what made the bar crawl.
-            val dRecall = async(Dispatchers.IO) { if (com.agentos.shell.tools.MemoryStore.recallEnabled(ctx))
-                com.agentos.shell.tools.InteractionStore.search(ctx, q, 40).map { "Seen in ${it.app}: ${it.text}" } else emptyList() }
-            val dConns = async(Dispatchers.IO) { com.agentos.shell.tools.ConnectionStore.search(ctx, q, 60)
-                .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") } }
-            val dDb = async(Dispatchers.IO) { com.agentos.shell.tools.MessageStore.search(ctx, q, 70)
-                .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body } }
-            val dSem = async(Dispatchers.IO) { try {
-                com.agentos.shell.tools.VectorStore.search(ctx, query, 30)
-                    .map { (if (it.role == "me") "You to ${it.contact}" else it.contact) + ": " + it.body }
-            } catch (e: Exception) { emptyList() } }
-            val dPaperHits = async(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 3000)
-                .split("\n\n").map { it.trim() }.filter { it.isNotBlank() } }
-            val dDoc = async(Dispatchers.IO) { if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
-                com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 2500).split("\n").map { it.trim() }.filter { it.length > 20 } else emptyList() }
-            val dTasks = async(Dispatchers.IO) { com.agentos.shell.tools.ChecklistStore.load(ctx)
-                .filter { taskQuery || terms.any { t -> it.text.lowercase().contains(t) } }
-                .map { "Checklist task: ${it.text} — ${if (it.done) "done" else "to do"}" } }
-            val dCal = async(Dispatchers.IO) { if (schedQ) com.agentos.shell.tools.CalendarTool.upcoming(ctx)
-                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "Schedule: $it" } else emptyList() }
-            val dPaperTitles = async(Dispatchers.IO) { if (paperQuery) com.agentos.shell.tools.PaperStore.list(ctx)
-                .map { "Your paper: “${it.title}” (${it.docType})" } else emptyList() }
-            val dProfile = async(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.profileBlock(ctx)
-                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "About you: $it" } }
-
-            val recall = dRecall.await(); val conns = dConns.await(); val dbHits = dDb.await(); val semHits = dSem.await()
-            val paperHits = dPaperHits.await(); val docHits = dDoc.await(); val taskLines = dTasks.await()
-            val calLines = dCal.await(); val paperTitles = dPaperTitles.await(); val profile = dProfile.await()
-            android.util.Log.i("SlyOS-Perf", "brain-bar search ${System.currentTimeMillis() - tStart}ms (parallel)")
-
-            val extra = MemoryGraphStore.memoryLines() + recall
-            val rankedExtra = if (terms.isEmpty()) extra.takeLast(40)
-                else extra.map { it to terms.count { t -> it.lowercase().contains(t) } }
-                    .filter { it.second > 0 }.sortedByDescending { it.second }.take(60).map { it.first }
-            val corpus = ArrayList<String>(); var chars = 0
-            // Lead with whatever the question is really about — but always fold in the semantic hits (best
-            // meaning-matches) high up, right after the core profile.
-            // ACTUAL MESSAGES COME FIRST. `conns` is up to 60 lines from a 20,000-strong LinkedIn network,
-            // and it sat AHEAD of dbHits — so the 14k budget was spent on "Connection: <name>" lines before a
-            // single real message was included. Asking "who is Carlos" returned nothing while the brain held
-            // 10,864 messages with him. Real conversation is the most valuable context there is; the network
-            // is a thin supplement, so it's capped and demoted.
-            val net = conns.take(12)
-            val ordered = profile.take(40) + semHits + when {
-                paperQuery -> paperTitles + paperHits + dbHits + docHits + net + taskLines + rankedExtra
-                schedQ     -> calLines + taskLines + dbHits + net + paperHits + docHits + rankedExtra
-                taskQuery  -> taskLines + dbHits + net + paperHits + docHits + rankedExtra
-                else       -> dbHits + net + paperHits + docHits + taskLines + rankedExtra
-            }
-            for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
-            android.util.Log.i("SlyOS-Perf", "memory-ask corpus=${corpus.size} lines (db=${dbHits.size} sem=${semHits.size} net=${conns.size}) for \"${query.take(40)}\"")
-            val a = withContext(Dispatchers.IO) {
-                if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
-            }
-            android.util.Log.i("SlyOS-Perf", "brain-bar TOTAL ${System.currentTimeMillis() - tStart}ms (${corpus.size} sources)")
+            // Retrieval + answering now live in BrainAnswer so they can be run and inspected from adb
+            // (`-e mode ask -e q "…"`). This screen keeps the UI concerns. Anything below this line that
+            // still looks like corpus assembly is dead and should have gone with it.
+            val a = com.agentos.shell.tools.BrainAnswer.answer(ctx, query)
+            android.util.Log.i("SlyOS-Perf", "brain-bar TOTAL ${System.currentTimeMillis() - tStart}ms")
             answer = a
             // Light up the "synapse path": the memories most related to the question + answer.
             val toks = ("$query $a").lowercase().split(Regex("\\W+")).filter { it.length > 3 }.toSet()
