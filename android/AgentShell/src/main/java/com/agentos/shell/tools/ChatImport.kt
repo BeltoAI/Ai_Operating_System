@@ -14,7 +14,14 @@ import org.json.JSONObject
  *   • Telegram        → Telegram Desktop "Export chat history" JSON
  */
 object ChatImport {
-    data class Result(val contacts: Int, val messages: Int, val mySamples: List<String>, val source: String)
+    data class Result(val contacts: Int, val messages: Int, val mySamples: List<String>, val source: String,
+                      /** Per-file outcome, so the user sees "28 imported, 3 failed — and why", never a silent lie. */
+                      val files: List<FileReport> = emptyList())
+
+    /** @param parsed messages found in the file  @param added new messages actually written (rest were dupes) */
+    data class FileReport(val name: String, val parsed: Int, val added: Int, val contact: String, val error: String = "") {
+        val ok: Boolean get() = error.isEmpty()
+    }
     // P2.1: carry the REAL export timestamp (epoch ms) when we can parse it; 0 = unknown.
     private data class Line(val contact: String, val sender: String, val body: String, val ts: Long = 0L)
 
@@ -42,57 +49,117 @@ object ChatImport {
     }
 
     fun importAny(ctx: Context, uri: Uri, owner: String): Result {
-        val bytes = try {
-            ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return empty()
-        } catch (e: Exception) { return empty() }
-        // A zip (e.g. one archive of all your chat exports) → unpack and import everything inside.
-        if (bytes.size >= 2 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte())
-            return importZip(ctx, bytes, owner)
-        return dispatchText(ctx, String(bytes, Charsets.UTF_8), owner)
+        // STREAM, never readBytes(). Loading a whole export into memory is what silently destroyed a real
+        // import: 26,678 WhatsApp messages became 950 because the archive blew the heap partway through and
+        // the failure was swallowed. OutOfMemoryError is an Error, not an Exception, so we catch Throwable.
+        return try {
+            ctx.contentResolver.openInputStream(uri)?.use { raw ->
+                val bin = java.io.BufferedInputStream(raw, 64 * 1024)
+                bin.mark(4)
+                val sig = ByteArray(2)
+                val n = bin.read(sig)
+                bin.reset()
+                if (n == 2 && sig[0] == 'P'.code.toByte() && sig[1] == 'K'.code.toByte())
+                    importZipStream(ctx, bin, owner)
+                else dispatchText(ctx, bin.readBytes().toString(Charsets.UTF_8), owner)
+            } ?: empty()
+        } catch (t: Throwable) {
+            android.util.Log.e("SlyOS-Import", "importAny failed: ${t.message}", t)
+            Result(0, 0, emptyList(), "", listOf(FileReport("(file)", 0, 0, "", t.message ?: "could not read the file")))
+        }
     }
 
     private fun dispatchText(ctx: Context, text: String, owner: String): Result {
         if (text.isBlank()) return empty()
-        val head = text.trimStart()
+        // Strip the invisible bidi/BOM marks WhatsApp sprinkles at the start before sniffing anything.
+        val head = text.trimStart().replace(Regex("^[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]+"), "")
+        // THE BUG THAT DESTROYED A REAL IMPORT: a WhatsApp export begins "[3/13/25, 12:58:25 AM] Name: …",
+        // so `head.startsWith("[")` sent it to the JSON parser, which found nothing and reported success —
+        // 26,678 messages silently became 0. Only one chat survived, purely because its file happened to start
+        // with an invisible LTR mark. So: detect the WhatsApp line shape FIRST, and never sniff on "[" alone.
+        val looksWhatsApp = WA_LINE.containsMatchIn(
+            head.lineSequence().take(40)
+                .map { it.replace(Regex("[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]"), "")
+                        .replace(Regex("[\\u00a0\\u202f\\u2007\\u2009]"), " ").trim() }
+                .joinToString("\n"))
         return try {
             when {
                 text.contains("CONVERSATION ID", true) -> linkedIn(ctx, text, owner)
+                looksWhatsApp -> whatsApp(ctx, text, owner)
                 head.startsWith("{") || head.startsWith("[") -> json(ctx, text, owner)
                 else -> whatsApp(ctx, text, owner)
             }
-        } catch (e: Exception) { empty() }
+        } catch (t: Throwable) {
+            android.util.Log.w("SlyOS-Import", "parse failed: ${t.message}")
+            Result(0, 0, emptyList(), "", listOf(FileReport("(file)", 0, 0, "", t.message ?: "parse failed")))
+        }
     }
 
     /** Unpack a .zip and import every .txt/.csv/.json inside (handles nested folders too). */
-    private fun importZip(ctx: Context, bytes: ByteArray, owner: String): Result {
-        var contacts = 0; var messages = 0; val samples = ArrayList<String>(); var sources = HashSet<String>()
+    /**
+     * Unpack an archive of chat exports ENTRY BY ENTRY, straight from the stream. Never holds the whole
+     * archive in memory, isolates every file so one bad export can't kill the other thirty, and reports each
+     * outcome so the user is told the truth instead of a silent partial success.
+     */
+    private fun importZipStream(ctx: Context, input: java.io.InputStream, owner: String): Result {
+        var contacts = 0; var messages = 0
+        val samples = ArrayList<String>(); val sources = HashSet<String>(); val reports = ArrayList<FileReport>()
         try {
-            val zis = java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(bytes))
+            val zis = java.util.zip.ZipInputStream(input)
             while (true) {
-                val entry = zis.nextEntry ?: break
-                val name = entry.name.lowercase()
-                if (entry.isDirectory || name.startsWith("__macosx") ||
-                    !(name.endsWith(".txt") || name.endsWith(".csv") || name.endsWith(".json"))) { zis.closeEntry(); continue }
-                val bos = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192)
-                while (true) { val n = zis.read(buf); if (n < 0) break; bos.write(buf, 0, n) }
-                zis.closeEntry()
-                val r = try { dispatchText(ctx, bos.toString("UTF-8"), owner) } catch (t: Throwable) {
-                    // One bad file must not kill the whole archive — and the failure must be VISIBLE.
-                    android.util.Log.w("SlyOS-Import", "FAILED ${entry.name}: ${t.message}")
-                    Result(0, 0, emptyList(), "")
+                val entry = try { zis.nextEntry ?: break } catch (t: Throwable) {
+                    reports.add(FileReport("(archive)", 0, 0, "", "archive is damaged past this point: ${t.message}")); break
                 }
-                android.util.Log.i("SlyOS-Import", "${entry.name}: +${r.messages} msgs, ${r.contacts} contact(s)")
-                contacts += r.contacts; messages += r.messages; samples.addAll(r.mySamples)
-                if (r.source.isNotBlank()) sources.add(r.source)
+                val name = entry.name
+                val lower = name.lowercase()
+                if (entry.isDirectory || lower.startsWith("__macosx") || lower.substringAfterLast('/').startsWith(".")) {
+                    try { zis.closeEntry() } catch (t: Throwable) {}; continue
+                }
+                if (!(lower.endsWith(".txt") || lower.endsWith(".csv") || lower.endsWith(".json"))) {
+                    // Tell the user we skipped it rather than pretending it didn't exist.
+                    if (!lower.endsWith(".jpg") && !lower.endsWith(".png") && !lower.endsWith(".mp4") &&
+                        !lower.endsWith(".opus") && !lower.endsWith(".webp") && !lower.endsWith(".m4a"))
+                        reports.add(FileReport(name.substringAfterLast('/'), 0, 0, "", "unsupported file type"))
+                    try { zis.closeEntry() } catch (t: Throwable) {}; continue
+                }
+                val text = try {
+                    val bos = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val r = zis.read(buf); if (r < 0) break
+                        total += r
+                        // A single absurd file must not take the whole import down with it.
+                        if (total > 40L * 1024 * 1024) throw IllegalStateException("file is over 40MB")
+                        bos.write(buf, 0, r)
+                    }
+                    bos.toString("UTF-8")
+                } catch (t: Throwable) {
+                    reports.add(FileReport(name.substringAfterLast('/'), 0, 0, "", t.message ?: "could not read"))
+                    try { zis.closeEntry() } catch (ig: Throwable) {}; continue
+                }
+                try { zis.closeEntry() } catch (t: Throwable) {}
+                val short = name.substringAfterLast('/')
+                try {
+                    val r = dispatchText(ctx, text, owner)
+                    val parsed = r.files.firstOrNull()?.parsed ?: r.messages
+                    reports.add(FileReport(short, parsed, r.messages, r.files.firstOrNull()?.contact ?: ""))
+                    contacts += r.contacts; messages += r.messages; samples.addAll(r.mySamples)
+                    if (r.source.isNotBlank()) sources.add(r.source)
+                    android.util.Log.i("SlyOS-Import", "$short: parsed=$parsed added=${r.messages}")
+                } catch (t: Throwable) {
+                    // Isolated: log it, report it, keep going.
+                    android.util.Log.w("SlyOS-Import", "FAILED $short: ${t.message}")
+                    reports.add(FileReport(short, 0, 0, "", t.message ?: "import failed"))
+                }
             }
-            zis.close()
-        } catch (e: Exception) {
-            // Previously swallowed entirely: a mid-archive failure silently truncated the import and the user
-            // was told it succeeded. 26,678 WhatsApp messages became 950 with no error shown anywhere.
-            android.util.Log.e("SlyOS-Import", "ARCHIVE ABORTED after $messages msgs: ${e.message}", e)
+            try { zis.close() } catch (t: Throwable) {}
+        } catch (t: Throwable) {
+            android.util.Log.e("SlyOS-Import", "archive aborted after $messages msgs: ${t.message}", t)
+            reports.add(FileReport("(archive)", 0, 0, "", "stopped early: ${t.message}"))
         }
-        android.util.Log.i("SlyOS-Import", "zip done: $messages msgs across $contacts contact(s)")
-        return Result(contacts, messages, samples, sources.joinToString("+").ifBlank { "zip" })
+        android.util.Log.i("SlyOS-Import", "zip done: $messages msgs, ${reports.count { it.ok }} ok, ${reports.count { !it.ok }} failed")
+        return Result(contacts, messages, samples, sources.joinToString("+").ifBlank { "zip" }, reports)
     }
 
     private fun empty() = Result(0, 0, emptyList(), "")

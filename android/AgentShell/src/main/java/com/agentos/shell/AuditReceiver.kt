@@ -20,6 +20,8 @@ class AuditReceiver : BroadcastReceiver() {
             try {
                 if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app)
                 else if (mode == "outreach") com.agentos.shell.tools.VoiceAudit.outreach(app, 10)
+                else if (mode == "import") com.agentos.shell.tools.VoiceAudit.importFile(app,
+                    intent.getStringExtra("path") ?: "/sdcard/Download/slyos_chats.zip")
                 else if (mode == "stats") com.agentos.shell.tools.VoiceAudit.brainStats(app)
                 else if (mode == "matrix") com.agentos.shell.tools.VoiceAudit.matrix(app)
                 else if (mode == "questions") com.agentos.shell.tools.BrainQuestions.forceRefresh(app)

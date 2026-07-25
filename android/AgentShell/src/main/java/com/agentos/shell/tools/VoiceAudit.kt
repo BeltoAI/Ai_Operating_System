@@ -99,16 +99,37 @@ object VoiceAudit {
      * emotional). A single-channel test can't catch a warm-to-your-wife tone leaking into an investor thread.
      */
     /** What's ACTUALLY in the brain, per platform — the honest coverage picture. */
+    /** Import a chat archive from a path and report the honest per-file outcome. */
+    fun importFile(ctx: Context, path: String) {
+        Log.i(TAG, "══════ IMPORT: $path ══════")
+        val before = try { MessageStore.count(ctx) } catch (t: Throwable) { 0 }
+        val t0 = System.currentTimeMillis()
+        try {
+            val uri = android.net.Uri.fromFile(java.io.File(path))
+            val owner = try { MemoryStore.ownerName(ctx).ifBlank { MemoryStore.profileName(ctx) } } catch (t: Throwable) { "" }
+            val r = ChatImport.importAny(ctx, uri, owner)
+            val after = try { MessageStore.count(ctx) } catch (t: Throwable) { 0 }
+            Log.i(TAG, "RESULT: ${r.messages} added · ${r.contacts} contacts · ${(System.currentTimeMillis() - t0) / 1000}s")
+            Log.i(TAG, "brain: $before -> $after (+${after - before})")
+            r.files.sortedByDescending { it.parsed }.forEach {
+                Log.i(TAG, "  ${if (it.ok) "OK  " else "FAIL"} ${it.name.take(46).padEnd(48)} parsed=${it.parsed} added=${it.added} ${it.error}")
+            }
+            Log.i(TAG, "files: ${r.files.count { it.ok }} ok, ${r.files.count { !it.ok }} failed")
+        } catch (t: Throwable) { Log.e(TAG, "import blew up: ${t.message}", t) }
+        Log.i(TAG, "══════ END IMPORT ══════")
+    }
+
     fun brainStats(ctx: Context) {
         Log.i(TAG, "══════ BRAIN COVERAGE ══════")
         try { Log.i(TAG, "total messages: ${MessageStore.count(ctx)}") } catch (t: Throwable) {}
         try {
-            val top = MessageStore.topContacts(ctx, 400)
-            val byPlat = top.groupBy { it.third.ifBlank { "(none)" } }
-            Log.i(TAG, "── messages by platform (top-400 contacts) ──")
-            byPlat.entries.sortedByDescending { e -> e.value.sumOf { it.second } }.forEach { (plat, rows) ->
-                Log.i(TAG, "  ${plat.padEnd(14)} ${rows.sumOf { it.second }} msgs across ${rows.size} contacts")
+            // TRUE totals from SQL. The earlier top-400 sample badly understated platforms with many
+            // small threads and led me to a wrong "96% lost" conclusion.
+            Log.i(TAG, "── messages by platform (TRUE counts) ──")
+            MessageStore.countsByPlatform(ctx).forEach { (plat, c) ->
+                Log.i(TAG, "  ${plat.padEnd(14)} $c msgs across ${MessageStore.contactCount(ctx, plat)} contacts")
             }
+            val top = MessageStore.topContacts(ctx, 400)
             Log.i(TAG, "── top 15 contacts ──")
             top.take(15).forEach { (n, c, p) -> Log.i(TAG, "  ${n.take(28).padEnd(30)} $c  [$p]") }
         } catch (t: Throwable) { Log.w(TAG, "stats: ${t.message}") }
