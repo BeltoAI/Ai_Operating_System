@@ -115,8 +115,14 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                     }
                 }
             }
-            if (questions.isNotEmpty() && !qHidden) {
-                val q = questions.first()
+            // Rotate + refresh on every visit: the same stored questions were re-rendered forever because
+            // this always took questions.first() and the batch only regenerated after hours.
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) { try { com.agentos.shell.tools.BrainQuestions.refresh(ctx) } catch (e: Exception) {} }
+            }
+            val rotated = remember(questions.size) { com.agentos.shell.tools.BrainQuestions.nextToAsk(ctx) }
+            if (questions.isNotEmpty() && !qHidden && rotated != null) {
+                val q = rotated
                 Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth()

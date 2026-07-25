@@ -109,9 +109,19 @@ object BrainQuestions {
     private const val KEY_LAST = "last_gen"
     private const val KEY_SEEN_MSGS = "seen_msgs"
     /** Regenerate at least this often, so questions track what's happening now instead of going stale. */
-    private val REFRESH_MS = 4 * 3600_000L
+    private val REFRESH_MS = 45 * 60_000L
     /** …or sooner, once this many new messages have landed in the brain. */
-    private const val NEW_MSG_TRIGGER = 40
+    private const val NEW_MSG_TRIGGER = 15
+    private const val KEY_SHOWN = "shown_count"
+
+    /** Rotate which pending question is surfaced, so opening Now twice doesn't show the same card twice. */
+    fun nextToAsk(ctx: Context): Question? {
+        if (items.isEmpty()) return null
+        val p = prefs(ctx)
+        val i = p.getInt(KEY_SHOWN, 0)
+        p.edit().putInt(KEY_SHOWN, i + 1).apply()
+        return items[i % items.size]
+    }
 
     /** Force a fresh batch now, keeping the asked-history so banned subjects still apply (debug/testing). */
     fun forceRefresh(ctx: Context) {

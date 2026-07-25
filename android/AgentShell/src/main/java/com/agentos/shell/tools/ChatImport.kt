@@ -180,18 +180,26 @@ object ChatImport {
         }
         // Dedupe against what's already in the brain so re-importing the same export doesn't
         // double-count. Report the number of NEW messages actually added.
-        val added = MessageStore.insertBatchDedupe(ctx, rows)
+        val added = try { MessageStore.insertBatchDedupe(ctx, rows) } catch (t: Throwable) {
+            android.util.Log.e("SlyOS-Import", "insert failed for ${rows.size} rows: ${t.message}", t); 0
+        }
+        android.util.Log.i("SlyOS-Import", "ingest $platform: parsed=${clean.size} rows=${rows.size} added=$added " +
+            "contact=${clean.firstOrNull()?.contact?.take(30)}")
         // NOTE: we deliberately do NOT write imported history into the old per-key JSON store — that
         // rewrites the whole blob per message (O(n²)) and was the cause of multi-minute imports.
         // Replies + the graph read history straight from the DB now.
         val mine = if (ownerName != null) clean.filter { it.sender.equals(ownerName, true) }.map { it.body } else emptyList()
-        return Result(clean.map { it.contact }.toSet().size, added, mine, platform)
+        return Result(clean.map { it.contact }.toSet().size, added, mine, platform,
+            listOf(FileReport(platform, clean.size, added, clean.firstOrNull()?.contact ?: "")))
     }
 
     private fun whatsApp(ctx: Context, text: String, owner: String): Result {
         // (sender, body, ts) — ts parsed from each line's real WhatsApp date/time when possible.
         val msgs = ArrayList<Triple<String, String, Long>>()
-        for (line in text.split(Regex("\r?\n"))) {
+        // Split on ANY line ending. The previous pattern failed on these real exports, so the whole file
+        // became ONE line: WA_LINE matched the first entry and every later message was appended to its body.
+        // A 9,077-message chat therefore parsed as a single message — why the big chats imported nothing.
+        for (line in text.split(Regex("\r\n|\r|\n|\u2028|\u2029"))) {
             // Strip WhatsApp's invisible bidi/format marks + odd spaces that break the regex.
             val raw = line
                 .replace(Regex("[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]"), "")
