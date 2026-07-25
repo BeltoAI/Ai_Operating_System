@@ -94,9 +94,28 @@ object BrainQuestions {
         return true
     }
 
+    private const val KEY_LAST = "last_gen"
+    private const val KEY_SEEN_MSGS = "seen_msgs"
+    /** Regenerate at least this often, so questions track what's happening now instead of going stale. */
+    private val REFRESH_MS = 4 * 3600_000L
+    /** …or sooner, once this many new messages have landed in the brain. */
+    private const val NEW_MSG_TRIGGER = 40
+
     fun refresh(ctx: Context) {
         ensureLoaded(ctx)
-        if (items.size >= 4) return   // don't pile up; the owner answers a couple at a time
+        try {
+            val p = prefs(ctx)
+            val msgs = try { MessageStore.count(ctx) } catch (e: Exception) { 0 }
+            val newSince = msgs - p.getInt(KEY_SEEN_MSGS, 0)
+            val age = System.currentTimeMillis() - p.getLong(KEY_LAST, 0L)
+            // Questions were persisting forever, so the same three kept reappearing instead of tracking new
+            // input. Refresh when enough time has passed OR enough new material has arrived; on a refresh the
+            // UNANSWERED ones are cleared so the new batch reflects what's happening now.
+            val due = age > REFRESH_MS || newSince >= NEW_MSG_TRIGGER
+            if (!due && items.isNotEmpty()) return
+            if (due && items.isNotEmpty()) { items.clear(); persist(ctx) }
+            p.edit().putLong(KEY_LAST, System.currentTimeMillis()).putInt(KEY_SEEN_MSGS, msgs).apply()
+        } catch (e: Exception) {}
         try {
             val top = MessageStore.topContacts(ctx, 60).filter { looksLikeAPerson(it.first) && it.second >= 8 }
 

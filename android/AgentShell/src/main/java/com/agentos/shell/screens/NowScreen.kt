@@ -91,11 +91,23 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             //    guessing wrong forever.
             com.agentos.shell.tools.BrainQuestions.ensureLoaded(ctx)
             val questions = com.agentos.shell.tools.BrainQuestions.items
-            if (questions.isNotEmpty()) {
+            // Swiping the card left hides it for THIS visit only — reopen Now and it's asking again, so a
+            // question is deferred, never lost. ("Don't ask again" is the permanent one.)
+            var qHidden by remember { mutableStateOf(false) }
+            var qDragX by remember { mutableStateOf(0f) }
+            if (questions.isNotEmpty() && !qHidden) {
                 val q = questions.first()
                 Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
                 Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
+                Column(Modifier.fillMaxWidth()
+                    .offset { IntOffset(qDragX.roundToInt(), 0) }
+                    .pointerInput(q.id) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = { if (qDragX < -110f) qHidden = true; qDragX = 0f },
+                            onDragCancel = { qDragX = 0f }
+                        ) { _, dx -> qDragX = (qDragX + dx).coerceAtMost(0f) }
+                    }
+                    .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
                     Text(q.text, fontSize = T.body, color = T.ink)
                     Spacer(Modifier.height(10.dp))
                     // Options are SUGGESTIONS, never the only path: a fixed 4-item list ("Co-founder /
@@ -129,8 +141,13 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                                 .padding(vertical = 9.dp))
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text("Skip", fontSize = T.caption, color = T.inkSoft,
-                        modifier = Modifier.clickable { com.agentos.shell.tools.BrainQuestions.dismiss(ctx, q) }.padding(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Not now", fontSize = T.caption, color = T.inkSoft,
+                            modifier = Modifier.clickable { qHidden = true }.padding(4.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Text("Don't ask again", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.clickable { com.agentos.shell.tools.BrainQuestions.dismiss(ctx, q) }.padding(4.dp))
+                    }
                 }
                 Spacer(Modifier.height(14.dp))
             }

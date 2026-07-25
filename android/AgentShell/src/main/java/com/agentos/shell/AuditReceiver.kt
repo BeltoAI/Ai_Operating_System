@@ -15,6 +15,12 @@ class AuditReceiver : BroadcastReceiver() {
         val msg = intent.getStringExtra("msg")
             ?: "Hey! Loved what you're building. Any chance you're free this week for a quick call?"
         val app = ctx.applicationContext
-        Thread { try { com.agentos.shell.tools.VoiceAudit.run(app, from, msg) } catch (t: Throwable) {} }.start()
+        val mode = intent.getStringExtra("mode") ?: "voice"
+        Thread {
+            try {
+                if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app)
+                else com.agentos.shell.tools.VoiceAudit.run(app, from, msg)
+            } catch (t: Throwable) {}
+        }.start()
     }
 }
