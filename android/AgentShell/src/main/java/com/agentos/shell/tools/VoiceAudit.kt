@@ -306,6 +306,30 @@ object VoiceAudit {
         val fonts = count("/Font")
         val images = count("/Image")
         Log.i(TAG, "size=${bytes.size} pages≈$pages fonts=$fonts images=$images")
+        // LEAK CHECK. Documents must belong to their SUBJECT, not to whoever generated them — every user has
+        // an employer in their brain, so an unrelated deck must not carry it. Letter-spaced CSS renders
+        // "BELTO" as "B E LT O" in the extracted text, which is how a plain substring search missed exactly
+        // this leak on a 5th-grade science deck; strip non-letters before comparing.
+        try {
+            val flat = String(bytes, Charsets.ISO_8859_1).replace(Regex("[^A-Za-z]"), "").lowercase()
+            val owner = listOfNotNull(
+                MemoryStore.profileName(ctx).takeIf { it.isNotBlank() },
+                MemoryStore.ownerName(ctx).takeIf { it.isNotBlank() }
+            ).flatMap { it.split(" ") }.filter { it.length > 3 }.distinct()
+            // SAY WHAT WAS CHECKED. A clean verdict from an empty term list is not evidence of anything —
+            // this reported "no leak" on a deck that plainly carried the owner's name, because the profile
+            // lookup returned nothing to look for. An unverifiable pass must not read like a pass.
+            if (owner.isEmpty()) Log.w(TAG, "leak check SKIPPED — no owner identity terms available to test")
+            else {
+                val leaked = owner.filter { flat.contains(it.lowercase()) }
+                val briefMentions = brief.lowercase().split(Regex("[^a-z]+")).filter { it.length > 3 }
+                val expected = briefMentions.any { b -> owner.any { it.lowercase().startsWith(b) } }
+                Log.i(TAG, "leak check over [${owner.joinToString()}] → found [${leaked.joinToString().ifBlank { "none" }}]")
+                if (leaked.isNotEmpty() && !expected)
+                    Log.w(TAG, "OWNER DETAILS IN AN UNRELATED DOCUMENT: ${leaked.joinToString()} — every user has an " +
+                        "employer in their brain, so this would brand anyone's personal document with their company")
+            }
+        } catch (t: Throwable) {}
         Log.i(TAG, "verdict: " + when {
             bytes.isEmpty() -> "EMPTY FILE"
             fonts == 0 && images > 0 -> "RASTERISED — no selectable text, blurs when zoomed, huge file"

@@ -207,10 +207,27 @@ object AgentClient {
              else
                 "This is a ONE-PAGER: a single beautiful A4 portrait page — `@page { size: A4; margin: 0 }` — with a header band, " +
                 "well-structured sections, and a clean footer. Dense but elegant.") +
+            // WHOSE DOCUMENT IS THIS? The owner's brain is supplied for accuracy and voice, and the model
+            // read that as licence to brand. A deck asked for on an unrelated subject — "explain the water
+            // cycle to 5th graders" — came back with the owner's COMPANY NAME set in the footer of all 14
+            // slides. The body was clean; the branding was not. Every user of this app has a company in
+            // their brain, so left alone this stamps a personal or school document with whoever they work
+            // for. Branding has to be earned by the brief, not assumed from the author.
+            " WHOSE DOCUMENT THIS IS: the brief decides. Only carry the owner's company name, logo, initials " +
+            "or house style when the brief is genuinely ABOUT that company or their own work (a pitch, a " +
+            "company one-pager, a customer proposal). For any other subject — a lesson, a personal project, " +
+            "a report on something unrelated — the document belongs to its SUBJECT: no company name, no " +
+            "footer branding, no 'presented by' line, nothing identifying the owner or their employer " +
+            "anywhere on the page. When in doubt, leave the branding off; a stray company name on someone " +
+            "else's material is far worse than a plain document." +
             " Output ONLY the HTML (starting with <!DOCTYPE html>). No markdown, no commentary."
         val user = "Title: $title\nType: ${if (isDeck) "slide deck" else "one-pager"}\n\nWHAT IT MUST CONTAIN (turn this into a polished, " +
             "well-organized document — expand terse points into clean copy, never invent facts):\n$brief\n\n" +
-            (if (brainSnippet.isNotBlank()) "COMPANY CONTEXT (use for accuracy/voice):\n${brainSnippet.take(2500)}\n\n" else "") +
+            // Labelled as REFERENCE, not as the document's owner. Called "COMPANY CONTEXT" it read as "this
+            // is a company document", which is how an unrelated school deck ended up branded.
+            (if (brainSnippet.isNotBlank()) "BACKGROUND ON THE AUTHOR — reference only, for accuracy and voice. " +
+                "Use it ONLY if the brief is about them or their work; it is NOT the subject of this document " +
+                "and must not appear in it otherwise:\n${brainSnippet.take(2500)}\n\n" else "") +
             (if (templates.isNotBlank()) "STYLE/STRUCTURE REFERENCE from the owner's example documents (mirror this look & feel):\n${templates.take(2500)}\n\n" else "") +
             "Design the full HTML now."
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 12000, OPUS, 240000)
