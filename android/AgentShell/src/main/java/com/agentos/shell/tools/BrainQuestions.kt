@@ -187,56 +187,60 @@ object BrainQuestions {
                 if (top.any { it.third.equals(label, true) } && MemoryStore.styleFor(ctx, key).isBlank())
                     sb.append("NO VOICE/CHARACTER SET for $label, which the owner actively uses\n")
             }
-            // ROTATE WHICH PART OF THE BRAIN WE MINE. Feeding the same recent-messages blob every run made the
-            // questions circle one topic forever. Each refresh emphasises a different area, so over time the
-            // questioning actually spans the whole brain instead of re-interrogating this week's inbox.
-            val focus = (prefs(ctx).getInt("focus", 0)) % 5
-            prefs(ctx).edit().putInt("focus", focus + 1).apply()
-            sb.append("\nFOCUS THIS ROUND — every question MUST come from this area and from the material listed " +
-                "under it below; ignore anything else you know: ").append(
-                when (focus) {
-                    0 -> "people & relationships — who matters, who's unclear, who's gone quiet"
-                    1 -> "work in flight — projects, deals, documents, what's stalled or undecided"
-                    2 -> "commitments & time — calendar, deadlines, open tasks, what's slipping"
-                    3 -> "preferences & boundaries — how they want things done, what they'd never do"
-                    else -> "contradictions & drift — where stated intent and actual behaviour disagree"
-                }).append("\n")
+            // ONE QUESTION PER AREA, FOUR DIFFERENT AREAS PER BATCH.
+            // This used to pick a SINGLE focus per round and instruct that "every question MUST come from
+            // this area". That guarantees the exact complaint it was meant to solve: within "work in flight"
+            // everything the owner does is one venture, so a batch came back as four questions about Belto.
+            // A later batch-level "spread the batch" rule in the prompt couldn't win against a hard,
+            // specific instruction telling the model to stay in one area. So the SPREAD is structural now —
+            // four areas are selected, each gets its own material, and each owes exactly one question. The
+            // rotating offset means the fifth area leads the next round, so coverage still moves over time.
+            val round = prefs(ctx).getInt("focus", 0)
+            prefs(ctx).edit().putInt("focus", (round + 1) % 5).apply()
+            val areaName = listOf(
+                "PEOPLE & RELATIONSHIPS — who matters, who's unclear, who's gone quiet",
+                "WORK IN FLIGHT — projects, deals, documents, what's stalled or undecided",
+                "COMMITMENTS & TIME — calendar, deadlines, open tasks, what's slipping",
+                "PREFERENCES & BOUNDARIES — how they want things done, what they'd never do",
+                "CONTRADICTIONS & DRIFT — where stated intent and actual behaviour disagree")
+            val picked = (0 until 4).map { (round + it) % 5 }
 
-            when (focus) {
-                0 -> try {
-                    val net = ConnectionStore.recent(ctx, 60).joinToString("\n") { c ->
-                        "• ${c.name}" + (if (c.role.isNotBlank()) " — ${c.role}" else "") + (if (c.company.isNotBlank()) " @ ${c.company}" else "")
-                    }.take(3000)
-                    if (net.isNotBlank()) sb.append("\nNETWORK:\n").append(net).append("\n")
-                    val quiet = ConnectionStore.staleConnections(ctx, 90).take(15)
-                        .joinToString("\n") { (c, _) -> "• ${c.name} — no contact in 90+ days" }.take(1200)
-                    if (quiet.isNotBlank()) sb.append("\nGONE QUIET:\n").append(quiet).append("\n")
-                } catch (e: Exception) {}
-                1 -> {
-                    try {
-                        val docs = DocStore.list(ctx).sortedByDescending { it.ts }.take(20)
-                            .joinToString("\n") { "• ${it.title} [${it.category}]" + (if (it.summary.isNotBlank()) " — ${it.summary.take(120)}" else "") }.take(3000)
-                        if (docs.isNotBlank()) sb.append("\nDOCUMENTS:\n").append(docs).append("\n")
-                    } catch (e: Exception) {}
-                    try {
-                        val papers = PaperStore.list(ctx).joinToString("\n") { "• “${it.title}” (${it.docType})" }.take(1200)
-                        if (papers.isNotBlank()) sb.append("\nTHEIR WRITING:\n").append(papers).append("\n")
-                    } catch (e: Exception) {}
+            fun material(area: Int): String = try {
+                when (area) {
+                    0 -> buildString {
+                        val net = ConnectionStore.recent(ctx, 25).joinToString("\n") { c ->
+                            "• ${c.name}" + (if (c.role.isNotBlank()) " — ${c.role}" else "") + (if (c.company.isNotBlank()) " @ ${c.company}" else "")
+                        }.take(900)
+                        if (net.isNotBlank()) append("NETWORK:\n").append(net).append("\n")
+                        val quiet = ConnectionStore.staleConnections(ctx, 90).take(8)
+                            .joinToString("\n") { (c, _) -> "• ${c.name} — no contact in 90+ days" }.take(500)
+                        if (quiet.isNotBlank()) append("GONE QUIET:\n").append(quiet).append("\n")
+                    }
+                    1 -> buildString {
+                        val docs = DocStore.list(ctx).sortedByDescending { it.ts }.take(10)
+                            .joinToString("\n") { "• ${it.title} [${it.category}]" + (if (it.summary.isNotBlank()) " — ${it.summary.take(80)}" else "") }.take(900)
+                        if (docs.isNotBlank()) append("DOCUMENTS:\n").append(docs).append("\n")
+                        val papers = PaperStore.list(ctx).joinToString("\n") { "• “${it.title}” (${it.docType})" }.take(500)
+                        if (papers.isNotBlank()) append("THEIR WRITING:\n").append(papers).append("\n")
+                    }
+                    2 -> buildString {
+                        if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx).take(900)
+                            .takeIf { it.isNotBlank() }?.let { append("UPCOMING CALENDAR:\n").append(it).append("\n") }
+                        val tasks = ChecklistStore.load(ctx).filter { !it.done }.joinToString("\n") { "• ${it.text}" }.take(700)
+                        if (tasks.isNotBlank()) append("OPEN TASKS:\n").append(tasks).append("\n")
+                    }
+                    else -> MessageStore.recentLines(ctx, 40).joinToString("\n").take(1400)
+                        .let { if (it.isBlank()) "" else "RECENT ACTIVITY / CONVERSATIONS:\n$it\n" }
                 }
-                2 -> {
-                    try {
-                        if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx).take(2500)
-                            .takeIf { it.isNotBlank() }?.let { sb.append("\nUPCOMING CALENDAR:\n").append(it).append("\n") }
-                    } catch (e: Exception) {}
-                    try {
-                        val tasks = ChecklistStore.load(ctx).filter { !it.done }.joinToString("\n") { "• ${it.text}" }.take(2000)
-                        if (tasks.isNotBlank()) sb.append("\nOPEN TASKS:\n").append(tasks).append("\n")
-                    } catch (e: Exception) {}
-                }
-                else -> try {
-                    val recent = MessageStore.recentLines(ctx, 80).joinToString("\n").take(6000)
-                    if (recent.isNotBlank()) sb.append("\nRECENT ACTIVITY / CONVERSATIONS:\n").append(recent).append("\n")
-                } catch (e: Exception) {}
+            } catch (e: Exception) { "" }
+
+            sb.append("\nASK EXACTLY ONE QUESTION FROM EACH AREA BELOW — four areas, four questions, drawn from " +
+                "that area's own material. Two questions from the same area is a failed batch, and so is two " +
+                "questions about the same project or person.\n")
+            picked.forEachIndexed { i, area ->
+                sb.append("\n=== AREA ${i + 1}: ").append(areaName[area]).append(" ===\n")
+                val m = material(area)
+                sb.append(if (m.isBlank()) "(little material here — ask about what's MISSING in this area)\n" else m)
             }
 
             if (sb.isBlank()) { Log.i(TAG, "nothing worth asking"); return }
@@ -300,7 +304,7 @@ object BrainQuestions {
             }
             // `added` vs `qs.size` is the diversity signal worth watching: a generator that keeps circling
             // produces a batch of 4 that yields 0 new questions, and that now shows up in logcat directly.
-            Log.i(TAG, "focus=$focus generated ${qs.size} question(s), $added new after repeat-filter; pending: ${items.size}")
+            Log.i(TAG, "areas=$picked generated ${qs.size} question(s), $added new after repeat-filter; pending: ${items.size}")
             // Print what was actually asked. "The questions keep circling the same topic" is impossible to
             // diagnose from counts alone, and this is the only place the batch exists as a whole.
             items.take(8).forEach { Log.i(TAG, "   Q: ${it.text}") }

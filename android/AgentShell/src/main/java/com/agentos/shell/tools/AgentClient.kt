@@ -687,10 +687,11 @@ object AgentClient {
             // "The questions keep circling the same topic" — a batch would come back as four variations on
             // the same company/deal, because the owner's biggest project dominates every signal fed in.
             // Diversity has to be a constraint on the BATCH, not a hope about each question.
-            "• SPREAD THE BATCH. No two questions may centre on the same project, company, deal, or person. " +
-            "If your strongest three questions are all about one venture, keep the best one and find the " +
-            "others elsewhere in their life — a different relationship, a commitment, a preference, a " +
-            "contradiction. Four questions about one topic is a failed batch however good each one is.\n" +
+            "• SPREAD THE BATCH. The signals are split into labelled AREAS: ask exactly ONE question per " +
+            "area, drawn from that area's own material. No two questions may centre on the same project, " +
+            "company, deal, or person. If your strongest three questions are all about one venture, keep the " +
+            "best one and find the others in the other areas. Four questions about one topic is a failed " +
+            "batch however good each one is.\n" +
             "• People close to them are NOT business contacts. Never frame a spouse, family member, or close " +
             "friend as a work relationship — check what's already known about who someone IS before asking " +
             "what they do for the owner's projects.\n" +
@@ -702,7 +703,10 @@ object AgentClient {
         // exclusions in here too, and they were being truncated away, so the model never saw what was off
         // limits and cheerfully re-asked it. The caller now front-loads the exclusions; this gives the digest
         // enough room behind them that questions stay grounded in real brain material rather than thin air.
-        val user = "WHAT IS ALREADY KNOWN:\n${known.take(9000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(4000)}"
+        // The signals block now carries FOUR labelled areas, each with its own material, because a batch is
+        // required to span four. At 4,000 the last areas were cut off before the model saw them — which
+        // would have quietly reproduced the single-topic batches this is meant to end.
+        val user = "WHAT IS ALREADY KNOWN:\n${known.take(9000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(7000)}"
         val (code, text) = callContent(sys, user, 700, MODEL)
         if (code != 200) return emptyList()
         return try {
