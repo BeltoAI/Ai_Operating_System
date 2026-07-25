@@ -93,38 +93,41 @@ internal object VoiceEngine {
     }
 
     /**
-     * Speak [text] in the owner's voice, STREAMING 16-bit audio to the speaker as it's generated (low latency).
-     * Blocks until playback finishes; call it off the main thread. Returns true only if audio actually played.
+     * Speak [text] in the owner's voice and play it. Blocks until playback finishes; call off the main thread.
+     * Returns true only if audio actually played.
+     *
+     * DELIBERATELY NOT using sherpa's streaming callback API. Its JNI resolves the callback by looking for
+     * `invoke([F)Ljava/lang/Integer;` on the passed object; a Kotlin lambda compiles to an invokedynamic
+     * synthetic class that doesn't expose that exact signature, so the native side raised
+     * NoSuchMethodError and ABORTED THE PROCESS (SIGABRT) — a native abort takes the whole launcher down and
+     * can't be caught. We generate the clip in one call, then play it straight from memory via AudioTrack
+     * (no file I/O), which is both crash-free and still fast.
      */
     fun speakStreaming(text: String, refSamples: FloatArray, refSampleRate: Int, refText: String,
                        m: LocalVoice.ModelPaths): Boolean {
         val e = engine(m) ?: run { Log.w(TAG, "no engine"); return false }
         val started = System.currentTimeMillis()
         return try {
+            val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
+                referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
+            val audio = synchronized(lock) { e.generateWithConfig(text, gen) }
+            val genMs = System.currentTimeMillis() - started
+            if (audio.samples.isEmpty()) { Log.w(TAG, "generated 0 samples in ${genMs}ms"); return false }
+            val sr = if (audio.sampleRate > 0) audio.sampleRate else 24000
+            Log.i(TAG, "generated ${audio.samples.size} samples @ ${sr}Hz in ${genMs}ms")
+
             stop(); try { track?.release() } catch (ex: Exception) {}
-            val sr = try { e.sampleRate() } catch (ex: Exception) { 24000 }
-            val t = newTrack(sr) ?: return false     // caller falls back (WAV clone → system TTS)
-            track = t; t.play()
-            var frames = 0L
-            synchronized(lock) {
-                val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
-                    referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
-                e.generateWithConfigAndCallback(text, gen) { chunk ->
-                    if (chunk.isNotEmpty()) {
-                        val pcm = ShortArray(chunk.size) { i ->
-                            (chunk[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
-                        }
-                        try { val w = t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING); if (w > 0) frames += w } catch (ex: Exception) {}
-                    }
-                    1   // keep going
-                }
-            }
+            val t = newTrack(sr) ?: return false
+            track = t
+            val pcm = ShortArray(audio.samples.size) { i -> (audio.samples[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort() }
+            t.play()
+            val written = try { t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING) } catch (ex: Exception) { -1 }
             try { t.stop() } catch (ex: Exception) {}
             try { t.release() } catch (ex: Exception) {}
             if (track === t) track = null
-            Log.i(TAG, "streamed $frames frames in ${System.currentTimeMillis() - started}ms")
-            frames > 0   // false → nothing came out → caller falls back to the WAV clone
-        } catch (t: Throwable) { Log.w(TAG, "speakStreaming failed: ${t.message}"); false }
+            Log.i(TAG, "played $written frames (total ${System.currentTimeMillis() - started}ms)")
+            written > 0
+        } catch (t: Throwable) { Log.w(TAG, "speak failed: ${t.message}"); false }
     }
 
     /** Non-streaming: synth [text] to a WAV file (kept for callers that need a file, e.g. saving). */

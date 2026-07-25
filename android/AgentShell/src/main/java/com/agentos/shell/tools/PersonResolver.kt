@@ -65,8 +65,12 @@ object PersonResolver {
         try {
             val first = display.split(" ").firstOrNull().orEmpty()
             if (first.length > 2) {
+                // WORD-BOUNDARY match only. Plain substring matching merged unrelated people: "Elon" is
+                // literally inside "Mont-elon-go", so Elon Musk inherited a stranger's identity and history.
+                fun words(s: String) = s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+                val mine = words(display).toSet()
                 ConnectionStore.search(ctx, display.ifBlank { first }, 5)
-                    .firstOrNull { c -> c.name.contains(first, true) || display.contains(c.name.split(" ").first(), true) }
+                    .firstOrNull { c -> words(c.name).any { it in mine } }
                     ?.let { c ->
                         aliases.add(c.name)
                         if (c.company.isNotBlank()) company = c.company
