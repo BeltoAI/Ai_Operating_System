@@ -19,6 +19,7 @@ class AuditReceiver : BroadcastReceiver() {
         Thread {
             try {
                 if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app)
+                else if (mode == "outreach") com.agentos.shell.tools.VoiceAudit.outreach(app, 10)
                 else com.agentos.shell.tools.VoiceAudit.run(app, from, msg)
             } catch (t: Throwable) {}
         }.start()

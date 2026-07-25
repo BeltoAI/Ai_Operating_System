@@ -47,6 +47,29 @@ object VoiceAudit {
         Log.i(TAG, "══════ END PLANNER PROBE ══════")
     }
 
+    /**
+     * OUTREACH PROBE: draft the intro message for the first N LinkedIn connections the owner has never
+     * reached out to, and log each one with timing. DRAFTS ONLY — nothing is sent.
+     */
+    fun outreach(ctx: Context, n: Int = 10) {
+        Log.i(TAG, "══════ OUTREACH PROBE (drafts only, nothing sent) ══════")
+        val never = try { ConnectionStore.neverReachedOut(ctx) } catch (t: Throwable) { emptyList() }
+        Log.i(TAG, "never-reached-out pool: ${never.size}")
+        val started = System.currentTimeMillis()
+        never.take(n).forEachIndexed { i, c ->
+            try {
+                val t0 = System.currentTimeMillis()
+                val mem = ReplyContext.forSender(ctx, c.source, c.name)
+                val msg = AgentClient.introMessage(c.name, c.company, c.role, c.source, mem)
+                Log.i(TAG, "${i + 1}. ${c.name}" + (if (c.role.isNotBlank()) " — ${c.role}" else "") +
+                    (if (c.company.isNotBlank()) " @ ${c.company}" else "") + "  (${System.currentTimeMillis() - t0}ms)")
+                Log.i(TAG, "     ${msg.replace("\n", " ⏎ ").take(320)}")
+            } catch (t: Throwable) { Log.w(TAG, "${c.name} failed: ${t.message}") }
+        }
+        Log.i(TAG, "TOTAL for ${minOf(n, never.size)} drafts: ${(System.currentTimeMillis() - started) / 1000}s")
+        Log.i(TAG, "══════ END OUTREACH PROBE ══════")
+    }
+
     /** Draft a reply per channel to [incoming] from [sender] and log what each one produced. */
     fun run(ctx: Context, sender: String = "Anna Schmidt",
             incoming: String = "Hey! Loved what you're building. Any chance you're free this week for a quick call?") {

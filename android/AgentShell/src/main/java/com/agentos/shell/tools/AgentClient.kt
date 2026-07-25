@@ -1647,14 +1647,38 @@ object AgentClient {
         val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         // Professional LinkedIn register (NOT the owner's casual texting persona) + hard-locked name so it can
         // never address the wrong person.
-        val sys = "You write a short, warm, PROFESSIONAL opener on the sender's behalf to someone they're connected " +
-            "with on $source but have never spoken to. CRITICAL: address them by EXACTLY this first name — " +
-            "\"$firstName\" — and use NO other name; never invent or guess a name. Warm but professional (this is " +
-            "$source, not a text to a friend): do NOT open with “yo”, “hey”, or slang. Specific and easy to reply " +
-            "to; no pitch, no 'hope you're well' filler, no markdown. 1–2 sentences. " +
-            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
+        // A batch audit of 10 of these came back near-identical: 6/10 opened "I came across your profile and was
+        // genuinely impressed by…", all 10 pushed a Calendly link, and an intern and an angel investor got the
+        // same message. That reads as spam and burns the relationship. These rules exist to break the formula.
+        val sys = "You write ONE short opener on the sender's behalf to someone they're connected with on " +
+            "$source but have never actually spoken to.\n" +
+            "CRITICAL: address them by EXACTLY this first name — \"$firstName\" — and no other name; never " +
+            "invent or guess one.\n" +
+            "BANNED — these read as mass-mail and must never appear: “I came across your profile”, “I was " +
+            "genuinely impressed”, “I'd love to connect briefly”, “exchange perspectives”, “exciting work”, " +
+            "“hope you're well”, “reaching out”, “touch base”, “synergies”. Find your OWN words.\n" +
+            "MATCH THE ASK TO WHO THEY ARE — this is the whole point:\n" +
+            "• Investor/VC/angel → say concretely what the sender is building and why it may fit their thesis; " +
+            "the ask is a short intro conversation.\n" +
+            "• Senior engineer/researcher in a relevant field → a specific technical question or observation " +
+            "about their domain; the ask is their opinion, not their time.\n" +
+            "• Student/intern/junior → be generous and low-pressure; offer something, don't ask for anything.\n" +
+            "• Anyone else → one genuine, specific line about their actual work, and an easy open question.\n" +
+            "NO scheduling/booking link unless they're a genuinely warm, senior fit AND the message earns it — " +
+            "asking a stranger to book time is presumptuous and is the fastest way to be ignored.\n" +
+            "Be specific to THEIR role and company (not generic praise), 1–2 sentences, plain text, no markdown, " +
+            "no sign-off, no filler. Sound like a real person typing once, not a template.\n" +
+            // A batch audit caught the model INVENTING the sender's company three different ways in one run
+            // (a talent marketplace, a translation company, a RevOps platform) — none of them real. Sending an
+            // investor a fabricated description of your own company is worse than sending nothing.
+            "NEVER invent, guess, or embellish what the sender does or is building. State it ONLY if it appears " +
+            "verbatim in the background below, and then only in those terms. If the background doesn't clearly " +
+            "say what they're building, DO NOT mention their company or product at all — write the message " +
+            "entirely about the recipient instead. Inventing this is the worst possible failure here.\n" +
+            (if (memory.isNotBlank()) "The sender's background/voice (the ONLY source of truth about them): " + memory.take(4000) + ". " else "") +
             "Return ONLY the message."
-        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "") + ". Address them as \"$firstName\"."
+        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "") +
+            ". Address them as \"$firstName\". Decide which of the categories above they fall into, then write the message."
         val (code, text) = callContent(sys, who, 240, VOICE)
         return if (code == 200) text.trim() else "Hi $firstName — we're connected here but haven't actually spoken yet. I'd genuinely like to; what are you focused on these days?"
     }
