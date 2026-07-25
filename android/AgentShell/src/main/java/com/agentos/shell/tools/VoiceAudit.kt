@@ -119,6 +119,22 @@ object VoiceAudit {
         Log.i(TAG, "══════ END IMPORT ══════")
     }
 
+    /** Does search actually find the newly imported history? Keyword + FTS health + semantic. */
+    fun searchProbe(ctx: Context, q: String) {
+        Log.i(TAG, "══════ SEARCH PROBE: \"$q\" ══════")
+        try { Log.i(TAG, "messages=${MessageStore.count(ctx)} ftsRows=${MessageStore.ftsCount(ctx)}") } catch (t: Throwable) { Log.w(TAG, "counts: ${t.message}") }
+        try {
+            val hits = MessageStore.search(ctx, q, 8)
+            Log.i(TAG, "keyword/FTS hits: ${hits.size}")
+            hits.take(5).forEach { Log.i(TAG, "   [${it.contact}] ${it.body.take(120)}") }
+        } catch (t: Throwable) { Log.w(TAG, "search failed: ${t.message}") }
+        try {
+            val sem = VectorStore.search(ctx, q, 5)
+            Log.i(TAG, "semantic hits: ${sem.size} (embedded=${VectorStore.embeddedCount(ctx)})")
+        } catch (t: Throwable) { Log.w(TAG, "semantic: ${t.message}") }
+        Log.i(TAG, "══════ END SEARCH PROBE ══════")
+    }
+
     fun brainStats(ctx: Context) {
         Log.i(TAG, "══════ BRAIN COVERAGE ══════")
         try { Log.i(TAG, "total messages: ${MessageStore.count(ctx)}") } catch (t: Throwable) {}

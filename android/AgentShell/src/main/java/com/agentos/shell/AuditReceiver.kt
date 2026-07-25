@@ -22,6 +22,7 @@ class AuditReceiver : BroadcastReceiver() {
                 else if (mode == "outreach") com.agentos.shell.tools.VoiceAudit.outreach(app, 10)
                 else if (mode == "import") com.agentos.shell.tools.VoiceAudit.importFile(app,
                     intent.getStringExtra("path") ?: "/sdcard/Download/slyos_chats.zip")
+                else if (mode == "search") com.agentos.shell.tools.VoiceAudit.searchProbe(app, intent.getStringExtra("q") ?: "Berk")
                 else if (mode == "stats") com.agentos.shell.tools.VoiceAudit.brainStats(app)
                 else if (mode == "matrix") com.agentos.shell.tools.VoiceAudit.matrix(app)
                 else if (mode == "questions") com.agentos.shell.tools.BrainQuestions.forceRefresh(app)
