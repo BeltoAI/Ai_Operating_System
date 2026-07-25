@@ -256,6 +256,11 @@ object VoiceAudit {
         val df = java.text.SimpleDateFormat("MMM d yyyy", java.util.Locale.getDefault())
         rows.forEach { Log.i(TAG, "   [${it.contact} · ${df.format(java.util.Date(it.ts))}] ${it.body.replace("\n", " ").take(220)}") }
         Log.i(TAG, "── semantic index ──")
+        // Migrate on demand too, so a probe run doesn't have to wait for the periodic worker.
+        var moved = 0
+        while (true) { val n = try { VectorStore.migrateQ8(ctx, 4000) } catch (t: Throwable) { 0 }; if (n == 0) break; moved += n }
+        if (moved > 0) Log.i(TAG, "quantised $moved vectors onto the fast search path")
+        try { Log.i(TAG, "awaiting quantisation: ${VectorStore.unquantizedCount(ctx)}") } catch (t: Throwable) {}
         try { Log.i(TAG, "embedded=${VectorStore.embeddedCount(ctx)} of ${MessageStore.count(ctx)}") } catch (t: Throwable) {}
         Log.i(TAG, "══════ END GROUND TRUTH ══════")
     }

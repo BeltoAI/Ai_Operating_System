@@ -21,6 +21,14 @@ class EmbedWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         // allowance keeps a wide safety margin while moving ~5,000 rows per run — the backlog now clears in
         // hours. Stops early the moment there's nothing pending, so a caught-up brain does no work at all.
         val deadline = System.currentTimeMillis() + 4 * 60_000
+        // Bring existing vectors onto the fast (int8) search path first. Until a vector is migrated it can
+        // only be reached by reading its full float32 blob, which is what limited a search to a fraction of
+        // the brain. This is pure local compute — no embedding calls, no network — and ends permanently.
+        try {
+            while (System.currentTimeMillis() < deadline) {
+                if (com.agentos.shell.tools.VectorStore.migrateQ8(applicationContext, 2000) == 0) break
+            }
+        } catch (e: Exception) {}
         try {
             while (System.currentTimeMillis() < deadline) {
                 if (com.agentos.shell.tools.VectorStore.pendingCount(applicationContext) <= 0) break
