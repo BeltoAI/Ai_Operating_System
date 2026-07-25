@@ -34,10 +34,55 @@ object MemoryStore {
         prefs(ctx).edit().putString(KEY_LEARNED, arr.toString()).apply()
     }
 
+    /** Comparable form for near-duplicate detection. */
+    private fun normFact(s: String) =
+        s.lowercase().replace(Regex("[^a-z0-9 ]+"), " ").replace(Regex("\\s+"), " ").trim()
+
+    /**
+     * Collapse facts that RESTATE each other. Exact-match dedupe let the same belief accumulate in slightly
+     * longer forms — measured on a real device, "Belto = on-device LLM inference…", "…overhyped AI…" and the
+     * Satlyt meeting were each stored three times, and 250 such facts inflated the profile block to 27,490
+     * characters. That block leads every prompt, so the duplicates were literally crowding the owner's real
+     * message history out of the model's context window. When one fact contains another, the longer one wins.
+     */
+    fun compactLearnedFacts(ctx: Context): Int {
+        val cur = learnedFacts(ctx)
+        val kept = ArrayList<String>()
+        for (f in cur) {
+            val nf = normFact(f)
+            if (nf.length < 3) continue
+            // Only collapse against reasonably specific facts, so a short one can't be swallowed by an
+            // unrelated long one that happens to contain its words.
+            val dupIdx = kept.indexOfFirst { k ->
+                val nk = normFact(k)
+                nk == nf || (minOf(nk.length, nf.length) >= 20 && (nk.contains(nf) || nf.contains(nk)))
+            }
+            if (dupIdx < 0) kept.add(f)
+            else if (f.length > kept[dupIdx].length) kept[dupIdx] = f   // richer statement wins
+        }
+        val removed = cur.size - kept.size
+        if (removed > 0) setLearnedFacts(ctx, kept)
+        return removed
+    }
+
     fun addLearnedFact(ctx: Context, fact: String) {
         val f = fact.trim(); if (f.length < 3) return
         val cur = learnedFacts(ctx).toMutableList()
         if (cur.any { it.equals(f, true) }) return            // dedup
+        // Near-duplicate: a restatement of something already known. Keep whichever says more.
+        val nf = normFact(f)
+        val dup = cur.indexOfFirst { k ->
+            val nk = normFact(k)
+            nk == nf || (minOf(nk.length, nf.length) >= 20 && (nk.contains(nf) || nf.contains(nk)))
+        }
+        if (dup >= 0) {
+            if (f.length > cur[dup].length) {
+                cur[dup] = f
+                val a = org.json.JSONArray(); cur.takeLast(250).forEach { a.put(it) }
+                prefs(ctx).edit().putString(KEY_LEARNED, a.toString()).apply()
+            }
+            return
+        }
         // P1.5: the prefs list stays a BOUNDED working set for the prompt (recency), but the fact is ALSO
         // written to the unbounded, indexed, deduped brain DB — so fact #251 no longer erases fact #1;
         // every fact remains permanently retrievable via keyword + semantic search.

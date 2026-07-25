@@ -33,13 +33,13 @@ object BrainContext {
             (if (role == "me") "you→$contact" else contact) + ": " + body.trim()
         // Pull MORE candidates than we can show and let ranking decide — 8+8 was too tight to survive
         // dedupe, so a good memory could be crowded out by near-duplicates before it was ever considered.
-        try { VectorStore.search(ctx, q, 20).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
+        try { VectorStore.search(ctx, q, 40).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
         // Keyword hits used to get a FLAT 0.62 — higher than most genuine semantic matches, so exact-word
         // noise consistently outranked true meaning matches. Score them by how much of the query they
         // actually contain, capped below a strong semantic hit.
         try {
             val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
-            MessageStore.search(ctx, q, 20).forEach { h ->
+            MessageStore.search(ctx, q, 60).forEach { h ->
                 val low = h.body.lowercase()
                 val hit = if (terms.isEmpty()) 0 else terms.count { low.contains(it) }
                 val frac = if (terms.isEmpty()) 0f else hit.toFloat() / terms.size
@@ -61,7 +61,7 @@ object BrainContext {
         }
         val sb = StringBuilder(); var used = 0
         for (c in best.values.sortedByDescending { it.score }) {
-            val line = c.text.take(280)
+            val line = c.text.take(400)
             if (used + line.length + 3 > budgetChars) continue
             sb.append("• ").append(line).append("\n"); used += line.length + 3
         }
@@ -75,7 +75,15 @@ object BrainContext {
      */
     fun build(ctx: Context, q: String): String {
         val tBuild = System.currentTimeMillis()
-        val mem = profileBlock(ctx)
+        // CAP THE PROFILE. Measured on a real device: profileBlock alone was 27,490 characters, and it is
+        // emitted FIRST — while answerWell() truncates the whole context at 20,000. The settings card was
+        // therefore consuming the entire window before a single remembered message, relationship line, or
+        // calendar entry was reached, and everything else was silently discarded. That is exactly, and
+        // literally, "the AI only knows what's in my characteristics card".
+        // The identity essentials (name, contact details, about-me, learned facts) lead this block, so a cap
+        // keeps what every answer needs and drops the long LinkedIn work-history tail that no single question
+        // ever needed in full.
+        val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
         android.util.Log.i("SlyOS-Perf", "profile ${tProfile - tBuild}ms · calendar ${System.currentTimeMillis() - tProfile}ms")
@@ -86,7 +94,20 @@ object BrainContext {
         // budget — so the single most relevant memory always survives instead of being truncated away.
         // This is now the PRIMARY semantic surface (everything the phone does is embedded via Brain.remember +
         // ingestAllSources), so it earns a larger budget than the old keyword-gated blocks around it.
-        val ranked = rankedRecall(ctx, q, budgetChars = 2600)
+        // THE BOTTLENECK BEHIND "the AI only knows what's in my characteristics card".
+        // This was 2,600 characters — with lines capped at 280, about NINE messages out of 67,163 — while
+        // profileBlock() above goes in unbounded and answerWell() accepts 20,000. So every answer was
+        // overwhelmingly the settings profile plus a handful of messages, no matter how much history the
+        // owner imported. The brain wasn't failing to retrieve; it was being throttled on the way to the
+        // model. 9,000 leaves ample room for the profile, calendar, docs and the rest inside that 20k.
+        val ranked = rankedRecall(ctx, q, budgetChars = 9000)
+        // WHO the question is about, as a relationship — the same lines that turned "who is Carlos" from
+        // eight fragments of small talk into a real answer. This is the shared context every surface reads,
+        // so Home AI, chat and reply drafting all get it, not just the Memory tab.
+        val who = try {
+            q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.take(4)
+                .flatMap { MessageStore.personDossier(ctx, it) }.distinct().take(6).joinToString("\n")
+        } catch (e: Exception) { "" }
         val net = ConnectionStore.search(ctx, q, 6)
             .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
             .take(800)
@@ -163,7 +184,17 @@ object BrainContext {
         // who the user actually is + what's going on — not just the settings card. Cached; falls back to the
         // card until the first digest is built. Bounded so query-specific recall below still has room.
         val digest = try { BrainDigest.get(ctx) } catch (e: Exception) { "" }
+        // Section sizes, so a bloated block can be SEEN rather than inferred. Context that overflows the
+        // model ceiling isn't extra detail — it's material thrown away, and since the profile leads, what
+        // gets thrown away is always the query-specific part that made the answer worth reading.
+        android.util.Log.i("SlyOS-Perf", "ctx sections: profile=${mem.length} cal=${cal.length} ranked=${ranked.length} " +
+            "who=${who.length} net=${net.length} papers=${papers.length} doc=${docText.length} filed=${filedDocs.length} " +
+            "recall=${recall.length} tasks=${tasks.length} sent=${sent.length} day=${dayLog.length} team=${teamActivity.length}")
         return buildString {
+            // Time leads. It is ~30 characters, every scheduling answer depends on it, and it used to be the
+            // LAST thing appended — so whenever the context overflowed the model ceiling, the current time was
+            // the first casualty. Cheap, essential things go where truncation can't reach them.
+            append("Current time: ").append(now).append("\n")
             if (digest.isNotBlank()) append("WHO YOU ARE (comprehensive self-model):\n").append(digest.take(9000)).append("\n\n")
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)
@@ -173,6 +204,8 @@ object BrainContext {
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)
             if (dayLog.isNotBlank()) append("\nWhat flowed through your brain in the time window you asked about (newest first, with times — use these to answer the date question):\n").append(dayLog)
+            if (who.isNotBlank()) append("\nYour actual relationship with the people named in this request " +
+                "(straight from the message record — treat these as people you KNOW):\n").append(who)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             // WHO IS THIS PERSON — searched across contacts, message history, network, CRM and calendar.
