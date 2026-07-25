@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.util.Base64
 import android.util.Log
 import com.agentos.shell.tools.AgentClient
+import kotlinx.coroutines.sync.withLock
 import com.agentos.shell.tools.ConversationStore
 import com.agentos.shell.tools.KnowledgeStore
 import com.agentos.shell.tools.MemoryLog
@@ -63,13 +64,27 @@ class TelegramService : Service() {
             }
             for (u in updates) {
                 offset = u.updateId + 1
-                // Process each message CONCURRENTLY — the agent chain can take 30-60s, and doing it inline here
-                // would block the long-poll so nothing else gets fetched or answered. Launch and keep polling.
-                scope.launch { try { handle(u) } catch (e: Exception) { Log.e("SlyOS", "tg handle failed", e) } }
+                // CONCURRENT ACROSS CHATS, STRICTLY ORDERED WITHIN ONE (BUGS #2 "Q/A crossed").
+                // Every update used to get its own bare launch. The agent chain takes 30-60s, so two
+                // messages sent seconds apart in the SAME conversation ran in parallel and whichever
+                // finished first replied first — the owner asked two questions and got the answers back
+                // against the wrong ones, which reads as the agents being confused rather than as a race.
+                // A per-chat mutex keeps each conversation sequential (kotlinx Mutex hands off FIFO, so
+                // replies keep the order the questions arrived in) while different chats still overlap —
+                // which is the reason this was made concurrent in the first place: never block the poll loop.
+                val lock = chatLocks.getOrPut(u.chatId) { kotlinx.coroutines.sync.Mutex() }
+                scope.launch {
+                    lock.withLock {
+                        try { handle(u) } catch (e: Exception) { Log.e("SlyOS", "tg handle failed", e) }
+                    }
+                }
             }
         }
         Log.w("SlyOS-Team", "poll loop ENDED (running=$running active=${scope.isActive})")
     }
+
+    // One lock per conversation, so replies within a chat keep the order the questions arrived in.
+    private val chatLocks = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.sync.Mutex>()
 
     // Chats we've already told "you're not authorized" — so a stranger/spammer gets ONE line, not a storm.
     private val refused = java.util.Collections.synchronizedSet(HashSet<Long>())
