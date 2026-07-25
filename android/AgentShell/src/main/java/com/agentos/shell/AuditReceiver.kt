@@ -29,6 +29,19 @@ class AuditReceiver : BroadcastReceiver() {
                     com.agentos.shell.tools.VoiceAudit.reembed(app, 60)
                 }
                 else if (mode == "reembed") com.agentos.shell.tools.VoiceAudit.reembed(app)
+                else if (mode == "ask") kotlinx.coroutines.runBlocking {
+                    com.agentos.shell.tools.BrainAnswer.probe(app, intent.getStringExtra("q") ?: "who is Carlos")
+                }
+                else if (mode == "home") com.agentos.shell.tools.VoiceAudit.home(app,
+                    intent.getStringExtra("q") ?: "who is Carlos")
+                else if (mode == "sample") com.agentos.shell.tools.VoiceAudit.sample(app,
+                    intent.getStringExtra("q") ?: "WhatsApp", intent.getStringExtra("count")?.toIntOrNull() ?: 15)
+                else if (mode == "mix") com.agentos.shell.tools.VoiceAudit.contextMix(app,
+                    intent.getStringExtra("q") ?: "who is Carlos")
+                else if (mode == "outreachdry") com.agentos.shell.tools.VoiceAudit.outreachDry(app,
+                    intent.getStringExtra("count")?.toIntOrNull() ?: 50)
+                else if (mode == "health") com.agentos.shell.tools.VoiceAudit.health(app,
+                    intent.getStringExtra("deep") == "1")
                 else if (mode == "stats") com.agentos.shell.tools.VoiceAudit.brainStats(app)
                 else if (mode == "matrix") com.agentos.shell.tools.VoiceAudit.matrix(app)
                 else if (mode == "questions") com.agentos.shell.tools.BrainQuestions.forceRefresh(app)

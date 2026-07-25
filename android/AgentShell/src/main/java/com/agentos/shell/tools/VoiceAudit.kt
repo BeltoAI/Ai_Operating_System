@@ -135,6 +135,163 @@ object VoiceAudit {
         Log.i(TAG, "══════ END SEARCH PROBE ══════")
     }
 
+    /**
+     * Run the WHOLE self-test suite from adb and print it as a scoreboard. `runAll` was only reachable by
+     * tapping through the Memory screen, so "is the app actually working end to end?" could not be answered
+     * headlessly — which is exactly the question that matters before shipping a build. Failures are listed
+     * first because that's the part you act on.
+     */
+    /**
+     * Why screen recall has N rows. "It writes zero rows" was treated as a defect across multiple sessions
+     * when the capture path simply returns early unless the user has switched recall ON (it defaults OFF) —
+     * and nothing surfaced that. Each line below is a precondition; the first FALSE is the answer.
+     */
+    fun recallState(ctx: Context) {
+        Log.i(TAG, "══════ SCREEN RECALL ══════")
+        val on = try { MemoryStore.recallEnabled(ctx) } catch (t: Throwable) { false }
+        Log.i(TAG, "recall_capture setting: " + (if (on) "ON" else "OFF  ← captures are skipped entirely while this is off"))
+        val svc = try {
+            android.provider.Settings.Secure.getString(ctx.contentResolver,
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+        } catch (t: Throwable) { "" }
+        val bound = svc.contains(ctx.packageName)
+        Log.i(TAG, "accessibility service granted: " + (if (bound) "YES" else "NO   ← nothing can be captured without it"))
+        val n = try { InteractionStore.count(ctx) } catch (t: Throwable) { -1 }
+        Log.i(TAG, "interactions.log rows: $n")
+        try {
+            InteractionStore.appCounts(ctx).take(8).forEach { (a, c) -> Log.i(TAG, "   $c  $a") }
+        } catch (t: Throwable) {}
+        Log.i(TAG, "verdict: " + when {
+            !bound -> "grant the accessibility service, then re-check"
+            !on -> "NOT A BUG — recall is switched off; turn it on in Settings, use another app, re-check"
+            n > 0 -> "working"
+            else -> "REAL BUG: enabled + granted but nothing captured"
+        })
+        Log.i(TAG, "══════ END SCREEN RECALL ══════")
+    }
+
+    /**
+     * Everything a real LinkedIn outreach run would do, WITHOUT sending anything: the accessibility gate,
+     * the cap, how many targets actually survive selection, and a real draft for the first of them.
+     * Sending to real people is not a thing to "test" — this proves the engine end to end up to the tap.
+     */
+    fun outreachDry(ctx: Context, want: Int = 50) {
+        Log.i(TAG, "══════ OUTREACH DRY RUN (want=$want, NOTHING IS SENT) ══════")
+        val tap = try { TapSend.available() } catch (t: Throwable) { false }
+        Log.i(TAG, "accessibility/TapSend available: " + (if (tap) "YES" else "NO  ← run would abort immediately"))
+        val cap = try { MissionStore.dailyCap(ctx) } catch (t: Throwable) { -1 }
+        Log.i(TAG, "daily cap: $cap  → effective count: " + want.coerceIn(1, if (cap > 0) cap else want))
+        val all = try { ConnectionStore.load(ctx).size } catch (t: Throwable) { -1 }
+        val never = try { ConnectionStore.neverReachedOut(ctx) } catch (t: Throwable) { emptyList() }
+        val withUrl = never.filter { it.url.isNotBlank() }
+        Log.i(TAG, "connections: $all total · ${never.size} never reached out · ${withUrl.size} of those have a profile URL")
+        val targets = withUrl.take(want.coerceIn(1, if (cap > 0) cap else want))
+        Log.i(TAG, "would message ${targets.size} people" +
+            (if (targets.size < want) "  ← FEWER THAN THE $want REQUESTED (this is the silent shortfall to watch)" else ""))
+        targets.take(5).forEach { Log.i(TAG, "   → ${it.name} — ${it.role.ifBlank { "?" }} @ ${it.company.ifBlank { "?" }}") }
+        val first = targets.firstOrNull()
+        if (first == null) { Log.w(TAG, "no eligible targets — a real run would stop here"); Log.i(TAG, "══════ END OUTREACH DRY RUN ══════"); return }
+        try {
+            val liStyle = try { MemoryStore.styleFor(ctx, "LinkedIn") } catch (t: Throwable) { "" }
+            val profile = (if (liStyle.isNotBlank()) "Your LinkedIn voice/persona: $liStyle\n\n" else "") + MemoryStore.fullProfile(ctx)
+            val msg = AgentClient.tailoredOutreach("invite them to test SlyOS as an early developer tester",
+                first.name, first.role, first.company, profile, "", "")
+            Log.i(TAG, "sample draft for ${first.name} (${msg.length} chars):")
+            msg.split("\n").forEach { Log.i(TAG, "   $it") }
+            if (msg.length < 8 || msg.startsWith("[")) Log.w(TAG, "   ← a real run would SKIP this one as undraftable")
+        } catch (t: Throwable) { Log.w(TAG, "draft failed: ${t.message}") }
+        Log.i(TAG, "══════ END OUTREACH DRY RUN ══════")
+    }
+
+    /**
+     * How much of the context every AI surface receives is the SETTINGS PROFILE versus actual remembered
+     * life. "The AI only knows what's in my characteristics card" turned out to be literally true — message
+     * recall was throttled to 2,600 characters while the profile went in unbounded — and nothing measured
+     * the ratio, so it stayed invisible. Now it's one number.
+     */
+    fun contextMix(ctx: Context, q: String) {
+        Log.i(TAG, "══════ CONTEXT MIX: \"$q\" ══════")
+        val profile = try { BrainContext.profileBlock(ctx) } catch (t: Throwable) { "" }
+        val full = try { BrainContext.build(ctx, q) } catch (t: Throwable) { "" }
+        val rest = (full.length - profile.length).coerceAtLeast(0)
+        val pct = if (full.isNotEmpty()) profile.length * 100 / full.length else 0
+        Log.i(TAG, "total context: ${full.length} chars")
+        Log.i(TAG, "  settings profile : ${profile.length} chars ($pct%)")
+        Log.i(TAG, "  everything else  : $rest chars (${100 - pct}%)")
+        val mem = Regex("Most relevant memories.*?(?=\\n[A-Z])", RegexOption.DOT_MATCHES_ALL).find(full)?.value?.length ?: 0
+        Log.i(TAG, "  of which ranked memories: $mem chars, ${full.lines().count { it.startsWith("• ") }} lines")
+        // The ceiling that actually reaches the model. A context bigger than this is not "extra detail" —
+        // it's material being silently thrown away, and because the profile is emitted first, what gets
+        // thrown away is always the query-specific part.
+        val ceiling = 30000
+        Log.i(TAG, "  model ceiling    : $ceiling chars → " +
+            (if (full.length > ceiling) "${full.length - ceiling} chars TRUNCATED (the tail is the memories)" else "fits, nothing lost"))
+        Log.i(TAG, "verdict: " + when {
+            full.isEmpty() -> "NO CONTEXT AT ALL — every answer is ungrounded"
+            profile.length >= ceiling -> "FATAL: the profile alone fills the window; no memory can reach the model"
+            full.length > ceiling && profile.length * 2 > ceiling -> "profile crowds the window — memories are being truncated away"
+            pct > 70 -> "PROFILE-DOMINATED ($pct%) — this is the 'only knows my settings card' failure"
+            mem < 1500 -> "recall thin ($mem chars) — check the rankedRecall budget"
+            else -> "healthy mix"
+        })
+        Log.i(TAG, "══════ END CONTEXT MIX ══════")
+    }
+
+    /**
+     * Ground truth for honest testing: what the owner TOLD the brain (learned facts / profile) versus what
+     * the brain IMPORTED. An answer built from the first is the brain quoting its own input back — it looks
+     * like knowledge and proves nothing. Real questions must come from the second.
+     */
+    fun sample(ctx: Context, platform: String, n: Int) {
+        Log.i(TAG, "══════ GROUND TRUTH: $platform ══════")
+        val dropped = try { MemoryStore.compactLearnedFacts(ctx) } catch (t: Throwable) { 0 }
+        if (dropped > 0) Log.i(TAG, "compacted learned facts: removed $dropped restatements " +
+            "(profile bloat is what pushed real messages out of the context window)")
+        val facts = try { MemoryStore.learnedFacts(ctx) } catch (t: Throwable) { emptyList() }
+        Log.i(TAG, "learned facts (things YOU typed — answers using these prove nothing): ${facts.size}")
+        facts.take(12).forEach { Log.i(TAG, "   TOLD: ${it.take(150)}") }
+        Log.i(TAG, "── random IMPORTED messages from $platform (only these prove recall) ──")
+        val rows = try { MessageStore.sampleFrom(ctx, platform, n) } catch (t: Throwable) { emptyList() }
+        if (rows.isEmpty()) Log.w(TAG, "   none found — is the platform name right?")
+        val df = java.text.SimpleDateFormat("MMM d yyyy", java.util.Locale.getDefault())
+        rows.forEach { Log.i(TAG, "   [${it.contact} · ${df.format(java.util.Date(it.ts))}] ${it.body.replace("\n", " ").take(220)}") }
+        Log.i(TAG, "── semantic index ──")
+        try { Log.i(TAG, "embedded=${VectorStore.embeddedCount(ctx)} of ${MessageStore.count(ctx)}") } catch (t: Throwable) {}
+        Log.i(TAG, "══════ END GROUND TRUTH ══════")
+    }
+
+    /**
+     * The HOME AI path end to end (BrainContext.build → answerWell), with timings split between retrieval
+     * and the model. Different code from the Memory tab, so proving one says nothing about the other —
+     * and response speed is the product, so it gets measured every time, not assumed.
+     */
+    fun home(ctx: Context, q: String) {
+        Log.i(TAG, "══════ HOME AI: \"$q\" ══════")
+        val t0 = System.currentTimeMillis()
+        val ctxStr = try { BrainContext.build(ctx, q) } catch (t: Throwable) { "" }
+        val tCtx = System.currentTimeMillis() - t0
+        val t1 = System.currentTimeMillis()
+        val a = try { AgentClient.answerWell(q, ctxStr, emptyList()) } catch (t: Throwable) { "FAILED: ${t.message}" }
+        val tLlm = System.currentTimeMillis() - t1
+        Log.i(TAG, "context ${ctxStr.length} chars in ${tCtx}ms · model ${tLlm}ms · TOTAL ${tCtx + tLlm}ms")
+        if (tCtx + tLlm > 8000) Log.w(TAG, "SLOW — over 8s is felt as lag")
+        a.split("\n").forEach { Log.i(TAG, "   $it") }
+        Log.i(TAG, "══════ END HOME AI ══════")
+    }
+
+    fun health(ctx: Context, deep: Boolean = false) {
+        Log.i(TAG, "══════ FEATURE HEALTH (deep=$deep) ══════")
+        recallState(ctx)
+        val checks = try { FeatureHealth.runAll(ctx, deep) } catch (t: Throwable) {
+            Log.e(TAG, "suite blew up: ${t.message}", t); return
+        }
+        val by = checks.groupingBy { it.status }.eachCount()
+        Log.i(TAG, "PASS=${by["PASS"] ?: 0} FAIL=${by["FAIL"] ?: 0} SKIP=${by["SKIP"] ?: 0} DRYRUN=${by["DRYRUN"] ?: 0} (${checks.size} checks)")
+        checks.filter { it.status == "FAIL" }.forEach { Log.w(TAG, "  FAIL  ${it.area} / ${it.feature}: ${it.detail}") }
+        checks.filter { it.status != "FAIL" }.forEach { Log.i(TAG, "  ${it.status.padEnd(6)}${it.area} / ${it.feature}: ${it.detail.take(90)}") }
+        Log.i(TAG, "══════ END FEATURE HEALTH ══════")
+    }
+
     /** Force the semantic index to rebuild in the CURRENT provider's space, reporting progress. */
     fun reembed(ctx: Context, rounds: Int = 40) {
         Log.i(TAG, "══════ RE-EMBED ══════")
