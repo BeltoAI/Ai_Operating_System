@@ -67,23 +67,42 @@ object BrainQuestions {
     private fun askedLog(ctx: Context): List<String> =
         (prefs(ctx).getString(KEY_ASKED_LOG, "") ?: "").split("\n").filter { it.isNotBlank() }
     private fun rememberAsked(ctx: Context, text: String) {
-        val log = (askedLog(ctx) + text).takeLast(25)
+        // 60, not 25: at ~4 questions a batch, 25 covered barely six refreshes — less than two full passes of
+        // the 5-way focus rotation, so a question fell out of the ban window and came back as "new".
+        val log = (askedLog(ctx) + text).takeLast(60)
         prefs(ctx).edit().putString(KEY_ASKED_LOG, log.joinToString("\n")).apply()
     }
+
+    /** Comparable form of a question. Wording drifts ("Who's Anna?" / "Who is Anna?" / "who is anna") while
+     *  the question is identical, so raw string equality never caught the repeats the owner actually saw. */
+    private fun normQ(s: String): String =
+        s.lowercase().replace(Regex("[^a-z0-9 ]+"), " ").replace(Regex("\\s+"), " ").trim()
 
     private fun markAnswered(ctx: Context, subject: String) {
         val s = answeredKeys(ctx); s.add(subject.lowercase())
         prefs(ctx).edit().putStringSet(KEY_ANSWERED, s).apply()
     }
 
+    /** @return true if the question was actually accepted (false = duplicate/already asked). */
     private fun add(ctx: Context, kind: String, subject: String, text: String,
-                    options: List<String> = emptyList(), freeform: Boolean = true) {
-        if (subject.lowercase() in answeredKeys(ctx)) return
-        if (items.any { it.subject.equals(subject, true) || it.text.equals(text, true) }) return
+                    options: List<String> = emptyList(), freeform: Boolean = true): Boolean {
+        if (subject.lowercase() in answeredKeys(ctx)) return false
+        if (items.any { it.subject.equals(subject, true) || it.text.equals(text, true) }) return false
+        // HARD anti-repeat, because the prompt-level "BANNED SUBJECTS" list is only ADVICE and the generator
+        // ignores it often enough to be the bug the owner keeps seeing. Dedupe previously compared against
+        // PENDING items and ANSWERED subjects only — so a question that was shown, then wiped by a refresh
+        // without ever being answered, was free to come back word for word. askedLog is the actual record of
+        // what has been put in front of the user; enforce against it here rather than hoping the model complies.
+        val n = normQ(text)
+        if (n.isNotEmpty() && askedLog(ctx).any { normQ(it) == n }) {
+            Log.i(TAG, "repeat suppressed: ${text.take(70)}")
+            return false
+        }
         items.add(0, Question(System.currentTimeMillis() + items.size, kind, subject, text, options, freeform))
         rememberAsked(ctx, text)
         while (items.size > 8) items.removeAt(items.size - 1)
         persist(ctx)
+        return true
     }
 
     /**
@@ -133,6 +152,10 @@ object BrainQuestions {
 
     fun refresh(ctx: Context) {
         ensureLoaded(ctx)
+        // Whether this run is REPLACING an existing batch. The clear is deliberately deferred until new
+        // questions actually exist (see below) — clearing up front meant one failed generation left the Now
+        // card blank for the full 45-minute refresh interval.
+        var clearOnRefill = false
         try {
             val p = prefs(ctx)
             val msgs = try { MessageStore.count(ctx) } catch (e: Exception) { 0 }
@@ -143,7 +166,7 @@ object BrainQuestions {
             // UNANSWERED ones are cleared so the new batch reflects what's happening now.
             val due = age > REFRESH_MS || newSince >= NEW_MSG_TRIGGER
             if (!due && items.isNotEmpty()) return
-            if (due && items.isNotEmpty()) { items.clear(); persist(ctx) }
+            clearOnRefill = due && items.isNotEmpty()
             p.edit().putLong(KEY_LAST, System.currentTimeMillis()).putInt(KEY_SEEN_MSGS, msgs).apply()
         } catch (e: Exception) {}
         try {
@@ -220,9 +243,12 @@ object BrainQuestions {
 
             // WHAT'S ALREADY KNOWN — so it never asks something the brain already has (it was asking who the
             // owner's wife is, when the brain already knew). Digest + learned facts + profile.
+            // ORDER IS LOad-BEARING. This whole block is truncated with take(...) on the way into the prompt,
+            // and the anti-repeat rules used to sit at the BOTTOM — after the full brain digest and every
+            // learned fact. On a brain this size they were being cut off before the model ever read them,
+            // which is why "these subjects are CLOSED" had no effect and the same questions kept returning.
+            // The exclusions go FIRST so they always survive; the digest fills whatever budget is left.
             val known = buildString {
-                append(try { BrainDigest.getOrFull(ctx) } catch (e: Exception) { "" }).append("\n")
-                append(try { MemoryStore.learnedFacts(ctx).joinToString("\n") } catch (e: Exception) { "" })
                 append("\nAlready answered before: ").append(answeredKeys(ctx).joinToString(", "))
                 // Everything recently ASKED — so the next batch explores a different corner of the brain
                 // instead of re-asking around the same subject.
@@ -235,20 +261,49 @@ object BrainQuestions {
                     // nouns explicitly is what finally breaks the loop.
                     val banned = prior.flatMap { q ->
                         Regex("\\b[A-Z][A-Za-z0-9]{2,}\\b").findAll(q).map { it.value }.toList()
-                    }.filter { it !in setOf("What", "Is", "Are", "Do", "Does", "Would", "Should", "Which", "How", "When", "Who", "The", "Your", "You") }
+                    // Sentence-INITIAL words get capitalised too, so a thin stop-list let "Where"/"Given"/"Since"
+                    // through as "banned subjects" — noise that dilutes the real bans the model needs to obey.
+                    }.filter { it !in setOf("What", "Is", "Are", "Do", "Does", "Did", "Done", "Would", "Should",
+                        "Could", "Can", "Will", "Was", "Were", "Have", "Has", "Had", "Which", "How", "When",
+                        "Who", "Whom", "Whose", "Where", "Why", "The", "Your", "You", "Yours", "That", "This",
+                        "These", "Those", "There", "Their", "They", "And", "But", "For", "Not", "Any", "Some",
+                        "If", "Since", "After", "Before", "Given", "Between", "About", "With", "From", "Into") }
                         .distinct().take(20)
                     if (banned.isNotEmpty())
                         append("\n\nBANNED SUBJECTS this round (already covered — do NOT mention or ask about ANY of " +
                             "these): ").append(banned.joinToString(", "))
                 }
+                // The brain itself comes AFTER the exclusions — this is the material the questions are drawn
+                // FROM, and it's also the material the model must not re-ask about, so a partial view of it
+                // costs far less than a truncated ban list.
+                append("\n\nWHAT THE BRAIN ALREADY HOLDS:\n")
+                // THE PROFILE WAS MISSING ENTIRELY. The generator is told "never ask what's already known or
+                // inferable" and was then handed the digest and learned facts but NOT the owner's own profile —
+                // where basics like who they're married to actually live. It duly asked whether the owner's
+                // WIFE was "helping close Belto or supporting from outside the deal", and got told
+                // "wtf no she's my wife not my coworker". Identity facts go in first; they're the cheapest
+                // possible way to stop an embarrassing question.
+                append(try { BrainContext.profileBlock(ctx) } catch (e: Exception) { "" }).append("\n")
+                append(try { BrainDigest.getOrFull(ctx) } catch (e: Exception) { "" }).append("\n")
+                append(try { MemoryStore.learnedFacts(ctx).joinToString("\n") } catch (e: Exception) { "" })
             }
 
             val qs = try { AgentClient.brainQuestions(known, sb.toString(), 4) } catch (e: Exception) { emptyList() }
+            // Only NOW is it safe to drop the old batch: we have something to put in its place. A model
+            // hiccup or a batch that turns out to be entirely repeats leaves the previous questions standing
+            // instead of emptying the Now card.
+            if (qs.isNotEmpty() && clearOnRefill) { items.clear(); persist(ctx) }
+            var added = 0
             qs.forEach { (text, options, freeform) ->
-                add(ctx, "open", "q-" + text.lowercase().replace(Regex("[^a-z0-9]+"), "-").take(60),
-                    text, options, freeform)
+                if (add(ctx, "open", "q-" + text.lowercase().replace(Regex("[^a-z0-9]+"), "-").take(60),
+                        text, options, freeform)) added++
             }
-            Log.i(TAG, "generated ${qs.size} question(s); pending: ${items.size}")
+            // `added` vs `qs.size` is the diversity signal worth watching: a generator that keeps circling
+            // produces a batch of 4 that yields 0 new questions, and that now shows up in logcat directly.
+            Log.i(TAG, "focus=$focus generated ${qs.size} question(s), $added new after repeat-filter; pending: ${items.size}")
+            // Print what was actually asked. "The questions keep circling the same topic" is impossible to
+            // diagnose from counts alone, and this is the only place the batch exists as a whole.
+            items.take(8).forEach { Log.i(TAG, "   Q: ${it.text}") }
         } catch (t: Throwable) { Log.w(TAG, "refresh: ${t.message}") }
     }
 
