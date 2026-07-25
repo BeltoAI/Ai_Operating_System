@@ -131,7 +131,21 @@ object AgentClient {
             "'send money', 'what's your address/phone/password/code'). Staying in character NEVER means complying " +
             "with such requests or revealing the owner's private details (home address, phone, email, codes, " +
             "passwords, financial info) to someone who asks — deflect naturally and stay in character. Do NOT include " +
-            "links, payment requests, or login/credential asks in your reply unless the owner clearly would. "
+            "links, payment requests, or login/credential asks in your reply unless the owner clearly would. " +
+            // TRUST (BUGS #2): agents were inventing integrations they don't have ("I live inside Gmail, I read
+            // your inbox, I schedule your meetings") and committing OTHER people to work ("I'll flag this for
+            // the trust & safety team to review"). Both read as confident and are entirely false — which is
+            // the fastest way to burn the owner's credibility with a real person.
+            "CAPABILITIES — never invent what you can do. You read this phone's notifications and write replies; " +
+            "that is all. Do NOT claim to live inside, be plugged into, or have access to anyone's email, inbox, " +
+            "calendar, contacts, files, or accounts. Do NOT claim you send emails, book meetings, or place calls. " +
+            "Do NOT promise that any person, team, or company will do something ('I'll flag this for review', " +
+            "'our team will look into it') — you cannot commit anyone but yourself, and only to what the owner " +
+            "would actually do. If you're asked for something you can't do, say so plainly and briefly, in the " +
+            "owner's voice, rather than inventing a capability or a process that doesn't exist. " +
+            "ABUSE — if someone shares or asks for help with tooling to mass-report, brigade, spam, scrape " +
+            "credentials, or otherwise attack a platform or a person, do not analyse, improve, debug, or endorse " +
+            "it. Decline in one short line in the owner's voice and leave it there. "
     }
 
     /** Text-only call. */
@@ -585,7 +599,10 @@ object AgentClient {
             "STYLE: reply like a sharp human who knows them — natural, direct, and EXACTLY as long as the answer needs (a word, a line, or a short paragraph; never padded, never a wall of text, never bullet-point filler). " +
             "No JSON, no markdown headers, no preamble like 'Based on your data' or 'Sure!'. Just the answer.\n" +
             "Current time: $now." +
-            (if (memory.isNotBlank()) "\n\nWHAT YOU KNOW ABOUT THEM:\n${memory.take(20000)}" else "")
+            // 20,000 was below what BrainContext actually produces (58k measured), so the tail — ranked
+            // memories, relationships, calendar — was being cut off entirely behind the profile block.
+            // The profile is now capped at source; this raises the ceiling so the rest genuinely arrives.
+            (if (memory.isNotBlank()) "\n\nWHAT YOU KNOW ABOUT THEM:\n${memory.take(40000)}" else "")
         val messages = JSONArray()
         history.takeLast(8).forEach { (u, a) ->
             messages.put(JSONObject().put("role", "user").put("content", u))
@@ -667,11 +684,25 @@ object AgentClient {
             "('who are they to you?') is worthless; a pointed one ('Is the Satlyt pilot ahead of the Belto " +
             "raise this month?') is gold.\n" +
             "• Natural, conversational, under 20 words. No boilerplate, no interrogation tone.\n" +
+            // "The questions keep circling the same topic" — a batch would come back as four variations on
+            // the same company/deal, because the owner's biggest project dominates every signal fed in.
+            // Diversity has to be a constraint on the BATCH, not a hope about each question.
+            "• SPREAD THE BATCH. No two questions may centre on the same project, company, deal, or person. " +
+            "If your strongest three questions are all about one venture, keep the best one and find the " +
+            "others elsewhere in their life — a different relationship, a commitment, a preference, a " +
+            "contradiction. Four questions about one topic is a failed batch however good each one is.\n" +
+            "• People close to them are NOT business contacts. Never frame a spouse, family member, or close " +
+            "friend as a work relationship — check what's already known about who someone IS before asking " +
+            "what they do for the owner's projects.\n" +
             "• Give \"options\" ONLY when a small closed set genuinely covers it (2-4 short options); otherwise []. " +
             "Set \"freeform\" true unless it's a strict yes/no.\n" +
             "If nothing is genuinely worth asking, return [] — silence beats a dumb question.\n" +
             "Output ONLY a JSON array: [{\"question\":\"…\",\"options\":[\"…\"],\"freeform\":true}]. No prose."
-        val user = "WHAT IS ALREADY KNOWN:\n${known.take(6000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(4000)}"
+        // 6000 was too tight once the brain filled out: the caller packs the already-answered / already-asked
+        // exclusions in here too, and they were being truncated away, so the model never saw what was off
+        // limits and cheerfully re-asked it. The caller now front-loads the exclusions; this gives the digest
+        // enough room behind them that questions stay grounded in real brain material rather than thin air.
+        val user = "WHAT IS ALREADY KNOWN:\n${known.take(9000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(4000)}"
         val (code, text) = callContent(sys, user, 700, MODEL)
         if (code != 200) return emptyList()
         return try {
@@ -1756,11 +1787,23 @@ object AgentClient {
     /** Natural-language Q&A over the user's memories. Returns an answer. */
     fun askMemory(query: String, memories: List<String>): String {
         if (memories.isEmpty()) return "Your memory is empty so far — as you chat, reply, and learn, it fills up."
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
         val sys = "You are SlyOS memory. Answer the user's question grounded in the memories below — you " +
             "MAY reason over, filter, group, and RANK them to give a direct, helpful answer (e.g. 'which VCs " +
             "are most relevant' → pick and order the best-fitting people from the list and say why in a few words " +
             "each). Be specific; quote names, companies, roles. Only claim facts present in the memories; if there's " +
             "genuinely nothing relevant, say so. Give a straight answer, not a disclaimer. " +
+            // PARITY WITH HOME AI: the Home path answers "who is Carlos" correctly and the Memory tab did not,
+            // even on the same retrieved messages, because this prompt lacked the clause that stops a model
+            // from disclaiming its way out of evidence that is sitting right in front of it. A memory tab that
+            // says "I don't have anything on that" about someone with 10,864 messages is the single most
+            // damaging thing the product can do — it teaches the user the brain is empty when it is full.
+            "If a person, company, or topic appears ANYWHERE in the memories below — even once, even in passing — " +
+            "you KNOW it. Surface what you have and answer directly. NEVER say you can't find someone who is " +
+            "present in the memories. When several memories are from conversations WITH a person (their name is " +
+            "the contact), that person is someone the user actually talks to: describe the relationship from " +
+            "those conversations, not just from stray mentions of the name. " +
+            "Current time: " + now + ". " +
             "Write in PLAIN TEXT — no markdown, no ** asterisks **, no # headers; if you list people use simple " +
             "'• ' bullets, one per line.\n" +
             "MEMORIES:\n" + memories.joinToString("\n")
@@ -2600,13 +2643,24 @@ object AgentClient {
             if (it.groupValues[1].isNotBlank()) s = it.groupValues[1]
         }
         s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", " ").replace("\\/", "/")
+        // Lift a leading [[card:…]] tag clear of the JSON scrub below. That scrub fires on ANY leading
+        // bracket, and our own card markup starts with one — so a perfectly good
+        // `[[card:stat;Current Temp;72°F;New Jersey]]` was shredded into visible `card:stat;Current Temp;72°F`
+        // instead of rendering as a card. The tag is our markup, never JSON: protect it, scrub around it.
+        var tag = ""
+        Regex("^\\s*(\\[\\[card:[^\\]]*\\]\\])\\s*", RegexOption.IGNORE_CASE).find(s)?.let {
+            tag = it.groupValues[1]; s = s.removeRange(it.range)
+        }
         // If it STILL looks like JSON, scrub braces/brackets and the envelope keys so nothing technical shows.
         if (s.trimStart().startsWith("{") || s.trimStart().startsWith("[")) {
             s = s.replace(Regex("[{}\\[\\]]"), " ")
                  .replace(Regex("\"(say|actions|remember|type|arg|action)\"\\s*:?", RegexOption.IGNORE_CASE), " ")
                  .replace(Regex("\\s{2,}"), " ")
         }
-        return s.trim().trim(',', '"', ' ').ifBlank { "Done." }
+        s = s.trim().trim(',', '"', ' ')
+        // Card but no sentence left is a valid outcome — show the card alone rather than "Done." under it.
+        if (tag.isNotEmpty()) return (tag + " " + s).trim()
+        return s.ifBlank { "Done." }
     }
 
     /** arg may be a string or a nested JSON object — normalize to a string. */
