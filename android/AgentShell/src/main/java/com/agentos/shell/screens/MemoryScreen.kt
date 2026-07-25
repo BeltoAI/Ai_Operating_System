@@ -1835,8 +1835,14 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         var embBusy by remember { mutableStateOf(false) }
         var embErr by remember { mutableStateOf("") }
         LaunchedEffect(Unit) {
-            embN = com.agentos.shell.tools.VectorStore.embeddedCount(ctx)
-            pendN = com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+            // Both are COUNT(*) over the vector table — tens of thousands of rows mid-re-embed — and they
+            // were running on the main thread, so opening this section stalled the UI for the length of two
+            // full table scans. Same family as the main-thread model call that broke the Memory tab.
+            val counts = withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.VectorStore.embeddedCount(ctx) to
+                    com.agentos.shell.tools.VectorStore.pendingCount(ctx)
+            }
+            embN = counts.first; pendN = counts.second
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
