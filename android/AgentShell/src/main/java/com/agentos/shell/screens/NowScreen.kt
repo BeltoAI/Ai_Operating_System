@@ -79,145 +79,157 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         }
         Spacer(Modifier.height(14.dp))
 
-        // ── The brain asks BACK. Short questions that clear up wrong inferences (e.g. which "Anna" you mean)
-        //    or fill real gaps. Answering writes a durable fact, so the correction sticks instead of the brain
-        //    guessing wrong forever.
-        com.agentos.shell.tools.BrainQuestions.ensureLoaded(ctx)
-        val questions = com.agentos.shell.tools.BrainQuestions.items
-        if (questions.isNotEmpty()) {
-            val q = questions.first()
-            Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            Spacer(Modifier.height(8.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
-                Text(q.text, fontSize = T.body, color = T.ink)
-                Spacer(Modifier.height(10.dp))
-                if (q.options.isNotEmpty()) {
-                    q.options.forEach { opt ->
-                        Text(opt, fontSize = T.small, color = T.ink,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                                .clip(RoundedCornerShape(10.dp)).background(T.hairline)
-                                .clickable { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, opt) }
-                                .padding(horizontal = 12.dp, vertical = 9.dp))
-                    }
-                } else {
-                    var typed by remember(q.id) { mutableStateOf("") }
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
-                        if (typed.isEmpty()) Text("Type your answer…", fontSize = T.small, color = T.inkFaint)
-                        BasicTextField(typed, { typed = it }, textStyle = TextStyle(color = T.ink, fontSize = 14.sp),
-                            modifier = Modifier.fillMaxWidth())
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background(if (typed.isBlank()) T.hairline else T.accent)
-                            .clickable(enabled = typed.isNotBlank()) { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, typed.trim()) }
-                            .padding(vertical = 9.dp))
-                }
-                Spacer(Modifier.height(6.dp))
-                Text("Skip", fontSize = T.caption, color = T.inkSoft,
-                    modifier = Modifier.clickable { com.agentos.shell.tools.BrainQuestions.dismiss(ctx, q) }.padding(4.dp))
-            }
-            Spacer(Modifier.height(14.dp))
-        }
-
-        // ── Team approvals: a teammate wants to send an email or change your calendar — you decide.
-        //    Swipe LEFT to decline, swipe RIGHT to open the full details and approve. Nothing leaves the
-        //    phone in your name until you say so.
-        com.agentos.shell.tools.ApprovalStore.ensureLoaded(ctx)
-        val approvals = com.agentos.shell.tools.ApprovalStore.items
-        if (approvals.isNotEmpty()) {
-            Text("NEEDS YOUR OK · ${approvals.size}", fontSize = 11.sp, color = T.accent,
-                fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            approvals.toList().forEach { a ->
-                Spacer(Modifier.height(8.dp))
-                ApprovalCard(a)
-            }
-            Spacer(Modifier.height(14.dp))
-        }
-
-        // ── Proactive proposals (P5.3): one-tap suggestions like "add this booking to your calendar" ──
-        com.agentos.shell.tools.ProposalStore.ensureLoaded(ctx)
-        val proposals = com.agentos.shell.tools.ProposalStore.items
-        if (proposals.isNotEmpty()) {
-            Text("SUGGESTED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            proposals.toList().forEach { p ->
+        val groups = notes.groupBy { it.title.ifBlank { it.app } }.map { it.key to it.value }
+        // ONE scrollable list for the whole feed. These cards used to sit ABOVE the notes LazyColumn as fixed
+        // content, so as they stacked up they squeezed the message list to nothing — the feed became unscrollable
+        // and messages below were unreachable. Everything is now items in the same list.
+        LazyColumn(Modifier.weight(1f)) {
+            item {
+                Column {
+            // ── The brain asks BACK. Short questions that clear up wrong inferences (e.g. which "Anna" you mean)
+            //    or fill real gaps. Answering writes a durable fact, so the correction sticks instead of the brain
+            //    guessing wrong forever.
+            com.agentos.shell.tools.BrainQuestions.ensureLoaded(ctx)
+            val questions = com.agentos.shell.tools.BrainQuestions.items
+            if (questions.isNotEmpty()) {
+                val q = questions.first()
+                Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
-                    Text(p.title, fontSize = T.body, color = T.ink)
-                    if (p.subtitle.isNotBlank()) Text(p.subtitle, fontSize = T.caption, color = T.inkFaint)
+                    Text(q.text, fontSize = T.body, color = T.ink)
                     Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Confirm", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
-                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable {
-                                scope.launch {
-                                    val msg = withContext(Dispatchers.IO) { com.agentos.shell.tools.ToolRouter.executeActions(ctx, p.actions, userInitiated = true) }
-                                    com.agentos.shell.tools.OutboxStore.record(ctx, "Proposal", p.title, "proposal", msg.ifBlank { p.subtitle }, "you confirmed a suggestion")
-                                    com.agentos.shell.tools.ProposalStore.remove(ctx, p.id)
-                                }
-                            }.padding(horizontal = 20.dp, vertical = 9.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text("Dismiss", fontSize = T.small, color = T.inkSoft,
-                            modifier = Modifier.clickable { com.agentos.shell.tools.ProposalStore.remove(ctx, p.id) }.padding(6.dp))
+                    // Options are SUGGESTIONS, never the only path: a fixed 4-item list ("Co-founder /
+                    // Colleague / Advisor / Friend") can't cover a real answer like "my wife". Unless the
+                    // question is strictly yes/no, the owner can always type their own answer.
+                    if (q.options.isNotEmpty()) {
+                        q.options.forEach { opt ->
+                            Text(opt, fontSize = T.small, color = T.ink,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                    .clip(RoundedCornerShape(10.dp)).background(T.hairline)
+                                    .clickable { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, opt) }
+                                    .padding(horizontal = 12.dp, vertical = 9.dp))
+                        }
+                    }
+                    if (q.freeform) {
+                        if (q.options.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                        var typed by remember(q.id) { mutableStateOf("") }
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
+                            if (typed.isEmpty()) Text(
+                                if (q.options.isNotEmpty()) "…or say it in your own words" else "Type your answer…",
+                                fontSize = T.small, color = T.inkFaint)
+                            BasicTextField(typed, { typed = it }, textStyle = TextStyle(color = T.ink, fontSize = 14.sp),
+                                modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .background(if (typed.isBlank()) T.hairline else T.accent)
+                                .clickable(enabled = typed.isNotBlank()) { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, typed.trim()) }
+                                .padding(vertical = 9.dp))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text("Skip", fontSize = T.caption, color = T.inkSoft,
+                        modifier = Modifier.clickable { com.agentos.shell.tools.BrainQuestions.dismiss(ctx, q) }.padding(4.dp))
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // ── Team approvals: a teammate wants to send an email or change your calendar — you decide.
+            //    Swipe LEFT to decline, swipe RIGHT to open the full details and approve. Nothing leaves the
+            //    phone in your name until you say so.
+            com.agentos.shell.tools.ApprovalStore.ensureLoaded(ctx)
+            val approvals = com.agentos.shell.tools.ApprovalStore.items
+            if (approvals.isNotEmpty()) {
+                Text("NEEDS YOUR OK · ${approvals.size}", fontSize = 11.sp, color = T.accent,
+                    fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                approvals.toList().forEach { a ->
+                    Spacer(Modifier.height(8.dp))
+                    ApprovalCard(a)
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // ── Proactive proposals (P5.3): one-tap suggestions like "add this booking to your calendar" ──
+            com.agentos.shell.tools.ProposalStore.ensureLoaded(ctx)
+            val proposals = com.agentos.shell.tools.ProposalStore.items
+            if (proposals.isNotEmpty()) {
+                Text("SUGGESTED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                proposals.toList().forEach { p ->
+                    Spacer(Modifier.height(8.dp))
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
+                        Text(p.title, fontSize = T.body, color = T.ink)
+                        if (p.subtitle.isNotBlank()) Text(p.subtitle, fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Confirm", fontSize = T.small, color = Color.White, textAlign = TextAlign.Center,
+                                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent).clickable {
+                                    scope.launch {
+                                        val msg = withContext(Dispatchers.IO) { com.agentos.shell.tools.ToolRouter.executeActions(ctx, p.actions, userInitiated = true) }
+                                        com.agentos.shell.tools.OutboxStore.record(ctx, "Proposal", p.title, "proposal", msg.ifBlank { p.subtitle }, "you confirmed a suggestion")
+                                        com.agentos.shell.tools.ProposalStore.remove(ctx, p.id)
+                                    }
+                                }.padding(horizontal = 20.dp, vertical = 9.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text("Dismiss", fontSize = T.small, color = T.inkSoft,
+                                modifier = Modifier.clickable { com.agentos.shell.tools.ProposalStore.remove(ctx, p.id) }.padding(6.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // ── Briefing card (swipe left to dismiss) ──
+            if (!briefHidden) Column(Modifier.fillMaxWidth()
+                .offset { IntOffset(briefDragX.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { if (briefDragX < -120f) briefHidden = true; briefDragX = 0f },
+                        onDragCancel = { briefDragX = 0f }
+                    ) { _, dx -> briefDragX = (briefDragX + dx).coerceAtMost(0f) }
+                }
+                .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("WHAT YOU MISSED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                    if (loading) SlyOrbit(12)
+                    else Text("↻", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { catchUp() }.padding(4.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                when {
+                    loading && digest.isBlank() -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        SlyOrbit(20); Spacer(Modifier.width(12.dp)); Text("reading your day", fontSize = T.small, color = T.accent)
+                    }
+                    digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up." else "Tap ↻ for a summary.", fontSize = T.small, color = T.inkSoft)
+                    else -> {
+                        val idx = digest.indexOf("Text back", ignoreCase = true)
+                        if (idx > 0) {
+                            Text(digest.substring(0, idx).trim(), fontSize = T.small, color = T.ink)
+                            Spacer(Modifier.height(8.dp))
+                            Text(digest.substring(idx).trim(), fontSize = T.small, color = T.accent)
+                        } else Text(digest, fontSize = T.small, color = T.ink)
                     }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-        }
 
-        // ── Briefing card (swipe left to dismiss) ──
-        if (!briefHidden) Column(Modifier.fillMaxWidth()
-            .offset { IntOffset(briefDragX.roundToInt(), 0) }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = { if (briefDragX < -120f) briefHidden = true; briefDragX = 0f },
-                    onDragCancel = { briefDragX = 0f }
-                ) { _, dx -> briefDragX = (briefDragX + dx).coerceAtMost(0f) }
-            }
-            .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("WHAT YOU MISSED", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-                if (loading) SlyOrbit(12)
-                else Text("↻", fontSize = T.small, color = T.accent, modifier = Modifier.clickable { catchUp() }.padding(4.dp))
+            Spacer(Modifier.height(20.dp))
+                // Clear-all lives on the section header, next to the count it clears. Swiping every card left
+            // one at a time was the only way to empty this screen.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("WAITING · ${groups.size}", fontSize = 11.sp, color = T.inkFaint,
+                    fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                Text("Clear all", fontSize = T.caption, color = T.danger,
+                    modifier = Modifier.clickable { NotificationStore.dismissAll() }.padding(4.dp))
             }
             Spacer(Modifier.height(10.dp))
-            when {
-                loading && digest.isBlank() -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    SlyOrbit(20); Spacer(Modifier.width(12.dp)); Text("reading your day", fontSize = T.small, color = T.accent)
-                }
-                digest.isBlank() -> Text(if (notes.isEmpty()) "You're all caught up." else "Tap ↻ for a summary.", fontSize = T.small, color = T.inkSoft)
-                else -> {
-                    val idx = digest.indexOf("Text back", ignoreCase = true)
-                    if (idx > 0) {
-                        Text(digest.substring(0, idx).trim(), fontSize = T.small, color = T.ink)
-                        Spacer(Modifier.height(8.dp))
-                        Text(digest.substring(idx).trim(), fontSize = T.small, color = T.accent)
-                    } else Text(digest, fontSize = T.small, color = T.ink)
                 }
             }
-        }
-
-        if (notes.isEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text("All caught up.", fontSize = T.body, color = T.inkSoft)
-            Spacer(Modifier.height(8.dp))
-            Text("Grant notification access in Settings to see what's waiting.",
-                fontSize = T.caption, color = T.inkFaint)
-            return@Column
-        }
-
-        Spacer(Modifier.height(20.dp))
-        val groups = notes.groupBy { it.title.ifBlank { it.app } }.map { it.key to it.value }
-        // Clear-all lives on the section header, next to the count it clears. Swiping every card left
-        // one at a time was the only way to empty this screen.
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("WAITING · ${groups.size}", fontSize = 11.sp, color = T.inkFaint,
-                fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
-            Text("Clear all", fontSize = T.caption, color = T.danger,
-                modifier = Modifier.clickable { NotificationStore.dismissAll() }.padding(4.dp))
-        }
-        Spacer(Modifier.height(10.dp))
-        LazyColumn(Modifier.weight(1f)) {
+            if (notes.isEmpty()) item {
+                Spacer(Modifier.height(16.dp))
+                Text("All caught up.", fontSize = T.body, color = T.inkSoft)
+                Spacer(Modifier.height(8.dp))
+                Text("Grant notification access in Settings to see what's waiting.",
+                    fontSize = T.caption, color = T.inkFaint)
+            }
             items(groups, key = { it.first }) { (contact, group) -> NoteGroupCard(ctx, contact, group) }
         }
     }

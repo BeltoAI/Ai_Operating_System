@@ -24,9 +24,10 @@ object BrainQuestions {
     private const val KEY = "items"
     private const val KEY_ANSWERED = "answered"
 
-    /** @param kind ambiguity|relationship|gap  @param subject the thing being asked about (dedupe key) */
+    /** @param kind ambiguity|relationship|gap|open  @param subject dedupe key
+     *  @param freeform the owner can type an answer (true unless it's a strict yes/no) */
     data class Question(val id: Long, val kind: String, val subject: String, val text: String,
-                        val options: List<String> = emptyList())
+                        val options: List<String> = emptyList(), val freeform: Boolean = true)
 
     val items = mutableStateListOf<Question>()
     @Volatile private var loaded = false
@@ -42,7 +43,7 @@ object BrainQuestions {
                 val o = arr.getJSONObject(i)
                 val opts = ArrayList<String>()
                 o.optJSONArray("options")?.let { a -> for (j in 0 until a.length()) opts.add(a.optString(j)) }
-                items.add(Question(o.optLong("id"), o.optString("kind"), o.optString("subject"), o.optString("text"), opts))
+                items.add(Question(o.optLong("id"), o.optString("kind"), o.optString("subject"), o.optString("text"), opts, o.optBoolean("freeform", true)))
             }
         } catch (e: Exception) {}
     }
@@ -50,7 +51,8 @@ object BrainQuestions {
     private fun persist(ctx: Context) {
         val arr = JSONArray()
         items.forEach { q ->
-            val o = JSONObject().put("id", q.id).put("kind", q.kind).put("subject", q.subject).put("text", q.text)
+            val o = JSONObject().put("id", q.id).put("kind", q.kind).put("subject", q.subject)
+                .put("text", q.text).put("freeform", q.freeform)
             val a = JSONArray(); q.options.forEach { a.put(it) }
             arr.put(o.put("options", a))
         }
@@ -65,10 +67,11 @@ object BrainQuestions {
         prefs(ctx).edit().putStringSet(KEY_ANSWERED, s).apply()
     }
 
-    private fun add(ctx: Context, kind: String, subject: String, text: String, options: List<String> = emptyList()) {
+    private fun add(ctx: Context, kind: String, subject: String, text: String,
+                    options: List<String> = emptyList(), freeform: Boolean = true) {
         if (subject.lowercase() in answeredKeys(ctx)) return
-        if (items.any { it.subject.equals(subject, true) }) return
-        items.add(0, Question(System.currentTimeMillis() + items.size, kind, subject, text, options))
+        if (items.any { it.subject.equals(subject, true) || it.text.equals(text, true) }) return
+        items.add(0, Question(System.currentTimeMillis() + items.size, kind, subject, text, options, freeform))
         while (items.size > 8) items.removeAt(items.size - 1)
         persist(ctx)
     }
@@ -77,39 +80,78 @@ object BrainQuestions {
      * Look for things genuinely worth asking. Cheap + local (no LLM): reads the message store, the resolver and
      * the per-channel personas. Safe to call periodically from a background worker.
      */
+    /** Junk that isn't an individual human: app placeholders, groups, bots, channels, bare handles/numbers. */
+    private fun looksLikeAPerson(name: String): Boolean {
+        val n = name.trim()
+        if (n.length < 2 || n.length > 40) return false
+        if (n.contains("@")) return false
+        if (Regex("(?i)\\b(user|instagram|facebook|whatsapp|telegram|group|channel|bot|team|support|noreply|" +
+                "no-reply|notification|admin|info|service|updates?|news|alerts?|security|verify|newsletter)\\b")
+                .containsMatchIn(n)) return false
+        if (Regex("^[+\\d\\s()\\-]+$").matches(n)) return false           // phone numbers
+        if (Regex("^[a-z0-9._-]+$").matches(n) && !n.contains(" ")) return false  // bare handles like "k9"
+        if (!Regex("\\p{L}").containsMatchIn(n)) return false
+        return true
+    }
+
     fun refresh(ctx: Context) {
         ensureLoaded(ctx)
+        if (items.size >= 4) return   // don't pile up; the owner answers a couple at a time
         try {
-            // 1) AMBIGUOUS FIRST NAMES among people you actually message.
-            val top = MessageStore.topContacts(ctx, 60)
-            val byFirst = top.filter { it.first.isNotBlank() && it.second >= 3 }
-                .groupBy { it.first.trim().split(" ").first().lowercase() }
-            byFirst.forEach { (first, people) ->
-                val distinct = people.map { it.first }.distinct()
-                if (first.length > 2 && distinct.size > 1) {
-                    add(ctx, "ambiguity", "who-is-$first",
-                        "When someone just says “${first.replaceFirstChar { it.uppercase() }}”, who do they usually mean?",
-                        distinct.take(4))
-                }
+            val top = MessageStore.topContacts(ctx, 60).filter { looksLikeAPerson(it.first) && it.second >= 8 }
+
+            // Build the SIGNALS the model should judge — never asked verbatim.
+            val sb = StringBuilder()
+            val byFirst = top.groupBy { it.first.trim().split(" ").first().lowercase() }
+            byFirst.filter { it.value.map { p -> p.first }.distinct().size > 1 }.forEach { (first, people) ->
+                sb.append("AMBIGUOUS FIRST NAME '$first': ")
+                    .append(people.map { "${it.first} (${it.second} msgs)" }.distinct().joinToString(", ")).append("\n")
             }
-            // 2) WHO IS THIS TO YOU — for people you talk to a lot but have no stated relationship for.
-            val known = try { MemoryStore.learnedFacts(ctx).joinToString(" ").lowercase() } catch (e: Exception) { "" }
-            top.take(8).forEach { (name, count, _) ->
-                if (name.isNotBlank() && count >= 15 && !known.contains(name.lowercase()) && !name.contains("@")) {
-                    add(ctx, "relationship", "relationship-$name",
-                        "You talk to $name a lot ($count messages). Who are they to you?",
-                        listOf("Co-founder", "Colleague", "Advisor / investor", "Friend / family"))
-                }
+            top.take(12).forEach { (name, count, plat) ->
+                sb.append("FREQUENT CONTACT: $name — $count messages" + (if (plat.isNotBlank()) " on $plat" else "") + "\n")
             }
-            // 3) CHANNELS WITH NO CHARACTER — drafts there have no voice.
             listOf("LinkedIn" to "linkedin", "Instagram" to "instagram", "WhatsApp" to "whatsapp",
                    "Telegram" to "telegram", "Slack" to "slack", "SMS" to "sms", "Email" to "email").forEach { (label, key) ->
-                val used = top.any { it.third.equals(label, true) }
-                if (used && MemoryStore.styleFor(ctx, key).isBlank())
-                    add(ctx, "gap", "voice-$key",
-                        "How should you come across on $label? I have no character set for it, so replies there have no voice.")
+                if (top.any { it.third.equals(label, true) } && MemoryStore.styleFor(ctx, key).isBlank())
+                    sb.append("NO VOICE/CHARACTER SET for $label, which the owner actively uses\n")
             }
-            Log.i(TAG, "questions pending: ${items.size}")
+            // The signals above are only the contact graph. The brain holds far more — what the owner is
+            // actually working on, what's on their calendar, what they've been discussing, what's unfinished.
+            // Feeding only contacts produced shallow questions; a sharp chief-of-staff would ask about the WORK.
+            try {
+                val recent = MessageStore.recentLines(ctx, 60).joinToString("\n").take(6000)
+                if (recent.isNotBlank()) sb.append("\nRECENT ACTIVITY / CONVERSATIONS:\n").append(recent).append("\n")
+            } catch (e: Exception) {}
+            try {
+                val tasks = ChecklistStore.load(ctx).filter { !it.done }.joinToString("\n") { "• ${it.text}" }.take(1500)
+                if (tasks.isNotBlank()) sb.append("\nOPEN TASKS:\n").append(tasks).append("\n")
+            } catch (e: Exception) {}
+            try {
+                if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx).take(1200)
+                    .takeIf { it.isNotBlank() }?.let { sb.append("\nUPCOMING CALENDAR:\n").append(it).append("\n") }
+            } catch (e: Exception) {}
+            try {
+                val docs = DocStore.list(ctx).sortedByDescending { it.ts }.take(12)
+                    .joinToString("\n") { "• ${it.title} [${it.category}]" }.take(1200)
+                if (docs.isNotBlank()) sb.append("\nRECENT DOCUMENTS:\n").append(docs).append("\n")
+            } catch (e: Exception) {}
+
+            if (sb.isBlank()) { Log.i(TAG, "nothing worth asking"); return }
+
+            // WHAT'S ALREADY KNOWN — so it never asks something the brain already has (it was asking who the
+            // owner's wife is, when the brain already knew). Digest + learned facts + profile.
+            val known = buildString {
+                append(try { BrainDigest.getOrFull(ctx) } catch (e: Exception) { "" }).append("\n")
+                append(try { MemoryStore.learnedFacts(ctx).joinToString("\n") } catch (e: Exception) { "" })
+                append("\nAlready answered before: ").append(answeredKeys(ctx).joinToString(", "))
+            }
+
+            val qs = try { AgentClient.brainQuestions(known, sb.toString(), 4) } catch (e: Exception) { emptyList() }
+            qs.forEach { (text, options, freeform) ->
+                add(ctx, "open", "q-" + text.lowercase().replace(Regex("[^a-z0-9]+"), "-").take(60),
+                    text, options, freeform)
+            }
+            Log.i(TAG, "generated ${qs.size} question(s); pending: ${items.size}")
         } catch (t: Throwable) { Log.w(TAG, "refresh: ${t.message}") }
     }
 
@@ -118,10 +160,12 @@ object BrainQuestions {
      * reply and every agent uses it, and never ask this again.
      */
     fun answer(ctx: Context, q: Question, answer: String) {
+        // Store the question WITH the answer — the pair is what carries meaning ("Which Anna do you mean?" →
+        // "Anna Atlasova" is useless without the question). Kept first-person so it reads as the owner's own fact.
         val fact = when (q.kind) {
             "ambiguity" -> "When I say “${q.subject.removePrefix("who-is-").replaceFirstChar { it.uppercase() }}” I mean $answer."
             "relationship" -> "${q.subject.removePrefix("relationship-")} is my ${answer.lowercase()}."
-            else -> answer
+            else -> "${q.text.trimEnd('?', ' ')}? → $answer"
         }
         try { MemoryStore.addLearnedFact(ctx, fact) } catch (e: Exception) {}
         try { MessageStore.insertOne(ctx, "Me", "Profile", "me", "me", fact) } catch (e: Exception) {}

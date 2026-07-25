@@ -643,6 +643,56 @@ object AgentClient {
         return if (code == 200) text.trim() else "Hey!"
     }
 
+    /**
+     * Generate GENUINELY USEFUL clarifying questions for the owner, given what the brain already knows plus the
+     * raw signals it's unsure about. Template questions were useless ("You talk to 'Instagram User' a lot — who
+     * are they to you?", or asking who someone is when the brain already records they're the owner's wife), so
+     * the model does the judging: it must skip anything already known or not a real person, and ask only what
+     * would actually change how it acts. Returns JSON objects: {question, options[], freeform}.
+     */
+    fun brainQuestions(known: String, signals: String, max: Int = 5): List<Triple<String, List<String>, Boolean>> {
+        if (signals.isBlank()) return emptyList()
+        val sys = "You are the owner's sharpest chief-of-staff. You already know a great deal about them (below). " +
+            "Your job: ask the few questions whose answers would most improve how you act on their behalf.\n" +
+            "Ask at most $max questions. HARD RULES:\n" +
+            "• NEVER ask anything already answered — or inferable — from WHAT IS ALREADY KNOWN. You know a LOT; " +
+            "asking something obvious makes you look stupid. Reason about what's genuinely MISSING.\n" +
+            "• NEVER ask about entries that aren't real individual people (app placeholders like 'Instagram User', " +
+            "group chats, bots, bare handles, channels, notification senders). Silently skip them.\n" +
+            "• Go beyond names. The best questions are about their WORK and INTENT: an unstated priority between " +
+            "competing projects, what they actually want to happen with a thread/deal/document that's clearly " +
+            "in flight, a preference or boundary you'd otherwise guess wrong, a decision that looks pending, " +
+            "or a contradiction between what they said and what they're doing.\n" +
+            "• Be SPECIFIC — reference the real person, project, document, or thread by name. A generic question " +
+            "('who are they to you?') is worthless; a pointed one ('Is the Satlyt pilot ahead of the Belto " +
+            "raise this month?') is gold.\n" +
+            "• Natural, conversational, under 20 words. No boilerplate, no interrogation tone.\n" +
+            "• Give \"options\" ONLY when a small closed set genuinely covers it (2-4 short options); otherwise []. " +
+            "Set \"freeform\" true unless it's a strict yes/no.\n" +
+            "If nothing is genuinely worth asking, return [] — silence beats a dumb question.\n" +
+            "Output ONLY a JSON array: [{\"question\":\"…\",\"options\":[\"…\"],\"freeform\":true}]. No prose."
+        val user = "WHAT IS ALREADY KNOWN:\n${known.take(6000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(4000)}"
+        val (code, text) = callContent(sys, user, 700, MODEL)
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('['); val e = text.lastIndexOf(']')
+            if (s < 0 || e <= s) return emptyList()
+            val arr = JSONArray(text.substring(s, e + 1))
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val q = o.optString("question").trim()
+                if (q.length < 6) return@mapNotNull null
+                val opts = ArrayList<String>()
+                o.optJSONArray("options")?.let { a -> for (j in 0 until a.length()) a.optString(j).trim().takeIf { it.isNotBlank() }?.let { opts.add(it) } }
+                // The owner can ALWAYS type their own answer unless the question is strictly yes/no. A closed
+                // option list can never cover a real answer ("my wife", "neither — we pivoted"), and the model
+                // marks multiple-choice questions as non-freeform far too eagerly.
+                val yesNo = opts.size == 2 && opts.map { it.lowercase().trim('.', '!') }.toSet() == setOf("yes", "no")
+                Triple(q, opts.take(4), !yesNo)
+            }.take(max)
+        } catch (e: Exception) { emptyList() }
+    }
+
     /** Vision Q&A: answer a question about photos. Returns plain text. */
     fun askVision(prompt: String, imagesB64: List<String>, memory: String = "", model: String = MODEL, maxTokens: Int = 700): String {
         val content = JSONArray()
