@@ -34,26 +34,51 @@ object Voice {
             sb.append("⚑ YOUR CHARACTER ON $channel (adopt this voice and register fully — it's how you choose to " +
                 "come across here, and it overrides your general style): ").append(persona).append("\n")
 
+        // 1b) CONCRETE CHANNEL NORMS. A one-line character buried in ~20k chars of context barely moved the
+        //     output: an audit across 8 channels produced near-identical drafts (the "funny" Instagram reply
+        //     read the same as the "professional CEO" LinkedIn one). Spelling out the actual form each channel
+        //     takes — length, greeting, punctuation, emoji, links — is what makes them genuinely different.
+        val norms = channelNorms(try { MemoryStore.platformKey(channel) } catch (e: Exception) { channel.lowercase() })
+        if (norms.isNotBlank()) sb.append("⚑ HOW MESSAGES ACTUALLY LOOK ON $channel: ").append(norms).append("\n")
+
         // 2) The FULL identity — not just the About blurb. Name, contact, personal profile, work history,
         //    learned facts. This is what makes a post actually sound like this specific person.
         val profile = try { MemoryStore.fullProfile(ctx) } catch (e: Exception) { "" }
         if (profile.isNotBlank()) sb.append("About you: ").append(profile).append("\n")
 
-        // 3) HOW you write (the learned voice), when no channel character overrides it.
+        // Channels where register is FORMAL. On these, casual habits learned elsewhere must not bleed in.
+        val key = try { MemoryStore.platformKey(channel) } catch (e: Exception) { channel.lowercase() }
+        val formal = key == "linkedin" || key == "email" || key == "slack"
+
+        // 3) HOW you write (the learned voice). This is learned across ALL channels, so on a formal channel it
+        //    describes the user's casual habits ("often just a phrase, a reaction word") and directly fights the
+        //    channel character — which is exactly how LinkedIn drafts came out too casual. The channel character
+        //    wins on register; the learned style may only inform word choice.
         val style = try { MemoryStore.styleProfile(ctx) } catch (e: Exception) { "" }
-        if (style.isNotBlank()) sb.append("How you write (mimic this precisely): ").append(style).append("\n")
+        if (style.isNotBlank()) {
+            if (formal && persona.isNotBlank())
+                sb.append("Your general writing habits across all apps (for word choice ONLY — do NOT copy the " +
+                    "casualness or length here; the character above sets the register on this channel): ")
+                    .append(style).append("\n")
+            else sb.append("How you write (mimic this precisely): ").append(style).append("\n")
+        }
 
         // 3b) IMITATE FROM EVIDENCE: real messages the user has actually sent. Few-shot exemplars beat any
-        //     description of a voice — they carry the real phrasings, rhythm, length, openings and sign-offs.
-        //     Prefer this channel's own sent messages; fall back to the user's writing generally.
+        //     description of a voice. They MUST come from this channel — falling back to messages from other
+        //     apps fed casual one-liners into LinkedIn/email drafts as "match this style, length and tone",
+        //     which is the single biggest reason formal drafts read unprofessionally.
         val label = try { platformLabel(channel) } catch (e: Exception) { null }
-        val examples = try {
-            (if (label != null) MessageStore.myRecentBodies(ctx, 6, label) else emptyList())
-                .ifEmpty { MessageStore.myRecentBodies(ctx, 6, null) }
-        } catch (e: Exception) { emptyList() }
+        val own = try { if (label != null) MessageStore.myRecentBodies(ctx, 6, label) else emptyList() } catch (e: Exception) { emptyList() }
+        val examples = if (own.isNotEmpty()) own
+            else if (formal) emptyList()   // better NO exemplars than wrong-register ones
+            else try { MessageStore.myRecentBodies(ctx, 6, null) } catch (e: Exception) { emptyList() }
         if (examples.isNotEmpty())
-            sb.append("Real examples of how you actually write (match this style, length and tone; don't copy them): ")
+            sb.append("Real examples of how you actually write" + (if (own.isNotEmpty()) " ON THIS CHANNEL" else "") +
+                " (match this style, length and tone; don't copy them): ")
                 .append(examples.joinToString(" | ") { "\"" + it.replace("\n", " ").take(160) + "\"" }).append("\n")
+        else if (formal)
+            sb.append("You have no prior messages on this channel to imitate — write to the character above: " +
+                "polished, complete sentences, professional register. Do NOT write like a casual chat.\n")
 
         // 4) THE FLYWHEEL: how you've recently fixed the AI's drafts on this channel — your true voice.
         if (includeCorrections) {
@@ -64,6 +89,38 @@ object Voice {
         }
 
         return sb.toString().trim()
+    }
+
+    /**
+     * The concrete FORM a message takes on each platform. Without this, every channel produced the same
+     * message with the same link — the character line alone didn't survive a 20k-char context.
+     */
+    private fun channelNorms(key: String): String = when (key) {
+        "linkedin" ->
+            "Complete, polished sentences — no texting shorthand, no dropped subjects ('this week's packed' → " +
+            "'my week is quite full'). 2-4 sentences. Greet them by name. Warm but businesslike. No emoji. " +
+            "Reference something specific about THEM or their work. A scheduling link is fine but write a real " +
+            "sentence around it, never bare."
+        "email" ->
+            "A real email: greet by name on its own line, 2-5 sentences of substance, then a natural close. " +
+            "Full punctuation and capitalisation. No emoji. Say the specific thing — never a one-line brush-off."
+        "instagram" ->
+            "Playful and FUNNY — that's the whole point here. Lowercase is fine, 1-2 short lines, emoji welcome, " +
+            "banter and jokes land well. Never corporate, never a formal scheduling message. React like a friend."
+        "x" ->
+            "Punchy, witty, opinionated — one or two short lines max, the shorter the better. A clever line beats " +
+            "a helpful one. Lowercase fine, emoji sparingly. Never sound like customer support."
+        "reddit" ->
+            "Substantive and technical — Redditors smell marketing instantly. Explain the actual thing, concede " +
+            "trade-offs, no hype, no links unless genuinely asked. Plain text, can be several sentences."
+        "whatsapp", "telegram", "sms", "messenger", "signal" ->
+            "Real texting: 1-2 short lines, contractions, casual, mirror their energy. No greeting block, no " +
+            "sign-off. Emoji only if it fits naturally."
+        "slack" ->
+            "Work-casual: brief and direct like a colleague, 1-3 lines, lowercase fine, light emoji ok. " +
+            "Get to the point, no formal greeting or sign-off."
+        "discord" -> "Casual and quick, 1-2 lines, community tone, emoji fine."
+        else -> ""
     }
 
     /** Map a channel key/label to the platform string messages are stored under, so exemplars can be scoped

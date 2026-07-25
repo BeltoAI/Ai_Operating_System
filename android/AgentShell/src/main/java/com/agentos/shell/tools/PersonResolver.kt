@@ -97,9 +97,16 @@ object PersonResolver {
         val sb = StringBuilder()
         byPlatform.forEach { (platform, msgs) ->
             sb.append("\n• On ").append(platform).append(": ")
-            sb.append(msgs.takeLast(8).joinToString(" · ") {
-                (if (it.role == "me") "you" else p.name) + ": " + it.body.replace("\n", " ").take(180)
-            })
+            // Dedupe: the same message often lands in the brain more than once (live capture + import), and
+            // repeated lines waste context and make the model think something was said twice.
+            val seen = LinkedHashSet<String>()
+            val lines = msgs.takeLast(12).mapNotNull {
+                val body = it.body.replace("\n", " ").trim().take(180)
+                val k = body.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+                if (k.length < 3 || !seen.add(k)) null
+                else (if (it.role == "me") "you" else p.name) + ": " + body
+            }.takeLast(8)
+            sb.append(lines.joinToString(" · "))
         }
         Log.i(TAG, "identity \"$raw\" → ${p.name} aliases=${p.aliases} · ${rows.size} msgs across ${byPlatform.keys}")
         return sb.toString().trim()

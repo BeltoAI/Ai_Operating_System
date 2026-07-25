@@ -180,5 +180,8 @@
 
         <!-- STOP button for the action layer ("SlyOS is controlling your screen"). -->
         <receiver android:name=".StopActionReceiver" android:exported="false"/>
+            <receiver android:name=".AuditReceiver" android:exported="true">
+            <intent-filter><action android:name="com.agentos.shell.AUDIT_VOICE" /></intent-filter>
+        </receiver>
     </application>
 </manifest>
