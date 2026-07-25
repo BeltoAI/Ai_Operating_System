@@ -62,6 +62,15 @@ object BrainQuestions {
     private fun answeredKeys(ctx: Context): MutableSet<String> =
         HashSet(prefs(ctx).getStringSet(KEY_ANSWERED, emptySet()) ?: emptySet())
 
+    private const val KEY_ASKED_LOG = "asked_log"
+    /** The last questions actually shown — passed to the generator so it stops circling one topic. */
+    private fun askedLog(ctx: Context): List<String> =
+        (prefs(ctx).getString(KEY_ASKED_LOG, "") ?: "").split("\n").filter { it.isNotBlank() }
+    private fun rememberAsked(ctx: Context, text: String) {
+        val log = (askedLog(ctx) + text).takeLast(25)
+        prefs(ctx).edit().putString(KEY_ASKED_LOG, log.joinToString("\n")).apply()
+    }
+
     private fun markAnswered(ctx: Context, subject: String) {
         val s = answeredKeys(ctx); s.add(subject.lowercase())
         prefs(ctx).edit().putStringSet(KEY_ANSWERED, s).apply()
@@ -72,6 +81,7 @@ object BrainQuestions {
         if (subject.lowercase() in answeredKeys(ctx)) return
         if (items.any { it.subject.equals(subject, true) || it.text.equals(text, true) }) return
         items.add(0, Question(System.currentTimeMillis() + items.size, kind, subject, text, options, freeform))
+        rememberAsked(ctx, text)
         while (items.size > 8) items.removeAt(items.size - 1)
         persist(ctx)
     }
@@ -89,7 +99,9 @@ object BrainQuestions {
                 "no-reply|notification|admin|info|service|updates?|news|alerts?|security|verify|newsletter)\\b")
                 .containsMatchIn(n)) return false
         if (Regex("^[+\\d\\s()\\-]+$").matches(n)) return false           // phone numbers
-        if (Regex("^[a-z0-9._-]+$").matches(n) && !n.contains(" ")) return false  // bare handles like "k9"
+        // Case-INSENSITIVE: "K9" slipped past a lowercase-only pattern and got asked about as if it were a person.
+        if (Regex("(?i)^[a-z0-9._-]+$").matches(n) && !n.contains(" ")) return false   // bare handles like "K9"
+        if (n.length <= 3 && !n.contains(" ")) return false                            // "K9", "Lea" w/o surname
         if (!Regex("\\p{L}").containsMatchIn(n)) return false
         return true
     }
@@ -134,26 +146,56 @@ object BrainQuestions {
                 if (top.any { it.third.equals(label, true) } && MemoryStore.styleFor(ctx, key).isBlank())
                     sb.append("NO VOICE/CHARACTER SET for $label, which the owner actively uses\n")
             }
-            // The signals above are only the contact graph. The brain holds far more — what the owner is
-            // actually working on, what's on their calendar, what they've been discussing, what's unfinished.
-            // Feeding only contacts produced shallow questions; a sharp chief-of-staff would ask about the WORK.
-            try {
-                val recent = MessageStore.recentLines(ctx, 60).joinToString("\n").take(6000)
-                if (recent.isNotBlank()) sb.append("\nRECENT ACTIVITY / CONVERSATIONS:\n").append(recent).append("\n")
-            } catch (e: Exception) {}
-            try {
-                val tasks = ChecklistStore.load(ctx).filter { !it.done }.joinToString("\n") { "• ${it.text}" }.take(1500)
-                if (tasks.isNotBlank()) sb.append("\nOPEN TASKS:\n").append(tasks).append("\n")
-            } catch (e: Exception) {}
-            try {
-                if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx).take(1200)
-                    .takeIf { it.isNotBlank() }?.let { sb.append("\nUPCOMING CALENDAR:\n").append(it).append("\n") }
-            } catch (e: Exception) {}
-            try {
-                val docs = DocStore.list(ctx).sortedByDescending { it.ts }.take(12)
-                    .joinToString("\n") { "• ${it.title} [${it.category}]" }.take(1200)
-                if (docs.isNotBlank()) sb.append("\nRECENT DOCUMENTS:\n").append(docs).append("\n")
-            } catch (e: Exception) {}
+            // ROTATE WHICH PART OF THE BRAIN WE MINE. Feeding the same recent-messages blob every run made the
+            // questions circle one topic forever. Each refresh emphasises a different area, so over time the
+            // questioning actually spans the whole brain instead of re-interrogating this week's inbox.
+            val focus = (prefs(ctx).getInt("focus", 0)) % 5
+            prefs(ctx).edit().putInt("focus", focus + 1).apply()
+            sb.append("\nFOCUS THIS ROUND: ").append(
+                when (focus) {
+                    0 -> "people & relationships — who matters, who's unclear, who's gone quiet"
+                    1 -> "work in flight — projects, deals, documents, what's stalled or undecided"
+                    2 -> "commitments & time — calendar, deadlines, open tasks, what's slipping"
+                    3 -> "preferences & boundaries — how they want things done, what they'd never do"
+                    else -> "contradictions & drift — where stated intent and actual behaviour disagree"
+                }).append("\n")
+
+            when (focus) {
+                0 -> try {
+                    val net = ConnectionStore.recent(ctx, 60).joinToString("\n") { c ->
+                        "• ${c.name}" + (if (c.role.isNotBlank()) " — ${c.role}" else "") + (if (c.company.isNotBlank()) " @ ${c.company}" else "")
+                    }.take(3000)
+                    if (net.isNotBlank()) sb.append("\nNETWORK:\n").append(net).append("\n")
+                    val quiet = ConnectionStore.staleConnections(ctx, 90).take(15)
+                        .joinToString("\n") { (c, _) -> "• ${c.name} — no contact in 90+ days" }.take(1200)
+                    if (quiet.isNotBlank()) sb.append("\nGONE QUIET:\n").append(quiet).append("\n")
+                } catch (e: Exception) {}
+                1 -> {
+                    try {
+                        val docs = DocStore.list(ctx).sortedByDescending { it.ts }.take(20)
+                            .joinToString("\n") { "• ${it.title} [${it.category}]" + (if (it.summary.isNotBlank()) " — ${it.summary.take(120)}" else "") }.take(3000)
+                        if (docs.isNotBlank()) sb.append("\nDOCUMENTS:\n").append(docs).append("\n")
+                    } catch (e: Exception) {}
+                    try {
+                        val papers = PaperStore.list(ctx).joinToString("\n") { "• “${it.title}” (${it.docType})" }.take(1200)
+                        if (papers.isNotBlank()) sb.append("\nTHEIR WRITING:\n").append(papers).append("\n")
+                    } catch (e: Exception) {}
+                }
+                2 -> {
+                    try {
+                        if (CalendarTool.hasPermission(ctx)) CalendarTool.upcoming(ctx).take(2500)
+                            .takeIf { it.isNotBlank() }?.let { sb.append("\nUPCOMING CALENDAR:\n").append(it).append("\n") }
+                    } catch (e: Exception) {}
+                    try {
+                        val tasks = ChecklistStore.load(ctx).filter { !it.done }.joinToString("\n") { "• ${it.text}" }.take(2000)
+                        if (tasks.isNotBlank()) sb.append("\nOPEN TASKS:\n").append(tasks).append("\n")
+                    } catch (e: Exception) {}
+                }
+                else -> try {
+                    val recent = MessageStore.recentLines(ctx, 80).joinToString("\n").take(6000)
+                    if (recent.isNotBlank()) sb.append("\nRECENT ACTIVITY / CONVERSATIONS:\n").append(recent).append("\n")
+                } catch (e: Exception) {}
+            }
 
             if (sb.isBlank()) { Log.i(TAG, "nothing worth asking"); return }
 
@@ -163,6 +205,11 @@ object BrainQuestions {
                 append(try { BrainDigest.getOrFull(ctx) } catch (e: Exception) { "" }).append("\n")
                 append(try { MemoryStore.learnedFacts(ctx).joinToString("\n") } catch (e: Exception) { "" })
                 append("\nAlready answered before: ").append(answeredKeys(ctx).joinToString(", "))
+                // Everything recently ASKED — so the next batch explores a different corner of the brain
+                // instead of re-asking around the same subject.
+                val prior = askedLog(ctx)
+                if (prior.isNotEmpty()) append("\n\nQUESTIONS ALREADY ASKED RECENTLY (do NOT ask these again, and " +
+                    "do NOT ask about the same topics — pick genuinely different ground):\n").append(prior.joinToString("\n"))
             }
 
             val qs = try { AgentClient.brainQuestions(known, sb.toString(), 4) } catch (e: Exception) { emptyList() }
@@ -178,7 +225,7 @@ object BrainQuestions {
      * The owner answered. Persist it as a DURABLE fact (learned facts + searchable brain) so every future
      * reply and every agent uses it, and never ask this again.
      */
-    fun answer(ctx: Context, q: Question, answer: String) {
+    fun answer(ctx: Context, q: Question, answer: String, attachName: String = "", attachText: String = "") {
         // Store the question WITH the answer — the pair is what carries meaning ("Which Anna do you mean?" →
         // "Anna Atlasova" is useless without the question). Kept first-person so it reads as the owner's own fact.
         val fact = when (q.kind) {
@@ -186,7 +233,21 @@ object BrainQuestions {
             "relationship" -> "${q.subject.removePrefix("relationship-")} is my ${answer.lowercase()}."
             else -> "${q.text.trimEnd('?', ' ')}? → $answer"
         }
-        try { MemoryStore.addLearnedFact(ctx, fact) } catch (e: Exception) {}
+        try { if (answer.isNotBlank()) MemoryStore.addLearnedFact(ctx, fact) } catch (e: Exception) {}
+        // An attached document is the SOURCE, not a summary — file it and index its text so every future
+        // reply and agent can actually read it, not just know it exists.
+        if (attachName.isNotBlank()) {
+            val label = "Attached while answering: ${q.text.take(80)}"
+            try { MessageStore.insertOne(ctx, "Me", "Profile", "me", "me", "$label — file: $attachName") } catch (e: Exception) {}
+            if (attachText.isNotBlank()) {
+                try { DocText.add(ctx, attachName, "attachment", attachText.take(60000)) } catch (e: Exception) {}
+                try {
+                    attachText.take(24000).chunked(1200).take(20)
+                        .forEach { VectorStore.enqueue(ctx, "Document: $attachName", "doc", it) }
+                } catch (e: Exception) {}
+            }
+            Log.i(TAG, "attached '$attachName' (${attachText.length} chars) to: ${q.text.take(60)}")
+        }
         try { MessageStore.insertOne(ctx, "Me", "Profile", "me", "me", fact) } catch (e: Exception) {}
         try { VectorStore.enqueue(ctx, "About me", "me", fact) } catch (e: Exception) {}
         // A per-channel voice answer is a setting, not just a fact.

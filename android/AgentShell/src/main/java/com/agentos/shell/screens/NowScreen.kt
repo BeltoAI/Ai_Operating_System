@@ -1,5 +1,7 @@
 package com.agentos.shell.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -95,6 +97,24 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             // question is deferred, never lost. ("Don't ask again" is the permanent one.)
             var qHidden by remember { mutableStateOf(false) }
             var qDragX by remember { mutableStateOf(0f) }
+            // Attach real material to an answer — a pitch deck, a spec, a contract — so the brain learns from
+            // the SOURCE rather than a one-line summary. Text is extracted and stored with the answer.
+            var attachName by remember { mutableStateOf("") }
+            var attachText by remember { mutableStateOf("") }
+            val pickForAnswer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    try { ctx.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}
+                    attachName = com.agentos.shell.tools.FileOps.displayName(ctx, uri)
+                    scope.launch {
+                        attachText = withContext(Dispatchers.IO) {
+                            try {
+                                if (com.agentos.shell.tools.FileOps.isPdf(ctx, uri)) com.agentos.shell.tools.FileOps.pdfText(ctx, uri)
+                                else ctx.contentResolver.openInputStream(uri)?.use { i -> i.readBytes().decodeToString() } ?: ""
+                            } catch (e: Exception) { "" }
+                        }
+                    }
+                }
+            }
             if (questions.isNotEmpty() && !qHidden) {
                 val q = questions.first()
                 Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
@@ -133,11 +153,28 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                                 modifier = Modifier.fillMaxWidth())
                         }
                         Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (attachName.isBlank()) "📎 Attach a file" else "📎 $attachName",
+                                fontSize = T.caption, color = if (attachName.isBlank()) T.inkSoft else T.accent,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                                    .clickable { try { pickForAnswer.launch(arrayOf("*/*")) } catch (e: Exception) {} }
+                                    .padding(vertical = 6.dp))
+                            if (attachName.isNotBlank())
+                                Text("✕", fontSize = T.caption, color = T.inkFaint,
+                                    modifier = Modifier.clickable { attachName = ""; attachText = "" }.padding(6.dp))
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        val canSave = typed.isNotBlank() || attachName.isNotBlank()
                         Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .background(if (typed.isBlank()) T.hairline else T.accent)
-                                .clickable(enabled = typed.isNotBlank()) { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, typed.trim()) }
+                                .background(if (!canSave) T.hairline else T.accent)
+                                .clickable(enabled = canSave) {
+                                    com.agentos.shell.tools.BrainQuestions.answer(
+                                        ctx, q, typed.trim(), attachName, attachText)
+                                    attachName = ""; attachText = ""
+                                }
                                 .padding(vertical = 9.dp))
                     }
                     Spacer(Modifier.height(6.dp))
