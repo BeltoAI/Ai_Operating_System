@@ -98,6 +98,10 @@ class ShellActivity : ComponentActivity() {
         // Rebuild the whole-brain self-model in the background (at most ~twice a day) so replies are grounded in
         // everything the brain knows, not just the settings card. One synthesis call; cached for instant reuse.
         Thread { try { Thread.sleep(6000); com.agentos.shell.tools.BrainDigest.ensureFresh(applicationContext) } catch (e: Exception) {} }.start()
+        // Let the brain ask BACK: surface a few high-value clarifying questions in Now (which "Anna"? who is
+        // this person to you? no voice set for a channel you use) so wrong inferences get corrected instead of
+        // silently persisting.
+        Thread { try { Thread.sleep(9000); com.agentos.shell.tools.BrainQuestions.refresh(applicationContext) } catch (e: Exception) {} }.start()
         // Warm the Brain graph in the background so swiping into it is instant (no first-open rebuild jank).
         Thread { try { if (com.agentos.shell.tools.MemoryGraphStore.isEmpty()) com.agentos.shell.tools.MemoryGraphStore.rebuild(applicationContext) } catch (e: Exception) {} }.start()
         // Build the FREE on-device photo index (labels + faces) so photo search scales to a whole gallery

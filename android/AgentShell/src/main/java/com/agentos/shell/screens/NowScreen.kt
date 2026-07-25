@@ -79,6 +79,48 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
         }
         Spacer(Modifier.height(14.dp))
 
+        // ── The brain asks BACK. Short questions that clear up wrong inferences (e.g. which "Anna" you mean)
+        //    or fill real gaps. Answering writes a durable fact, so the correction sticks instead of the brain
+        //    guessing wrong forever.
+        com.agentos.shell.tools.BrainQuestions.ensureLoaded(ctx)
+        val questions = com.agentos.shell.tools.BrainQuestions.items
+        if (questions.isNotEmpty()) {
+            val q = questions.first()
+            Text("YOUR BRAIN IS ASKING", fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(8.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(14.dp)) {
+                Text(q.text, fontSize = T.body, color = T.ink)
+                Spacer(Modifier.height(10.dp))
+                if (q.options.isNotEmpty()) {
+                    q.options.forEach { opt ->
+                        Text(opt, fontSize = T.small, color = T.ink,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                .clip(RoundedCornerShape(10.dp)).background(T.hairline)
+                                .clickable { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, opt) }
+                                .padding(horizontal = 12.dp, vertical = 9.dp))
+                    }
+                } else {
+                    var typed by remember(q.id) { mutableStateOf("") }
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.bg).padding(10.dp)) {
+                        if (typed.isEmpty()) Text("Type your answer…", fontSize = T.small, color = T.inkFaint)
+                        BasicTextField(typed, { typed = it }, textStyle = TextStyle(color = T.ink, fontSize = 14.sp),
+                            modifier = Modifier.fillMaxWidth())
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Save", fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (typed.isBlank()) T.hairline else T.accent)
+                            .clickable(enabled = typed.isNotBlank()) { com.agentos.shell.tools.BrainQuestions.answer(ctx, q, typed.trim()) }
+                            .padding(vertical = 9.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("Skip", fontSize = T.caption, color = T.inkSoft,
+                    modifier = Modifier.clickable { com.agentos.shell.tools.BrainQuestions.dismiss(ctx, q) }.padding(4.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+
         // ── Team approvals: a teammate wants to send an email or change your calendar — you decide.
         //    Swipe LEFT to decline, swipe RIGHT to open the full details and approve. Nothing leaves the
         //    phone in your name until you say so.

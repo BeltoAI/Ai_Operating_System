@@ -20,7 +20,10 @@ object PersonResolver {
     private const val TAG = "SlyOS-Person"
 
     /** A resolved person: the best display name plus every string they're known by in the brain. */
-    data class Person(val name: String, val aliases: Set<String>, val email: String = "", val company: String = "")
+    data class Person(val name: String, val aliases: Set<String>, val email: String = "", val company: String = "",
+                      /** Other people you actually message who share this first name — a genuine ambiguity the
+                       *  owner should resolve, rather than us silently picking one. */
+                      val candidates: List<String> = emptyList())
 
     private fun titleCase(s: String) = s.split(" ", ".", "_", "-").filter { it.isNotBlank() }
         .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
@@ -60,11 +63,33 @@ object PersonResolver {
                 ?.let { email = it; aliases.add(it) }
         } catch (e: Exception) {}
 
-        // 4) The LinkedIn network — matches a chat name to a full professional identity (and their company),
-        //    so a LinkedIn DM knows who they are even if the chat only says "Anna".
+        // 4) WHO DO YOU ACTUALLY TALK TO? A bare first name is ambiguous ("Anna" → co-founder, advisor, or a
+        //    LinkedIn contact never messaged). Rank by REAL interaction: the person you exchange messages with
+        //    wins over a cold connection who merely shares the name. Resolving "Anna" to a never-messaged
+        //    LinkedIn entry put a stranger's identity into replies.
+        val ambiguous = ArrayList<String>()
+        val isBareFirstName = display.trim().split(" ").size == 1
+        try {
+            val real = MessageStore.contactsNamed(ctx, display.split(" ").first(), 8)
+            if (real.isNotEmpty()) {
+                real.forEach { ambiguous.add("${it.first} (${it.second} msgs)") }
+                val best = real.first()
+                // Only promote to a fuller name when we're resolving a bare first name; never override an
+                // explicit full name the caller supplied.
+                if (isBareFirstName && best.first.split(" ").size > 1) display = best.first
+                // ONLY the winner becomes an alias. Adding every same-first-name contact merged DIFFERENT
+                // people (the co-founder and the advisor both being "Anna") into one identity, so one person's
+                // messages would surface as the other's. The rest are reported as candidates, not aliases.
+                aliases.add(best.first)
+            }
+        } catch (e: Exception) {}
+
+        // 5) The LinkedIn network — fills in the professional identity (company) for whoever we settled on.
+        //    Only consult it when messages didn't already identify someone, so a cold connection can't
+        //    outrank a real conversation partner.
         try {
             val first = display.split(" ").firstOrNull().orEmpty()
-            if (first.length > 2) {
+            if (first.length > 2 && ambiguous.isEmpty()) {
                 // WORD-BOUNDARY match only. Plain substring matching merged unrelated people: "Elon" is
                 // literally inside "Mont-elon-go", so Elon Musk inherited a stranger's identity and history.
                 fun words(s: String) = s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
@@ -74,13 +99,22 @@ object PersonResolver {
                     ?.let { c ->
                         aliases.add(c.name)
                         if (c.company.isNotBlank()) company = c.company
-                        if (display.split(" ").size == 1 && c.name.split(" ").size > 1) display = c.name
+                        if (isBareFirstName && c.name.split(" ").size > 1) display = c.name
                     }
+            } else if (first.length > 2) {
+                // We know who they are from messages — just enrich with their company if we have it.
+                fun words(s: String) = s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+                val mine = words(display).toSet()
+                ConnectionStore.search(ctx, display, 5)
+                    .firstOrNull { c -> words(c.name).count { it in mine } >= 2 }   // require a real 2-token match
+                    ?.let { c -> if (c.company.isNotBlank()) company = c.company }
             }
         } catch (e: Exception) {}
 
         val clean = aliases.map { it.trim() }.filter { it.length > 2 }.toCollection(LinkedHashSet())
-        return Person(display, clean, email, company)
+        // Surface genuine ambiguity rather than silently picking one — the caller can ask the owner.
+        val amb = if (isBareFirstName && ambiguous.size > 1) ambiguous else emptyList()
+        return Person(display, clean, email, company, amb)
     }
 
     /**
@@ -122,6 +156,10 @@ object PersonResolver {
             if (p.email.isNotBlank()) append(" · ").append(p.email)
             val others = p.aliases.filter { !it.equals(p.name, true) && !it.equals(p.email, true) }
             if (others.isNotEmpty()) append(" · also appears as: ").append(others.joinToString(", "))
+            if (p.candidates.size > 1)
+                append("\n⚠ AMBIGUOUS first name — people you actually message with this name: ")
+                    .append(p.candidates.joinToString(", "))
+                    .append(". If the thread doesn't make it obvious which one this is, do NOT assume — ask.")
         }
     }
 }
