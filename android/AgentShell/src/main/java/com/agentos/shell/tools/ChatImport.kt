@@ -77,11 +77,14 @@ object ChatImport {
         // so `head.startsWith("[")` sent it to the JSON parser, which found nothing and reported success —
         // 26,678 messages silently became 0. Only one chat survived, purely because its file happened to start
         // with an invisible LTR mark. So: detect the WhatsApp line shape FIRST, and never sniff on "[" alone.
-        val looksWhatsApp = WA_LINE.containsMatchIn(
-            head.lineSequence().take(40)
-                .map { it.replace(Regex("[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]"), "")
-                        .replace(Regex("[\\u00a0\\u202f\\u2007\\u2009]"), " ").trim() }
-                .joinToString("\n"))
+        // Test EACH line on its own. WA_LINE is anchored (^…$), so running it against many lines JOINED
+        // together only ever matched when the sample WAS a single line: tiny chats were detected fine while
+        // every large export failed the test and fell through to the JSON parser, importing nothing.
+        val looksWhatsApp = head.lineSequence().take(60).any { ln ->
+            val c = ln.replace(Regex("[\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]"), "")
+                .replace(Regex("[\\u00a0\\u202f\\u2007\\u2009]"), " ").trim()
+            c.isNotBlank() && WA_LINE.containsMatchIn(c)
+        }
         return try {
             when {
                 text.contains("CONVERSATION ID", true) -> linkedIn(ctx, text, owner)
@@ -196,6 +199,11 @@ object ChatImport {
     private fun whatsApp(ctx: Context, text: String, owner: String): Result {
         // (sender, body, ts) — ts parsed from each line's real WhatsApp date/time when possible.
         val msgs = ArrayList<Triple<String, String, Long>>()
+        run {
+            val segs = text.split(Regex("\r\n|\r|\n|\u2028|\u2029"))
+            android.util.Log.i("SlyOS-Import", "whatsApp(): textLen=${text.length} segments=${segs.size} " +
+                "first=${segs.firstOrNull()?.take(60)?.replace("\n", " ")}")
+        }
         // Split on ANY line ending. The previous pattern failed on these real exports, so the whole file
         // became ONE line: WA_LINE matched the first entry and every later message was appended to its body.
         // A 9,077-message chat therefore parsed as a single message — why the big chats imported nothing.
