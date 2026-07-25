@@ -28,6 +28,12 @@ object MemoryStore {
             (0 until a.length()).map { a.getString(it) }
         }
     } catch (e: Exception) { emptyList() }
+    /** Replace the working set (used when a correction supersedes stale beliefs). */
+    fun setLearnedFacts(ctx: Context, facts: List<String>) {
+        val arr = org.json.JSONArray(); facts.takeLast(250).forEach { arr.put(it) }
+        prefs(ctx).edit().putString(KEY_LEARNED, arr.toString()).apply()
+    }
+
     fun addLearnedFact(ctx: Context, fact: String) {
         val f = fact.trim(); if (f.length < 3) return
         val cur = learnedFacts(ctx).toMutableList()

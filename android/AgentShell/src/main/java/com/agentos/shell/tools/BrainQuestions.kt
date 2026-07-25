@@ -113,6 +113,14 @@ object BrainQuestions {
     /** …or sooner, once this many new messages have landed in the brain. */
     private const val NEW_MSG_TRIGGER = 40
 
+    /** Force a fresh batch now, keeping the asked-history so banned subjects still apply (debug/testing). */
+    fun forceRefresh(ctx: Context) {
+        ensureLoaded(ctx)
+        items.clear(); persist(ctx)
+        prefs(ctx).edit().putLong(KEY_LAST, 0L).apply()
+        refresh(ctx)
+    }
+
     fun refresh(ctx: Context) {
         ensureLoaded(ctx)
         try {
@@ -151,7 +159,8 @@ object BrainQuestions {
             // questioning actually spans the whole brain instead of re-interrogating this week's inbox.
             val focus = (prefs(ctx).getInt("focus", 0)) % 5
             prefs(ctx).edit().putInt("focus", focus + 1).apply()
-            sb.append("\nFOCUS THIS ROUND: ").append(
+            sb.append("\nFOCUS THIS ROUND — every question MUST come from this area and from the material listed " +
+                "under it below; ignore anything else you know: ").append(
                 when (focus) {
                     0 -> "people & relationships — who matters, who's unclear, who's gone quiet"
                     1 -> "work in flight — projects, deals, documents, what's stalled or undecided"
@@ -208,8 +217,20 @@ object BrainQuestions {
                 // Everything recently ASKED — so the next batch explores a different corner of the brain
                 // instead of re-asking around the same subject.
                 val prior = askedLog(ctx)
-                if (prior.isNotEmpty()) append("\n\nQUESTIONS ALREADY ASKED RECENTLY (do NOT ask these again, and " +
-                    "do NOT ask about the same topics — pick genuinely different ground):\n").append(prior.joinToString("\n"))
+                if (prior.isNotEmpty()) {
+                    append("\n\nQUESTIONS ALREADY ASKED (these subjects are CLOSED — asking anything about them " +
+                        "again, in any wording, is a failure):\n").append(prior.joinToString("\n"))
+                    // Name the actual subjects to ban. The self-model is dominated by a few big projects, so the
+                    // model kept gravitating back to them however the question was phrased; listing the banned
+                    // nouns explicitly is what finally breaks the loop.
+                    val banned = prior.flatMap { q ->
+                        Regex("\\b[A-Z][A-Za-z0-9]{2,}\\b").findAll(q).map { it.value }.toList()
+                    }.filter { it !in setOf("What", "Is", "Are", "Do", "Does", "Would", "Should", "Which", "How", "When", "Who", "The", "Your", "You") }
+                        .distinct().take(20)
+                    if (banned.isNotEmpty())
+                        append("\n\nBANNED SUBJECTS this round (already covered — do NOT mention or ask about ANY of " +
+                            "these): ").append(banned.joinToString(", "))
+                }
             }
 
             val qs = try { AgentClient.brainQuestions(known, sb.toString(), 4) } catch (e: Exception) { emptyList() }
@@ -233,7 +254,16 @@ object BrainQuestions {
             "relationship" -> "${q.subject.removePrefix("relationship-")} is my ${answer.lowercase()}."
             else -> "${q.text.trimEnd('?', ' ')}? → $answer"
         }
-        try { if (answer.isNotBlank()) MemoryStore.addLearnedFact(ctx, fact) } catch (e: Exception) {}
+        try {
+            if (answer.isNotBlank()) {
+                MemoryStore.addLearnedFact(ctx, fact)
+                // SUPERSEDE STALE BELIEFS. A correction used to just pile on top: the brain ended up holding
+                // both "committing to Harvard ALM regardless of traction" AND "flexible — fundraise takes
+                // priority". Contradictions make every downstream answer unreliable, so the newer, explicitly
+                // given answer wins and the beliefs it contradicts are dropped.
+                Thread { try { supersede(ctx, fact) } catch (t: Throwable) {} }.start()
+            }
+        } catch (e: Exception) {}
         // An attached document is the SOURCE, not a summary — file it and index its text so every future
         // reply and agent can actually read it, not just know it exists.
         if (attachName.isNotBlank()) {
@@ -261,6 +291,20 @@ object BrainQuestions {
         // The self-model should reflect the correction promptly.
         try { Thread { BrainDigest.generate(ctx) }.start() } catch (e: Exception) {}
         Log.i(TAG, "learned: $fact")
+    }
+
+    /** Drop previously-learned facts that the owner's new answer directly contradicts. */
+    private fun supersede(ctx: Context, newFact: String) {
+        val facts = try { MemoryStore.learnedFacts(ctx) } catch (e: Exception) { return }
+        val others = facts.filter { !it.equals(newFact, true) }
+        if (others.size < 2) return
+        val stale = try { AgentClient.contradictedBy(newFact, others) } catch (t: Throwable) { emptyList() }
+        if (stale.isEmpty()) return
+        val keep = facts.filter { f -> stale.none { it.equals(f, true) } }
+        if (keep.size != facts.size) {
+            MemoryStore.setLearnedFacts(ctx, keep)
+            Log.i(TAG, "superseded ${facts.size - keep.size} stale belief(s) after: ${newFact.take(70)}")
+        }
     }
 
     fun dismiss(ctx: Context, q: Question) {

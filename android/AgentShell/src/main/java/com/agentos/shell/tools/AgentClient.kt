@@ -693,6 +693,33 @@ object AgentClient {
         } catch (e: Exception) { emptyList() }
     }
 
+    /**
+     * Which of [existing] beliefs does [newFact] directly contradict? The owner just stated the new one
+     * explicitly, so it wins. Returns the stale lines verbatim so the caller can drop them. Conservative by
+     * design: only genuine contradictions, never merely related or more-detailed facts.
+     */
+    fun contradictedBy(newFact: String, existing: List<String>): List<String> {
+        if (existing.isEmpty()) return emptyList()
+        val numbered = existing.mapIndexed { i, f -> "${i + 1}. $f" }.joinToString("\n")
+        val sys = "The owner has just stated something new and authoritative about themselves. Identify which of " +
+            "their PREVIOUSLY recorded facts are now WRONG because they directly contradict it — e.g. 'committing " +
+            "regardless of X' is contradicted by 'flexible, X takes priority'.\n" +
+            "Be CONSERVATIVE: only genuine contradictions. A fact that is merely related, more specific, about a " +
+            "different subject, or still compatible must NOT be listed.\n" +
+            "Output ONLY a JSON array of the contradicted numbers, e.g. [2,5]. If none, output []."
+        val (code, text) = callContent(sys, "NEW STATEMENT:\n$newFact\n\nPREVIOUSLY RECORDED:\n$numbered", 200, MODEL)
+        if (code != 200) return emptyList()
+        return try {
+            val a = text.indexOf('['); val b = text.lastIndexOf(']')
+            if (a < 0 || b <= a) return emptyList()
+            val arr = JSONArray(text.substring(a, b + 1))
+            (0 until arr.length()).mapNotNull { i ->
+                val idx = arr.optInt(i, 0) - 1
+                if (idx in existing.indices) existing[idx] else null
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
     /** Vision Q&A: answer a question about photos. Returns plain text. */
     fun askVision(prompt: String, imagesB64: List<String>, memory: String = "", model: String = MODEL, maxTokens: Int = 700): String {
         val content = JSONArray()
@@ -1884,7 +1911,7 @@ object AgentClient {
     /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
      *  fresh when you actually message them, so it's never a generic template. */
     fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String,
-                         history: String = ""): String {
+                         history: String = "", template: String = ""): String {
         val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
         val book = bookingLink.trim()
@@ -1896,15 +1923,26 @@ object AgentClient {
             "open with “yo”, “hey”, or slang. Structure: (1) a specific, real reason for reaching out tied to their " +
             "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
             "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). " +
-            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
-            (if (book.isNotBlank()) "Include this booking link where it fits naturally: $book. " else "") +
+            // Same failure the intro-message audit caught: a truncated background made the model INVENT what
+            // the sender is building (three different fake companies in one run). Never let it improvise this.
+            "NEVER invent, guess or embellish what the sender does or is building — state it only if it appears " +
+            "in the background below, in those terms; otherwise omit it entirely. " +
+            (if (memory.isNotBlank()) "The sender's background (the ONLY source of truth about them): " + memory.take(4000) + ". " else "") +
+            // When the owner supplies their own message, it is the SOURCE — personalise it, don't replace it.
+            (if (template.isNotBlank())
+                "\n\nTHE SENDER'S OWN MESSAGE (this is the basis — keep its substance, structure, links and offer " +
+                "INTACT; personalise the opening line to this specific recipient and trim anything that doesn't " +
+                "apply to them. Do NOT invent new claims, and keep every URL exactly as written):\n" + template + "\n"
+             else "") +
+            (if (book.isNotBlank() && template.isBlank()) "Include this booking link where it fits naturally: $book. " else "") +
             // Reconnecting with someone you've spoken to before must NOT read like a cold intro.
             (if (history.isNotBlank())
                 "You have spoken with this person BEFORE — the prior conversation is given below. Do NOT introduce " +
                 "yourself or write a cold opener; pick up naturally where things left off and reference something " +
                 "real and specific from it. Never restate what they already know. "
              else "This person has NOT been messaged before — a first, warm introduction is appropriate. ") +
-            "Ready to paste and send."
+            (if (template.isNotBlank()) "Return the adapted message only — same length and format as the original, ready to send."
+             else "Ready to paste and send.")
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content",
             "Recipient: $who. Their first name is \"$firstName\" — address them as that." +
             (if (history.isNotBlank()) "\n\nYour prior conversation with them (oldest first):\n" + history.take(1800) else "")))
