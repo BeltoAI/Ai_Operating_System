@@ -32,6 +32,8 @@ class AuditReceiver : BroadcastReceiver() {
                 else if (mode == "ask") kotlinx.coroutines.runBlocking {
                     com.agentos.shell.tools.BrainAnswer.probe(app, intent.getStringExtra("q") ?: "who is Carlos")
                 }
+                else if (mode == "deck") com.agentos.shell.tools.VoiceAudit.deck(app,
+                    intent.getStringExtra("q") ?: "a venture pitch deck about SlyOS and my brain")
                 else if (mode == "home") com.agentos.shell.tools.VoiceAudit.home(app,
                     intent.getStringExtra("q") ?: "who is Carlos")
                 else if (mode == "sample") com.agentos.shell.tools.VoiceAudit.sample(app,

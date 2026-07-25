@@ -284,6 +284,38 @@ object VoiceAudit {
         Log.i(TAG, "══════ END HOME AI ══════")
     }
 
+    /**
+     * Build a document end to end and inspect the FILE, not just the return code.
+     *
+     * A generated pitch deck reported success while containing one slide, five blank pages and no text at
+     * all — "it produced a PDF" was true and useless. Page count, font count and image count are what
+     * actually distinguish a deck someone can send an investor from a screenshot of one.
+     */
+    fun deck(ctx: Context, brief: String) {
+        Log.i(TAG, "══════ DOC BUILD: \"$brief\" ══════")
+        val t0 = System.currentTimeMillis()
+        val made = try { DocForge.create(ctx, brief.take(60), brief, "pdf") } catch (t: Throwable) {
+            Log.e(TAG, "create threw: ${t.message}", t); return
+        }
+        Log.i(TAG, "ok=${made.ok} name=${made.name} path=${made.path} ${if (made.error.isNotBlank()) "err=" + made.error else ""} (${System.currentTimeMillis() - t0}ms)")
+        val f = try { java.io.File(made.path) } catch (t: Throwable) { null }
+        if (f == null || !f.exists()) { Log.w(TAG, "no file on disk"); return }
+        val bytes = try { f.readBytes() } catch (t: Throwable) { ByteArray(0) }
+        fun count(needle: String) = Regex(Regex.escape(needle)).findAll(String(bytes, Charsets.ISO_8859_1)).count()
+        val pages = count("/Type/Page") + count("/Type /Page")
+        val fonts = count("/Font")
+        val images = count("/Image")
+        Log.i(TAG, "size=${bytes.size} pages≈$pages fonts=$fonts images=$images")
+        Log.i(TAG, "verdict: " + when {
+            bytes.isEmpty() -> "EMPTY FILE"
+            fonts == 0 && images > 0 -> "RASTERISED — no selectable text, blurs when zoomed, huge file"
+            pages <= 1 -> "SINGLE PAGE — a deck should paginate"
+            fonts > 0 -> "vector text, $pages pages — sendable"
+            else -> "unclear"
+        })
+        Log.i(TAG, "══════ END DOC BUILD ══════")
+    }
+
     fun health(ctx: Context, deep: Boolean = false) {
         Log.i(TAG, "══════ FEATURE HEALTH (deep=$deep) ══════")
         recallState(ctx)
