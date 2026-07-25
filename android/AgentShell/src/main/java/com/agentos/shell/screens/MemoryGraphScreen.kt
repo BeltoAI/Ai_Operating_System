@@ -266,13 +266,20 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
             val corpus = ArrayList<String>(); var chars = 0
             // Lead with whatever the question is really about — but always fold in the semantic hits (best
             // meaning-matches) high up, right after the core profile.
-            val ordered = profile + semHits + when {
-                paperQuery -> paperTitles + paperHits + conns + dbHits + docHits + taskLines + rankedExtra
-                schedQ     -> calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                taskQuery  -> taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                else       -> conns + dbHits + paperHits + docHits + taskLines + rankedExtra
+            // ACTUAL MESSAGES COME FIRST. `conns` is up to 60 lines from a 20,000-strong LinkedIn network,
+            // and it sat AHEAD of dbHits — so the 14k budget was spent on "Connection: <name>" lines before a
+            // single real message was included. Asking "who is Carlos" returned nothing while the brain held
+            // 10,864 messages with him. Real conversation is the most valuable context there is; the network
+            // is a thin supplement, so it's capped and demoted.
+            val net = conns.take(12)
+            val ordered = profile.take(40) + semHits + when {
+                paperQuery -> paperTitles + paperHits + dbHits + docHits + net + taskLines + rankedExtra
+                schedQ     -> calLines + taskLines + dbHits + net + paperHits + docHits + rankedExtra
+                taskQuery  -> taskLines + dbHits + net + paperHits + docHits + rankedExtra
+                else       -> dbHits + net + paperHits + docHits + taskLines + rankedExtra
             }
             for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
+            android.util.Log.i("SlyOS-Perf", "memory-ask corpus=${corpus.size} lines (db=${dbHits.size} sem=${semHits.size} net=${conns.size}) for \"${query.take(40)}\"")
             val a = withContext(Dispatchers.IO) {
                 if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
             }
