@@ -144,3 +144,68 @@ Run `pull_brain_stats.sh` (connected debug phone). It **redacts API keys** (SET/
 - **Keys present** (hidden values) + analytics status.
 
 **What "correct" looks like at limits:** on a 429/quota, `ProviderLimit` parks that brain for a 10-min cooldown and the router sorts it to the back → rolls to the next keyed brain automatically; re-probes after cooldown; if all parked, still tries. `FreeTierMeter used/cap` is display-only (never blocks). Monthly-budget crossing forces free-brains-only.
+
+---
+
+# Where this stands — 2026-07-24, end of session
+
+Released `v2026.07.24-2134` (public, keyless APK verified — no `sk-ant-`/`sk-proj-`/Google keys in any dex).
+Self-test at publish: **26 PASS / 0 FAIL / 32 checks**.
+
+## Verified on the device, not just in code
+
+| Thing | Evidence |
+|---|---|
+| "Who is Carlos" | 4 distinct Carloses, disambiguated by volume/platform/span |
+| "Who is Mutti" | "your mother, 928 WhatsApp messages, Russian + German, offered to help pay for Harvard" — from imported history, never typed in |
+| Anna Gong name question | Corrected the premise: *you* said it, not her |
+| Screen recall | 1,552 rows, climbing, healthy app spread |
+| Autonomous operation | `TapSend: YES`, 50/50 eligible targets, drafts good (nothing sent) |
+| Reply voice | 10/10 channels on-tone in the matrix run |
+| Speed | Home AI 3.7s / 6.7s (retrieval ~1.3s + model) |
+
+## What was actually wrong (all three were hardcoded numbers)
+
+1. `rankedRecall` budget **2,600 chars** → ~9 messages of 67,163 reached any AI.
+2. Corpus loop used `break` not `continue` → one long line killed the rest; Memory tab ran on 3,416 of 20,000.
+3. **The killer:** profile block measured **27,490 chars** and is emitted first, while `answerWell` truncated at
+   20,000 — the settings card consumed the entire window before one memory arrived. "The AI only knows what's
+   in my characteristics card" was literally true. 49 of 250 learned facts were restatements feeding that bloat.
+
+## Read this before trusting a probe again
+
+A change that passed **every** adb probe broke the Memory tab completely (`Couldn't search memory (-1)`):
+`BrainAnswer.answer` was called from `scope.launch{}`, which is the **Main** dispatcher, so the network call
+threw. Probes run off the main thread already and are structurally blind to this. A scan of every screen
+coroutine found only two more (now fixed), but **probes cannot replace driving the UI**.
+
+## Open — nothing here is fixed
+
+- **#2 hallucinated capabilities** — prompt rules added, never tested against a real inbound message.
+- **#3** chat bubble styling.
+- **#4** alarm/timer widget redesign (the rest of #4 is fixed).
+- **#5** Telegram attachment relay — untouched.
+- **#6** Reconnect — never verified on the current build.
+- **Now-question diversity** — mechanism fixed (exclusions were being truncated out of the prompt; the profile
+  was missing entirely, which is why it asked whether the owner's *wife* was helping close deals). Seen for
+  one batch only. Watch `focus=N generated 4, X new after repeat-filter` — 0 new means it's circling.
+- **Device-verify the code-only fixes**: alarms (#4), the Auto regression (#8), Mission's channel (#7). These
+  were marked 🔧 from reading source. Reading code is not testing.
+
+## Two operational notes
+
+- **`adb install -r` unbinds the accessibility service.** Screen recall stops writing and outreach aborts with
+  `TapSend: NO` until it's toggled off/on in Settings. Check `-e mode outreachdry` after any reinstall.
+- **Reinstalling kills a running re-embed.** `EmbedWorker` now works to a 4-minute budget (~5,000 rows/run,
+  was 300 per 15 min = 33 hours for this brain), so leave the app alone and it fills itself.
+
+## The probes
+
+```
+-e mode ask -e q "…"        the Memory tab pipeline: corpus + answer
+-e mode home -e q "…"       Home AI end to end, with retrieval/model timings (warns above 8s)
+-e mode mix -e q "…"        how much of the context is settings profile vs real memory
+-e mode sample -e q WhatsApp   what you TOLD it vs what it IMPORTED (the only honest recall test)
+-e mode health              full self-test suite + screen-recall verdict
+-e mode outreachdry -e count 50   a full 50-contact run, stopping before the tap
+```
