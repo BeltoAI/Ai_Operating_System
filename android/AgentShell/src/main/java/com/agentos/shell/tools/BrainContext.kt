@@ -20,6 +20,53 @@ object BrainContext {
     fun profileBlock(ctx: Context): String = MemoryStore.fullProfile(ctx)
 
     /**
+     * WHAT SLYOS CAN ACTUALLY DO RIGHT NOW, with live connection state.
+     *
+     * Asked to schedule a call and send a Meet link, Home AI answered "No — I genuinely can't do it. I don't
+     * have the ability to connect to Google Calendar or create Meet links. You have to do it manually." Google
+     * was connected, the calendar permission was granted, and the planner emits exactly the right action for
+     * that request. The refusal came from the ANSWER path, whose prompt describes memory and web search and
+     * never mentions that this app operates the phone — so when a request phrased as a question routes there
+     * instead of to the planner, it denies capabilities the product ships.
+     *
+     * That is the same failure as an agent inventing integrations it doesn't have, pointed the other way, and
+     * it is worse: it teaches the owner a working feature is missing. Both directions need ONE honest list,
+     * built from live state rather than from either prompt's imagination — which is why connection status is
+     * read here and not hardcoded.
+     */
+    fun capabilities(ctx: Context): String {
+        val google = try { GoogleAuth.isConnected(ctx) } catch (e: Exception) { false }
+        val cal = try { CalendarTool.hasPermission(ctx) } catch (e: Exception) { false }
+        val screen = try { com.agentos.shell.tools.TapSend.available() } catch (e: Exception) { false }
+        val telegram = try { TelegramClient.configured() } catch (e: Exception) { false }
+        return buildString {
+            append("\nWHAT YOU CAN ACTUALLY DO (you are an agent that operates this phone — never tell them you ")
+            append("cannot do something on this list; say you're doing it and it gets carried out):\n")
+            append("• Calendar: create, move and cancel events, invite attendees by email")
+            append(if (google && cal) " — Google IS connected, so you CAN create real events WITH Google Meet links.\n"
+                   else if (cal) " — on-device calendar only; Google is NOT connected, so no Meet links until they connect it in Settings.\n"
+                   else " — calendar permission is OFF; ask them to grant it in Settings.\n")
+            append("• Email: read their mail and send email")
+            append(if (google) " — Gmail IS connected.\n" else " — needs Google connected in Settings first.\n")
+            append("• Messages: send SMS, WhatsApp, Telegram, Instagram and LinkedIn messages, and reply to notifications in their voice.\n")
+            append("• Documents: generate real PDFs, slide decks, and spreadsheets from a brief, grounded in their data.\n")
+            append("• Phone control: open and operate any app on screen, tap, type and navigate")
+            append(if (screen) ".\n" else " — accessibility is currently OFF, so this needs turning on in Settings.\n")
+            append("• Time: alarms, timers and reminders that really fire.\n")
+            append("• Also: web search, camera/vision, reading and filing documents and receipts")
+            append(if (telegram) ", and a Telegram bot interface.\n" else ".\n")
+            append("If a request needs something switched on, say exactly which switch — never a flat \"I can't\".\n")
+            // GUARD THE OTHER DIRECTION. Told what it can do, the answer path immediately over-corrected to
+            // "Done. Here's what was set up." — but this path only ANSWERS; the planner is what executes.
+            // A false completion is worse than the false refusal it replaced: the owner stops checking.
+            append("BUT NEVER CLAIM SOMETHING IS ALREADY DONE. You are the answering path — the action layer ")
+            append("carries these out separately. Say what you're doing or about to do (\"creating that event ")
+            append("now, inviting them with a Meet link\"), never \"Done\", never \"here's what was set up\", ")
+            append("and never invent a confirmation, link, or invite you have not been shown.\n")
+        }
+    }
+
+    /**
      * P4: rank+dedupe recall. Merges semantic (VectorStore, real cosine score) and keyword (MessageStore)
      * hits, weights semantic higher, dedupes by normalized text keeping the best score, and fills a char
      * budget best-first — so the most relevant memory is guaranteed into the prompt (no fixed truncation).
@@ -195,6 +242,9 @@ object BrainContext {
             // LAST thing appended — so whenever the context overflowed the model ceiling, the current time was
             // the first casualty. Cheap, essential things go where truncation can't reach them.
             append("Current time: ").append(now).append("\n")
+            // Near the front, with the time, so an overflowing context can never cost the answer path its
+            // own list of what the product does.
+            append(capabilities(ctx))
             if (digest.isNotBlank()) append("WHO YOU ARE (comprehensive self-model):\n").append(digest.take(9000)).append("\n\n")
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)

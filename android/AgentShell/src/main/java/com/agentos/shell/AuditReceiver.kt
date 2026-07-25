@@ -18,7 +18,7 @@ class AuditReceiver : BroadcastReceiver() {
         val mode = intent.getStringExtra("mode") ?: "voice"
         Thread {
             try {
-                if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app)
+                if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app, intent.getStringExtra("q") ?: "")
                 else if (mode == "outreach") com.agentos.shell.tools.VoiceAudit.outreach(app, 10)
                 else if (mode == "import") com.agentos.shell.tools.VoiceAudit.importFile(app,
                     intent.getStringExtra("path") ?: "/sdcard/Download/slyos_chats.zip")

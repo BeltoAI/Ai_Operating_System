@@ -21,8 +21,13 @@ object VoiceAudit {
      * PLANNER PROBE: run the real action planner over phone-operation prompts and log exactly what actions it
      * emits. "Operate my phone" failing silently (planner runs, zero actions) is invisible without this.
      */
-    fun planner(ctx: Context) {
-        val prompts = listOf(
+    fun planner(ctx: Context, custom: String = "") {
+        // Google integration state first: "I can't connect to Google Calendar" is the CORRECT answer when
+        // nothing is connected, and a completely different bug when something is. Never guess which.
+        try {
+            Log.i(TAG, "google connected: ${GoogleAuth.isConnected(ctx)} · calendar permission: ${CalendarTool.hasPermission(ctx)}")
+        } catch (t: Throwable) { Log.w(TAG, "google state: ${t.message}") }
+        val prompts = if (custom.isNotBlank()) listOf(custom) else listOf(
             "open instagram",
             "open instagram and search for anduril",
             "turn on the flashlight",
