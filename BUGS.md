@@ -37,7 +37,11 @@ Covered by a `FeatureHealth` self-test ("Card envelope renders as a card, not te
 contacts/accounts, never claim to send mail or book meetings, never commit another person or team to
 an action) and an `ABUSE` rule (decline mass-report/brigade/scrape tooling in one line rather than
 analysing it). Both hallucinations in this report were capability/commitment inventions.
-**Still open:** the crossed Q/A routing between agents — that's a dispatch bug, not a prompt bug.
+**Also done:** the crossed Q/A routing was a RACE, not mis-routing. Every update got its own bare
+`scope.launch`, and since the agent chain takes 30-60s, two messages sent seconds apart in one chat ran
+in parallel and whichever finished first replied first. One mutex per chat id — sequential within a
+conversation (FIFO hand-off preserves question order), still concurrent across chats so the long-poll
+never blocks. **Untested against a real inbound message.**
 
 ## 3. Research → Chat — layout + capabilities  · MEDIUM · 🔧 (partial)
 Attachments ARE implemented (`ChatScreen` reads images → b64 and PDF/txt/code → text, with an error
@@ -48,10 +52,6 @@ search on live/factual questions plus the grounding rules, instead of the thinne
 no web tool at all. That was both this bug's "chat should use the internet" and the reason the same
 question answered well on Home and vaguely in chat.
 **Still open:** user-prompt bubbles render ugly → restyle the chat layout.
-- User-prompt messages render as **ugly bubbles** → make the chat layout much prettier.
-- Chat should be able to **use the internet / web search** when the right endpoint/tool is enabled in Settings.
-- **Attachments** must work in chat — all formats.
-- Chat + attachments must still **feed the memory brain** (as everywhere else).
 
 ## 4. Alarms & Timers — broken end-to-end  · HIGH · 🔧
 - ~~Don't read the **current time**~~ → every planning prompt now carries `Current time: <EEE yyyy-MM-dd HH:mm>`
