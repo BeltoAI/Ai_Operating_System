@@ -1904,6 +1904,7 @@ object AgentClient {
             "'wanted to reach out'), no markdown. " +
             (if (book.isNotBlank()) "Include this booking link where it fits: $book. " else "") + "Ready to send."
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Draft the message."))
+
         val (code, text) = callMessages(sys, msgs, 350, VOICE)
         return if (code == 200) text.trim() else ("Hi {name}, I'm reaching out about " + query + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
@@ -1921,8 +1922,17 @@ object AgentClient {
             "CRITICAL: address the recipient by EXACTLY this first name — \"$firstName\" — and use NO other name; " +
             "never invent or guess a name. Register: warm but professional (this is LinkedIn, not a text) — do NOT " +
             "open with “yo”, “hey”, or slang. Structure: (1) a specific, real reason for reaching out tied to their " +
-            "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
-            "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). " +
+            (if (template.isBlank())
+                "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
+                "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). "
+             else
+                // With an owner-written template the length rule must NOT apply — a 3-5 sentence cap silently
+                // compressed it and dropped the GitHub link, the offer to help install, and the no-commitment
+                // line. The owner's message is the deliverable; only the opener is personalised.
+                "KEEP THE OWNER'S MESSAGE ESSENTIALLY WHOLE: same paragraphs, same length, EVERY URL, and every " +
+                "concrete offer (help installing, no payment/commitment, what feedback is wanted). Do NOT " +
+                "summarise, shorten or restructure it. Change ONLY the greeting/first line so it speaks to this " +
+                "specific person, and drop a clause only if it truly cannot apply to them. ") +
             // Same failure the intro-message audit caught: a truncated background made the model INVENT what
             // the sender is building (three different fake companies in one run). Never let it improvise this.
             "NEVER invent, guess or embellish what the sender does or is building — state it only if it appears " +
@@ -1946,7 +1956,8 @@ object AgentClient {
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content",
             "Recipient: $who. Their first name is \"$firstName\" — address them as that." +
             (if (history.isNotBlank()) "\n\nYour prior conversation with them (oldest first):\n" + history.take(1800) else "")))
-        val (code, text) = callMessages(sys, msgs, 350, VOICE)
+        // A template needs room to come back intact; 350 tokens truncated it.
+        val (code, text) = callMessages(sys, msgs, if (template.isNotBlank()) 900 else 350, VOICE)
         return if (code == 200) text.trim() else ("Hi $firstName, I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
 

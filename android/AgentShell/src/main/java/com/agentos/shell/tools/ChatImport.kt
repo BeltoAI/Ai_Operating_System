@@ -76,12 +76,22 @@ object ChatImport {
                 val bos = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192)
                 while (true) { val n = zis.read(buf); if (n < 0) break; bos.write(buf, 0, n) }
                 zis.closeEntry()
-                val r = dispatchText(ctx, bos.toString("UTF-8"), owner)
+                val r = try { dispatchText(ctx, bos.toString("UTF-8"), owner) } catch (t: Throwable) {
+                    // One bad file must not kill the whole archive — and the failure must be VISIBLE.
+                    android.util.Log.w("SlyOS-Import", "FAILED ${entry.name}: ${t.message}")
+                    Result(0, 0, emptyList(), "")
+                }
+                android.util.Log.i("SlyOS-Import", "${entry.name}: +${r.messages} msgs, ${r.contacts} contact(s)")
                 contacts += r.contacts; messages += r.messages; samples.addAll(r.mySamples)
                 if (r.source.isNotBlank()) sources.add(r.source)
             }
             zis.close()
-        } catch (e: Exception) { /* return whatever we got */ }
+        } catch (e: Exception) {
+            // Previously swallowed entirely: a mid-archive failure silently truncated the import and the user
+            // was told it succeeded. 26,678 WhatsApp messages became 950 with no error shown anywhere.
+            android.util.Log.e("SlyOS-Import", "ARCHIVE ABORTED after $messages msgs: ${e.message}", e)
+        }
+        android.util.Log.i("SlyOS-Import", "zip done: $messages msgs across $contacts contact(s)")
         return Result(contacts, messages, samples, sources.joinToString("+").ifBlank { "zip" })
     }
 

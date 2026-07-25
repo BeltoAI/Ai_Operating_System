@@ -70,7 +70,16 @@ object PersonResolver {
         val ambiguous = ArrayList<String>()
         val isBareFirstName = display.trim().split(" ").size == 1
         try {
-            val real = MessageStore.contactsNamed(ctx, display.split(" ").first(), 8)
+            var real = MessageStore.contactsNamed(ctx, display.split(" ").first(), 8)
+            // When the caller gave a FULL name, a first-name match is not enough: "Nabeel Khan" was picking up
+            // "Nabeel Aslam" (a different human) and inheriting his history. Require a second matching token.
+            if (!isBareFirstName) {
+                fun toks(x: String) = x.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 1 }.toSet()
+                val mine = toks(display)
+                real = real.filter { toks(it.first).intersect(mine).size >= 2 || it.first.equals(display, true) }
+            }
+            // Drop junk contact strings that aren't a person ("Elon Musk reposted", "… via LinkedIn").
+            real = real.filter { !Regex("(?i)\\b(reposted|shared|via|from|notification|update)\\b").containsMatchIn(it.first) }
             if (real.isNotEmpty()) {
                 real.forEach { ambiguous.add("${it.first} (${it.second} msgs)") }
                 val best = real.first()

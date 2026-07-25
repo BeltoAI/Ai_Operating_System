@@ -154,14 +154,14 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (attachName.isBlank()) "📎 Attach a file" else "📎 $attachName",
+                            Text(if (attachName.isBlank()) "Attach a file" else attachName,
                                 fontSize = T.caption, color = if (attachName.isBlank()) T.inkSoft else T.accent,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                                     .clickable { try { pickForAnswer.launch(arrayOf("*/*")) } catch (e: Exception) {} }
                                     .padding(vertical = 6.dp))
                             if (attachName.isNotBlank())
-                                Text("✕", fontSize = T.caption, color = T.inkFaint,
+                                Text("Remove", fontSize = T.caption, color = T.inkFaint,
                                     modifier = Modifier.clickable { attachName = ""; attachText = "" }.padding(6.dp))
                         }
                         Spacer(Modifier.height(6.dp))

@@ -20,7 +20,20 @@ class AuditReceiver : BroadcastReceiver() {
             try {
                 if (mode == "planner") com.agentos.shell.tools.VoiceAudit.planner(app)
                 else if (mode == "outreach") com.agentos.shell.tools.VoiceAudit.outreach(app, 10)
+                else if (mode == "stats") com.agentos.shell.tools.VoiceAudit.brainStats(app)
+                else if (mode == "matrix") com.agentos.shell.tools.VoiceAudit.matrix(app)
                 else if (mode == "questions") com.agentos.shell.tools.BrainQuestions.forceRefresh(app)
+                else if (mode == "preview") {
+                    val n = intent.getStringExtra("count")?.toIntOrNull() ?: 3
+                    com.agentos.shell.tools.VoiceAudit.outreachPreview(app, n, intent.getStringExtra("template") ?: "")
+                }
+                else if (mode == "sendout") {
+                    // Real LinkedIn outreach driven by the owner's own message as the template.
+                    val n = intent.getStringExtra("count")?.toIntOrNull() ?: 3
+                    intent.getStringExtra("template")?.takeIf { it.isNotBlank() }
+                        ?.let { com.agentos.shell.tools.NetworkOutreach.template = it }
+                    com.agentos.shell.tools.NetworkOutreach.start(app, "invite them to test SlyOS as an early developer tester", n) {}
+                }
                 else com.agentos.shell.tools.VoiceAudit.run(app, from, msg)
             } catch (t: Throwable) {}
         }.start()
