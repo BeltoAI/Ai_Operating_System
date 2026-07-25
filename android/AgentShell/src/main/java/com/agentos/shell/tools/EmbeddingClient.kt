@@ -20,10 +20,28 @@ object EmbeddingClient {
     @Volatile var lastError: String = ""
 
     /** Which provider+model will embed, given the user's keys and their preference. null = none. */
+    // ── Provider health ────────────────────────────────────────────────────────────────────────
+    // A cloud embedder that's out of quota (429) or unauthorized (401/403) fails EVERY call, which silently
+    // kills semantic recall app-wide — measured live: "Gemini embed 429: monthly spending cap exceeded".
+    // We remember that for a while and fail over to the free on-device embedder instead of staying broken.
+    private const val UNHEALTHY_MS = 6 * 3600_000L
+    private fun health(ctx: Context) = ctx.getSharedPreferences("slyos_embed_health", Context.MODE_PRIVATE)
+    fun markUnhealthy(ctx: Context, provider: String, why: String) {
+        health(ctx).edit().putLong("bad_$provider", System.currentTimeMillis()).putString("why_$provider", why).apply()
+        Log.w(TAG, "embed provider '$provider' marked unhealthy: $why")
+    }
+    fun isUnhealthy(ctx: Context, provider: String): Boolean =
+        System.currentTimeMillis() - health(ctx).getLong("bad_$provider", 0L) < UNHEALTHY_MS
+    /** Why the cloud embedder is currently sidelined ("" if healthy) — for Settings/diagnostics. */
+    fun unhealthyReason(ctx: Context): String {
+        for (p in listOf("gemini", "openai")) if (isUnhealthy(ctx, p)) return health(ctx).getString("why_$p", "") ?: ""
+        return ""
+    }
+
     fun provider(ctx: Context): String? {
         val pref = MemoryStore.embedProvider(ctx)
-        val gem = MemoryStore.geminiKey(ctx).isNotBlank()
-        val oai = MemoryStore.openaiKey(ctx).isNotBlank()
+        val gem = MemoryStore.geminiKey(ctx).isNotBlank() && !isUnhealthy(ctx, "gemini")
+        val oai = MemoryStore.openaiKey(ctx).isNotBlank() && !isUnhealthy(ctx, "openai")
         val local = OnDeviceEmbedder.ready(ctx)
         return when {
             pref == "local" && local -> "local"       // on-device: free, unlimited, private, key-independent
@@ -77,7 +95,14 @@ object EmbeddingClient {
         val (code, raw) = post(
             "https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:batchEmbedContents?key=$key",
             emptyMap(), body)
-        if (code !in 200..299) { lastError = "Gemini embed $code: ${raw.take(180)}"; Log.w(TAG, lastError); return null }
+        if (code !in 200..299) {
+            lastError = "Gemini embed $code: ${raw.take(180)}"; Log.w(TAG, lastError)
+            // Quota exhausted / key rejected → sideline this provider so we fail over to on-device instead of
+            // returning null on every single call (which silently disables semantic memory app-wide).
+            if (code == 429 || code == 401 || code == 403)
+                markUnhealthy(ctx, "gemini", if (code == 429) "quota/spending cap reached" else "key rejected ($code)")
+            return null
+        }
         return try {
             val arr = JSONObject(raw).getJSONArray("embeddings")
             val out = (0 until arr.length()).map { i ->

@@ -27,14 +27,35 @@ internal object VoiceEngine {
     private const val TAG = "SlyOS-VoiceEngine"
 
     // Tunables (on-device tuning is a one-line change here):
-    //  NUM_STEPS — flow-matching steps. 8 = the value that produced clean audio in the first working build
-    //  (4 may have been too few and yielded silence); tune down later once output is confirmed good.
+    //  NUM_STEPS — flow-matching steps. Measured on-device at 8: generating ~21s of audio took ~24s (RTF≈1.2),
+    //  so a long reply meant a ~25s silent wait. The distill model is built for few steps; 4 roughly halves
+    //  generation (RTF≈0.6) which also lets the pipeline below stay ahead of playback.
     //  SPEED     — 1.0 = natural pace.
-    private const val NUM_STEPS = 8
+    private const val NUM_STEPS = 4
     private const val SPEED = 1.0f
+
+    /** Split a reply into speakable chunks (sentence-ish), so the first words start playing in ~1-2s instead
+     *  of after the whole clip renders. Short trailing fragments are merged so we never synthesize "Ok." alone. */
+    internal fun chunks(text: String, minChars: Int = 60, maxChars: Int = 180): List<String> {
+        val parts = Regex("(?<=[.!?…])\\s+|\\n+").split(text.trim()).filter { it.isNotBlank() }
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        for (p in parts) {
+            if (sb.isNotEmpty() && sb.length + p.length > maxChars) { out.add(sb.toString().trim()); sb.clear() }
+            if (sb.isNotEmpty()) sb.append(' ')
+            sb.append(p.trim())
+            if (sb.length >= minChars) { out.add(sb.toString().trim()); sb.clear() }
+        }
+        if (sb.isNotEmpty()) {
+            if (out.isNotEmpty() && sb.length < 25) out[out.size - 1] = out.last() + " " + sb.toString().trim()
+            else out.add(sb.toString().trim())
+        }
+        return out.ifEmpty { listOf(text.trim()) }
+    }
 
     @Volatile private var tts: OfflineTts? = null
     @Volatile private var track: AudioTrack? = null
+    @Volatile private var cancelled = false
     private val lock = Any()
 
     /** True if the sherpa native library actually loaded (AAR present + .so for this ABI). */
@@ -69,7 +90,7 @@ internal object VoiceEngine {
     fun warm(m: LocalVoice.ModelPaths) { try { engine(m) } catch (t: Throwable) {} }
 
     /** Stop whatever is currently speaking (e.g. the user talks again). */
-    fun stop() { synchronized(lock) { try { track?.pause(); track?.flush(); track?.stop() } catch (e: Exception) {} } }
+    fun stop() { cancelled = true; synchronized(lock) { try { track?.pause(); track?.flush(); track?.stop() } catch (e: Exception) {} } }
 
     /** 16-bit PCM AudioTrack (far more universally supported than PCM_FLOAT). Null if it won't initialize. */
     private fun newTrack(sampleRate: Int): AudioTrack? {
@@ -107,26 +128,55 @@ internal object VoiceEngine {
                        m: LocalVoice.ModelPaths): Boolean {
         val e = engine(m) ?: run { Log.w(TAG, "no engine"); return false }
         val started = System.currentTimeMillis()
+        val parts = chunks(text)
         return try {
+            stop(); try { track?.release() } catch (ex: Exception) {}
             val gen = GenerationConfig(speed = SPEED, referenceAudio = refSamples,
                 referenceSampleRate = refSampleRate, referenceText = refText, numSteps = NUM_STEPS)
-            val audio = synchronized(lock) { e.generateWithConfig(text, gen) }
-            val genMs = System.currentTimeMillis() - started
-            if (audio.samples.isEmpty()) { Log.w(TAG, "generated 0 samples in ${genMs}ms"); return false }
-            val sr = if (audio.sampleRate > 0) audio.sampleRate else 24000
-            Log.i(TAG, "generated ${audio.samples.size} samples @ ${sr}Hz in ${genMs}ms")
 
-            stop(); try { track?.release() } catch (ex: Exception) {}
-            val t = newTrack(sr) ?: return false
-            track = t
-            val pcm = ShortArray(audio.samples.size) { i -> (audio.samples[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort() }
-            t.play()
-            val written = try { t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING) } catch (ex: Exception) { -1 }
-            try { t.stop() } catch (ex: Exception) {}
-            try { t.release() } catch (ex: Exception) {}
+            // PIPELINE: a producer thread renders chunk N+1 while chunk N is still playing, so the user hears
+            // the first words after only the FIRST chunk renders (~1-2s) instead of waiting for the whole reply
+            // (~25s measured). Bounded queue = at most one chunk buffered ahead; a poison pill ends the stream.
+            val q = java.util.concurrent.ArrayBlockingQueue<Any>(2)
+            val done = Any()
+            val producer = Thread {
+                try {
+                    for (p in parts) {
+                        if (cancelled) break
+                        val a = synchronized(lock) { e.generateWithConfig(p, gen) }
+                        if (a.samples.isNotEmpty()) q.put(a)
+                    }
+                } catch (t: Throwable) { Log.w(TAG, "producer: ${t.message}") }
+                finally { try { q.put(done) } catch (ig: InterruptedException) {} }
+            }
+            cancelled = false
+            producer.isDaemon = true
+            producer.start()
+
+            var t: AudioTrack? = null
+            var total = 0L
+            var first = true
+            while (true) {
+                val item = q.take()
+                if (item === done) break
+                val audio = item as com.k2fsa.sherpa.onnx.GeneratedAudio
+                if (cancelled) break
+                if (t == null) {
+                    val sr = if (audio.sampleRate > 0) audio.sampleRate else 24000
+                    t = newTrack(sr) ?: break
+                    track = t; t.play()
+                }
+                if (first) { Log.i(TAG, "first audio after ${System.currentTimeMillis() - started}ms"); first = false }
+                val pcm = ShortArray(audio.samples.size) { i -> (audio.samples[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort() }
+                val w = try { t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING) } catch (ex: Exception) { -1 }
+                if (w > 0) total += w
+            }
+            cancelled = true            // stop the producer if we broke out early
+            try { t?.stop() } catch (ex: Exception) {}
+            try { t?.release() } catch (ex: Exception) {}
             if (track === t) track = null
-            Log.i(TAG, "played $written frames (total ${System.currentTimeMillis() - started}ms)")
-            written > 0
+            Log.i(TAG, "played $total frames across ${parts.size} chunk(s) (total ${System.currentTimeMillis() - started}ms)")
+            total > 0
         } catch (t: Throwable) { Log.w(TAG, "speak failed: ${t.message}"); false }
     }
 

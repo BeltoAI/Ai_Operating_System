@@ -206,7 +206,28 @@ object VectorStore {
 
     /** Embed up to [cap] queued rows, in batches. Safe to call on app start (off the main thread). */
     fun backfill(ctx: Context, cap: Int = 1000) {
+        // SELF-HEAL: if the cloud embedder is sidelined (quota/auth) and the free on-device model isn't
+        // downloaded yet, fetch it (~6MB) so semantic memory keeps working instead of staying dead.
+        if (EmbeddingClient.provider(ctx) == null || EmbeddingClient.unhealthyReason(ctx).isNotBlank()) {
+            if (!OnDeviceEmbedder.ready(ctx)) {
+                android.util.Log.i("SlyOS-Perf", "cloud embedder unavailable (${EmbeddingClient.unhealthyReason(ctx)}) — downloading on-device embedder")
+                OnDeviceEmbedder.download(ctx)
+            }
+        }
         val provider = EmbeddingClient.provider(ctx) ?: return
+        // If the active provider's dimension differs from what's stored (e.g. we failed over from Gemini's
+        // 768-dim to the on-device 100-dim), those old vectors can never match a query again — search filters
+        // on dim. Clear them so the loop below re-embeds them in the CURRENT space.
+        try {
+            val want = if (provider == "local") OnDeviceEmbedder.DIM else 0
+            if (want > 0) {
+                val stale = db(ctx).compileStatement("SELECT count(*) FROM vmem WHERE v IS NOT NULL AND dim<>$want").simpleQueryForLong()
+                if (stale > 0) {
+                    android.util.Log.i("SlyOS-Perf", "re-embedding $stale vectors into the $provider space (dim $want)")
+                    db(ctx).execSQL("UPDATE vmem SET v=NULL, dim=0 WHERE v IS NOT NULL AND dim<>$want")
+                }
+            }
+        } catch (e: Exception) {}
         compactOnce(ctx)    // one-time: shrink the over-bloated index so recall isn't reading hundreds of MB
         ensureSeeded(ctx)   // make sure existing history is queued before we start embedding
         var processed = 0
