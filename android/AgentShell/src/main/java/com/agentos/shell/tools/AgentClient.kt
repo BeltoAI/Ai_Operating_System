@@ -623,7 +623,10 @@ object AgentClient {
         Log.i("SlyOS", "ask code=$code raw=${text.take(300)}")
         if (code != 200) return AgentResult("Agent error $code: $text", emptyList(), "")
         val r = parse(text)
-        Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(50)}" }}")
+        // 50 chars cut the argument off exactly where the interesting part starts: an add_event logged as
+        // {"title":"Sync with Joslyn","start":"2026-07-26T16 tells you nothing about whether anyone is in
+        // 'attendees', which is the field that decides whether a single invitation is sent.
+        Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(400)}" }}")
         // THE SAFETY NET BELONGS HERE, NOT IN ONE SCREEN.
         // This backstop — synthesise an unmistakable action the model failed to emit — lived in HomeScreen,
         // so it protected the Home prompt and nothing else. Every other surface that plans actions (the

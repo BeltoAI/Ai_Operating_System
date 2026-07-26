@@ -146,6 +146,27 @@ object BrainContext {
         val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
+        // AUTHORITATIVE EVENT FACTS, FETCHED WHEN THE QUESTION IS ABOUT THEM.
+        // "Was the invite sent to Joslyn?" was answered from memory and came back a confident yes for an
+        // invite that Google's own record shows went to nobody (attendees: 0). Memory cannot settle that
+        // question — it holds what the app SAID as readily as what it DID, and the two are indistinguishable
+        // at retrieval time. When the owner asks who was invited, who replied, or whether something actually
+        // went out, fetch the event from Google and answer from that. Gated on the question so the ordinary
+        // path pays nothing.
+        val asksAboutInvites = Regex("(?i)\\b(invite[ds]?|invitation|attendee|rsvp|accepted|declined|" +
+            "confirm(ed)?|did .{0,20}(get|receive)|was .{0,20}sent|send out|going to attend|meet link|" +
+            "google meet)\\b").containsMatchIn(q)
+        val eventFacts = if (asksAboutInvites && GoogleAuth.isConnected(ctx)) try {
+            GoogleCalendarClient.findEvents(ctx).take(8).joinToString("\n") { e ->
+                "• \"${e.title}\" ${e.startIso.take(16)} — " +
+                (if (e.attendees.isEmpty()) "NOBODY IS INVITED (attendee list is empty — no invitation was sent to anyone)"
+                 else "invited: " + e.attendees.joinToString(", ") { a ->
+                     a.email + " (" + when (a.responseStatus) {
+                         "accepted" -> "accepted"; "declined" -> "DECLINED"
+                         "tentative" -> "maybe"; else -> "no reply yet" } + ")" }) +
+                (if (e.meetLink.isNotBlank()) " · Meet link: ${e.meetLink}" else " · no Meet link on it")
+            }
+        } catch (e: Exception) { "" } else ""
         android.util.Log.i("SlyOS-Perf", "profile ${tProfile - tBuild}ms · calendar ${System.currentTimeMillis() - tProfile}ms")
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
@@ -269,6 +290,15 @@ object BrainContext {
                 .append(" photos described in your brain; you can find pictures by describing them (e.g. \"a cute selfie\").")
             if (photoHits.isNotBlank()) append("\nPhotos that match this request:\n").append(photoHits)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+            // Straight from Google, and it OVERRIDES anything remembered. A memory saying an invite went out
+            // is not evidence it did; this block is. If it says nobody is invited, then nobody is invited —
+            // say so plainly, however confidently a past message claimed otherwise.
+            if (eventFacts.isNotBlank()) append(
+                "\nWHO IS ACTUALLY INVITED TO YOUR EVENTS (fetched from Google just now — this is the ONLY " +
+                "trustworthy answer about invitations and replies; it OVERRIDES anything you or the brain " +
+                "previously said. If it shows no attendees, the invitation was never sent, no matter what " +
+                "was claimed before. You can offer to fix it — add them and send the invite — or to follow " +
+                "up with anyone who hasn't replied or has declined):\n").append(eventFacts)
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)
             if (dayLog.isNotBlank()) append("\nWhat flowed through your brain in the time window you asked about (newest first, with times — use these to answer the date question):\n").append(dayLog)
