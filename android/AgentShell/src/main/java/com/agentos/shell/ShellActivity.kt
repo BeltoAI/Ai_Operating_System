@@ -114,6 +114,29 @@ class ShellActivity : ComponentActivity() {
             androidx.work.WorkManager.getInstance(applicationContext)
                 .enqueueUniquePeriodicWork("slyos_photoscan", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, scanReq)
         } catch (e: Exception) {}
+        // ACCESSIBILITY SURVIVES NOTHING. Android unbinds an accessibility service on every app UPDATE, and
+        // SlyOS never said so — screen recall silently stops writing and LinkedIn tap-send aborts with
+        // "turn on accessibility", while the switch still reads as ON in system settings. A user who
+        // upgrades simply finds two features quietly dead. Detect the state where it is enabled in settings
+        // but not actually bound to us, and record it so it surfaces instead of failing in silence.
+        Thread {
+            try {
+                Thread.sleep(6000)   // give the service a chance to bind after a cold start
+                val enabledInSettings = try {
+                    android.provider.Settings.Secure.getString(contentResolver,
+                        android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty().contains(packageName)
+                } catch (e: Exception) { false }
+                val bound = InteractionLogService.instance != null
+                if (enabledInSettings && !bound) {
+                    com.agentos.shell.tools.Fail.log(applicationContext, "Permissions",
+                        "accessibility service not running",
+                        "It is switched ON in Android settings but not connected to SlyOS — this happens after " +
+                        "an app update. Screen recall and LinkedIn send are OFF until you toggle it off and on " +
+                        "again in Settings > Accessibility > SlyOS.", "warn")
+                    android.util.Log.w("SlyOS", "accessibility enabled in settings but NOT bound — needs re-toggling")
+                }
+            } catch (e: Exception) {}
+        }.start()
         // Embed the semantic-memory backlog so the brain retrieves by meaning, not just keywords.
         Thread { try { com.agentos.shell.tools.VectorStore.backfill(applicationContext, 250) } catch (e: Exception) {} }.start()
         // One-shot brain health check to logcat (adb logcat -s SlyOS-Stats:I) — a quick way to verify every
