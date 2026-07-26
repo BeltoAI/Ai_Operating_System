@@ -521,7 +521,7 @@ object AgentClient {
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_photo, translate, send_email, create_document, refine_document, open_document, send_document, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, torch, media, identify_song, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, documents, none. " +
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_photo, translate, send_email, create_document, refine_document, open_document, send_document, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, torch, media, identify_song, add_event, update_event, event_followup, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, documents, none. " +
                 "torch: flashlight — arg 'on'/'off'/'' (blank toggles). media: control whatever's playing — arg 'pause'/'play'/'next'/'previous'/'open'. alarm: arg is a natural time like '7am', '18:30', 'in 20 minutes'. " +
                 "identify_song: when the owner asks what song is playing around them (e.g. 'what song is this', 'name this song', 'shazam it') — listens via the mic and opens it in the music app. ")
             append("Use translate when the user wants text translated (a message, a phrase, a document) — 'translate this to Spanish', 'what does this say in English'. arg = {\"text\":\"the text to translate\",\"to\":\"en|es|fr|de|…\"}. It runs fully on-device/offline and returns the translation to show them. ")
@@ -587,6 +587,22 @@ object AgentClient {
             append("play_music={\"query\":\"Bohemian Rhapsody Queen\"} — to play or find a song/artist on Spotify. ")
             append("add_event={\"title\":\"Deep work\",\"start\":\"2026-06-15T17:00\",\"end\":\"2026-06-15T19:00\",\"attendees\":[\"a@x.com\"],\"meet\":true} — 'attendees' is OPTIONAL emails to invite (for a meeting between people); omit it for a personal blocker. Set 'meet':true when the user wants a video call / Google Meet / online meeting (a real Meet link is created if their Google is connected). Use the Current time to resolve 'today/tomorrow/Friday 2pm'. ")
             append("timer=seconds (e.g. 3600); alarm=\"HH:MM\" 24h. ")
+            // Everything after an event is created used to be impossible: the calendar could only be written
+            // to, never read or changed. So "add a Meet link to that", "move it and tell everyone", "did she
+            // ever reply" had no action to route to and were answered with narration instead.
+            append("update_event={\"title\":\"date night\",\"addMeet\":true,\"start\":\"2026-07-26T19:00\"," +
+                "\"end\":\"2026-07-26T21:00\",\"addAttendees\":[\"a@b.com\"]} — change an event that ALREADY " +
+                "exists and email everyone on it. Use for 'add a google meet link to that', 'move it to 7', " +
+                "'add Anna to the invite'. 'title' is a few words of the existing event; include only the " +
+                "fields that change. Everyone invited is notified automatically. ")
+            append("event_followup={\"title\":\"date night\",\"message\":\"optional note\"} — chase the people " +
+                "who have NOT accepted an invite. Use for 'follow up with whoever hasn't replied', 'nudge " +
+                "them about tomorrow', 'has anyone not responded'. It emails only the non-responders, never " +
+                "anyone who already accepted, and reports back who declined. ")
+            append("For any question about WHO WAS INVITED, who accepted or declined, or whether an invite " +
+                "actually went out, do NOT emit an action — the live attendee list and RSVP status are " +
+                "already in your context, fetched from Google. Answer from those, and never from a previous " +
+                "message saying an invite was sent. ")
             append("Use remind for a timed reminder that pops a notification WITH a message — 'remind me in 20 minutes to call mom', 'remind me at 3pm to leave for the airport', 'remind me tomorrow at 9 to email Sam'. arg = {\"text\":\"call mom\",\"in\":1200} where 'in' is a RELATIVE delay in SECONDS, OR {\"text\":\"leave for the airport\",\"at\":\"2026-07-02T15:00\"} for an ABSOLUTE local time. Use the Current time to compute it. Prefer 'remind' over 'timer' whenever there's a thing to be reminded ABOUT; use plain alarm/timer only for a bare clock alarm or countdown with no message. ")
             append("Add remind to the action types. ")
             append("Empty array if nothing to do.), ")
