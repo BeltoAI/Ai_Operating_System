@@ -615,11 +615,30 @@ object ToolRouter {
                     val where = r.removePrefix("OK::")
                     // Feed the brain so the agent knows about the block when it answers later.
                     MemoryLog.add(ctx, "response", "Calendar: $title", "Blocked “$title” in $where (${o.optString("start")}–${o.optString("end")})", "Calendar")
+                    // THIS PATH INVITES NOBODY, AND USED TO SAY IT DID.
+                    // A CalendarContract write puts a row in a local calendar; it sends no email to anyone.
+                    // Only the Google API path above, with sendUpdates=all, actually invites people. This
+                    // branch nonetheless returned "and invited Joslyn" and wrote "· with Joslyn" into the
+                    // brain. So the owner was told the invite went out, the brain recorded that it went out,
+                    // and when he later asked "was it sent to Joslyn?" the answer was a confident yes —
+                    // sourced from a memory that was false the moment it was written. She never got it.
+                    // A false confirmation is worse than a failure: a failure gets noticed and retried.
+                    // Say plainly that the block exists and the invite did NOT go out, and record it that way.
+                    val notInvited = attendees.isNotEmpty()
                     MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
-                        "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" + (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else ""))
-                    val who = if (attendees.isNotEmpty()) " and invited ${attendees.joinToString(", ")}" else ""
-                    val meetHint = if (wantsMeet && !GoogleAuth.isConnected(ctx))
-                        " (Connect Google in settings and I'll add a real Meet link + email the invite.)" else ""
+                        "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" +
+                            (if (notInvited) " · NO invite sent to ${attendees.joinToString(", ")} " +
+                                "(local calendar only — nothing was emailed)" else ""))
+                    val who = if (notInvited)
+                        " — but ${attendees.joinToString(" and ")} " +
+                        (if (attendees.size == 1) "was NOT invited" else "were NOT invited") +
+                        ": this went into a local calendar, which can't email anyone" else ""
+                    val meetHint = if (wantsMeet || notInvited)
+                        (if (!GoogleAuth.isConnected(ctx))
+                            " Connect Google in Settings and I can send the real invite" +
+                                (if (wantsMeet) " with a Meet link." else ".")
+                         else " Google is connected but the invite call failed — try again and I'll send it.")
+                        else ""
                     return "Added “$title” to your $where$who.$meetHint"
                 }
             }
@@ -629,7 +648,17 @@ object ToolRouter {
                 .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
                 .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
                 .putExtra(CalendarContract.Events.TITLE, title))
-            "Opened your calendar to confirm “$title” — I couldn't write it directly (no synced calendar found)."
+            // "It just shows me the calendar" — this is that. It is the last resort when nothing could be
+            // written directly, and it is silent about what got dropped on the way: a prefilled new-event
+            // screen carries no attendees and no Meet link, so anyone the owner named is quietly not invited.
+            // Name the loss instead of leaving them to discover it when the other person never shows up.
+            "Opened your calendar to confirm “$title” — I couldn't write it directly (no synced calendar found)." +
+                (if (attendees.isNotEmpty())
+                    " ${attendees.joinToString(" and ")} " +
+                    (if (attendees.size == 1) "is NOT invited" else "are NOT invited") +
+                    " — tap Save and add them yourself, or connect Google in Settings and I'll send it properly."
+                 else "") +
+                (if (wantsMeet) " There's no Meet link on it either." else "")
         } catch (e: Exception) {
             Log.e("SlyOS", "addEvent failed", e); "I couldn't read those times."
         }

@@ -59,6 +59,19 @@ object BrainContext {
             // GUARD THE OTHER DIRECTION. Told what it can do, the answer path immediately over-corrected to
             // "Done. Here's what was set up." — but this path only ANSWERS; the planner is what executes.
             // A false completion is worse than the false refusal it replaced: the owner stops checking.
+            // "Was the invite sent to Joslyn?" → a confident yes. She never received it. The brain held a
+            // memory saying the invite went out, so the answer was honest and completely wrong. Your own
+            // past sentences are stored in this brain alongside real action records and look identical at
+            // retrieval time — a promise reads exactly like a receipt. Answering a did-this-happen question
+            // from a promise is how the owner ends up trusting something that never occurred.
+            append("WHAT COUNTS AS PROOF THAT SOMETHING HAPPENED: only a RECORD OF THE ACTION — a calendar, ")
+            append("outbox, document or message entry describing the completed action, with its details. ")
+            append("A message where you SAID you would do something, or described yourself doing it, is NOT ")
+            append("proof and never becomes proof by being repeated. When asked whether something was ")
+            append("actually sent, invited, scheduled, emailed or created, look for the action record. If ")
+            append("there isn't one, say plainly that you can't confirm it happened and tell them how to ")
+            append("check — never answer yes because you find yourself having promised it. Being wrong here ")
+            append("costs them a missed meeting and their trust in every other answer you give. ")
             append("BUT NEVER CLAIM SOMETHING IS ALREADY DONE. You are the answering path — the action layer ")
             append("carries these out separately. Say what you're doing or about to do (\"creating that event ")
             append("now, inviting them with a Meet link\"), never \"Done\", never \"here's what was set up\", ")
