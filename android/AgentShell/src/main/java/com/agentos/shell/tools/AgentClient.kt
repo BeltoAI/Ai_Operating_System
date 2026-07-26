@@ -213,6 +213,15 @@ object AgentClient {
             // slides. The body was clean; the branding was not. Every user of this app has a company in
             // their brain, so left alone this stamps a personal or school document with whoever they work
             // for. Branding has to be earned by the brief, not assumed from the author.
+            // AND NEVER INVENT ONE. Told the background "is not the subject", a request for "a one-pager
+            // summarising MY COMPANY" produced a polished page about "Northbeam", a business that does not
+            // exist, with invented positioning. A document about a fictional company is far worse than a
+            // wrongly-branded one: it looks entirely correct and is entirely false.
+            " NEVER INVENT AN IDENTITY. If the brief says \"my company\", \"our product\", \"my work\" or " +
+            "similar, that IS the author's own — resolve the real name, product and details from the " +
+            "background below and use them. Never substitute a placeholder or made-up company, person, " +
+            "product, metric or client. If the brief is about the author and the background does not say " +
+            "enough to name them, say so in the document rather than filling the gap with fiction." +
             " WHOSE DOCUMENT THIS IS: the brief decides. Only carry the owner's company name, logo, initials " +
             "or house style when the brief is genuinely ABOUT that company or their own work (a pitch, a " +
             "company one-pager, a customer proposal). For any other subject — a lesson, a personal project, " +
@@ -225,9 +234,10 @@ object AgentClient {
             "well-organized document — expand terse points into clean copy, never invent facts):\n$brief\n\n" +
             // Labelled as REFERENCE, not as the document's owner. Called "COMPANY CONTEXT" it read as "this
             // is a company document", which is how an unrelated school deck ended up branded.
-            (if (brainSnippet.isNotBlank()) "BACKGROUND ON THE AUTHOR — reference only, for accuracy and voice. " +
-                "Use it ONLY if the brief is about them or their work; it is NOT the subject of this document " +
-                "and must not appear in it otherwise:\n${brainSnippet.take(2500)}\n\n" else "") +
+            (if (brainSnippet.isNotBlank()) "BACKGROUND ON THE AUTHOR — this is WHO THE DOCUMENT IS BY. When the " +
+                "brief is about them, their company, product or work, take the real names and facts from here " +
+                "(never invent substitutes). When the brief is about an unrelated subject, this is reference " +
+                "only for voice and must not appear in the document at all:\n${brainSnippet.take(2500)}\n\n" else "") +
             (if (templates.isNotBlank()) "STYLE/STRUCTURE REFERENCE from the owner's example documents (mirror this look & feel):\n${templates.take(2500)}\n\n" else "") +
             "Design the full HTML now."
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 12000, OPUS, 240000)

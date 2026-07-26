@@ -307,7 +307,9 @@ object VoiceAudit {
         if (f == null || !f.exists()) { Log.w(TAG, "no file on disk"); return }
         val bytes = try { f.readBytes() } catch (t: Throwable) { ByteArray(0) }
         fun count(needle: String) = Regex(Regex.escape(needle)).findAll(String(bytes, Charsets.ISO_8859_1)).count()
-        val pages = count("/Type/Page") + count("/Type /Page")
+        // /Type/Pages (the page TREE node) also starts with "/Type/Page", so a naive count reported 2 pages
+        // for a genuine one-pager. Match the page objects only.
+        val pages = Regex("/Type\\s*/Page(?![s])").findAll(String(bytes, Charsets.ISO_8859_1)).count()
         val fonts = count("/Font")
         val images = count("/Image")
         Log.i(TAG, "size=${bytes.size} pages≈$pages fonts=$fonts images=$images")
