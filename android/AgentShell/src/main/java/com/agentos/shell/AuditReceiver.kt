@@ -36,6 +36,10 @@ class AuditReceiver : BroadcastReceiver() {
                     intent.getStringExtra("q") ?: "a venture pitch deck about SlyOS and my brain")
                 else if (mode == "home") com.agentos.shell.tools.VoiceAudit.home(app,
                     intent.getStringExtra("q") ?: "who is Carlos")
+                else if (mode == "calinvite") com.agentos.shell.tools.VoiceAudit.calendarInvite(app,
+                    intent.getStringExtra("q") ?: "", intent.getStringExtra("email") ?: "")
+                else if (mode == "cal") com.agentos.shell.tools.VoiceAudit.calendarState(app,
+                    intent.getStringExtra("q") ?: "")
                 else if (mode == "sample") com.agentos.shell.tools.VoiceAudit.sample(app,
                     intent.getStringExtra("q") ?: "WhatsApp", intent.getStringExtra("count")?.toIntOrNull() ?: 15)
                 else if (mode == "mix") com.agentos.shell.tools.VoiceAudit.contextMix(app,

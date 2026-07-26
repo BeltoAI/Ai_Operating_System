@@ -347,6 +347,57 @@ object VoiceAudit {
         Log.i(TAG, "══════ END DOC BUILD ══════")
     }
 
+    /**
+     * What Google ACTUALLY holds for the owner's upcoming events — attendees, RSVP state, Meet link.
+     *
+     * The app told the owner an invite had been sent to someone who never received it, because nothing
+     * could read an event back; the answer came from chat history. This reads the calendar itself, so
+     * "did that go out?" is answered from the only source that can settle it. READ-ONLY — creates,
+     * changes and cancels nothing.
+     */
+    fun calendarState(ctx: Context, titleContains: String) {
+        Log.i(TAG, "══════ CALENDAR STATE${if (titleContains.isNotBlank()) ": \"$titleContains\"" else ""} ══════")
+        if (!GoogleAuth.isConnected(ctx)) { Log.w(TAG, "Google not connected — nothing to read"); return }
+        val events = try { GoogleCalendarClient.findEvents(ctx, titleContains) } catch (t: Throwable) {
+            Log.e(TAG, "read failed: ${t.message}", t); return
+        }
+        Log.i(TAG, "${events.size} upcoming event(s) matched")
+        events.forEach { e ->
+            Log.i(TAG, "── ${e.title}  ${e.startIso} → ${e.endIso}")
+            Log.i(TAG, "   meet: ${e.meetLink.ifBlank { "NONE — no Meet link on this event" }}")
+            if (e.attendees.isEmpty())
+                Log.w(TAG, "   attendees: NOBODY — this event invited no one, whatever was said about it")
+            else e.attendees.forEach { a ->
+                Log.i(TAG, "   invited: ${a.email} → ${a.responseStatus}" +
+                    (if (a.organizer) " (organizer)" else "") +
+                    (if (a.responseStatus == "declined") "  ← DECLINED" else ""))
+            }
+            Log.i(TAG, "   id: ${e.id}")
+        }
+        Log.i(TAG, "══════ END CALENDAR STATE ══════")
+    }
+
+    /**
+     * Repair an event that was created without the people it was meant for: add [email] and let Google
+     * send the invite. This is the fix path for the exact failure that started this — an event with a Meet
+     * link and an empty attendee list, described to the owner as "invited". WRITES and NOTIFIES, so it runs
+     * only when explicitly invoked with a title and an address.
+     */
+    fun calendarInvite(ctx: Context, titleContains: String, email: String) {
+        Log.i(TAG, "══════ CALENDAR INVITE: add $email to \"$titleContains\" ══════")
+        val target = try { GoogleCalendarClient.findEvents(ctx, titleContains).firstOrNull() } catch (t: Throwable) { null }
+        if (target == null) { Log.w(TAG, "no upcoming event matched — nothing changed"); return }
+        Log.i(TAG, "before: ${target.title} · attendees=${target.attendees.size} · meet=${target.meetLink.ifBlank { "none" }}")
+        val after = try { GoogleCalendarClient.patchEvent(ctx, target.id, addAttendees = listOf(email), notify = true) }
+                    catch (t: Throwable) { Log.e(TAG, "patch threw: ${t.message}", t); return }
+        if (!after.ok) { Log.w(TAG, "patch FAILED: ${after.error}"); return }
+        Log.i(TAG, "after : ${after.title} · meet=${after.meetLink.ifBlank { "none" }}")
+        after.attendees.forEach { Log.i(TAG, "   invited: ${it.email} → ${it.responseStatus}") }
+        if (after.attendees.none { it.email.equals(email, true) })
+            Log.w(TAG, "STILL NOT INVITED — Google accepted the patch but $email is not on the event")
+        Log.i(TAG, "══════ END CALENDAR INVITE ══════")
+    }
+
     fun health(ctx: Context, deep: Boolean = false) {
         Log.i(TAG, "══════ FEATURE HEALTH (deep=$deep) ══════")
         recallState(ctx)
