@@ -497,6 +497,27 @@ object AgentClient {
                 "ONLY when there's a clear headline value; otherwise omit the tag entirely. ")
             append("Installed apps: ").append(apps.joinToString(", ")).append(". ")
             append("Respond with ONLY a JSON object (no prose, no markdown) with keys: ")
+            // THE FAILURE THIS EXISTS TO STOP. Measured three times on a capable model: the planner writes
+            // what it is about to do in "say" and returns an EMPTY actions array — "I'll create a Google Meet
+            // call tomorrow at 3:00 PM, inviting Joslyn (joslyn.barragan@gmail.com) and Anna" with
+            // ACTIONS: NONE. The owner is told it was done and nothing happened, which is worse than an
+            // outright failure because there is nothing to notice. Same shape for "make it much longer" and
+            // "send it to joslyn". Narration is not execution.
+            append("NEVER DESCRIBE AN ACTION INSTEAD OF EMITTING IT. If your \"say\" states or implies that " +
+                "you are doing something — scheduling an event, sending a message or email, making or " +
+                "changing or sending a document, setting an alarm — the matching step MUST appear in " +
+                "\"actions\". A \"say\" that promises work with an empty actions array is a silent failure: " +
+                "the user is told it happened and it did not. If you genuinely cannot act, say what is " +
+                "missing instead of describing the action as though you performed it. ")
+            // The same three failures all involved a referent the model had to resolve — a person by name, or
+            // "it" meaning the document from the previous turn. Resolving it into the sentence and then not
+            // acting is the trap; resolving it into the ARGUMENT is the job.
+            append("RESOLVE REFERENCES INTO THE ARGUMENTS, NOT JUST THE SENTENCE. People named for an " +
+                "invite or an email must be resolved to real email addresses from what you know about them " +
+                "and placed in 'attendees' — a bare first name can never be invited, and an event created " +
+                "without addresses silently reaches no one. A follow-up like \"make it longer\" or \"send it " +
+                "to her\" refers to the document or person from the previous turns: resolve what \"it\" and " +
+                "\"her\" mean and emit the step for that, rather than asking which one. ")
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
@@ -603,7 +624,22 @@ object AgentClient {
         if (code != 200) return AgentResult("Agent error $code: $text", emptyList(), "")
         val r = parse(text)
         Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(50)}" }}")
-        return r
+        // THE SAFETY NET BELONGS HERE, NOT IN ONE SCREEN.
+        // This backstop — synthesise an unmistakable action the model failed to emit — lived in HomeScreen,
+        // so it protected the Home prompt and nothing else. Every other surface that plans actions (the
+        // Telegram team chat, agents, audits) went unprotected, which is precisely where a silent miss is
+        // hardest to notice: no one is watching the screen when a teammate asks the bot to schedule
+        // something. Applying it at the shared planner entry point means every caller gets the same
+        // guarantee. HomeScreen's own call is now redundant but harmless — it re-checks the same condition
+        // and finds the action already present.
+        val backstopped = try {
+            val wanted = ScreenIntent.detect(prompt)
+            if (wanted != null && r.actions.none { it.type == wanted.action }) {
+                Log.w("SlyOS", "planner missed \"${wanted.action}\" — synthesised locally for: ${prompt.take(60)}")
+                r.copy(actions = r.actions + AgentAction(wanted.action, wanted.arg))
+            } else r
+        } catch (e: Exception) { r }
+        return backstopped
     }
 
     /**

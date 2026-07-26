@@ -46,10 +46,13 @@ object ModelRouter {
             Tier.CHEAP to "llama-3.1-8b-instant",
             Tier.STANDARD to "llama-3.3-70b-versatile",
             Tier.HEAVY to "llama-3.3-70b-versatile"),
+        // llama-4-scout-17b-16e-instruct 404s on Cerebras ("Model does not exist or you do not have access
+        // to it") — the last brain in the fallback chain was dead on arrival, so when every provider ahead
+        // of it failed there was nothing left to answer with. llama-3.3-70b is Cerebras's served equivalent.
         "cerebras" to mapOf(
             Tier.CHEAP to "llama3.1-8b",
-            Tier.STANDARD to "llama-4-scout-17b-16e-instruct",
-            Tier.HEAVY to "llama-4-scout-17b-16e-instruct"),
+            Tier.STANDARD to "llama-3.3-70b",
+            Tier.HEAVY to "llama-3.3-70b"),
         "mistral" to mapOf(
             Tier.CHEAP to "mistral-small-latest",
             Tier.STANDARD to "mistral-small-latest",

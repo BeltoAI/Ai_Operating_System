@@ -147,7 +147,12 @@ object BrainContext {
         // overwhelmingly the settings profile plus a handful of messages, no matter how much history the
         // owner imported. The brain wasn't failing to retrieve; it was being throttled on the way to the
         // model. 9,000 leaves ample room for the profile, calendar, docs and the rest inside that 20k.
-        val ranked = rankedRecall(ctx, q, budgetChars = 9000)
+        // 9,000 was too far the other way. Measured on device: a ~40,000-character context made the primary
+        // model take 105 SECONDS and time out, and exceeded Groq's per-minute token limit outright (413) —
+        // so the fallback couldn't absorb what the primary dropped and the owner got nothing at all. The
+        // Memory tab answers well and fast on a 20,000-character corpus, so that is the size to match; more
+        // context is worthless if the request never returns.
+        val ranked = rankedRecall(ctx, q, budgetChars = 6000)
         // WHO the question is about, as a relationship — the same lines that turned "who is Carlos" from
         // eight fragments of small talk into a real answer. This is the shared context every surface reads,
         // so Home AI, chat and reply drafting all get it, not just the Memory tab.
