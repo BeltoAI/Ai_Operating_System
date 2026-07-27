@@ -118,10 +118,29 @@ The app is judged on these when things go wrong, which is when people lose trust
 
 ---
 
+## K. Memory that actually works
+
+Added after the audit. These are the difference between a search box and a brain.
+
+| # | Do this | Pass |
+|---|---|---|
+| K1 | Settings → **Is it working?** → Check everything | Every line reports what it found. A ✕ names the fix; it never just says "error" |
+| K2 | Read a PDF in (paperclip on Home), then ask about something on page 4 | Answers from the document, quoting it |
+| K3 | Ask something phrased nothing like the memory that answers it — *"who owes me money?"* when nobody used that word | Finds it. This is semantic recall; keyword search cannot do it |
+| K4 | Home: upload a photo, let it read the text, then ask *"what was that?"* | Answers about the photo. Forgetting between prompts is the **hard fail** this was built for |
+| K5 | Research → Chat → **New chat**, talk, go back, start another | Two separate conversations, both still there after force-quitting |
+| K6 | Ask *"what did I do yesterday?"* | Real events from yesterday, with times — not a keyword match on the word "yesterday" |
+| K7 | Ask *"who did I email last?"* | The actual most recent sent mail, newest first |
+| K8 | Ask about a person you know well | Says how many exchanges, over what span, and how long since you last spoke |
+| K9 | After a day of use, Settings → Is it working? → Learned facts | A count above zero. These are distilled from your own history, not typed in |
+
+---
+
 ## Scoring
 
 - **Any hard fail in B** — not sellable. Those are trust, not features.
 - **A1–A4 failing** — not sellable. That's the product.
+- **K1–K5 failing** — the audit fixes did not land.
 - **C, F, G failing** — sellable but thin.
 - **E, H, I failing** — polish.
 

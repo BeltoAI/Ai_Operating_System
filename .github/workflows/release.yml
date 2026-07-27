@@ -59,7 +59,14 @@ jobs:
           EOF
           )"
           NOTES="$(printf '%s\n' "$NOTES" | sed 's/^          //')"
+          # --latest on every run, and it is not optional.
+          #
+          # The website button points at releases/latest/download/SlyOS.apk, and GitHub resolves
+          # that to whichever release is FLAGGED latest — not to the tag literally named "latest".
+          # A manually published dated release (publish_release.sh) takes that flag, and from then
+          # on CI kept faithfully rebuilding and uploading to a release nobody could download. The
+          # site served a stale APK for days with every workflow run passing green.
           gh release view latest >/dev/null 2>&1 \
-            && gh release edit latest --notes "$NOTES" \
-            || gh release create latest --title "SlyOS — latest build" --notes "$NOTES"
+            && gh release edit latest --notes "$NOTES" --latest \
+            || gh release create latest --title "SlyOS — latest build" --notes "$NOTES" --latest
           gh release upload latest "$GITHUB_WORKSPACE/SlyOS.apk" --clobber
