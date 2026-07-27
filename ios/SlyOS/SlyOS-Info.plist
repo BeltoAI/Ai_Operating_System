@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>SlyOS</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>GoogleOAuthClientID</key>
+	<string>$(GOOGLE_OAUTH_CLIENT_ID)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>SlyOS reads your calendar only when you ask about your schedule and writes events only after a confirmed request.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SlyOS uses the camera when you open Look mode to identify, read, and remember what you point at.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>SlyOS searches your contacts only when a prompt needs a person, phone number, or email address.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>SlyOS can lock your brain behind Face ID so only you can read it.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SlyOS uses your location when you ask something about where you are, or ask it to share your location.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SlyOS uses the microphone only when you choose voice input or a voice workflow.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SlyOS saves a document or image to your photos only when you ask it to.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SlyOS reads photos you explicitly choose for Look, document, receipt, and memory workflows.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>SlyOS reads and writes reminders only for reminder workflows you explicitly request.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SlyOS transcribes speech only after you tap the voice control.</string>
+	<key>SupabaseAnonKey</key>
+	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>SupabaseHost</key>
+	<string>$(SUPABASE_HOST)</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+</dict>
+</plist>
