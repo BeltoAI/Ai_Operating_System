@@ -430,7 +430,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
 
     // Draft a reply the first time this card is opened — in your voice, from the brain.
     LaunchedEffect(expanded) {
-        if (expanded && draft.isBlank() && latest.canReply) {
+        if (expanded && draft.isBlank() && latest.worthDrafting) {
             replyBusy = true
             val d = withContext(Dispatchers.IO) { run {
                 val th = com.agentos.shell.tools.ConversationStore.thread(ctx, latest.app, latest.title).map { it.role to it.text }
@@ -488,7 +488,20 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                         modifier = Modifier.clip(CircleShape).background(T.accent).padding(horizontal = 7.dp, vertical = 2.dp))
                 }
                 Spacer(Modifier.height(2.dp))
-                Text("via ${appName(ctx, latest.pkg, latest.app)}", fontSize = T.caption, color = appColor(latest.pkg))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("via ${appName(ctx, latest.pkg, latest.app)}", fontSize = T.caption, color = appColor(latest.pkg))
+                    // Human or machine, said plainly. Automated mail is still shown — a booking or a
+                    // code is often the thing that matters — it just isn't worth writing a reply to.
+                    if (latest.senderKind.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        val person = latest.senderKind == "person"
+                        Text(if (person) "person" else "automated", fontSize = T.caption,
+                            color = if (person) T.accent else T.inkFaint,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (person) T.accent.copy(alpha = 0.16f) else T.hairline)
+                                .padding(horizontal = 6.dp, vertical = 1.dp))
+                    }
+                }
                 // Show a real chunk of the ACTUAL message (the full text is captured), not a one-line stub —
                 // so you can see what's going on without opening the app. Expands to the whole message on tap.
                 if (latest.text.isNotBlank()) {

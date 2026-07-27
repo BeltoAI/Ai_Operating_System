@@ -19,6 +19,19 @@ import androidx.compose.runtime.mutableStateListOf
  */
 object NotificationStore {
 
+    private val BOT_PHRASES = listOf(
+        "no-reply", "noreply", "no reply", "do not reply", "donotreply", "notifications@",
+        "newsletter", "mailer-daemon", "automated", "unsubscribe", "verification code",
+        "verify your", "one-time code", "security code", "confirm your email", "password reset",
+        "receipt for", "your order", "invoice", "statement is ready", "auto-generated",
+        "this is an automated", "please do not respond")
+
+    /** Sender names that are a system rather than a person. */
+    private val BOT_SENDERS = listOf(
+        "no-reply", "noreply", "donotreply", "do-not-reply", "notification", "alerts", "alert@",
+        "support@", "billing", "receipts", "invoices", "team@", "hello@", "info@", "updates",
+        "mailer", "postmaster", "automated", "bot")
+
     data class Note(
         val key: String,
         val app: String,
@@ -48,10 +61,31 @@ object NotificationStore {
         }
         val isLikelyBot: Boolean get() {
             val s = "$title $text".lowercase()
-            return listOf("no-reply", "noreply", "no reply", "do not reply", "donotreply",
-                "notifications@", "newsletter", "mailer-daemon", "automated", "unsubscribe",
-                "verification code", "verify your").any { s.contains(it) }
+            if (BOT_PHRASES.any { s.contains(it) }) return true
+            // A machine sender usually announces itself in the name rather than in the body — and
+            // the body of a mail notification is a truncated snippet, so the phrases above often
+            // never appear in it even when the mail is plainly automated.
+            val from = title.lowercase()
+            return BOT_SENDERS.any { from.contains(it) }
         }
+
+        /**
+         * Human, machine, or not worth guessing — the first thing you want to know about a mail
+         * before reading a word of it.
+         *
+         * Kept as a plain classification rather than a filter: an automated mail is often the one
+         * that matters (a booking, a receipt, a code), so this labels the card instead of hiding it.
+         * What it does change is whether a reply is drafted at all — writing one in your voice to a
+         * no-reply address is a wasted call and a slightly absurd thing to offer.
+         */
+        val senderKind: String get() = when {
+            isLikelyBot -> "automated"
+            canReply || isConversational -> "person"
+            else -> ""
+        }
+
+        /** Whether it is worth drafting a reply to this at all. */
+        val worthDrafting: Boolean get() = !isLikelyBot && canReply
         /**
          * Engagement-bait / digest notifications with no real person behind them
          * ("see updates you missed", "people you may know", "X is hiring", trending, etc.).

@@ -223,7 +223,17 @@ class AgentNotificationListener : NotificationListenerService() {
         MemoryStore.setAppEverInlineReply(applicationContext, note.pkg)
         if (MemoryStore.appNoInlineReply(applicationContext, note.pkg))
             MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, false)
-        if (note.isEmail) return   // email is always human-reviewed, never autonomous
+        // EMAIL: DRAFT IT, NEVER SEND IT.
+        //
+        // This was a bare `return`, with the comment "email is always human-reviewed, never
+        // autonomous". The intent was right and the code went one step too far: it left before
+        // anything was drafted, so email got no reply to review either. Every other app put a
+        // ready-written reply on its Now card and mail — the one place most things that actually
+        // need answering arrive — showed a notification and nothing else.
+        //
+        // Forcing the mode instead of returning keeps the guarantee (autoSend below can only be
+        // true for "full", which this can no longer be) while still writing the draft.
+        val emailOnly = note.isEmail
         val telegram = note.pkg.startsWith("org.telegram")
         // Telegram doc-answering, and ONLY while Telegram is not switched off.
         //
@@ -237,9 +247,12 @@ class AgentNotificationListener : NotificationListenerService() {
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
         // Per-app automation level: off / draft / full.
         var mode = telegramMode
+        // Mail defaults to drafting rather than to nothing. Someone who has explicitly switched
+        // Gmail off still gets silence; everyone else gets the reply written and waiting.
+        if (emailOnly && mode != "off") mode = "draft"
         // Night schedule may escalate draft→full ONLY for apps the user EXPLICITLY opted into overnight
         // auto-send (P0.3). It never overrides an app left at draft/default, and always respects 'off'.
-        if (mode == "draft" && MemoryStore.nightAuto(applicationContext) &&
+        if (!emailOnly && mode == "draft" && MemoryStore.nightAuto(applicationContext) &&
             MemoryStore.appNightAuto(applicationContext, note.pkg)) {
             val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
@@ -248,7 +261,9 @@ class AgentNotificationListener : NotificationListenerService() {
         // full-auto app, so we never auto-send to a stranger on first contact.
         if (!docMode) mode = com.agentos.shell.tools.TrustStore.effectiveTier(applicationContext, note.title, mode)
         if (!docMode && mode == "off") return
-        var autoSend = docMode || mode == "full"
+        // Mail can never reach this as "full" — the guarantee the old early-return was protecting,
+        // now stated where it is actually enforced.
+        var autoSend = !emailOnly && (docMode || mode == "full")
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
         // In draft mode, a staged draft already present means we've handled this message.
         if (!autoSend && NotificationStore.stagedDrafts.containsKey(note.key)) return
