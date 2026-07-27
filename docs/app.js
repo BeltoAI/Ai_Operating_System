@@ -235,36 +235,45 @@
     if (tr && s.tokensPerResponse) tr.textContent = s.tokensPerResponse;
   }).catch(function(){});
 
-  // Downloads counter — stored in Supabase (same project as the feedback wall). Base 80 + one row per
-  // real download click. No external counter service, no GitHub reset problem.
+  // Downloads counter — one row per real download click, counted from Supabase.
+  //
+  // Two things were wrong, and together they meant the number never moved off its base of 80.
+  //
+  // 1. This block opened with `getElementById('dlcount')` and returned when it was missing. No
+  //    element with that id exists on any page — the metric on value.html is `m_dl` — so the whole
+  //    block bailed on its first line and no click listener was ever attached anywhere.
+  // 2. Even attached, `fetch()` fired from a click that navigates away is cancelled: the browser
+  //    tears the page down before the request leaves. Recording a download at the moment someone
+  //    leaves for the download is precisely the case fetch does not survive.
+  //
+  // So: no element dependency, and sendBeacon, which exists for exactly this and is queued by the
+  // browser to outlive the page.
   (function(){
-    var el = document.getElementById('dlcount'); if (!el) return;
     var U = 'https://xfftheaprdedypqlcvzg.supabase.co';
     var K = 'sb_publishable_AxUM6xdI_3L-no-9MbNsxQ__u_eLmsQ';
-    var BASE = 80;
-    function show(rows){
-      var n = BASE + (rows || 0);
-      try { var f = parseInt(localStorage.getItem('slyos_dlmax') || '0', 10) || 0; if (n < f) n = f; else localStorage.setItem('slyos_dlmax', String(n)); } catch (e) {}
-      el.textContent = n.toLocaleString();
+
+    function record(){
+      var url = U + '/rest/v1/downloads?apikey=' + encodeURIComponent(K);
+      try {
+        if (navigator.sendBeacon &&
+            navigator.sendBeacon(url, new Blob(['{}'], { type: 'application/json' }))) return;
+      } catch (e) {}
+      // keepalive does the same job for the browsers that refuse the beacon.
+      try {
+        fetch(U + '/rest/v1/downloads', {
+          method: 'POST', keepalive: true,
+          headers: { apikey: K, Authorization: 'Bearer ' + K,
+                     'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: '{}'
+        }).catch(function(){});
+      } catch (e) {}
     }
-    function refresh(){
-      fetch(U + '/rest/v1/downloads?select=id', { headers: { apikey: K, Authorization: 'Bearer ' + K } })
-        .then(function(r){ return r.json(); })
-        .then(function(rows){ show(Array.isArray(rows) ? rows.length : 0); })
-        .catch(function(){ show(0); });
-    }
-    show(0);      // show 80 immediately
-    refresh();    // then reflect real downloads
+
+    // Every route to the APK counts, including the nav button, and pointerdown fires before the
+    // browser starts unloading rather than racing it.
     document.querySelectorAll('a[href*="SlyOS.apk"]').forEach(function(a){
-      a.addEventListener('click', function(){
-        try {
-          fetch(U + '/rest/v1/downloads', {
-            method: 'POST',
-            headers: { apikey: K, Authorization: 'Bearer ' + K, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-            body: '{}'
-          }).then(refresh).catch(function(){});
-        } catch (e) {}
-      });
+      a.addEventListener('pointerdown', record);
+      a.addEventListener('click', record);
     });
   })();
 
