@@ -93,11 +93,37 @@
     <li><strong>Live location (optional):</strong> if you enable location sharing, your device location is served
       through a live-location endpoint so the people you share with can see it. Off unless you turn it on.</li>
     <li><strong>Website hosting (Netlify / Vercel):</strong> when the agent builds and "ships" a website for you,
-      it publishes it using hosting tokens <em>bundled in the app</em> (Belto's), so it works with zero setup.
-      Anything you publish this way is served publicly on the internet.</li>
+      it publishes it using <em>your own</em> Netlify or Vercel token, which you add in Settings, so the site
+      lives in your account and stays yours. Anything you publish this way is served publicly on the internet.</li>
     <li><strong>Others (optional):</strong> Zenodo (publishing papers), X/Twitter (posting), Finnhub (market data),
       AudD (song identification).</li>
   </ul>
+
+  <h2>5a. Google user data &mdash; Limited Use</h2>
+  <p>SlyOS's use and transfer of information received from Google APIs to any other app adheres to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank"
+       rel="noopener">Google API Services User Data Policy</a>, including the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes"
+       target="_blank" rel="noopener">Limited Use</a> requirements.</p>
+  <p>Concretely, for the Google scopes SlyOS requests &mdash; Gmail (reading your recent mail so it can
+    draft replies, and sending mail you have approved), Calendar events, Docs, Sheets, Slides, and
+    Drive files this app itself creates:</p>
+  <ul>
+    <li>Google user data is used <strong>only</strong> to provide the features you asked for, and is
+      processed on your device or sent to the AI provider you configured to answer your request.</li>
+    <li>It is <strong>never</strong> sold, and never transferred to anyone except as needed to provide
+      those features, to comply with the law, or as part of a merger or acquisition.</li>
+    <li>It is <strong>never</strong> used for advertising, ad targeting, or personalisation, and SlyOS
+      contains no advertising or third-party tracking.</li>
+    <li>Humans do <strong>not</strong> read your Google user data, except with your explicit consent
+      for a support issue you raised, where required by law, or on aggregated anonymised data for
+      security and abuse prevention.</li>
+    <li>It is <strong>not</strong> used to train generalised AI or machine-learning models. Your mail
+      and calendar shape SlyOS's answers to you on your own device; they do not train anyone's model.</li>
+  </ul>
+  <p>Revoke SlyOS's access to your Google account at any time at
+    <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>,
+    or by tapping Disconnect inside SlyOS.</p>
 
   <h2>6. Anonymous usage analytics</h2>
   <p>To understand what SlyOS is used for and improve it, the app sends <strong>anonymous</strong> event counts

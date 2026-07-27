@@ -37,6 +37,14 @@ object GoogleAuth {
     private fun redirectUri(): String = BuildConfig.GOOGLE_REDIRECT_SCHEME + ":/oauth2redirect"
 
     fun isConnected(ctx: Context): Boolean = prefs(ctx).getString("refresh_token", "").orEmpty().isNotBlank()
+
+    /** Why the last connection ended, read once and cleared. Empty when it was the owner's doing. */
+    fun takeDisconnectReason(ctx: Context): String {
+        val p = prefs(ctx)
+        val r = p.getString("disconnect_reason", "").orEmpty()
+        if (r.isNotBlank()) p.edit().remove("disconnect_reason").apply()
+        return r
+    }
     fun account(ctx: Context): String = prefs(ctx).getString("email", "").orEmpty()
 
     fun disconnect(ctx: Context) {
@@ -88,7 +96,24 @@ object GoogleAuth {
     /** Handle the redirect (code or error). Exchanges the code for tokens. Returns ""=ok or an error. */
     fun handleRedirect(ctx: Context, data: Uri): String {
         val err = data.getQueryParameter("error")
-        if (err != null) { Log.w(TAG, "google oauth error: $err"); return "Google sign-in was cancelled or denied." }
+        if (err != null) {
+            Log.w(TAG, "google oauth error: $err")
+            // access_denied is not the user changing their mind — it is Google refusing, and the
+            // usual reason is the consent screen still being in Testing, where only accounts on a
+            // list may sign in. A tester who reads "cancelled or denied" concludes the app is
+            // broken and stops, because nothing they can do on their phone will fix it.
+            return when (err) {
+                "access_denied" ->
+                    "Google blocked this sign-in. SlyOS is still in Google's review process, so " +
+                    "only approved testers can connect right now. Send the email address you use " +
+                    "for Google to whoever gave you SlyOS and they can add you — nothing is wrong " +
+                    "with your phone or the app."
+                "admin_policy_enforced" ->
+                    "Your Google Workspace administrator blocks third-party apps from this account. " +
+                    "A personal Gmail account will connect fine."
+                else -> "Google sign-in didn't complete ($err). Try again."
+            }
+        }
         val code = data.getQueryParameter("code") ?: return "No authorization code returned."
         val state = data.getQueryParameter("state")
         val savedState = prefs(ctx).getString("state", "")
@@ -134,7 +159,24 @@ object GoogleAuth {
         val form = "client_id=" + Uri.encode(clientId()) +
             "&grant_type=refresh_token&refresh_token=" + Uri.encode(refresh)
         val (code, body) = post(TOKEN_EP, form)
-        if (code != 200) { Log.e(TAG, "refresh $code: $body"); return "" }
+        if (code != 200) {
+            Log.e(TAG, "refresh $code: $body")
+            // invalid_grant means the refresh token is dead — revoked, or expired because the
+            // consent screen is still in Testing, where Google kills them after seven days.
+            //
+            // Returning "" and keeping the token stored is what made this look like a bug in
+            // SlyOS: isConnected() still said yes, Settings still said Connected, and every mail
+            // and calendar call quietly failed. A week after connecting, the app appeared to
+            // forget how to reach Google while insisting it was signed in. Better to be honestly
+            // disconnected and say why.
+            if (body.contains("invalid_grant")) {
+                p.edit().remove("refresh_token").remove("access_token").remove("expiry")
+                    .putString("disconnect_reason",
+                        "Google signed you out. While SlyOS is in Google's review process, " +
+                        "connections expire after 7 days — tap Connect again.").apply()
+            }
+            return ""
+        }
         return try {
             val o = JSONObject(body)
             val access = o.getString("access_token")

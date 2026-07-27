@@ -2153,6 +2153,7 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Collapsible("Connections") {
         var gConnected by remember { mutableStateOf(com.agentos.shell.tools.GoogleAuth.isConnected(ctx)) }
         val gAccount = com.agentos.shell.tools.GoogleAuth.account(ctx)
+        val gReason = remember(gConnected) { com.agentos.shell.tools.GoogleAuth.takeDisconnectReason(ctx) }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("Google · Calendar, Meet & Gmail", fontSize = T.body, color = T.ink)
@@ -2161,6 +2162,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         gConnected -> "Connected" + (if (gAccount.isNotBlank()) " · $gAccount" else "") +
                             " — Meet links + invites, and recent mail (with PDF attachments) read into the brain. " +
                             "If you connected before Gmail was added, tap Disconnect then Connect to grant it."
+                        // Why the last connection ended, when Google ended it rather than the owner.
+                        com.agentos.shell.tools.GoogleAuth.configured() &&
+                            gReason.isNotBlank() -> gReason
                         com.agentos.shell.tools.GoogleAuth.configured() ->
                             "Sign in with your Google account: auto-create Meet links, send invites, and let the brain read your recent mail + attachments. One tap."
                         else -> "Not available in this build yet."
