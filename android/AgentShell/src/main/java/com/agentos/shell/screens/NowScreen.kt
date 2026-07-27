@@ -435,7 +435,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
             val d = withContext(Dispatchers.IO) { run {
                 val th = com.agentos.shell.tools.ConversationStore.thread(ctx, latest.app, latest.title).map { it.role to it.text }
                 val m = com.agentos.shell.tools.ReplyContext.forSender(ctx, latest.app, latest.title, latest.text)
-                if (th.isNotEmpty()) AgentClient.draftReplyThread(latest.title.ifBlank { latest.app }, th, m, null, latest.text)
+                if (th.isNotEmpty()) AgentClient.draftReplyThread(latest.title.ifBlank { latest.app }, th, m, null, latest.text, latest.isGroup)
                 else AgentClient.draftReply(latest.title.ifBlank { latest.app }, latest.text, m)
             } }
             if (!AgentClient.looksLikeError(d)) draft = d
@@ -551,7 +551,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                                 val d = withContext(Dispatchers.IO) { run {
                 val th = com.agentos.shell.tools.ConversationStore.thread(ctx, latest.app, latest.title).map { it.role to it.text }
                 val m = com.agentos.shell.tools.ReplyContext.forSender(ctx, latest.app, latest.title, latest.text)
-                if (th.isNotEmpty()) AgentClient.draftReplyThread(latest.title.ifBlank { latest.app }, th, m, null, latest.text)
+                if (th.isNotEmpty()) AgentClient.draftReplyThread(latest.title.ifBlank { latest.app }, th, m, null, latest.text, latest.isGroup)
                 else AgentClient.draftReply(latest.title.ifBlank { latest.app }, latest.text, m)
             } }
                                 if (!AgentClient.looksLikeError(d)) draft = d

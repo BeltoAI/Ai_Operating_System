@@ -40,7 +40,15 @@ object NotificationStore {
         val replyAction: Notification.Action?,
         val picture: android.graphics.Bitmap? = null,
         val pkg: String = "",
-        val contentIntent: PendingIntent? = null   // fires when the notification is tapped (opens the app/thread)
+        val contentIntent: PendingIntent? = null,  // fires when the notification is tapped (opens the app/thread)
+        /**
+         * A group conversation rather than a one-to-one.
+         *
+         * Read at ingest from the notification itself, because it cannot be recovered afterwards —
+         * `EXTRA_IS_GROUP_CONVERSATION` and the sender list live on the extras bundle, and the Note
+         * outlives it.
+         */
+        val isGroup: Boolean = false
     ) {
         val canReply: Boolean get() = replyAction?.remoteInputs?.isNotEmpty() == true
         val isSocial: Boolean get() = pkg in setOf(

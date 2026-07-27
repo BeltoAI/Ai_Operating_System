@@ -2568,15 +2568,26 @@ object AgentClient {
     }
 
     /** Context-aware reply: sees the whole conversation thread with this person. */
-    fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null, latest: String = ""): String {
+    fun draftReplyThread(sender: String, thread: List<Pair<String, String>>, memory: String = "", imageB64: String? = null, latest: String = "", isGroup: Boolean = false): String {
         if (thread.isEmpty()) return draftReply(sender, latest, memory, imageB64)
-        val system = persona(memory) +
-            "You're texting with $sender in an ongoing conversation. FIRST read the notes above — they contain " +
+        // A group is not a bigger one-to-one. Writing into one without knowing it is how a reply
+        // meant for one person arrives addressed to eleven, answering a question somebody else asked.
+        val groupRules = if (!isGroup) "" else
+            "THIS IS A GROUP CHAT called \"$sender\", not a private message. Several people are " +
+            "talking and each line below is prefixed with who said it. Answer the group, not one " +
+            "person — unless the newest message clearly addresses you, in which case answer them by " +
+            "name. Never assume an earlier line was written by the person who wrote the latest one. " +
+            "If nothing in the last few messages actually needs you, say so in a few words rather " +
+            "than inventing a contribution: a group does not need a reply to every line, and the " +
+            "fastest way to look like a bot in a group is to answer everything. "
+        val system = persona(memory) + groupRules +
+            (if (isGroup) "" else "You're texting with $sender in an ongoing conversation. ") +
+            "FIRST read the notes above — they contain " +
             "your profile, what you know about $sender, and your prior + on-screen conversation history with them. " +
             "Ground your reply in that history: stay consistent, remember names/plans/details already mentioned, " +
             "reference what was actually said, and pick up exactly where things left off — never reset or ask " +
             "something already answered. " +
-            "RESPOND TO THEIR SINGLE MOST RECENT MESSAGE — the final 'user' turn below" +
+            "RESPOND TO THE SINGLE MOST RECENT MESSAGE — the final 'user' turn below" +
             (if (latest.isNotBlank()) " (their newest message is: \"${latest.take(300)}\")" else "") + ". " +
             "CRITICAL: NEVER resend, repeat, or lightly reword a message YOU already sent earlier in this thread — " +
             "look at your own previous replies (the 'assistant' turns) and make sure this reply is genuinely new. If " +

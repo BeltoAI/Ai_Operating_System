@@ -1219,6 +1219,11 @@ private fun Sparkline(values: List<Int>, modifier: Modifier) {
  * Memory = what the agent knows about you. You write it; the agent uses it to personalize
  * every answer and every reply it drafts. Stored locally on the phone.
  */
+/** Apps with real group threads — the only ones a separate group switch means anything for. */
+private val GROUP_CAPABLE = setOf(
+    "com.whatsapp", "org.telegram.messenger", "com.google.android.apps.messaging",
+    "com.instagram.android", "com.facebook.orca", "com.discord", "com.Slack")
+
 @Composable
 fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val ctx = LocalContext.current
@@ -2264,6 +2269,39 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                                     .background(if (sel) T.accent else androidx.compose.ui.graphics.Color.Transparent)
                                     .clickable { modeMap[app.pkg] = id; MemoryStore.setAppMode(ctx, app.pkg, id) }
                                     .padding(horizontal = 11.dp, vertical = 6.dp))
+                        }
+                    }
+                }
+                // GROUP CHATS, on their own switch.
+                //
+                // One setting used to govern both, so putting an app on Auto opted every group
+                // thread in as well — a reply written in your voice landing in front of everyone in
+                // your family chat, unasked. Auto is deliberately not offered here: a misjudged
+                // reply to one person is awkward, and the same reply in front of eleven is not.
+                if (app.pkg in GROUP_CAPABLE) {
+                    val gKey = app.pkg + "#group"
+                    val gCur = modeMap[gKey] ?: MemoryStore.groupMode(ctx, app.pkg).also { modeMap[gKey] = it }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(start = 42.dp, bottom = 6.dp)
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Group chats", fontSize = T.small, color = T.inkSoft)
+                            Text("Drafts only — never sent for you", fontSize = T.caption, color = T.inkFaint)
+                        }
+                        Row(
+                            Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline).padding(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("off" to "Off", "draft" to "Draft").forEach { (id, label) ->
+                                val sel = gCur == id
+                                Text(label, fontSize = T.caption,
+                                    color = if (sel) T.bgElevated else T.inkSoft,
+                                    modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                        .background(if (sel) T.accent else androidx.compose.ui.graphics.Color.Transparent)
+                                        .clickable { modeMap[gKey] = id; MemoryStore.setGroupMode(ctx, app.pkg, id) }
+                                        .padding(horizontal = 11.dp, vertical = 6.dp))
+                            }
                         }
                     }
                 }

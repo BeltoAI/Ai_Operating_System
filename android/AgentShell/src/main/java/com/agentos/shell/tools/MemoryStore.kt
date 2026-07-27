@@ -488,6 +488,23 @@ object MemoryStore {
         prefs(ctx).edit().putString("app_mode_$pkg", mode).apply()
 
     /**
+     * Group conversations, settable apart from one-to-ones.
+     *
+     * A group used to be governed by the app's single switch, so WhatsApp on Auto meant replying
+     * into a family thread in the owner's voice without anyone having chosen that. It gets its own
+     * setting, defaulting to drafting, and it never offers Auto: a misjudged reply to one person is
+     * awkward, and the same reply in front of eleven is a different kind of problem.
+     */
+    fun groupMode(ctx: Context, pkg: String): String =
+        prefs(ctx).getString("app_mode_$pkg#group", null)
+            ?: if (appMode(ctx, pkg) == "off") "off" else "draft"
+
+    /** Auto is not on offer for groups; anything asking for it lands on draft. */
+    fun setGroupMode(ctx: Context, pkg: String, mode: String) =
+        prefs(ctx).edit().putString("app_mode_$pkg#group", if (mode == "full") "draft" else mode).apply()
+
+
+    /**
      * Per-app opt-in for the overnight full-auto window (P0.3). The night window may ONLY escalate an
      * app to full-send if the user explicitly opted THAT app in here — it never overrides a draft/off/
      * default app on its own. Default false, so nothing auto-sends overnight unless deliberately enabled.

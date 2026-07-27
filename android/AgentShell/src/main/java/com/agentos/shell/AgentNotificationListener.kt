@@ -106,7 +106,22 @@ class AgentNotificationListener : NotificationListenerService() {
             extras.get(android.app.Notification.EXTRA_PICTURE) as? android.graphics.Bitmap
         } catch (e: Exception) { null }
 
-        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture, sbn.packageName, n.contentIntent)
+        // Group or one-to-one, decided here because the extras bundle is gone by the time anything
+        // else looks. Apps that use MessagingStyle say so outright; for the rest, more than one
+        // distinct sender in the same thread is what a group is.
+        val isGroup = extras.getBoolean("android.isGroupConversation", false) || run {
+            try {
+                val msgs = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return@run false
+                msgs.mapNotNull { p ->
+                    val b = p as? android.os.Bundle
+                    b?.getCharSequence("sender")?.toString()
+                        ?: (b?.getParcelable("sender_person") as? android.app.Person)?.name?.toString()
+                }.filter { it.isNotBlank() }.distinct().size > 1
+            } catch (e: Exception) { false }
+        }
+
+        val note = NotificationStore.Note(sbn.key, appLabel, title, text, replyAction, picture,
+            sbn.packageName, n.contentIntent, isGroup)
         // Drop engagement-bait / digests ONLY when they're non-interactive (no reply box). Real
         // DMs always carry a reply action, so they're never filtered.
         if (note.isLowValue && !note.canReply) return null
@@ -241,7 +256,10 @@ class AgentNotificationListener : NotificationListenerService() {
         // sat next to `if (!docMode && mode == "off") return`, so turning Telegram off in Settings
         // did nothing at all while doc mode was on. A switch labelled off that still sends is worse
         // than no switch — it is the one place the owner looks to stop this.
-        val telegramMode = MemoryStore.appMode(applicationContext, note.pkg)
+        // A group answers to its own switch. Without this, one setting governed both, so putting
+        // WhatsApp on Auto silently opted every group thread in too.
+        val telegramMode = if (note.isGroup) MemoryStore.groupMode(applicationContext, note.pkg)
+                           else MemoryStore.appMode(applicationContext, note.pkg)
         val docMode = telegram && telegramMode != "off" &&
             MemoryStore.docTelegram(applicationContext) &&
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
@@ -252,7 +270,7 @@ class AgentNotificationListener : NotificationListenerService() {
         if (emailOnly && mode != "off") mode = "draft"
         // Night schedule may escalate draft→full ONLY for apps the user EXPLICITLY opted into overnight
         // auto-send (P0.3). It never overrides an app left at draft/default, and always respects 'off'.
-        if (!emailOnly && mode == "draft" && MemoryStore.nightAuto(applicationContext) &&
+        if (!emailOnly && !note.isGroup && mode == "draft" && MemoryStore.nightAuto(applicationContext) &&
             MemoryStore.appNightAuto(applicationContext, note.pkg)) {
             val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             if (MemoryStore.inNightWindow(applicationContext, h)) mode = "full"
@@ -263,7 +281,9 @@ class AgentNotificationListener : NotificationListenerService() {
         if (!docMode && mode == "off") return
         // Mail can never reach this as "full" — the guarantee the old early-return was protecting,
         // now stated where it is actually enforced.
-        var autoSend = !emailOnly && (docMode || mode == "full")
+        // Neither mail nor a group can reach "full" — mail because it is always reviewed, groups
+        // because the blast radius of a wrong reply is everyone in the thread.
+        var autoSend = !emailOnly && !note.isGroup && (docMode || mode == "full")
         if (NotificationStore.pendingAuto.contains(note.key)) { Log.i("SlyOS", "auto skip: already pending ${note.title}"); return }
         // In draft mode, a staged draft already present means we've handled this message.
         if (!autoSend && NotificationStore.stagedDrafts.containsKey(note.key)) return
@@ -297,7 +317,8 @@ class AgentNotificationListener : NotificationListenerService() {
                         val ctxMem = com.agentos.shell.tools.ReplyContext
                             .forSender(applicationContext, note.app, note.title, note.text)
                         // Pass the newest incoming line explicitly so the model always answers THAT.
-                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img, note.text)
+                        AgentClient.draftReplyThread(note.title.ifBlank { note.app }, thread, ctxMem, img,
+                            note.text, note.isGroup)
                     }
                 }
                 // Anti-repeat rail: never send a message that just repeats one of our last replies to this
