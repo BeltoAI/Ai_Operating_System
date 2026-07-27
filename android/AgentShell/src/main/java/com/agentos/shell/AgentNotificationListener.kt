@@ -225,10 +225,18 @@ class AgentNotificationListener : NotificationListenerService() {
             MemoryStore.setAppNoInlineReply(applicationContext, note.pkg, false)
         if (note.isEmail) return   // email is always human-reviewed, never autonomous
         val telegram = note.pkg.startsWith("org.telegram")
-        val docMode = telegram && MemoryStore.docTelegram(applicationContext) &&
+        // Telegram doc-answering, and ONLY while Telegram is not switched off.
+        //
+        // This used to bypass the per-app switch entirely: `autoSend = docMode || mode == "full"`
+        // sat next to `if (!docMode && mode == "off") return`, so turning Telegram off in Settings
+        // did nothing at all while doc mode was on. A switch labelled off that still sends is worse
+        // than no switch — it is the one place the owner looks to stop this.
+        val telegramMode = MemoryStore.appMode(applicationContext, note.pkg)
+        val docMode = telegram && telegramMode != "off" &&
+            MemoryStore.docTelegram(applicationContext) &&
             com.agentos.shell.tools.KnowledgeStore.hasDoc(applicationContext)
-        // Per-app automation level: off / draft / full. Telegram doc-answering always sends.
-        var mode = MemoryStore.appMode(applicationContext, note.pkg)
+        // Per-app automation level: off / draft / full.
+        var mode = telegramMode
         // Night schedule may escalate draft→full ONLY for apps the user EXPLICITLY opted into overnight
         // auto-send (P0.3). It never overrides an app left at draft/default, and always respects 'off'.
         if (mode == "draft" && MemoryStore.nightAuto(applicationContext) &&

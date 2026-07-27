@@ -112,8 +112,21 @@ object OutreachQueue {
         if (toEmail.isBlank()) { mark(ctx, id, "skipped"); return null }
         // Personalize: [Name]/[name]/[FirstName] → the recipient's first name (or a warm fallback).
         val first = toName.trim().split(" ").firstOrNull().orEmpty().ifBlank { "there" }
-        val pBody = body.replace(Regex("(?i)\\[(first ?name|name)\\]"), first)
+        var pBody = body.replace(Regex("(?i)\\[(first ?name|name)\\]"), first)
         val pSubj = subject.replace(Regex("(?i)\\[(first ?name|name)\\]"), first)
+
+        // AND FIX A GREETING THAT NAMES THE WRONG PERSON.
+        //
+        // The substitution above only works if the model actually emitted the [Name] token. When it
+        // wrote a name instead, every recipient in the campaign got the one it happened to pick —
+        // a whole batch of real emails went out, to different people, each opening "Hi Alex,".
+        // Nothing downstream noticed, because the token was simply absent.
+        // A campaign that greets strangers by the wrong name is worse than no campaign, so the
+        // greeting is corrected here rather than trusted.
+        pBody = Regex("^\\s*(Hi|Hello|Hey|Dear)\\s+([\\p{L}][\\p{L}'-]{1,20})(?=[,!.\\s])")
+            .replace(pBody) { m ->
+                if (m.groupValues[2].equals(first, true)) m.value else "${m.groupValues[1]} $first"
+            }
         val file = attach.takeIf { it.isNotBlank() }?.let { java.io.File(it) }?.takeIf { it.exists() }
         val (ok, msg) = try {
             if (file != null) GmailClient.sendWithAttachments(ctx, toEmail, pSubj.ifBlank { "Hello" }, pBody, listOf(file))

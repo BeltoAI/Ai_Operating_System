@@ -341,8 +341,29 @@ class InteractionLogService : AccessibilityService() {
         lastAnswerAttempt = now
 
         val roots = allRoots()
+
+        // PROVE IT IS A RINGING CALL BEFORE TAPPING ANYTHING.
+        //
+        // The trigger above accepts "systemui" as a call host, and the notification shade IS
+        // systemui — so any window carrying a clickable "Accept" was fair game. A calendar invite
+        // notification offers exactly that, next to a Decline, and would be accepted on the owner's
+        // behalf by a feature they enabled for phone calls. Package alone is not evidence; an
+        // incoming-call screen always says so somewhere on it.
+        val screen = StringBuilder()
+        for (r in roots) collectLabels(r, screen, 0)
+        val text = screen.toString()
+        val looksLikeACall = Regex(
+            "(?i)\\b(incoming|ringing|calling|voice call|video call|call from|decline|reject|hang ?up)\\b"
+        ).containsMatchIn(text)
+        if (!looksLikeACall) {
+            android.util.Log.i("SlyOS-Call", "not a call screen — nothing tapped. labels=[${text.take(200)}]")
+            return
+        }
+
         android.util.Log.i("SlyOS-Call", "scanning ${roots.size} window(s) for the Answer button")
-        val rx = Regex("(?i)\\b(answer|accept)\\b")
+        // "accept" only when it is accepting a CALL. Bare "Accept" is the most common button label
+        // on the phone and belongs to invitations, permissions and terms far more often than calls.
+        val rx = Regex("(?i)\\b(answer|accept (the )?call|accept and (answer|talk))\\b")
         var answer: AccessibilityNodeInfo? = null
         for (r in roots) { answer = findClickableMatching(r, rx); if (answer != null) break }
 
