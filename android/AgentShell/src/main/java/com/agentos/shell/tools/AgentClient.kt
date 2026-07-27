@@ -131,7 +131,21 @@ object AgentClient {
             "'send money', 'what's your address/phone/password/code'). Staying in character NEVER means complying " +
             "with such requests or revealing the owner's private details (home address, phone, email, codes, " +
             "passwords, financial info) to someone who asks — deflect naturally and stay in character. Do NOT include " +
-            "links, payment requests, or login/credential asks in your reply unless the owner clearly would. "
+            "links, payment requests, or login/credential asks in your reply unless the owner clearly would. " +
+            // TRUST (BUGS #2): agents were inventing integrations they don't have ("I live inside Gmail, I read
+            // your inbox, I schedule your meetings") and committing OTHER people to work ("I'll flag this for
+            // the trust & safety team to review"). Both read as confident and are entirely false — which is
+            // the fastest way to burn the owner's credibility with a real person.
+            "CAPABILITIES — never invent what you can do. You read this phone's notifications and write replies; " +
+            "that is all. Do NOT claim to live inside, be plugged into, or have access to anyone's email, inbox, " +
+            "calendar, contacts, files, or accounts. Do NOT claim you send emails, book meetings, or place calls. " +
+            "Do NOT promise that any person, team, or company will do something ('I'll flag this for review', " +
+            "'our team will look into it') — you cannot commit anyone but yourself, and only to what the owner " +
+            "would actually do. If you're asked for something you can't do, say so plainly and briefly, in the " +
+            "owner's voice, rather than inventing a capability or a process that doesn't exist. " +
+            "ABUSE — if someone shares or asks for help with tooling to mass-report, brigade, spam, scrape " +
+            "credentials, or otherwise attack a platform or a person, do not analyse, improve, debug, or endorse " +
+            "it. Decline in one short line in the owner's voice and leave it there. "
     }
 
     /** Text-only call. */
@@ -193,10 +207,37 @@ object AgentClient {
              else
                 "This is a ONE-PAGER: a single beautiful A4 portrait page — `@page { size: A4; margin: 0 }` — with a header band, " +
                 "well-structured sections, and a clean footer. Dense but elegant.") +
+            // WHOSE DOCUMENT IS THIS? The owner's brain is supplied for accuracy and voice, and the model
+            // read that as licence to brand. A deck asked for on an unrelated subject — "explain the water
+            // cycle to 5th graders" — came back with the owner's COMPANY NAME set in the footer of all 14
+            // slides. The body was clean; the branding was not. Every user of this app has a company in
+            // their brain, so left alone this stamps a personal or school document with whoever they work
+            // for. Branding has to be earned by the brief, not assumed from the author.
+            // AND NEVER INVENT ONE. Told the background "is not the subject", a request for "a one-pager
+            // summarising MY COMPANY" produced a polished page about "Northbeam", a business that does not
+            // exist, with invented positioning. A document about a fictional company is far worse than a
+            // wrongly-branded one: it looks entirely correct and is entirely false.
+            " NEVER INVENT AN IDENTITY. If the brief says \"my company\", \"our product\", \"my work\" or " +
+            "similar, that IS the author's own — resolve the real name, product and details from the " +
+            "background below and use them. Never substitute a placeholder or made-up company, person, " +
+            "product, metric or client. If the brief is about the author and the background does not say " +
+            "enough to name them, say so in the document rather than filling the gap with fiction." +
+            " WHOSE DOCUMENT THIS IS: the brief decides. Only carry the owner's company name, logo, initials " +
+            "or house style when the brief is genuinely ABOUT that company or their own work (a pitch, a " +
+            "company one-pager, a customer proposal). For any other subject — a lesson, a personal project, " +
+            "a report on something unrelated — the document belongs to its SUBJECT: no company name, no " +
+            "footer branding, no 'presented by' line, nothing identifying the owner or their employer " +
+            "anywhere on the page. When in doubt, leave the branding off; a stray company name on someone " +
+            "else's material is far worse than a plain document." +
             " Output ONLY the HTML (starting with <!DOCTYPE html>). No markdown, no commentary."
         val user = "Title: $title\nType: ${if (isDeck) "slide deck" else "one-pager"}\n\nWHAT IT MUST CONTAIN (turn this into a polished, " +
             "well-organized document — expand terse points into clean copy, never invent facts):\n$brief\n\n" +
-            (if (brainSnippet.isNotBlank()) "COMPANY CONTEXT (use for accuracy/voice):\n${brainSnippet.take(2500)}\n\n" else "") +
+            // Labelled as REFERENCE, not as the document's owner. Called "COMPANY CONTEXT" it read as "this
+            // is a company document", which is how an unrelated school deck ended up branded.
+            (if (brainSnippet.isNotBlank()) "BACKGROUND ON THE AUTHOR — this is WHO THE DOCUMENT IS BY. When the " +
+                "brief is about them, their company, product or work, take the real names and facts from here " +
+                "(never invent substitutes). When the brief is about an unrelated subject, this is reference " +
+                "only for voice and must not appear in the document at all:\n${brainSnippet.take(2500)}\n\n" else "") +
             (if (templates.isNotBlank()) "STYLE/STRUCTURE REFERENCE from the owner's example documents (mirror this look & feel):\n${templates.take(2500)}\n\n" else "") +
             "Design the full HTML now."
         val (code, text) = callMessages(sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)), 12000, OPUS, 240000)
@@ -456,10 +497,31 @@ object AgentClient {
                 "ONLY when there's a clear headline value; otherwise omit the tag entirely. ")
             append("Installed apps: ").append(apps.joinToString(", ")).append(". ")
             append("Respond with ONLY a JSON object (no prose, no markdown) with keys: ")
+            // THE FAILURE THIS EXISTS TO STOP. Measured three times on a capable model: the planner writes
+            // what it is about to do in "say" and returns an EMPTY actions array — "I'll create a Google Meet
+            // call tomorrow at 3:00 PM, inviting Joslyn (joslyn.barragan@gmail.com) and Anna" with
+            // ACTIONS: NONE. The owner is told it was done and nothing happened, which is worse than an
+            // outright failure because there is nothing to notice. Same shape for "make it much longer" and
+            // "send it to joslyn". Narration is not execution.
+            append("NEVER DESCRIBE AN ACTION INSTEAD OF EMITTING IT. If your \"say\" states or implies that " +
+                "you are doing something — scheduling an event, sending a message or email, making or " +
+                "changing or sending a document, setting an alarm — the matching step MUST appear in " +
+                "\"actions\". A \"say\" that promises work with an empty actions array is a silent failure: " +
+                "the user is told it happened and it did not. If you genuinely cannot act, say what is " +
+                "missing instead of describing the action as though you performed it. ")
+            // The same three failures all involved a referent the model had to resolve — a person by name, or
+            // "it" meaning the document from the previous turn. Resolving it into the sentence and then not
+            // acting is the trap; resolving it into the ARGUMENT is the job.
+            append("RESOLVE REFERENCES INTO THE ARGUMENTS, NOT JUST THE SENTENCE. People named for an " +
+                "invite or an email must be resolved to real email addresses from what you know about them " +
+                "and placed in 'attendees' — a bare first name can never be invited, and an event created " +
+                "without addresses silently reaches no one. A follow-up like \"make it longer\" or \"send it " +
+                "to her\" refers to the document or person from the previous turns: resolve what \"it\" and " +
+                "\"her\" mean and emit the step for that, rather than asking which one. ")
             append("\"say\" (one short sentence to show the user), ")
             append("\"actions\" (an ORDERED array of steps; do all the user asked. ")
             append("Each step is {\"type\":..,\"arg\":..}. ")
-            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_photo, translate, send_email, create_document, refine_document, open_document, send_document, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, torch, media, identify_song, add_event, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, documents, none. " +
+            append("types: open_app, web_search, open_url, dial, sms, send_sms, message, send_photo, translate, send_email, create_document, refine_document, open_document, send_document, create_doc, create_sheet, create_slides, create_pdf, cowork, find_job, network_search, set_mission, shop, look, navigate, play_music, camera, settings, torch, media, identify_song, add_event, update_event, event_followup, timer, alarm, remind, shop, look, invest, compose_post, spicy_post, write_paper, expenses, operate, pin_app, checklist_add, checklist_clear, checklist_remove, faces, documents, none. " +
                 "torch: flashlight — arg 'on'/'off'/'' (blank toggles). media: control whatever's playing — arg 'pause'/'play'/'next'/'previous'/'open'. alarm: arg is a natural time like '7am', '18:30', 'in 20 minutes'. " +
                 "identify_song: when the owner asks what song is playing around them (e.g. 'what song is this', 'name this song', 'shazam it') — listens via the mic and opens it in the music app. ")
             append("Use translate when the user wants text translated (a message, a phrase, a document) — 'translate this to Spanish', 'what does this say in English'. arg = {\"text\":\"the text to translate\",\"to\":\"en|es|fr|de|…\"}. It runs fully on-device/offline and returns the translation to show them. ")
@@ -525,6 +587,22 @@ object AgentClient {
             append("play_music={\"query\":\"Bohemian Rhapsody Queen\"} — to play or find a song/artist on Spotify. ")
             append("add_event={\"title\":\"Deep work\",\"start\":\"2026-06-15T17:00\",\"end\":\"2026-06-15T19:00\",\"attendees\":[\"a@x.com\"],\"meet\":true} — 'attendees' is OPTIONAL emails to invite (for a meeting between people); omit it for a personal blocker. Set 'meet':true when the user wants a video call / Google Meet / online meeting (a real Meet link is created if their Google is connected). Use the Current time to resolve 'today/tomorrow/Friday 2pm'. ")
             append("timer=seconds (e.g. 3600); alarm=\"HH:MM\" 24h. ")
+            // Everything after an event is created used to be impossible: the calendar could only be written
+            // to, never read or changed. So "add a Meet link to that", "move it and tell everyone", "did she
+            // ever reply" had no action to route to and were answered with narration instead.
+            append("update_event={\"title\":\"date night\",\"addMeet\":true,\"start\":\"2026-07-26T19:00\"," +
+                "\"end\":\"2026-07-26T21:00\",\"addAttendees\":[\"a@b.com\"]} — change an event that ALREADY " +
+                "exists and email everyone on it. Use for 'add a google meet link to that', 'move it to 7', " +
+                "'add Anna to the invite'. 'title' is a few words of the existing event; include only the " +
+                "fields that change. Everyone invited is notified automatically. ")
+            append("event_followup={\"title\":\"date night\",\"message\":\"optional note\"} — chase the people " +
+                "who have NOT accepted an invite. Use for 'follow up with whoever hasn't replied', 'nudge " +
+                "them about tomorrow', 'has anyone not responded'. It emails only the non-responders, never " +
+                "anyone who already accepted, and reports back who declined. ")
+            append("For any question about WHO WAS INVITED, who accepted or declined, or whether an invite " +
+                "actually went out, do NOT emit an action — the live attendee list and RSVP status are " +
+                "already in your context, fetched from Google. Answer from those, and never from a previous " +
+                "message saying an invite was sent. ")
             append("Use remind for a timed reminder that pops a notification WITH a message — 'remind me in 20 minutes to call mom', 'remind me at 3pm to leave for the airport', 'remind me tomorrow at 9 to email Sam'. arg = {\"text\":\"call mom\",\"in\":1200} where 'in' is a RELATIVE delay in SECONDS, OR {\"text\":\"leave for the airport\",\"at\":\"2026-07-02T15:00\"} for an ABSOLUTE local time. Use the Current time to compute it. Prefer 'remind' over 'timer' whenever there's a thing to be reminded ABOUT; use plain alarm/timer only for a bare clock alarm or countdown with no message. ")
             append("Add remind to the action types. ")
             append("Empty array if nothing to do.), ")
@@ -561,8 +639,26 @@ object AgentClient {
         Log.i("SlyOS", "ask code=$code raw=${text.take(300)}")
         if (code != 200) return AgentResult("Agent error $code: $text", emptyList(), "")
         val r = parse(text)
-        Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(50)}" }}")
-        return r
+        // 50 chars cut the argument off exactly where the interesting part starts: an add_event logged as
+        // {"title":"Sync with Joslyn","start":"2026-07-26T16 tells you nothing about whether anyone is in
+        // 'attendees', which is the field that decides whether a single invitation is sent.
+        Log.i("SlyOS", "ask parsed: say='${r.say}' actions=${r.actions.map { "${it.type}:${it.arg.take(400)}" }}")
+        // THE SAFETY NET BELONGS HERE, NOT IN ONE SCREEN.
+        // This backstop — synthesise an unmistakable action the model failed to emit — lived in HomeScreen,
+        // so it protected the Home prompt and nothing else. Every other surface that plans actions (the
+        // Telegram team chat, agents, audits) went unprotected, which is precisely where a silent miss is
+        // hardest to notice: no one is watching the screen when a teammate asks the bot to schedule
+        // something. Applying it at the shared planner entry point means every caller gets the same
+        // guarantee. HomeScreen's own call is now redundant but harmless — it re-checks the same condition
+        // and finds the action already present.
+        val backstopped = try {
+            val wanted = ScreenIntent.detect(prompt)
+            if (wanted != null && r.actions.none { it.type == wanted.action }) {
+                Log.w("SlyOS", "planner missed \"${wanted.action}\" — synthesised locally for: ${prompt.take(60)}")
+                r.copy(actions = r.actions + AgentAction(wanted.action, wanted.arg))
+            } else r
+        } catch (e: Exception) { r }
+        return backstopped
     }
 
     /**
@@ -585,7 +681,10 @@ object AgentClient {
             "STYLE: reply like a sharp human who knows them — natural, direct, and EXACTLY as long as the answer needs (a word, a line, or a short paragraph; never padded, never a wall of text, never bullet-point filler). " +
             "No JSON, no markdown headers, no preamble like 'Based on your data' or 'Sure!'. Just the answer.\n" +
             "Current time: $now." +
-            (if (memory.isNotBlank()) "\n\nWHAT YOU KNOW ABOUT THEM:\n${memory.take(20000)}" else "")
+            // 20,000 was below what BrainContext actually produces (58k measured), so the tail — ranked
+            // memories, relationships, calendar — was being cut off entirely behind the profile block.
+            // The profile is now capped at source; this raises the ceiling so the rest genuinely arrives.
+            (if (memory.isNotBlank()) "\n\nWHAT YOU KNOW ABOUT THEM:\n${memory.take(40000)}" else "")
         val messages = JSONArray()
         history.takeLast(8).forEach { (u, a) ->
             messages.put(JSONObject().put("role", "user").put("content", u))
@@ -598,7 +697,9 @@ object AgentClient {
         // fast call with no web round-trip; only genuinely live/factual questions get the (slower) web tool.
         val needsWeb = Regex("(?i)\\b(weather|forecast|temperature|news|headline|score|who won|game|match|price|stock|worth|current|latest|today'?s?|tonight|right now|recent(ly)?|look ?up|google|search for|what'?s happening|define|meaning of|population|how (much|many|far|old|tall)|when (is|was|does|did|is the)|where (is|can|to)|release date|open now|hours|standings|results|near me|this (week|weekend|month))\\b").containsMatchIn(prompt)
         val readMs = if (needsWeb) 120000 else 45000
+        val tLlm = System.currentTimeMillis()
         val (code, text) = callMessages(sys, messages, 1000, VOICE, readMs, if (needsWeb) webTool() else null)
+        android.util.Log.i("SlyOS-Perf", "answerWell LLM ${System.currentTimeMillis() - tLlm}ms (web=$needsWeb, code=$code)")
         if (code != 200) return cleanSay(text.ifBlank { "I couldn't reach the model just now — try again in a moment." })
         return cleanSay(text)
     }
@@ -620,6 +721,120 @@ object AgentClient {
         // reply but dramatically better; kept short (spoken) via the token cap.
         val (code, text) = callMessages(sys, messages, 400, VOICE)
         return if (code == 200) text.trim() else "Sorry, I couldn't get that just now."
+    }
+
+    /**
+     * INSTANT small-talk — greetings, thanks, quick acknowledgements. No brain build, no action detection, no
+     * web: just ONE fast CHEAP-tier call (routes to Groq for the user) with the persona, so "hey" comes back in
+     * ~1s and still sounds like them. [memory] should be a SMALL persona/profile blob, never the full brain.
+     */
+    fun smalltalk(prompt: String, memory: String = "", history: List<Pair<String, String>> = emptyList()): String {
+        val sys = persona(memory) +
+            "This is casual small-talk (a greeting, thanks, or a quick acknowledgement). Reply in ONE short, warm, " +
+            "natural sentence, in character. No markdown, no lists, no follow-up questions unless it's genuinely natural."
+        val messages = JSONArray()
+        history.takeLast(2).forEach { (u, a) ->
+            messages.put(JSONObject().put("role", "user").put("content", u))
+            messages.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", prompt))
+        val (code, text) = callMessages(sys, messages, 120, MODEL)   // CHEAP tier → fast
+        return if (code == 200) text.trim() else "Hey!"
+    }
+
+    /**
+     * Generate GENUINELY USEFUL clarifying questions for the owner, given what the brain already knows plus the
+     * raw signals it's unsure about. Template questions were useless ("You talk to 'Instagram User' a lot — who
+     * are they to you?", or asking who someone is when the brain already records they're the owner's wife), so
+     * the model does the judging: it must skip anything already known or not a real person, and ask only what
+     * would actually change how it acts. Returns JSON objects: {question, options[], freeform}.
+     */
+    fun brainQuestions(known: String, signals: String, max: Int = 5): List<Triple<String, List<String>, Boolean>> {
+        if (signals.isBlank()) return emptyList()
+        val sys = "You are the owner's sharpest chief-of-staff. You already know a great deal about them (below). " +
+            "Your job: ask the few questions whose answers would most improve how you act on their behalf.\n" +
+            "Ask at most $max questions. HARD RULES:\n" +
+            "• NEVER ask anything already answered — or inferable — from WHAT IS ALREADY KNOWN. You know a LOT; " +
+            "asking something obvious makes you look stupid. Reason about what's genuinely MISSING.\n" +
+            "• NEVER ask about entries that aren't real individual people (app placeholders like 'Instagram User', " +
+            "group chats, bots, bare handles, channels, notification senders). Silently skip them.\n" +
+            "• Go beyond names. The best questions are about their WORK and INTENT: an unstated priority between " +
+            "competing projects, what they actually want to happen with a thread/deal/document that's clearly " +
+            "in flight, a preference or boundary you'd otherwise guess wrong, a decision that looks pending, " +
+            "or a contradiction between what they said and what they're doing.\n" +
+            "• Be SPECIFIC — reference the real person, project, document, or thread by name. A generic question " +
+            "('who are they to you?') is worthless; a pointed one ('Is the Satlyt pilot ahead of the Belto " +
+            "raise this month?') is gold.\n" +
+            "• Natural, conversational, under 20 words. No boilerplate, no interrogation tone.\n" +
+            // "The questions keep circling the same topic" — a batch would come back as four variations on
+            // the same company/deal, because the owner's biggest project dominates every signal fed in.
+            // Diversity has to be a constraint on the BATCH, not a hope about each question.
+            "• SPREAD THE BATCH. The signals are split into labelled AREAS: ask exactly ONE question per " +
+            "area, drawn from that area's own material. No two questions may centre on the same project, " +
+            "company, deal, or person. If your strongest three questions are all about one venture, keep the " +
+            "best one and find the others in the other areas. Four questions about one topic is a failed " +
+            "batch however good each one is.\n" +
+            "• People close to them are NOT business contacts. Never frame a spouse, family member, or close " +
+            "friend as a work relationship — check what's already known about who someone IS before asking " +
+            "what they do for the owner's projects.\n" +
+            "• Give \"options\" ONLY when a small closed set genuinely covers it (2-4 short options); otherwise []. " +
+            "Set \"freeform\" true unless it's a strict yes/no.\n" +
+            "If nothing is genuinely worth asking, return [] — silence beats a dumb question.\n" +
+            "Output ONLY a JSON array: [{\"question\":\"…\",\"options\":[\"…\"],\"freeform\":true}]. No prose."
+        // 6000 was too tight once the brain filled out: the caller packs the already-answered / already-asked
+        // exclusions in here too, and they were being truncated away, so the model never saw what was off
+        // limits and cheerfully re-asked it. The caller now front-loads the exclusions; this gives the digest
+        // enough room behind them that questions stay grounded in real brain material rather than thin air.
+        // The signals block now carries FOUR labelled areas, each with its own material, because a batch is
+        // required to span four. At 4,000 the last areas were cut off before the model saw them — which
+        // would have quietly reproduced the single-topic batches this is meant to end.
+        val user = "WHAT IS ALREADY KNOWN:\n${known.take(9000)}\n\nRAW SIGNALS (may contain junk — skip it):\n${signals.take(7000)}"
+        val (code, text) = callContent(sys, user, 700, MODEL)
+        if (code != 200) return emptyList()
+        return try {
+            val s = text.indexOf('['); val e = text.lastIndexOf(']')
+            if (s < 0 || e <= s) return emptyList()
+            val arr = JSONArray(text.substring(s, e + 1))
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val q = o.optString("question").trim()
+                if (q.length < 6) return@mapNotNull null
+                val opts = ArrayList<String>()
+                o.optJSONArray("options")?.let { a -> for (j in 0 until a.length()) a.optString(j).trim().takeIf { it.isNotBlank() }?.let { opts.add(it) } }
+                // The owner can ALWAYS type their own answer unless the question is strictly yes/no. A closed
+                // option list can never cover a real answer ("my wife", "neither — we pivoted"), and the model
+                // marks multiple-choice questions as non-freeform far too eagerly.
+                val yesNo = opts.size == 2 && opts.map { it.lowercase().trim('.', '!') }.toSet() == setOf("yes", "no")
+                Triple(q, opts.take(4), !yesNo)
+            }.take(max)
+        } catch (e: Exception) { emptyList() }
+    }
+
+    /**
+     * Which of [existing] beliefs does [newFact] directly contradict? The owner just stated the new one
+     * explicitly, so it wins. Returns the stale lines verbatim so the caller can drop them. Conservative by
+     * design: only genuine contradictions, never merely related or more-detailed facts.
+     */
+    fun contradictedBy(newFact: String, existing: List<String>): List<String> {
+        if (existing.isEmpty()) return emptyList()
+        val numbered = existing.mapIndexed { i, f -> "${i + 1}. $f" }.joinToString("\n")
+        val sys = "The owner has just stated something new and authoritative about themselves. Identify which of " +
+            "their PREVIOUSLY recorded facts are now WRONG because they directly contradict it — e.g. 'committing " +
+            "regardless of X' is contradicted by 'flexible, X takes priority'.\n" +
+            "Be CONSERVATIVE: only genuine contradictions. A fact that is merely related, more specific, about a " +
+            "different subject, or still compatible must NOT be listed.\n" +
+            "Output ONLY a JSON array of the contradicted numbers, e.g. [2,5]. If none, output []."
+        val (code, text) = callContent(sys, "NEW STATEMENT:\n$newFact\n\nPREVIOUSLY RECORDED:\n$numbered", 200, MODEL)
+        if (code != 200) return emptyList()
+        return try {
+            val a = text.indexOf('['); val b = text.lastIndexOf(']')
+            if (a < 0 || b <= a) return emptyList()
+            val arr = JSONArray(text.substring(a, b + 1))
+            (0 until arr.length()).mapNotNull { i ->
+                val idx = arr.optInt(i, 0) - 1
+                if (idx in existing.indices) existing[idx] else null
+            }
+        } catch (e: Exception) { emptyList() }
     }
 
     /** Vision Q&A: answer a question about photos. Returns plain text. */
@@ -1254,6 +1469,27 @@ object AgentClient {
      * which is what the agent needs to ACT AS them (accept/decline, take a stance), not just sound like them.
      * Input should be the user's own ('me') messages. First-person durable lines.
      */
+    /**
+     * Synthesize a COMPREHENSIVE self-model from the raw material of the whole brain — ONE call. Dense,
+     * organized, first-person-usable, so any surface that includes it can speak/act AS the user with FULL
+     * context (not just the settings card). Built in the background + cached by [BrainDigest]; [targetChars]
+     * keeps it tight enough to fit in a normal context window.
+     */
+    fun buildSelfDigest(raw: String, targetChars: Int = 10000): String {
+        if (raw.isBlank()) return ""
+        val sys = "You are building a COMPLETE dossier on a person from the raw material of their digital life — " +
+            "their profile/settings, their messages, contacts and network, calendar, documents, tasks, and recent " +
+            "activity. Synthesize EVERYTHING that matters into a dense, organized, first-person-usable profile an " +
+            "assistant can use to genuinely BE them: who they are; what they are working on RIGHT NOW; their goals, " +
+            "projects and ventures; their key people and relationships; what's going on in their life recently and " +
+            "who they've been talking to; their commitments, schedule and open tasks; and their opinions, preferences, " +
+            "voice and style. Be SPECIFIC — real names, numbers, dates, facts from the material. Organize under clear " +
+            "headers. Include everything important; cut only noise, duplication, and boilerplate. Target about " +
+            "$targetChars characters — comprehensive but tight. No preamble, no meta-commentary — just the dossier."
+        val (code, text) = callContent(sys, raw.take(60000), 4000, VOICE)
+        return if (code == 200) text.trim() else ""
+    }
+
     fun distillSelf(ownMessages: String): List<String> {
         if (ownMessages.isBlank()) return emptyList()
         val sys = "These are messages the USER themselves wrote. Extract only DURABLE things about THEM that would " +
@@ -1555,14 +1791,38 @@ object AgentClient {
         val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         // Professional LinkedIn register (NOT the owner's casual texting persona) + hard-locked name so it can
         // never address the wrong person.
-        val sys = "You write a short, warm, PROFESSIONAL opener on the sender's behalf to someone they're connected " +
-            "with on $source but have never spoken to. CRITICAL: address them by EXACTLY this first name — " +
-            "\"$firstName\" — and use NO other name; never invent or guess a name. Warm but professional (this is " +
-            "$source, not a text to a friend): do NOT open with “yo”, “hey”, or slang. Specific and easy to reply " +
-            "to; no pitch, no 'hope you're well' filler, no markdown. 1–2 sentences. " +
-            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
+        // A batch audit of 10 of these came back near-identical: 6/10 opened "I came across your profile and was
+        // genuinely impressed by…", all 10 pushed a Calendly link, and an intern and an angel investor got the
+        // same message. That reads as spam and burns the relationship. These rules exist to break the formula.
+        val sys = "You write ONE short opener on the sender's behalf to someone they're connected with on " +
+            "$source but have never actually spoken to.\n" +
+            "CRITICAL: address them by EXACTLY this first name — \"$firstName\" — and no other name; never " +
+            "invent or guess one.\n" +
+            "BANNED — these read as mass-mail and must never appear: “I came across your profile”, “I was " +
+            "genuinely impressed”, “I'd love to connect briefly”, “exchange perspectives”, “exciting work”, " +
+            "“hope you're well”, “reaching out”, “touch base”, “synergies”. Find your OWN words.\n" +
+            "MATCH THE ASK TO WHO THEY ARE — this is the whole point:\n" +
+            "• Investor/VC/angel → say concretely what the sender is building and why it may fit their thesis; " +
+            "the ask is a short intro conversation.\n" +
+            "• Senior engineer/researcher in a relevant field → a specific technical question or observation " +
+            "about their domain; the ask is their opinion, not their time.\n" +
+            "• Student/intern/junior → be generous and low-pressure; offer something, don't ask for anything.\n" +
+            "• Anyone else → one genuine, specific line about their actual work, and an easy open question.\n" +
+            "NO scheduling/booking link unless they're a genuinely warm, senior fit AND the message earns it — " +
+            "asking a stranger to book time is presumptuous and is the fastest way to be ignored.\n" +
+            "Be specific to THEIR role and company (not generic praise), 1–2 sentences, plain text, no markdown, " +
+            "no sign-off, no filler. Sound like a real person typing once, not a template.\n" +
+            // A batch audit caught the model INVENTING the sender's company three different ways in one run
+            // (a talent marketplace, a translation company, a RevOps platform) — none of them real. Sending an
+            // investor a fabricated description of your own company is worse than sending nothing.
+            "NEVER invent, guess, or embellish what the sender does or is building. State it ONLY if it appears " +
+            "verbatim in the background below, and then only in those terms. If the background doesn't clearly " +
+            "say what they're building, DO NOT mention their company or product at all — write the message " +
+            "entirely about the recipient instead. Inventing this is the worst possible failure here.\n" +
+            (if (memory.isNotBlank()) "The sender's background/voice (the ONLY source of truth about them): " + memory.take(4000) + ". " else "") +
             "Return ONLY the message."
-        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "") + ". Address them as \"$firstName\"."
+        val who = "Connection: $name" + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "") +
+            ". Address them as \"$firstName\". Decide which of the categories above they fall into, then write the message."
         val (code, text) = callContent(sys, who, 240, VOICE)
         return if (code == 200) text.trim() else "Hi $firstName — we're connected here but haven't actually spoken yet. I'd genuinely like to; what are you focused on these days?"
     }
@@ -1613,11 +1873,23 @@ object AgentClient {
     /** Natural-language Q&A over the user's memories. Returns an answer. */
     fun askMemory(query: String, memories: List<String>): String {
         if (memories.isEmpty()) return "Your memory is empty so far — as you chat, reply, and learn, it fills up."
+        val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
         val sys = "You are SlyOS memory. Answer the user's question grounded in the memories below — you " +
             "MAY reason over, filter, group, and RANK them to give a direct, helpful answer (e.g. 'which VCs " +
             "are most relevant' → pick and order the best-fitting people from the list and say why in a few words " +
             "each). Be specific; quote names, companies, roles. Only claim facts present in the memories; if there's " +
             "genuinely nothing relevant, say so. Give a straight answer, not a disclaimer. " +
+            // PARITY WITH HOME AI: the Home path answers "who is Carlos" correctly and the Memory tab did not,
+            // even on the same retrieved messages, because this prompt lacked the clause that stops a model
+            // from disclaiming its way out of evidence that is sitting right in front of it. A memory tab that
+            // says "I don't have anything on that" about someone with 10,864 messages is the single most
+            // damaging thing the product can do — it teaches the user the brain is empty when it is full.
+            "If a person, company, or topic appears ANYWHERE in the memories below — even once, even in passing — " +
+            "you KNOW it. Surface what you have and answer directly. NEVER say you can't find someone who is " +
+            "present in the memories. When several memories are from conversations WITH a person (their name is " +
+            "the contact), that person is someone the user actually talks to: describe the relationship from " +
+            "those conversations, not just from stray mentions of the name. " +
+            "Current time: " + now + ". " +
             "Write in PLAIN TEXT — no markdown, no ** asterisks **, no # headers; if you list people use simple " +
             "'• ' bullets, one per line.\n" +
             "MEMORIES:\n" + memories.joinToString("\n")
@@ -1761,6 +2033,7 @@ object AgentClient {
             "'wanted to reach out'), no markdown. " +
             (if (book.isNotBlank()) "Include this booking link where it fits: $book. " else "") + "Ready to send."
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", "Draft the message."))
+
         val (code, text) = callMessages(sys, msgs, 350, VOICE)
         return if (code == 200) text.trim() else ("Hi {name}, I'm reaching out about " + query + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
@@ -1768,7 +2041,7 @@ object AgentClient {
     /** A SPECIFIC outreach message tailored to ONE person (their role/company) for the goal — written
      *  fresh when you actually message them, so it's never a generic template. */
     fun tailoredOutreach(goal: String, name: String, role: String, company: String, memory: String,
-                         history: String = ""): String {
+                         history: String = "", template: String = ""): String {
         val firstName = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
         val who = (name + (if (role.isNotBlank()) " — $role" else "") + (if (company.isNotBlank()) " at $company" else "")).trim()
         val book = bookingLink.trim()
@@ -1778,21 +2051,42 @@ object AgentClient {
             "CRITICAL: address the recipient by EXACTLY this first name — \"$firstName\" — and use NO other name; " +
             "never invent or guess a name. Register: warm but professional (this is LinkedIn, not a text) — do NOT " +
             "open with “yo”, “hey”, or slang. Structure: (1) a specific, real reason for reaching out tied to their " +
-            "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
-            "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). " +
-            (if (memory.isNotBlank()) "Write in the sender's voice/persona and use their background for relevance (don't copy verbatim): " + memory.take(900) + ". " else "") +
-            (if (book.isNotBlank()) "Include this booking link where it fits naturally: $book. " else "") +
+            (if (template.isBlank())
+                "role/company; (2) one concrete line of value; (3) one low-friction ask. 3–5 sentences, no markdown, no " +
+                "clichés ('I hope this finds you well', 'I wanted to reach out', 'quick question'). "
+             else
+                // With an owner-written template the length rule must NOT apply — a 3-5 sentence cap silently
+                // compressed it and dropped the GitHub link, the offer to help install, and the no-commitment
+                // line. The owner's message is the deliverable; only the opener is personalised.
+                "KEEP THE OWNER'S MESSAGE ESSENTIALLY WHOLE: same paragraphs, same length, EVERY URL, and every " +
+                "concrete offer (help installing, no payment/commitment, what feedback is wanted). Do NOT " +
+                "summarise, shorten or restructure it. Change ONLY the greeting/first line so it speaks to this " +
+                "specific person, and drop a clause only if it truly cannot apply to them. ") +
+            // Same failure the intro-message audit caught: a truncated background made the model INVENT what
+            // the sender is building (three different fake companies in one run). Never let it improvise this.
+            "NEVER invent, guess or embellish what the sender does or is building — state it only if it appears " +
+            "in the background below, in those terms; otherwise omit it entirely. " +
+            (if (memory.isNotBlank()) "The sender's background (the ONLY source of truth about them): " + memory.take(4000) + ". " else "") +
+            // When the owner supplies their own message, it is the SOURCE — personalise it, don't replace it.
+            (if (template.isNotBlank())
+                "\n\nTHE SENDER'S OWN MESSAGE (this is the basis — keep its substance, structure, links and offer " +
+                "INTACT; personalise the opening line to this specific recipient and trim anything that doesn't " +
+                "apply to them. Do NOT invent new claims, and keep every URL exactly as written):\n" + template + "\n"
+             else "") +
+            (if (book.isNotBlank() && template.isBlank()) "Include this booking link where it fits naturally: $book. " else "") +
             // Reconnecting with someone you've spoken to before must NOT read like a cold intro.
             (if (history.isNotBlank())
                 "You have spoken with this person BEFORE — the prior conversation is given below. Do NOT introduce " +
                 "yourself or write a cold opener; pick up naturally where things left off and reference something " +
                 "real and specific from it. Never restate what they already know. "
              else "This person has NOT been messaged before — a first, warm introduction is appropriate. ") +
-            "Ready to paste and send."
+            (if (template.isNotBlank()) "Return the adapted message only — same length and format as the original, ready to send."
+             else "Ready to paste and send.")
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content",
             "Recipient: $who. Their first name is \"$firstName\" — address them as that." +
             (if (history.isNotBlank()) "\n\nYour prior conversation with them (oldest first):\n" + history.take(1800) else "")))
-        val (code, text) = callMessages(sys, msgs, 350, VOICE)
+        // A template needs room to come back intact; 350 tokens truncated it.
+        val (code, text) = callMessages(sys, msgs, if (template.isNotBlank()) 900 else 350, VOICE)
         return if (code == 200) text.trim() else ("Hi $firstName, I'd love to connect about " + goal.take(60) + (if (book.isNotBlank()) " — grab a time here: $book" else " — open to a quick chat?"))
     }
 
@@ -2435,13 +2729,24 @@ object AgentClient {
             if (it.groupValues[1].isNotBlank()) s = it.groupValues[1]
         }
         s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", " ").replace("\\/", "/")
+        // Lift a leading [[card:…]] tag clear of the JSON scrub below. That scrub fires on ANY leading
+        // bracket, and our own card markup starts with one — so a perfectly good
+        // `[[card:stat;Current Temp;72°F;New Jersey]]` was shredded into visible `card:stat;Current Temp;72°F`
+        // instead of rendering as a card. The tag is our markup, never JSON: protect it, scrub around it.
+        var tag = ""
+        Regex("^\\s*(\\[\\[card:[^\\]]*\\]\\])\\s*", RegexOption.IGNORE_CASE).find(s)?.let {
+            tag = it.groupValues[1]; s = s.removeRange(it.range)
+        }
         // If it STILL looks like JSON, scrub braces/brackets and the envelope keys so nothing technical shows.
         if (s.trimStart().startsWith("{") || s.trimStart().startsWith("[")) {
             s = s.replace(Regex("[{}\\[\\]]"), " ")
                  .replace(Regex("\"(say|actions|remember|type|arg|action)\"\\s*:?", RegexOption.IGNORE_CASE), " ")
                  .replace(Regex("\\s{2,}"), " ")
         }
-        return s.trim().trim(',', '"', ' ').ifBlank { "Done." }
+        s = s.trim().trim(',', '"', ' ')
+        // Card but no sentence left is a valid outcome — show the card alone rather than "Done." under it.
+        if (tag.isNotEmpty()) return (tag + " " + s).trim()
+        return s.ifBlank { "Done." }
     }
 
     /** arg may be a string or a nested JSON object — normalize to a string. */

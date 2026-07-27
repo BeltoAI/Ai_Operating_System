@@ -130,7 +130,7 @@ object DocForge {
 
     // ── content generation (grounded in the brain) ───────────────────────────────────────────────
     private fun writtenContent(ctx: Context, title: String, brief: String, kind: String): String {
-        val brain = try { BrainContext.build(ctx, "$title $brief").take(2000) } catch (e: Exception) { "" }
+        val brain = authorBlock(ctx, "$title $brief")
         val sys = "You write the BODY of a polished business document. Output PLAIN TEXT with light markdown " +
             "only: '# ' for section headings, '## ' for sub-headings, '- ' for bullets, '> ' for a pull-quote. " +
             "No HTML, no code fences, no preamble. Ruthless clarity — active voice, zero filler, every line " +
@@ -140,8 +140,23 @@ object DocForge {
         return if (code == 200 && text.isNotBlank()) text else brief
     }
 
+
+    /**
+     * Who this document is BY, for the content and design prompts.
+     *
+     * Both used `BrainContext.build(...).take(2000)`, and build() now leads with the current time and the
+     * app's capability list — roughly 1,300 characters before a single fact about the owner. That pushed the
+     * profile out of the window, so a request for "my company" reached the model with no company in it. This
+     * puts identity FIRST and lets query-relevant recall fill whatever room is left.
+     */
+    private fun authorBlock(ctx: Context, q: String): String = try {
+        val identity = BrainContext.profileBlock(ctx).take(1400)
+        val recall = BrainContext.build(ctx, q).take(1400)
+        (identity + "\n" + recall).take(2600)
+    } catch (e: Exception) { "" }
+
     private fun deckContent(ctx: Context, title: String, brief: String): String {
-        val brain = try { BrainContext.build(ctx, "$title $brief").take(2000) } catch (e: Exception) { "" }
+        val brain = authorBlock(ctx, "$title $brief")
         val sys = "You write SLIDE DECK content. Separate every slide with a line containing only ===. The FIRST " +
             "line of each block is that slide's title; the rest are its bullets, each starting with '- '. " +
             "6-12 slides, ONE idea per slide, 3-5 short bullets max — never paragraphs. Slide 1 is a cover " +
@@ -268,7 +283,10 @@ object DocForge {
             }
             else -> {
                 // html / pdf — re-run the designer over the revised content so the layout is rebuilt too.
-                val html = AgentClient.designHtml(kind, title, content, "", "")
+                // The designer used to be handed an EMPTY author block, so it had no idea whose document it
+                // was building. Asked for "a one-pager summarising my company", it invented a company called
+                // Northbeam, complete with positioning — a fabricated document that looks entirely correct.
+                val html = AgentClient.designHtml(kind, title, content, "", authorBlock(ctx, "$title $brief"))
                 if (html.length < 120) return Made(false, error = "the designer came back empty")
                 if (fmt == "html") {
                     val uri = SlyFolder.file(ctx, "$title.html", "text/html", html.toByteArray(), "documents", brief.take(180))

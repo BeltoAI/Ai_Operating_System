@@ -11,23 +11,23 @@ object ReplyContext {
     fun forSender(ctx: Context, app: String, title: String, query: String = ""): String {
         val sb = StringBuilder()
 
-        // Per-platform persona FIRST and loud: this is how YOU come across on THIS app (CEO on LinkedIn,
-        // funny on IG, etc.). It must drive the voice of this reply, so it leads the context.
+        // ONE VOICE SOURCE: the same per-channel author block every other outbound surface uses (Voice.voiceFor)
+        // — channel character + full profile + the learned style profile + REAL examples of how the user writes
+        // on THIS channel + the correction flywheel. Notification drafts previously got only the persona +
+        // profile, missing the style profile and the real exemplars, which is why Now drafts read generic
+        // (e.g. not professional enough on LinkedIn) while posts/emails sounded right.
         val style = MemoryStore.styleFor(ctx, app)
-        if (style.isNotBlank())
-            sb.append("⚑ YOUR PERSONA ON $app — adopt this voice and register fully for THIS reply, it overrides " +
-                "your general style: $style\n\n")
+        val voice = try { Voice.voiceFor(ctx, app) } catch (e: Exception) { "" }
+        if (voice.isNotBlank()) sb.append(voice).append("\n\n")
+        else {
+            val about = MemoryStore.fullProfile(ctx)
+            if (about.isNotBlank()) sb.append(about).append(" ")
+        }
 
-        val about = MemoryStore.fullProfile(ctx)   // About + facts the agent has learned on its own
-        if (about.isNotBlank()) sb.append(about).append(" ")
-
-        // THE FLYWHEEL: how the user has recently FIXED the AI's drafts on this channel — the strongest
-        // signal of their real voice. Feeding these back makes each draft converge on how they actually
-        // write, instead of repeating the same off-notes. (Captured by Brain.rememberEdit on every edited send.)
-        val corrections = try { EditPairStore.recentCorrections(ctx, app, 3) } catch (e: Exception) { emptyList() }
-        if (corrections.isNotEmpty())
-            sb.append("\n⚑ HOW YOU FIX MY DRAFTS (mirror these edits — this is your true voice, learn from the change): ")
-                .append(corrections.joinToString(" · ")).append("\n")
+        // The comprehensive self-model (whole brain distilled) — so a reply knows what's actually going on in
+        // the user's life/work right now, not just their settings card.
+        val digest = try { BrainDigest.get(ctx) } catch (e: Exception) { "" }
+        if (digest.isNotBlank()) sb.append("WHO YOU ARE / WHAT'S GOING ON:\n").append(digest.take(5000)).append("\n\n")
 
         // Your real schedule — so the agent can answer "are you free Thursday?" instead of guessing.
         val cal = try { CalendarTool.upcoming(ctx) } catch (e: Exception) { "" }
@@ -46,16 +46,27 @@ object ReplyContext {
             if (elsewhere.isNotEmpty())
                 sb.append("\nWhat you know about $name from other chats: ").append(elsewhere.joinToString(" · "))
 
-            // Deep history for this person straight from the message DB (imported + live).
-            // Try exact contact first; if the notification name doesn't exactly match how they're
-            // stored (e.g. "Papa" vs "Dad Smith"), fall back to a name search so history still surfaces.
-            var dbThread = MessageStore.threadFor(ctx, name, 16)
-                .map { (if (it.role == "me") "you" else name) + ": " + it.body }
-            if (dbThread.isEmpty())
-                dbThread = MessageStore.search(ctx, name, 16)
-                    .map { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
-            if (dbThread.isNotEmpty())
-                sb.append("\nYour history with $name: ").append(dbThread.joinToString(" · "))
+            // WHO THIS PERSON IS, unified across platforms — the same human whether they're "Anna" here,
+            // "Anna Schmidt" on LinkedIn, or anna@co.com in email.
+            val who = try { PersonResolver.identityLine(ctx, name) } catch (e: Exception) { "" }
+            if (who.isNotBlank()) sb.append("\n⚑ WHO YOU'RE REPLYING TO: ").append(who)
+
+            // Their history ACROSS EVERY PLATFORM, grouped per channel — so a LinkedIn reply knows about the
+            // email you sent this morning and the Telegram thread. (threadFor matched `contact` EXACTLY, so
+            // each platform's name for the same person was a separate, blind thread.)
+            val cross = try { PersonResolver.historyFor(ctx, name, 24) } catch (e: Exception) { "" }
+            if (cross.isNotBlank())
+                sb.append("\nYour history with $name across ALL platforms (most recent last — use anything relevant, ")
+                    .append("including what was said on OTHER channels):").append(cross)
+            else {
+                var dbThread = MessageStore.threadFor(ctx, name, 16)
+                    .map { (if (it.role == "me") "you" else name) + ": " + it.body }
+                if (dbThread.isEmpty())
+                    dbThread = MessageStore.search(ctx, name, 16)
+                        .map { (if (it.role == "me") "you→${it.contact}" else it.contact) + ": " + it.body }
+                if (dbThread.isNotEmpty())
+                    sb.append("\nYour history with $name: ").append(dbThread.joinToString(" · "))
+            }
 
             // TRUE RAG: semantic recall from the whole brain, matched by MEANING to what they just said —
             // surfaces relevant memories even when the words differ. This is what makes replies informed.

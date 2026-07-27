@@ -182,8 +182,18 @@ object RichParse {
      * strip it from the displayed text. Types: score, stat, stock, quote, yesno.
      */
     fun fromTag(reply: String): Pair<Hero?, String> {
-        val m = Regex("^\\s*\\[\\[card:([^\\]]+)\\]\\]\\s*", RegexOption.IGNORE_CASE).find(reply) ?: return null to reply
-        val body = reply.removeRange(m.range).trim()
+        // UNWRAP THE ENVELOPE FIRST. Some answer paths hand us the model's raw output, which can still be a
+        // (sometimes truncated) JSON envelope. The tag regex is anchored, so a string starting with `{` never
+        // matched — yet detect() happily built a weather card out of the "72°F" inside it, leaving the whole
+        // envelope as the card subtitle AND as copyable body text. Every UI path (Home, Chat, Converse, the
+        // card renderer, speech, clipboard) reaches the screen through here, so this is the one choke point
+        // that makes "the user never sees raw JSON" actually true instead of assumed.
+        // (Blank stays blank — the sanitiser's "Done." fallback belongs to the agent-result path, not here,
+        // where an empty message must render as nothing at all.)
+        val text = if (reply.isBlank()) reply
+            else try { com.agentos.shell.tools.AgentClient.sanitizeForUi(reply) } catch (e: Exception) { reply }
+        val m = Regex("^\\s*\\[\\[card:([^\\]]+)\\]\\]\\s*", RegexOption.IGNORE_CASE).find(text) ?: return null to text
+        val body = text.removeRange(m.range).trim()
         val p = m.groupValues[1].split(";").map { it.trim() }
         fun g(i: Int) = p.getOrElse(i) { "" }
         val hero: Hero? = when (g(0).lowercase()) {

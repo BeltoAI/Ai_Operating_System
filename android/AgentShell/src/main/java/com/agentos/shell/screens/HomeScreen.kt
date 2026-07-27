@@ -370,9 +370,27 @@ fun HomeScreen(
             // Cloned voice everywhere it's configured — not just the "hold brain" screen. If the user pasted
             // an ElevenLabs key + voice, Home speaks in THEIR voice; any failure falls back to device TTS so
             // it never goes silent. (Before this, Home always used the generic system voice.)
-            if (com.agentos.shell.tools.ElevenLabs.available(ctx)) {
+            if (com.agentos.shell.tools.VoiceOut.canStream(ctx)) {
+                // Low-latency: stream the on-device cloned voice — starts speaking in ~1s, no full-clip wait.
+                // If streaming yields nothing, fall back to the WAV clone (still YOUR voice), then system TTS.
                 scope.launch {
-                    val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.ElevenLabs.synthesize(ctx, s) }
+                    val ok = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.speakStreaming(ctx, s) }
+                    if (!ok) {
+                        val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
+                        if (f == null) deviceSpeak(s)
+                        else try {
+                            try { voicePlayer.value?.release() } catch (e: Exception) {}
+                            val mp = android.media.MediaPlayer()
+                            mp.setDataSource(f.absolutePath)
+                            mp.setOnCompletionListener { try { f.delete() } catch (e: Exception) {} }
+                            mp.setOnErrorListener { _, _, _ -> true }
+                            mp.prepare(); mp.start(); voicePlayer.value = mp
+                        } catch (e: Exception) { deviceSpeak(s) }
+                    }
+                }
+            } else if (com.agentos.shell.tools.VoiceOut.available(ctx)) {
+                scope.launch {
+                    val f = withContext(Dispatchers.IO) { com.agentos.shell.tools.VoiceOut.synthesize(ctx, s) }
                     if (f == null) deviceSpeak(s)
                     else try {
                         try { voicePlayer.value?.release() } catch (e: Exception) {}
@@ -396,6 +414,35 @@ fun HomeScreen(
         // Bank/vault questions are answered LOCALLY behind the PIN — never sent to any model.
         if (com.agentos.shell.tools.BankVault.isConfigured(ctx) && com.agentos.shell.tools.BankVault.isQuery(q)) {
             vaultErr = ""; vaultPin = ""; text = ""; vaultPinPrompt = true; return@submit
+        }
+        // INSTANT SMALL-TALK: a greeting / thanks / quick ack doesn't need the brain, action detection, or two
+        // LLM calls. One fast CHEAP-tier reply so "hey" returns in ~1s instead of a full brain build + double call.
+        // Tight match (short message, greeting words only, anchored) so real questions/commands never fall in here.
+        // Allow a greeting FOLLOWED BY a pleasantry ("hey how are you doing?", "hi, what's up") — the earlier
+        // pattern demanded the greeting be the entire message, so the most natural opener still took the slow path.
+        val greetWord = "(hey+|hi+|hello+|yo+|sup|howdy|hiya|good (morning|afternoon|evening|night)|g'?(day|morning|night)|morning|evening)"
+        val pleasantry = "(how (are|r) (you|u|ya|things)( doing| going)?|how'?s it going|how'?s your (day|morning|evening)|how you doin[g']?|what'?s up|whats up|wassup|you good|everything (ok|good|alright))"
+        val ackWord = "(thank ?(you|s)( so much| a lot)?|ty|cheers|ok(ay)?|kk?|cool|nice|great|awesome|perfect|sweet|word|gotcha|got ?it|sounds good|no worries|lol+|lmao|haha+|hehe+|yes+|yep|yup|yeah|nah|nope|bye+|goodnight|good night|see ?ya|later|peace)"
+        val tail = "[\\s!.,?'’]*"
+        if (q.split(Regex("\\s+")).size <= 7 && Regex(
+                "(?i)^$tail(($greetWord([\\s,!.]+$pleasantry)?)|$pleasantry|$ackWord)$tail$"
+            ).containsMatchIn(q.trim())) {
+            text = ""; thinking = true; reply = ""; lastQuery = q
+            scope.launch {
+                val prof = withContext(Dispatchers.IO) { com.agentos.shell.tools.MemoryStore.about(ctx) }
+                val r = withContext(Dispatchers.IO) { AgentClient.smalltalk(q, prof, history) }
+                val clean = RichParse.fromTag(r).second
+                reply = r; thinking = false
+                if (doSpeak) speak(clean)
+                history = (history + (q to clean)).takeLast(12)
+                withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.HomeChatStore.add(ctx, q, clean)
+                    com.agentos.shell.tools.MessageStore.insertOne(ctx, "Me", "SlyOS", "me", "me", q)
+                    if (clean.isNotBlank()) com.agentos.shell.tools.MessageStore.insertOne(ctx, "SlyOS", "SlyOS", "SlyOS", "them", clean)
+                }
+                saved = MetricsStore.savedMinutesToday(ctx)
+            }
+            return@submit
         }
         // Nightly alarm-planner config in plain language ("remind me at 10pm to set my alarm", "wake me 90 min
         // before", "turn off alarm suggestions"). Handled deterministically so preferences actually stick.
@@ -732,8 +779,25 @@ fun HomeScreen(
             // this question is answered in context (one-shot — cleared after use).
             val snap = com.agentos.shell.tools.ScreenSnap.take()
             val screenCtx = if (snap.first.isNotBlank()) "WHAT WAS ON SCREEN (" + snap.second + "):\n" + snap.first + "\n\n" else ""
-            val context = screenCtx + withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
-            var result = withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
+            // HARD CEILING on context assembly. Home had NO timeout, so one slow store (the vector scan was
+            // measured at 21s) froze the whole reply even though the model itself answers in ~1.7s. If the full
+            // build overruns, fall back to the profile + self-model — which already carries who the user is —
+            // so an answer is always fast and still grounded. (Converse has used this pattern all along.)
+            val context = screenCtx + (kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.build(ctx, q) }
+            } ?: withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.BrainDigest.getOrFull(ctx) + "\n" + com.agentos.shell.tools.BrainContext.profileBlock(ctx)
+            })
+            // SPEED (same quality): a clearly-interrogative question has no action to detect, so skip the
+            // action-selection LLM round-trip — the routing below then flows straight to answerWell (the
+            // dedicated high-quality answer path). Halves latency for plain Q&A. Explicit commands
+            // (send/open/add/remind…) never match, so they still get full action detection; and the
+            // ScreenIntent backstop just below catches screen-opens locally if this ever under-fires.
+            val interrog = q.trimEnd().endsWith("?") || Regex("(?i)^\\s*(what|why|how|when|who|where|which|whose|is|are|am|was|were|do|does|did|can|could|would|should|will|has|have|tell me|explain|summari|give me|what'?s|who'?s|when'?s|where'?s)\\b").containsMatchIn(q)
+            val actiony = Regex("(?i)\\b(send|text|email|message|dm|reply|call|dial|open|launch|start|play|pause|skip|add|remove|delete|clear|remind|set|create|make|build|design|write|draft|schedule|book|cancel|move|share|navigate|directions|buy|order|pay|trade|post|translate|remember|save|track|log|turn (on|off)|enable|disable)\\b").containsMatchIn(q)
+            val pureQ = interrog && !actiony
+            var result = if (pureQ) com.agentos.shell.tools.AgentResult("", emptyList())
+                         else withContext(Dispatchers.IO) { AgentClient.ask(q, apps, context, history) }
             // SAFETY NET: opening a screen or building a document must NOT depend on how clever the model
             // is. Those action types were listed in the schema without descriptions, so weaker brains
             // (Groq's 8B, which the CHEAP tier actually uses) never emitted them and the pages simply never

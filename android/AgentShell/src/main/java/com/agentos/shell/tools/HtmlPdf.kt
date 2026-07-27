@@ -30,6 +30,51 @@ object HtmlPdf {
     private const val TAG = "SlyOS-HtmlPdf"
     private fun safe(s: String) = s.trim().replace(Regex("[^A-Za-z0-9 _-]"), "").take(60).ifBlank { "document" }
 
+    private fun outFile(app: Context, title: String) =
+        File(File(app.getExternalFilesDir(null) ?: app.filesDir, "SlyOS").apply { mkdirs() }, safe(title) + ".pdf")
+
+    /**
+     * Render the loaded page through Android's PRINT pipeline rather than by drawing it onto a canvas.
+     *
+     * Why this exists — a generated pitch deck came back six pages long with the title slide on page one and
+     * five blank pages after it, every page a bitmap with no selectable text. Both faults came from the
+     * canvas path: the WebView is attached to a window one page tall, so only the first viewport is ever
+     * composited. Re-measuring the view to full content height afterwards changes the layout but not what
+     * has been painted, so `draw()` yields slide one followed by empty background — and because it captures
+     * pixels, the output has no text in it at all (`/Font 0`, `/Image 20` on the deck that shipped).
+     *
+     * createPrintDocumentAdapter is the API that actually paginates web content: it lays the document out
+     * against real page boundaries and writes VECTOR output, so text stays selectable, searchable and sharp
+     * at any zoom, and the file is a fraction of the size. Driving the adapter directly (rather than through
+     * PrintManager) keeps it headless — no print dialog, nothing for the user to confirm.
+     */
+    private fun printToPdf(app: Context, wv: WebView, title: String, landscape: Boolean, onDone: (File?) -> Unit) {
+        if (Build.VERSION.SDK_INT < 21) { onDone(null); return }
+        val media = if (landscape) android.print.PrintAttributes.MediaSize.ISO_A4.asLandscape()
+                    else android.print.PrintAttributes.MediaSize.ISO_A4.asPortrait()
+        val attrs = android.print.PrintAttributes.Builder()
+            .setMediaSize(media)
+            .setResolution(android.print.PrintAttributes.Resolution("slyos", "slyos", 300, 300))
+            .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
+            .build()
+        val adapter = wv.createPrintDocumentAdapter(safe(title))
+        val file = outFile(app, title)
+        // Every callback lands on the MAIN looper — the thread already running this — so nothing here may
+        // block or wait. SlyPrint reports through its callback instead; see that file for why it lives in
+        // the android.print package.
+        val settled = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun finish(f: File?) { if (settled.compareAndSet(false, true)) onDone(f) }
+        android.print.SlyPrint.write(adapter, attrs, file) { wrote ->
+            if (wrote && file.exists() && file.length() > 0) {
+                Log.i(TAG, "printed ${file.name} (${file.length()} bytes, vector text)")
+                finish(file)
+            } else finish(null)
+        }
+        // Safety net: if the adapter never calls back at all, fall through to the raster path rather than
+        // leaving the caller waiting out its own 50s timeout with nothing to show.
+        Handler(Looper.getMainLooper()).postDelayed({ finish(null) }, 20_000)
+    }
+
     fun render(ctx: Context, html: String, title: String, landscape: Boolean = false): File? {
         val app = ctx.applicationContext
         val latch = CountDownLatch(1)
@@ -79,9 +124,23 @@ object HtmlPdf {
                     override fun onPageFinished(view: WebView, url: String?) {
                         // Give layout/paint time to settle on the real window, then capture and tear down.
                         view.postDelayed({
-                            try { capture() } finally {
+                            fun teardown() {
                                 try { attached?.let { wm?.removeView(it) } } catch (e: Exception) {}
                                 latch.countDown()
+                            }
+                            // PREFER THE REAL PRINT PIPELINE. See printToPdf(): the canvas capture below can
+                            // only ever paint the first viewport, which is why a six-page deck arrived with
+                            // one slide and five blank pages after it. Raster remains the fallback.
+                            try {
+                                printToPdf(app, view, title, landscape) { printed ->
+                                    try {
+                                        if (printed != null) result[0] = printed
+                                        else { Log.w(TAG, "print path unavailable — falling back to raster"); capture() }
+                                    } finally { teardown() }
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "print adapter: ${e.message}")
+                                try { capture() } finally { teardown() }
                             }
                         }, 1200)
                     }

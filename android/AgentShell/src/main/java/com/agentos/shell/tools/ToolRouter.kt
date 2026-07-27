@@ -132,6 +132,8 @@ object ToolRouter {
                 }
                 "identify_song", "song", "shazam" -> SongId.identify(ctx)
                 "add_event" -> addEvent(ctx, arg)
+                "update_event" -> updateEventRoute(ctx, arg)
+                "event_followup" -> eventFollowupRoute(ctx, arg)
                 "move_event" -> moveEventRoute(ctx, arg)
                 "cancel_event" -> cancelEventRoute(ctx, arg)
                 "send_sms" -> sendSms(ctx, arg)
@@ -441,6 +443,94 @@ object ToolRouter {
         return "Timer set for $pretty — counting down on your Home screen, and it'll ring when it's up."
     }
 
+    /**
+     * CHANGE AN EXISTING EVENT AND TELL THE PEOPLE ON IT.
+     * arg = {"title":"date night","addMeet":true,"start":"2026-07-26T19:00","end":"...",
+     *        "addAttendees":["a@b.com"],"notify":true}
+     * Finds the event by title among upcoming ones — that is how the owner refers to them ("the date
+     * night invite"), never by id. Everything goes out with sendUpdates=all, because a change nobody is
+     * told about leaves everyone believing the old details.
+     */
+    private fun updateEventRoute(ctx: Context, arg: String): String {
+        if (!GoogleAuth.isConnected(ctx)) return "Connect Google in Settings and I can update the event and notify everyone."
+        return try {
+            val o = JSONObject(arg)
+            val title = o.optString("title").ifBlank { return "Which event should I update?" }
+            val target = GoogleCalendarClient.findEvents(ctx, title).firstOrNull()
+                ?: return "I couldn't find an upcoming event matching \u201c$title\u201d."
+            val addAttendees = ArrayList<String>()
+            o.optJSONArray("addAttendees")?.let { for (i in 0 until it.length()) addAttendees.add(it.optString(i)) }
+            val startMs = o.optString("start").takeIf { it.isNotBlank() }?.let { isoToMs(it) }
+            val endMs = o.optString("end").takeIf { it.isNotBlank() }?.let { isoToMs(it) }
+            val wantMeet = o.optBoolean("addMeet", false) && target.meetLink.isBlank()
+            val r = GoogleCalendarClient.patchEvent(ctx, target.id,
+                startMs = startMs, endMs = endMs, addAttendees = addAttendees,
+                addMeet = wantMeet, notify = o.optBoolean("notify", true))
+            if (!r.ok) return "I couldn't update \u201c${target.title}\u201d: ${r.error}"
+            // Record what CHANGED, not what was intended — this is the row a later "did that go out?" reads.
+            MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
+                "Updated: ${r.title}" + (if (startMs != null) " · moved to ${o.optString("start")}" else "") +
+                    (if (wantMeet) " · Meet link added" else "") +
+                    (if (addAttendees.isNotEmpty()) " · invited ${addAttendees.joinToString(", ")}" else "") +
+                    " · everyone on it was notified")
+            buildString {
+                append("Updated \u201c${r.title}\u201d")
+                if (startMs != null) append(", moved to ${o.optString("start")}")
+                if (wantMeet && r.meetLink.isNotBlank()) append(", Meet link added: ${r.meetLink}")
+                if (addAttendees.isNotEmpty()) append(", invited ${addAttendees.joinToString(", ")}")
+                append(". Everyone on it has been emailed the update")
+                val pending = r.attendees.filter { it.responseStatus != "accepted" && !it.organizer }
+                if (pending.isNotEmpty()) append(" \u00b7 still waiting on ${pending.joinToString(", ") { it.email }}")
+                append(".")
+            }
+        } catch (e: Exception) { Log.w("SlyOS", "updateEvent: ${e.message}"); "I couldn't read that update." }
+    }
+
+    /**
+     * CHASE THE PEOPLE WHO HAVEN'T REPLIED. arg = {"title":"date night","message":"optional note"}
+     * Emails only those whose RSVP is not "accepted" — never the whole list, so nobody who already
+     * confirmed gets nagged. Declines are reported back rather than emailed: a declined invite needs the
+     * owner's judgement (reschedule? drop them?), not an automatic reminder.
+     */
+    private fun eventFollowupRoute(ctx: Context, arg: String): String {
+        if (!GoogleAuth.isConnected(ctx)) return "Connect Google in Settings and I can follow up with them."
+        return try {
+            val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("title", arg) }
+            val title = o.optString("title").ifBlank { return "Which event should I follow up about?" }
+            val ev = GoogleCalendarClient.findEvents(ctx, title).firstOrNull()
+                ?: return "I couldn't find an upcoming event matching \u201c$title\u201d."
+            val declined = ev.attendees.filter { it.responseStatus == "declined" }
+            val waiting = ev.attendees.filter { it.responseStatus != "accepted" && it.responseStatus != "declined" && !it.organizer }
+            if (ev.attendees.isEmpty()) return "\u201c${ev.title}\u201d has nobody invited yet \u2014 want me to add them?"
+            if (waiting.isEmpty() && declined.isEmpty()) return "Everyone on \u201c${ev.title}\u201d has already accepted \u2014 nothing to chase."
+            var sent = 0
+            val note = o.optString("message").ifBlank {
+                "Just checking you saw the invite for \u201c${ev.title}\u201d" +
+                    (if (ev.startIso.isNotBlank()) " on ${ev.startIso.take(16).replace('T', ' ')}" else "") +
+                    (if (ev.meetLink.isNotBlank()) "\n\nGoogle Meet: ${ev.meetLink}" else "") +
+                    "\n\nLet me know if that time doesn't work."
+            }
+            waiting.forEach { a ->
+                val (ok, _) = try { GmailClient.send(ctx, a.email, "Re: ${ev.title}", note) } catch (e: Exception) { false to "" }
+                if (ok) sent++
+            }
+            MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
+                "Followed up on ${ev.title} \u00b7 emailed ${waiting.take(5).joinToString(", ") { it.email }}" +
+                    (if (declined.isNotEmpty()) " \u00b7 declined: ${declined.joinToString(", ") { it.email }}" else ""))
+            buildString {
+                if (sent > 0) append("Followed up with ${waiting.joinToString(", ") { it.email }} about \u201c${ev.title}\u201d.")
+                else if (waiting.isNotEmpty()) append("I couldn't send the follow-up emails.")
+                if (declined.isNotEmpty())
+                    append(" ${declined.joinToString(" and ") { it.email }} declined \u2014 want me to find another time?")
+            }
+        } catch (e: Exception) { Log.w("SlyOS", "eventFollowup: ${e.message}"); "I couldn't read that." }
+    }
+
+    /** "2026-07-26T16:00" -> epoch millis in the device's zone. */
+    private fun isoToMs(iso: String): Long? = try {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm", java.util.Locale.US).parse(iso)?.time
+    } catch (e: Exception) { null }
+
     /** Public entry so UI (e.g. the wake-up suggestion chip) can set an alarm directly. */
     fun quickAlarm(ctx: Context, timeArg: String): String = setAlarm(ctx, timeArg)
 
@@ -615,11 +705,30 @@ object ToolRouter {
                     val where = r.removePrefix("OK::")
                     // Feed the brain so the agent knows about the block when it answers later.
                     MemoryLog.add(ctx, "response", "Calendar: $title", "Blocked “$title” in $where (${o.optString("start")}–${o.optString("end")})", "Calendar")
+                    // THIS PATH INVITES NOBODY, AND USED TO SAY IT DID.
+                    // A CalendarContract write puts a row in a local calendar; it sends no email to anyone.
+                    // Only the Google API path above, with sendUpdates=all, actually invites people. This
+                    // branch nonetheless returned "and invited Joslyn" and wrote "· with Joslyn" into the
+                    // brain. So the owner was told the invite went out, the brain recorded that it went out,
+                    // and when he later asked "was it sent to Joslyn?" the answer was a confident yes —
+                    // sourced from a memory that was false the moment it was written. She never got it.
+                    // A false confirmation is worse than a failure: a failure gets noticed and retried.
+                    // Say plainly that the block exists and the invite did NOT go out, and record it that way.
+                    val notInvited = attendees.isNotEmpty()
                     MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me",
-                        "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" + (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else ""))
-                    val who = if (attendees.isNotEmpty()) " and invited ${attendees.joinToString(", ")}" else ""
-                    val meetHint = if (wantsMeet && !GoogleAuth.isConnected(ctx))
-                        " (Connect Google in settings and I'll add a real Meet link + email the invite.)" else ""
+                        "Blocked: $title · ${o.optString("start")} to ${o.optString("end")}" +
+                            (if (notInvited) " · NO invite sent to ${attendees.joinToString(", ")} " +
+                                "(local calendar only — nothing was emailed)" else ""))
+                    val who = if (notInvited)
+                        " — but ${attendees.joinToString(" and ")} " +
+                        (if (attendees.size == 1) "was NOT invited" else "were NOT invited") +
+                        ": this went into a local calendar, which can't email anyone" else ""
+                    val meetHint = if (wantsMeet || notInvited)
+                        (if (!GoogleAuth.isConnected(ctx))
+                            " Connect Google in Settings and I can send the real invite" +
+                                (if (wantsMeet) " with a Meet link." else ".")
+                         else " Google is connected but the invite call failed — try again and I'll send it.")
+                        else ""
                     return "Added “$title” to your $where$who.$meetHint"
                 }
             }
@@ -629,7 +738,17 @@ object ToolRouter {
                 .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMs)
                 .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMs)
                 .putExtra(CalendarContract.Events.TITLE, title))
-            "Opened your calendar to confirm “$title” — I couldn't write it directly (no synced calendar found)."
+            // "It just shows me the calendar" — this is that. It is the last resort when nothing could be
+            // written directly, and it is silent about what got dropped on the way: a prefilled new-event
+            // screen carries no attendees and no Meet link, so anyone the owner named is quietly not invited.
+            // Name the loss instead of leaving them to discover it when the other person never shows up.
+            "Opened your calendar to confirm “$title” — I couldn't write it directly (no synced calendar found)." +
+                (if (attendees.isNotEmpty())
+                    " ${attendees.joinToString(" and ")} " +
+                    (if (attendees.size == 1) "is NOT invited" else "are NOT invited") +
+                    " — tap Save and add them yourself, or connect Google in Settings and I'll send it properly."
+                 else "") +
+                (if (wantsMeet) " There's no Meet link on it either." else "")
         } catch (e: Exception) {
             Log.e("SlyOS", "addEvent failed", e); "I couldn't read those times."
         }

@@ -102,6 +102,16 @@ object FeatureHealth {
             else if (cleaned.contains("Hello there")) pass("extracted the message, dropped the JSON")
             else fail("message text lost: ${cleaned.take(60)}")
         },
+        run("Home AI", "Card envelope renders as a card, not text") {
+            // The weather bug: the envelope reached the UI intact, the anchored tag regex missed it (the
+            // string starts with '{'), detect() built a card from the "72°F" inside it anyway — and the
+            // envelope showed up BOTH as the card subtitle and as a copyable message under it.
+            val env = """{"say":"[[card:stat;Current Temp;72°F;New Jersey]]","actions":["web_search"],"remember":"x"}"""
+            val cleaned = AgentClient.sanitizeForUi(env)
+            if (cleaned.contains("{") || cleaned.contains("\"actions\"")) fail("envelope leaked: ${cleaned.take(60)}")
+            else if (!cleaned.trimStart().startsWith("[[card:")) fail("card tag destroyed: ${cleaned.take(60)}")
+            else pass("card tag preserved, envelope dropped")
+        },
         run("Home AI", "Truncated JSON recovery") {
             val truncated = """{"say":"Partial answer here","actions":["""
             val cleaned = AgentClient.sanitizeForUi(truncated)

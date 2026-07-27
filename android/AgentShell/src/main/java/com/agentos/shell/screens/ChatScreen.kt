@@ -178,7 +178,15 @@ fun ChatScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         "Attached file “$docName”:\n\"\"\"\n" + docText.take(24000) + "\n\"\"\"\n\n" +
                             q.ifBlank { "Read this file and summarize what matters." },
                         context, history)
-                    else -> AgentClient.chat(q, context, history)
+                    // SAME BRAIN AS HOME (BUGS #3: "chat should be able to use the internet"). `chat()` had no
+                    // web tool and a thinner prompt, so the identical question answered well on the Home screen
+                    // and vaguely here. answerWell carries the grounding rules ("if a person is anywhere in
+                    // their data, you KNOW them"), the current time, and web search — but only for questions
+                    // that are plausibly live/factual, so personal questions still take the fast no-web path.
+                    else -> {
+                        val r = AgentClient.answerWell(q, context, history)
+                        if (AgentClient.looksLikeError(r)) -1 to r else 200 to r
+                    }
                 }
             }
             val shown = if (code == 200 && reply.isNotBlank()) reply

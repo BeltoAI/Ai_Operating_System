@@ -68,6 +68,9 @@ object NetworkOutreach {
         lastMsg = "Stopped — $sent sent."
     }
 
+    /** Optional owner-written message that every draft is personalised FROM (kept intact, opener tailored). */
+    @Volatile var template: String = ""
+
     fun start(ctx: Context, goal: String, count: Int, onUpdate: () -> Unit) {
         if (running) return
         if (!TapSend.available()) { lastMsg = "Turn on SlyOS accessibility (Settings → Total Recall) first."; onUpdate(); return }
@@ -91,7 +94,7 @@ object NetworkOutreach {
                     // relationship instead of reading like a cold intro to someone you've talked to before.
                     val hist = withContext(Dispatchers.IO) { priorWith(ctx, c.name) }
                     val msg = withContext(Dispatchers.IO) {
-                        tidy(AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile, hist))
+                        tidy(AgentClient.tailoredOutreach(goal, c.name, c.role, c.company, profile, hist, template))
                     }
                     if (msg.length < 8 || msg.startsWith("[")) { failed++; lastMsg = "Skipped ${c.name}: couldn't draft."
                         Fail.log(ctx, "Reconnect", "draft for ${c.name}", "model returned nothing usable"); onUpdate(); continue }

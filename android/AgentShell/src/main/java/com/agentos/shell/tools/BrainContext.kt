@@ -20,6 +20,66 @@ object BrainContext {
     fun profileBlock(ctx: Context): String = MemoryStore.fullProfile(ctx)
 
     /**
+     * WHAT SLYOS CAN ACTUALLY DO RIGHT NOW, with live connection state.
+     *
+     * Asked to schedule a call and send a Meet link, Home AI answered "No — I genuinely can't do it. I don't
+     * have the ability to connect to Google Calendar or create Meet links. You have to do it manually." Google
+     * was connected, the calendar permission was granted, and the planner emits exactly the right action for
+     * that request. The refusal came from the ANSWER path, whose prompt describes memory and web search and
+     * never mentions that this app operates the phone — so when a request phrased as a question routes there
+     * instead of to the planner, it denies capabilities the product ships.
+     *
+     * That is the same failure as an agent inventing integrations it doesn't have, pointed the other way, and
+     * it is worse: it teaches the owner a working feature is missing. Both directions need ONE honest list,
+     * built from live state rather than from either prompt's imagination — which is why connection status is
+     * read here and not hardcoded.
+     */
+    fun capabilities(ctx: Context): String {
+        val google = try { GoogleAuth.isConnected(ctx) } catch (e: Exception) { false }
+        val cal = try { CalendarTool.hasPermission(ctx) } catch (e: Exception) { false }
+        val screen = try { com.agentos.shell.tools.TapSend.available() } catch (e: Exception) { false }
+        val telegram = try { TelegramClient.configured() } catch (e: Exception) { false }
+        return buildString {
+            append("\nWHAT YOU CAN ACTUALLY DO (you are an agent that operates this phone — never tell them you ")
+            append("cannot do something on this list; say you're doing it and it gets carried out):\n")
+            append("• Calendar: create, move and cancel events, invite attendees by email")
+            append(if (google && cal) " — Google IS connected, so you CAN create real events WITH Google Meet links.\n"
+                   else if (cal) " — on-device calendar only; Google is NOT connected, so no Meet links until they connect it in Settings.\n"
+                   else " — calendar permission is OFF; ask them to grant it in Settings.\n")
+            append("• Email: read their mail and send email")
+            append(if (google) " — Gmail IS connected.\n" else " — needs Google connected in Settings first.\n")
+            append("• Messages: send SMS, WhatsApp, Telegram, Instagram and LinkedIn messages, and reply to notifications in their voice.\n")
+            append("• Documents: generate real PDFs, slide decks, and spreadsheets from a brief, grounded in their data.\n")
+            append("• Phone control: open and operate any app on screen, tap, type and navigate")
+            append(if (screen) ".\n" else " — accessibility is currently OFF, so this needs turning on in Settings.\n")
+            append("• Time: alarms, timers and reminders that really fire.\n")
+            append("• Also: web search, camera/vision, reading and filing documents and receipts")
+            append(if (telegram) ", and a Telegram bot interface.\n" else ".\n")
+            append("If a request needs something switched on, say exactly which switch — never a flat \"I can't\".\n")
+            // GUARD THE OTHER DIRECTION. Told what it can do, the answer path immediately over-corrected to
+            // "Done. Here's what was set up." — but this path only ANSWERS; the planner is what executes.
+            // A false completion is worse than the false refusal it replaced: the owner stops checking.
+            // "Was the invite sent to Joslyn?" → a confident yes. She never received it. The brain held a
+            // memory saying the invite went out, so the answer was honest and completely wrong. Your own
+            // past sentences are stored in this brain alongside real action records and look identical at
+            // retrieval time — a promise reads exactly like a receipt. Answering a did-this-happen question
+            // from a promise is how the owner ends up trusting something that never occurred.
+            append("WHAT COUNTS AS PROOF THAT SOMETHING HAPPENED: only a RECORD OF THE ACTION — a calendar, ")
+            append("outbox, document or message entry describing the completed action, with its details. ")
+            append("A message where you SAID you would do something, or described yourself doing it, is NOT ")
+            append("proof and never becomes proof by being repeated. When asked whether something was ")
+            append("actually sent, invited, scheduled, emailed or created, look for the action record. If ")
+            append("there isn't one, say plainly that you can't confirm it happened and tell them how to ")
+            append("check — never answer yes because you find yourself having promised it. Being wrong here ")
+            append("costs them a missed meeting and their trust in every other answer you give. ")
+            append("BUT NEVER CLAIM SOMETHING IS ALREADY DONE. You are the answering path — the action layer ")
+            append("carries these out separately. Say what you're doing or about to do (\"creating that event ")
+            append("now, inviting them with a Meet link\"), never \"Done\", never \"here's what was set up\", ")
+            append("and never invent a confirmation, link, or invite you have not been shown.\n")
+        }
+    }
+
+    /**
      * P4: rank+dedupe recall. Merges semantic (VectorStore, real cosine score) and keyword (MessageStore)
      * hits, weights semantic higher, dedupes by normalized text keeping the best score, and fills a char
      * budget best-first — so the most relevant memory is guaranteed into the prompt (no fixed truncation).
@@ -33,13 +93,13 @@ object BrainContext {
             (if (role == "me") "you→$contact" else contact) + ": " + body.trim()
         // Pull MORE candidates than we can show and let ranking decide — 8+8 was too tight to survive
         // dedupe, so a good memory could be crowded out by near-duplicates before it was ever considered.
-        try { VectorStore.search(ctx, q, 20).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
+        try { VectorStore.search(ctx, q, 40).forEach { cands.add(Cand(fmt(it.role, it.contact, it.body), it.score)) } } catch (e: Exception) {}
         // Keyword hits used to get a FLAT 0.62 — higher than most genuine semantic matches, so exact-word
         // noise consistently outranked true meaning matches. Score them by how much of the query they
         // actually contain, capped below a strong semantic hit.
         try {
             val terms = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.distinct()
-            MessageStore.search(ctx, q, 20).forEach { h ->
+            MessageStore.search(ctx, q, 60).forEach { h ->
                 val low = h.body.lowercase()
                 val hit = if (terms.isEmpty()) 0 else terms.count { low.contains(it) }
                 val frac = if (terms.isEmpty()) 0f else hit.toFloat() / terms.size
@@ -61,7 +121,7 @@ object BrainContext {
         }
         val sb = StringBuilder(); var used = 0
         for (c in best.values.sortedByDescending { it.score }) {
-            val line = c.text.take(280)
+            val line = c.text.take(400)
             if (used + line.length + 3 > budgetChars) continue
             sb.append("• ").append(line).append("\n"); used += line.length + 3
         }
@@ -74,8 +134,40 @@ object BrainContext {
      * on-screen recall, checklist, mission, portfolio, jobs, and the current time.
      */
     fun build(ctx: Context, q: String): String {
-        val mem = profileBlock(ctx)
+        val tBuild = System.currentTimeMillis()
+        // CAP THE PROFILE. Measured on a real device: profileBlock alone was 27,490 characters, and it is
+        // emitted FIRST — while answerWell() truncates the whole context at 20,000. The settings card was
+        // therefore consuming the entire window before a single remembered message, relationship line, or
+        // calendar entry was reached, and everything else was silently discarded. That is exactly, and
+        // literally, "the AI only knows what's in my characteristics card".
+        // The identity essentials (name, contact details, about-me, learned facts) lead this block, so a cap
+        // keeps what every answer needs and drops the long LinkedIn work-history tail that no single question
+        // ever needed in full.
+        val mem = profileBlock(ctx).take(9000)
+        val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
+        // AUTHORITATIVE EVENT FACTS, FETCHED WHEN THE QUESTION IS ABOUT THEM.
+        // "Was the invite sent to Joslyn?" was answered from memory and came back a confident yes for an
+        // invite that Google's own record shows went to nobody (attendees: 0). Memory cannot settle that
+        // question — it holds what the app SAID as readily as what it DID, and the two are indistinguishable
+        // at retrieval time. When the owner asks who was invited, who replied, or whether something actually
+        // went out, fetch the event from Google and answer from that. Gated on the question so the ordinary
+        // path pays nothing.
+        val asksAboutInvites = Regex("(?i)\\b(invite[ds]?|invitation|attendee|rsvp|accepted|declined|" +
+            "confirm(ed)?|did .{0,20}(get|receive)|was .{0,20}sent|send out|going to attend|meet link|" +
+            "google meet)\\b").containsMatchIn(q)
+        val eventFacts = if (asksAboutInvites && GoogleAuth.isConnected(ctx)) try {
+            GoogleCalendarClient.findEvents(ctx).take(8).joinToString("\n") { e ->
+                "• \"${e.title}\" ${e.startIso.take(16)} — " +
+                (if (e.attendees.isEmpty()) "NOBODY IS INVITED (attendee list is empty — no invitation was sent to anyone)"
+                 else "invited: " + e.attendees.joinToString(", ") { a ->
+                     a.email + " (" + when (a.responseStatus) {
+                         "accepted" -> "accepted"; "declined" -> "DECLINED"
+                         "tentative" -> "maybe"; else -> "no reply yet" } + ")" }) +
+                (if (e.meetLink.isNotBlank()) " · Meet link: ${e.meetLink}" else " · no Meet link on it")
+            }
+        } catch (e: Exception) { "" } else ""
+        android.util.Log.i("SlyOS-Perf", "profile ${tProfile - tBuild}ms · calendar ${System.currentTimeMillis() - tProfile}ms")
         val now = java.text.SimpleDateFormat("EEE yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         val recall = if (MemoryStore.recallEnabled(ctx)) InteractionStore.retrieve(ctx, q, 10) else ""
@@ -83,7 +175,25 @@ object BrainContext {
         // budget — so the single most relevant memory always survives instead of being truncated away.
         // This is now the PRIMARY semantic surface (everything the phone does is embedded via Brain.remember +
         // ingestAllSources), so it earns a larger budget than the old keyword-gated blocks around it.
-        val ranked = rankedRecall(ctx, q, budgetChars = 2600)
+        // THE BOTTLENECK BEHIND "the AI only knows what's in my characteristics card".
+        // This was 2,600 characters — with lines capped at 280, about NINE messages out of 67,163 — while
+        // profileBlock() above goes in unbounded and answerWell() accepts 20,000. So every answer was
+        // overwhelmingly the settings profile plus a handful of messages, no matter how much history the
+        // owner imported. The brain wasn't failing to retrieve; it was being throttled on the way to the
+        // model. 9,000 leaves ample room for the profile, calendar, docs and the rest inside that 20k.
+        // 9,000 was too far the other way. Measured on device: a ~40,000-character context made the primary
+        // model take 105 SECONDS and time out, and exceeded Groq's per-minute token limit outright (413) —
+        // so the fallback couldn't absorb what the primary dropped and the owner got nothing at all. The
+        // Memory tab answers well and fast on a 20,000-character corpus, so that is the size to match; more
+        // context is worthless if the request never returns.
+        val ranked = rankedRecall(ctx, q, budgetChars = 6000)
+        // WHO the question is about, as a relationship — the same lines that turned "who is Carlos" from
+        // eight fragments of small talk into a real answer. This is the shared context every surface reads,
+        // so Home AI, chat and reply drafting all get it, not just the Memory tab.
+        val who = try {
+            q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }.take(4)
+                .flatMap { MessageStore.personDossier(ctx, it) }.distinct().take(6).joinToString("\n")
+        } catch (e: Exception) { "" }
         val net = ConnectionStore.search(ctx, q, 6)
             .joinToString(" · ") { it.name + (if (it.role.isNotBlank()) " (${it.role})" else "") + (if (it.company.isNotBlank()) " @ ${it.company}" else "") }
             .take(800)
@@ -155,15 +265,45 @@ object BrainContext {
             } catch (e: Exception) { "" }
         } else ""
 
+        android.util.Log.i("SlyOS-Perf", "BrainContext.build TOTAL ${System.currentTimeMillis() - tBuild}ms for \"${q.take(30)}\"")
+        // The comprehensive self-model (whole brain distilled) leads the context so EVERY reply is grounded in
+        // who the user actually is + what's going on — not just the settings card. Cached; falls back to the
+        // card until the first digest is built. Bounded so query-specific recall below still has room.
+        val digest = try { BrainDigest.get(ctx) } catch (e: Exception) { "" }
+        // Section sizes, so a bloated block can be SEEN rather than inferred. Context that overflows the
+        // model ceiling isn't extra detail — it's material thrown away, and since the profile leads, what
+        // gets thrown away is always the query-specific part that made the answer worth reading.
+        android.util.Log.i("SlyOS-Perf", "ctx sections: profile=${mem.length} cal=${cal.length} ranked=${ranked.length} " +
+            "who=${who.length} net=${net.length} papers=${papers.length} doc=${docText.length} filed=${filedDocs.length} " +
+            "recall=${recall.length} tasks=${tasks.length} sent=${sent.length} day=${dayLog.length} team=${teamActivity.length}")
         return buildString {
+            // Time leads. It is ~30 characters, every scheduling answer depends on it, and it used to be the
+            // LAST thing appended — so whenever the context overflowed the model ceiling, the current time was
+            // the first casualty. Cheap, essential things go where truncation can't reach them.
+            append("Current time: ").append(now).append("\n")
+            // Near the front, with the time, so an overflowing context can never cost the answer path its
+            // own list of what the product does.
+            append(capabilities(ctx))
+            if (digest.isNotBlank()) append("WHO YOU ARE (comprehensive self-model):\n").append(digest.take(9000)).append("\n\n")
             if (mem.isNotBlank()) append(mem)
             if (photoCount > 0) append("\nYou have ").append(photoCount)
                 .append(" photos described in your brain; you can find pictures by describing them (e.g. \"a cute selfie\").")
             if (photoHits.isNotBlank()) append("\nPhotos that match this request:\n").append(photoHits)
             if (cal.isNotBlank()) append("\nUpcoming calendar:\n").append(cal)
+            // Straight from Google, and it OVERRIDES anything remembered. A memory saying an invite went out
+            // is not evidence it did; this block is. If it says nobody is invited, then nobody is invited —
+            // say so plainly, however confidently a past message claimed otherwise.
+            if (eventFacts.isNotBlank()) append(
+                "\nWHO IS ACTUALLY INVITED TO YOUR EVENTS (fetched from Google just now — this is the ONLY " +
+                "trustworthy answer about invitations and replies; it OVERRIDES anything you or the brain " +
+                "previously said. If it shows no attendees, the invitation was never sent, no matter what " +
+                "was claimed before. You can offer to fix it — add them and send the invite — or to follow " +
+                "up with anyone who hasn't replied or has declined):\n").append(eventFacts)
             if (sent.isNotBlank()) append("\nThe most recent messages YOU sent (newest first — use these to answer who/what you last sent):\n").append(sent)
             if (expenses.isNotBlank()) append("\nYour real spending from tracked receipts (use these EXACT numbers for money questions):\n").append(expenses)
             if (dayLog.isNotBlank()) append("\nWhat flowed through your brain in the time window you asked about (newest first, with times — use these to answer the date question):\n").append(dayLog)
+            if (who.isNotBlank()) append("\nYour actual relationship with the people named in this request " +
+                "(straight from the message record — treat these as people you KNOW):\n").append(who)
             if (ranked.isNotBlank()) append("\nMost relevant memories (ranked best-first — the top lines matter most):\n").append(ranked)
             if (net.isNotBlank()) append("\nFrom your contacts/network (use ONLY if relevant):\n").append(net)
             // WHO IS THIS PERSON — searched across contacts, message history, network, CRM and calendar.

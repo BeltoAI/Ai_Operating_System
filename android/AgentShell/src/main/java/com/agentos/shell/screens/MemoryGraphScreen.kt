@@ -36,6 +36,7 @@ import com.agentos.shell.theme.T
 import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.MemoryGraphStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.cos
@@ -217,75 +218,12 @@ fun MemoryGraphScreen(modifier: Modifier = Modifier, onBack: () -> Unit, onSetti
         searchHist = com.agentos.shell.tools.MemoryStore.searchHistory(ctx)
         searching = true; answer = ""; pathNodes = emptyList(); selected = null
         scope.launch {
-            // Semantic-ish expansion: search by meaning across messages AND the LinkedIn network.
-            val expanded = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.expandQuery(query) }
-            val q = (listOf(query) + expanded).joinToString(" ")
-            val recall = if (com.agentos.shell.tools.MemoryStore.recallEnabled(ctx))
-                com.agentos.shell.tools.InteractionStore.search(ctx, q, 40)
-                    .map { "Seen in ${it.app}: ${it.text}" } else emptyList()
-            // Your imported network (LinkedIn connections) — so "do I know any VCs" works.
-            val conns = withContext(Dispatchers.IO) { com.agentos.shell.tools.ConnectionStore.search(ctx, q, 60) }
-                .map { "Connection: ${it.name}" + (if (it.role.isNotBlank()) " — ${it.role}" else "") + (if (it.company.isNotBlank()) " at ${it.company}" else "") }
-            val dbHits = withContext(Dispatchers.IO) {
-                com.agentos.shell.tools.MessageStore.search(ctx, q, 70)
-                    .map { (if (it.role == "me") "You to ${it.contact}" else "${it.contact}") + ": " + it.body }
-            }
-            // SEMANTIC recall — search the whole brain by MEANING. This panel was keyword-only (never touched
-            // the vector index), which is why it could "barely find anything". Embeds the real question and
-            // pulls the closest memories across EVERY source (messages, docs, photos, screen, CRM, papers).
-            val semHits = withContext(Dispatchers.IO) {
-                try {
-                    com.agentos.shell.tools.VectorStore.search(ctx, query, 30)
-                        .map { (if (it.role == "me") "You to ${it.contact}" else it.contact) + ": " + it.body }
-                } catch (e: Exception) { emptyList() }
-            }
-            // Your written papers' CONTENT (not just titles) — so Ask can answer from your research.
-            val paperHits = withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.libraryContext(ctx, 0L, q, 3000) }
-                .split("\n\n").map { it.trim() }.filter { it.isNotBlank() }
-            // The loaded PDF knowledge base — so Ask can also answer from a document you fed it.
-            val docHits = if (com.agentos.shell.tools.KnowledgeStore.hasDoc(ctx))
-                withContext(Dispatchers.IO) { com.agentos.shell.tools.KnowledgeStore.retrieve(ctx, q, 2500) }
-                    .split("\n").map { it.trim() }.filter { it.length > 20 } else emptyList()
-            // Connections first (people you know), then messages, then graph facts/recall.
-            val extra = MemoryGraphStore.memoryLines() + recall
-            val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 2 }
-            val rankedExtra = if (terms.isEmpty()) extra.takeLast(40)
-                else extra.map { it to terms.count { t -> it.lowercase().contains(t) } }
-                    .filter { it.second > 0 }.sortedByDescending { it.second }.take(60).map { it.first }
-            // Checklist tasks: pulled in directly so "what's on my list / what tasks do I have" works
-            // even though task text rarely contains the words "task" or "checklist".
-            val taskQuery = Regex("task|to-?do|checklist|errand|chore|remind|due|what.*do|need.*do|outstanding|pending",
-                RegexOption.IGNORE_CASE).containsMatchIn(query)
-            val taskLines = withContext(Dispatchers.IO) { com.agentos.shell.tools.ChecklistStore.load(ctx) }
-                .filter { taskQuery || terms.any { t -> it.text.lowercase().contains(t) } }
-                .map { "Checklist task: ${it.text} — ${if (it.done) "done" else "to do"}" }
-            // Your schedule — so "am I free / what's blocked" answers from the real calendar.
-            val schedQ = Regex("free|busy|schedule|calendar|meeting|available|blocked|book|when am i", RegexOption.IGNORE_CASE).containsMatchIn(query)
-            val calLines = if (schedQ) withContext(Dispatchers.IO) { com.agentos.shell.tools.CalendarTool.upcoming(ctx) }
-                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "Schedule: $it" } else emptyList()
-            // Direct list of your papers by TITLE — so "what papers do I have / what did I write" reliably
-            // lists them (content keyword-matching alone misses a generic 'what papers' question).
-            val paperQuery = Regex("paper|whitepaper|white ?paper|research|document|wrote|writ|publish|essay|report|zenodo|doi",
-                RegexOption.IGNORE_CASE).containsMatchIn(query)
-            val paperTitles = if (paperQuery) withContext(Dispatchers.IO) { com.agentos.shell.tools.PaperStore.list(ctx) }
-                .map { "Your paper: “${it.title}” (${it.docType})" } else emptyList()
-            val corpus = ArrayList<String>(); var chars = 0
-            // ALWAYS lead with the core profile (contact details, About, learned facts, work history) so
-            // "what's my address / email / phone / where did I work" is answerable no matter the wording.
-            val profile = withContext(Dispatchers.IO) { com.agentos.shell.tools.BrainContext.profileBlock(ctx) }
-                .split("\n").map { it.trim() }.filter { it.isNotBlank() }.map { "About you: $it" }
-            // Lead with whatever the question is really about — but always fold in the semantic hits (best
-            // meaning-matches) high up, right after the core profile.
-            val ordered = profile + semHits + when {
-                paperQuery -> paperTitles + paperHits + conns + dbHits + docHits + taskLines + rankedExtra
-                schedQ     -> calLines + taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                taskQuery  -> taskLines + conns + dbHits + paperHits + docHits + rankedExtra
-                else       -> conns + dbHits + paperHits + docHits + taskLines + rankedExtra
-            }
-            for (l in ordered) { if (chars + l.length > 14000) break; corpus.add(l); chars += l.length }
-            val a = withContext(Dispatchers.IO) {
-                if (corpus.isEmpty()) "I don't have anything on that yet." else AgentClient.askMemory(query, corpus)
-            }
+            val tStart = System.currentTimeMillis()
+            // Retrieval + answering now live in BrainAnswer so they can be run and inspected from adb
+            // (`-e mode ask -e q "…"`). This screen keeps the UI concerns. Anything below this line that
+            // still looks like corpus assembly is dead and should have gone with it.
+            val a = com.agentos.shell.tools.BrainAnswer.answer(ctx, query)
+            android.util.Log.i("SlyOS-Perf", "brain-bar TOTAL ${System.currentTimeMillis() - tStart}ms")
             answer = a
             // Light up the "synapse path": the memories most related to the question + answer.
             val toks = ("$query $a").lowercase().split(Regex("\\W+")).filter { it.length > 3 }.toSet()
