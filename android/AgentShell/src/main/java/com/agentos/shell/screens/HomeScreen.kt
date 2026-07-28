@@ -138,7 +138,7 @@ private fun promptGrad(seed: String): List<androidx.compose.ui.graphics.Color> {
 
 /** How far down the puck must travel to latch recording — far enough to be deliberate,
  *  short enough for a thumb that is already resting on the control. */
-private const val SLIDE_TARGET = 150f
+private const val SLIDE_TARGET = 210f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1149,23 +1149,47 @@ fun HomeScreen(
                                     "MMM d HH:mm", java.util.Locale.getDefault())
                                     .format(java.util.Date()), said)
                         }
+                        // A handful of words is not a meeting. The model was handed ten words after
+                        // a long instruction and replied "you didn't actually paste the transcript"
+                        // — which was a fair reading, and got stored as the summary. Short
+                        // recordings are kept verbatim and said back instead of being summarised
+                        // into an apology.
+                        if (said.length < 220) {
+                            thinking = false
+                            reply = "Kept it:\n\n" + said
+                            return@launch
+                        }
                         val summary = withContext(Dispatchers.IO) {
                             AgentClient.answerWell(
-                                "Summarise this conversation transcript. It comes from live speech " +
-                                "recognition, so it has no speaker labels and contains mistakes — " +
-                                "read through them rather than quoting them as fact.\n\nWrite: two " +
-                                "or three sentences on what it was about; then DECISIONS (omit if " +
-                                "none); then ACTIONS with who owes what (omit if none); then OPEN " +
-                                "questions (omit if none). Do not invent a decision or a deadline " +
-                                "that is not in the transcript.\n\n" + said.take(20000),
+                                "Below, between the markers, is a transcript of a conversation the " +
+                                "owner was part of. It comes from live speech recognition, so it has " +
+                                "no speaker labels and contains mistakes — read through them rather " +
+                                "than quoting them as fact. However short or rough it is, it IS the " +
+                                "transcript: never reply asking for it.\n\n" +
+                                "Write, and nothing else: two or three sentences on what it was " +
+                                "about; then DECISIONS (omit the heading if none); then ACTIONS with " +
+                                "who owes what (omit if none); then OPEN questions (omit if none). " +
+                                "Do not invent a decision, an action or a deadline that is not " +
+                                "there.\n\n---TRANSCRIPT BEGINS---\n" + said.take(20000) +
+                                "\n---TRANSCRIPT ENDS---",
                                 "", emptyList())
                         }
                         thinking = false
-                        reply = if (summary.isNotBlank() && !AgentClient.looksLikeError(summary))
-                            summary else "Kept the transcript — couldn't summarise it just now."
-                        if (summary.isNotBlank() && !AgentClient.looksLikeError(summary)) {
+                        val good = summary.isNotBlank() && !AgentClient.looksLikeError(summary)
+                        reply = if (good) summary else "Kept the transcript — couldn't summarise it just now."
+                        if (good) {
                             withContext(Dispatchers.IO) {
                                 com.agentos.shell.tools.Brain.remember(ctx, "note", "Meeting summary", summary)
+                                // Anything the owner agreed to becomes a real task. A commitment
+                                // recorded only inside a note nobody reopens is not recorded.
+                                summary.lineSequence()
+                                    .map { it.trim().trimStart('·', '-', '*', ' ') }
+                                    .filter { l ->
+                                        l.length in 9..160 && Regex("(?i)\\b(you|i'?ll|i will|we'?ll)\\b")
+                                            .containsMatchIn(l)
+                                    }
+                                    .take(6)
+                                    .forEach { com.agentos.shell.tools.ChecklistStore.add(ctx, it) }
                             }
                         }
                     }
@@ -1908,21 +1932,35 @@ fun HomeScreen(
                 // so where to drag and how far are both on screen rather than in a hint.
                 Box(contentAlignment = Alignment.TopCenter) {
                     if (holding) {
-                        // The track, drawn behind the puck.
+                        // A CONTINUOUS RAIL, not a row of dots.
+                        //
+                        // Four small dots read as decoration; nobody sees a path in them. A solid
+                        // rail that fills orange as the finger travels shows both where to go and
+                        // how far is left, and the target grows and labels itself so it is a place
+                        // to arrive at rather than a hint to interpret.
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Spacer(Modifier.height(26.dp))
-                            repeat(4) { i ->
-                                Box(Modifier.size(3.dp).clip(CircleShape)
-                                    .background(if (slidDown) T.accent else T.hairline))
-                                Spacer(Modifier.height(9.dp))
+                            Spacer(Modifier.height(30.dp))
+                            Box(
+                                Modifier.width(6.dp).height(96.dp)
+                                    .clip(RoundedCornerShape(999.dp)).background(T.hairline),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                // Fills as you travel — the progress IS the instruction.
+                                val filled = (slideY / SLIDE_TARGET).coerceIn(0f, 1f)
+                                Box(Modifier.width(6.dp).height((96 * filled).dp)
+                                    .clip(RoundedCornerShape(999.dp)).background(T.accent))
                             }
+                            Text("▼", fontSize = 13.sp,
+                                color = if (slidDown) T.accent else T.inkFaint)
+                            Spacer(Modifier.height(4.dp))
                             Box(
                                 Modifier.clip(RoundedCornerShape(999.dp))
-                                    .background(if (slidDown) T.accent else T.hairline)
-                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                                    .background(if (slidDown) T.accent else T.bgElevated)
+                                    .padding(horizontal = 20.dp, vertical = 12.dp)
                             ) {
-                                Text(if (slidDown) "release to record" else "drag here to record",
-                                    fontSize = T.caption,
+                                Text(if (slidDown) "RELEASE TO RECORD" else "DRAG DOWN TO RECORD",
+                                    fontSize = T.small,
+                                    fontWeight = FontWeight.Bold,
                                     color = if (slidDown) Color.White else T.inkSoft)
                             }
                         }
@@ -1937,7 +1975,9 @@ fun HomeScreen(
                             .background(if (holding) T.accent else Color.Transparent),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(if (holding) "◉" else if (speaking) "■" else "●",
+                        Text(if (holding) "↓" else if (speaking) "■" else "●",
+                            fontSize = if (holding) 18.sp else 14.sp,
+                            fontWeight = if (holding) FontWeight.Bold else FontWeight.Normal,
                             color = if (holding) Color.White else T.accent)
                     }
                 }
