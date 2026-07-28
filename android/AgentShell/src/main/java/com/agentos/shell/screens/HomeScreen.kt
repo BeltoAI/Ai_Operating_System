@@ -1665,15 +1665,19 @@ fun HomeScreen(
             Modifier.fillMaxWidth()
                 .pointerInput(speaking) {
                     detectTapGestures(
-                        onTap = { if (speaking) stopSpeaking() else startVoice() },
+                        // Tap only ever means "stop talking" now. There is no tap-to-dictate to
+                        // disambiguate against, so the hold can begin the instant a finger lands
+                        // rather than after a threshold — which also means the first word is never
+                        // clipped while waiting to find out what kind of press this was.
+                        onTap = { if (speaking) stopSpeaking() },
                         onPress = {
-                            // Only a real hold starts the recogniser — otherwise every tap would
-                            // open both paths at once.
-                            val long = kotlinx.coroutines.withTimeoutOrNull(260) { tryAwaitRelease() } == null
-                            if (long && !speaking) {
-                                holding = true; holder.start()
+                            if (!speaking) {
+                                holding = true
+                                holder.start()
                                 tryAwaitRelease()
-                                holder.stop(); holding = false
+                                // Release IS the send. Whatever was said goes as the prompt.
+                                holder.stop()
+                                holding = false
                             }
                         })
                 },
@@ -1683,9 +1687,9 @@ fun HomeScreen(
             Spacer(Modifier.height(6.dp))
             Text(
                 when {
-                    holding -> "listening — let go when you're done"
+                    holding -> "listening — let go to send"
                     speaking -> "tap to stop"
-                    else -> "tap to talk · hold to think"
+                    else -> "hold to talk"
                 },
                 fontSize = T.small, color = T.inkSoft)
             // The live transcript while held, so it is obvious it is still with you through a pause.
