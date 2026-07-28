@@ -225,7 +225,17 @@ object ScreenIntent {
         r("operate", "\\b(do (this|that) for me|operate|take over|control the screen|do it in the app)\\b"),
         // ── Social posts ──
         r("spicy_post", "\\bspicy (take|post)\\b|\\bhot take\\b"),
-        r("compose_post", "\\b(write|draft|make) (me )?(a )?(post|tweet|linkedin post)\\b|\\bpost about\\b",
+        // EVERY verb and EVERY channel.
+        //
+        // This matched only (write|draft|make) on (post|tweet|linkedin post), so "CREATE a LinkedIn
+        // post" fell through to the agent loop — which sometimes drove the phone through the
+        // accessibility service instead of composing anything. Same request, two products, decided
+        // by whichever verb the user happened to type. "Caption for Instagram" missed entirely.
+        r("compose_post",
+            "(?i)\\b(write|draft|make|create|compose|come up with|put together|generate|give me)\\b" +
+            ".{0,24}\\b(post|tweet|caption|thread|update|status)\\b" +
+            "|\\bpost (about|on)\\b" +
+            "|\\b(linkedin|instagram|twitter|reddit|threads|facebook|tiktok)\\b.{0,16}\\b(post|caption|update)\\b",
             "\\babout\\s+(.+)$")
     )
 

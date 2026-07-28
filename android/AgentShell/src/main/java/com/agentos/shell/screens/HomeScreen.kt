@@ -845,8 +845,24 @@ fun HomeScreen(
             val composeAct = result.actions.firstOrNull { it.type == "compose_post" }
             if (composeAct != null) {
                 val o = try { org.json.JSONObject(composeAct.arg) } catch (e: Exception) { null }
-                val platform = o?.optString("platform").takeUnless { it.isNullOrBlank() } ?: "LinkedIn"
-                val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() } ?: q
+                // The channel the OWNER named beats whatever the model guessed. Defaulting to
+                // LinkedIn meant "write an Instagram caption" opened a LinkedIn composer, and the
+                // wrong channel means the wrong length, the wrong voice and the wrong hashtags.
+                val named = Regex("(?i)\\b(linkedin|instagram|twitter|x\\b|reddit|threads|facebook|tiktok)\\b")
+                    .find(q)?.value?.lowercase()
+                val platform = when (named) {
+                    "linkedin" -> "LinkedIn"; "instagram" -> "Instagram"
+                    "twitter", "x" -> "X"; "reddit" -> "Reddit"
+                    "threads" -> "Threads"; "facebook" -> "Facebook"; "tiktok" -> "TikTok"
+                    else -> o?.optString("platform").takeUnless { it.isNullOrBlank() } ?: "LinkedIn"
+                }
+                // The TOPIC, not the whole instruction. Falling back to `q` handed the composer
+                // "create a linkedin post about the pilot" as its brief, so the model treated the
+                // instruction itself as the subject — which is why the frame showed reasoning
+                // rather than a post.
+                val tpc = o?.optString("topic").takeUnless { it.isNullOrBlank() }
+                    ?: Regex("(?i)\\babout\\s+(.+)$").find(q)?.groupValues?.get(1)?.trim()
+                    ?: q
                 thinking = false
                 onCompose(platform, tpc)
                 return@launch

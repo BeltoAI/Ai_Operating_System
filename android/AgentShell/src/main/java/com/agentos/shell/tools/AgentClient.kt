@@ -993,33 +993,93 @@ object AgentClient {
     }
 
     /** Generate a spicy-but-constructive tech post (Opus for sharper wit), tuned per platform. */
+    /**
+     * One post, in the voice of the channel it is going to.
+     *
+     * Only Reddit and X had rules; every other platform fell into the X branch and inherited
+     * "under 260 characters, no hashtags" — so a LinkedIn post came out as a terse tweet and an
+     * Instagram caption came out with no hashtags at all. The channel changes the length, the
+     * register and the conventions, and getting that wrong is most of why generated posts read as
+     * not-quite-right rather than obviously broken.
+     */
     fun spicyPost(topic: String, platform: String = "x", memory: String = ""): String {
         val author = if (memory.isNotBlank()) "You ARE the author; write in first person as them. About you: $memory. " else ""
         val voice = if (styleProfile.isNotBlank()) "Match this exact writing voice: $styleProfile. " else ""
-        val reddit = platform.lowercase().contains("reddit")
-        val sys = author + voice + if (reddit) {
-            "Write a sharp, contrarian tech post for Reddit. Format EXACTLY: a punchy HEADLINE on the " +
-            "first line, then a blank line, then a meaty body of 4–8 sentences across 2–3 short " +
-            "paragraphs that actually argues a real point with a concrete example or two. Be confident " +
-            "and a little funny, but the insight comes first — go after hype, cargo-cult trends, bloated " +
-            "frameworks and buzzword soup, not real named people or groups; no slurs or harassment. " +
-            "Plain conversational Reddit voice, no hashtags, no emoji spam. Return ONLY the headline + body."
-        } else {
-            "Write ONE great post for X in the author's own voice. Rules that make it good, not cringe: " +
-            "lead with a specific, concrete claim or observation — never a generic 'hot take', never the " +
-            "words 'hot take' or 'unpopular opinion'. Say something only someone who actually builds would " +
-            "say; there must be a real, defensible point under it. Confident and dry — wit comes from the " +
-            "specificity, not from trying hard. No hashtags. No emoji unless one genuinely lands. Don't " +
-            "explain the joke or add a second sentence that softens it. Under 260 characters, one tight " +
-            "thought. Punch up at ideas, hype and trends — never real named people, no slurs or harassment. " +
-            "Return ONLY the post text, no quotes around it."
+        val p = platform.lowercase()
+
+        val rules = when {
+            p.contains("reddit") ->
+                "Write a sharp, contrarian tech post for Reddit. Format EXACTLY: a punchy HEADLINE on the " +
+                "first line, then a blank line, then a meaty body of 4\u20138 sentences across 2\u20133 short " +
+                "paragraphs that actually argues a real point with a concrete example or two. Confident and a " +
+                "little funny, but the insight comes first. Plain conversational Reddit voice, no hashtags, " +
+                "no emoji spam."
+            p.contains("linkedin") ->
+                "Write ONE LinkedIn post in the author's own voice. 120\u2013200 words \u2014 long enough to make a " +
+                "real point, short enough to read without expanding. Open with a specific, concrete line that " +
+                "earns the click; no 'I'm humbled', no 'thrilled to announce', no rhetorical question opener. " +
+                "Short paragraphs, one idea each, blank line between them. Say something only someone who " +
+                "actually does this work would know. End on a point, not a call to engagement \u2014 never 'what " +
+                "do you think?'. At most two hashtags, and only if they are real terms people follow. No emoji " +
+                "bullets."
+            p.contains("instagram") ->
+                "Write ONE Instagram caption in the author's own voice. 1\u20133 short lines, warm and human, " +
+                "written to sit under a photo rather than to stand alone. A little personality, no corporate " +
+                "tone. Emoji only where one genuinely lands. Then a blank line and 3\u20135 relevant hashtags on " +
+                "their own line \u2014 real ones people search, not filler."
+            p.contains("thread") ->
+                "Write ONE Threads post in the author's own voice. Conversational and unpolished in a good " +
+                "way \u2014 like something said to a room, not published. Under 400 characters. No hashtags."
+            p.contains("facebook") ->
+                "Write ONE Facebook post in the author's own voice. Plain, warm, 2\u20134 sentences, written for " +
+                "people who know them personally. No hashtags, no marketing tone."
+            p.contains("tiktok") ->
+                "Write ONE TikTok caption in the author's own voice. Under 150 characters, punchy, hook-first. " +
+                "2\u20134 hashtags on the end."
+            else ->
+                "Write ONE great post for X in the author's own voice. Lead with a specific, concrete claim or " +
+                "observation \u2014 never a generic 'hot take', never the words 'hot take' or 'unpopular opinion'. " +
+                "Say something only someone who actually builds would say; there must be a real, defensible " +
+                "point under it. Confident and dry \u2014 wit comes from the specificity, not from trying hard. No " +
+                "hashtags. No emoji unless one genuinely lands. Don't explain the joke. Under 260 characters, " +
+                "one tight thought."
         }
-        val user = if (topic.isBlank()) "Write a sharp tech take in your voice." else "Topic: $topic"
+
+        // The same closing instruction for every channel. Without it the model prefaces the post
+        // with what it was thinking, and the composer then shows reasoning where the post should be
+        // \u2014 which is exactly what users reported.
+        val sys = author + voice + rules +
+            " Punch up at ideas, hype and trends \u2014 never real named people, no slurs or harassment. " +
+            "Return ONLY the post itself: no preamble, no explanation, no 'Here's a post', no quotes " +
+            "around it, no notes afterwards."
+
+        val user = if (topic.isBlank()) "Write a sharp take in your voice." else "Topic: $topic"
+        val budget = when {
+            p.contains("reddit") -> 700
+            p.contains("linkedin") -> 600
+            else -> 300
+        }
         val (code, text) = callMessages(
             sys, JSONArray().put(JSONObject().put("role", "user").put("content", user)),
-            if (reddit) 700 else 300, OPUS
+            budget, OPUS
         )
-        return if (code == 200) text.trim().trim('"') else "[couldn't write it: $code $text]"
+        return if (code == 200) stripPreamble(text) else "[couldn't write it: $code $text]"
+    }
+
+    /**
+     * Remove a lead-in the model added despite being told not to.
+     *
+     * "Here's a LinkedIn post about the pilot:" followed by the post is the commonest failure, and
+     * showing it verbatim is what made the composer look like it was displaying the model's
+     * thinking rather than the work.
+     */
+    private fun stripPreamble(raw: String): String {
+        var t = raw.trim().trim('"')
+        val lead = Regex("(?i)^(sure|certainly|here'?s|here is|okay|ok)\\b[^\\n]{0,80}[:\\n]")
+        if (lead.containsMatchIn(t)) t = lead.replace(t, "").trim()
+        // A model that wraps the post in a fenced block should not have the fence shown.
+        t = t.removePrefix("```").removeSuffix("```").trim()
+        return t.trim().trim('"')
     }
 
     /** Revise an existing social post per a natural-language instruction. */
