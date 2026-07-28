@@ -154,6 +154,8 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var staff by remember { mutableStateOf(EmployeeStore.all(ctx)) }
     var activity by remember { mutableStateOf(EmployeeStore.recentActivity(ctx, 12)) }
+    // Bumped on approve/discard so the list redraws without reopening the sheet.
+    var outboxTick by remember { mutableStateOf(0) }
     var hireText by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var flash by remember { mutableStateOf("") }
@@ -709,8 +711,48 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                             fontSize = T.small, color = if (isQuestion) T.inkSoft else T.good, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (isQuestion) T.hairline else T.good.copy(alpha = 0.14f)).clickable { approveDone() }.padding(vertical = 12.dp))
                     }
+                    // WHAT IT PRODUCED, WHERE THE WORK WAS DONE.
+                    //
+                    // An agent's drafts lived only in Now, so the Team tab could say Maya had done
+                    // something and never what. Nothing here was approvable, which made the whole
+                    // tab feel decorative — seven characters in rooms, no output.
+                    //
+                    // Both surfaces read the same OutboxStore rows and key off the same id, so
+                    // approving in either place updates the other. Two independent copies of a
+                    // draft is how the same email gets sent twice.
+                    val held = remember(e.id, outboxTick) {
+                        com.agentos.shell.tools.OutboxStore.recent(ctx, 40).filter { it.status == "held" }
+                    }
+                    if (held.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text("WAITING FOR YOU (${held.size})", fontSize = 10.sp, color = T.accent,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                        held.take(5).forEach { row ->
+                            Column(Modifier.fillMaxWidth().padding(top = 8.dp)
+                                .clip(RoundedCornerShape(12.dp)).background(T.bg).padding(12.dp)) {
+                                Text("${row.channel} · ${row.contact}", fontSize = T.caption, color = T.inkFaint)
+                                Spacer(Modifier.height(4.dp))
+                                Text(row.body.take(220), fontSize = 13.sp, color = T.ink, lineHeight = 18.sp)
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Approve", fontSize = T.caption, color = T.good, fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                            .background(T.good.copy(alpha = 0.14f))
+                                            .clickable {
+                                                com.agentos.shell.tools.OutboxStore.setStatus(ctx, row.id, "sent"); outboxTick++
+                                            }.padding(horizontal = 14.dp, vertical = 7.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Discard", fontSize = T.caption, color = T.inkFaint,
+                                        modifier = Modifier.clickable {
+                                            com.agentos.shell.tools.OutboxStore.setStatus(ctx, row.id, "undone"); outboxTick++
+                                        }.padding(horizontal = 8.dp, vertical = 7.dp))
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(14.dp))
-                    Text("RECENT", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    Text("WHAT IT DID", fontSize = 10.sp, color = T.inkFaint, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
                     log.take(if (showDetails) 10 else 5).forEach { l ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                             Text(agoLabel(l.ts), fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(52.dp))

@@ -587,6 +587,28 @@ object EmployeeRunner {
                 if (up.isNotBlank()) live.append("YOUR CALENDAR (next 30 days):\n").append(up.take(1200)).append("\n\n")
             }
             if ((tools.contains("email") || tools.contains("inbox")) && GoogleAuth.isConnected(ctx)) {
+                // THE ACTUAL INBOX.
+                //
+                // This block used to contain attachments and nothing else — a list of PDFs. An
+                // inbox agent was therefore never given a single unread email, which is why it
+                // triaged one thing instead of everything: it read what it was handed, and the
+                // inbox was not in it.
+                val unread = try { GmailClient.unreadNeedingReply(ctx, 25) } catch (e: Exception) { emptyList() }
+                if (unread.isNotEmpty()) {
+                    live.append("YOUR UNREAD INBOX (").append(unread.size)
+                        .append(" messages — triage EVERY one of them, not just the first):\n")
+                    unread.forEachIndexed { i, m ->
+                        live.append(i + 1).append(". [").append(m.id).append("] ")
+                            .append(m.from).append(" <").append(m.fromEmail).append("> — ")
+                            .append(m.subject)
+                        if (m.automated) live.append("  [automated sender — do NOT draft a reply]")
+                        live.append("\n     ").append(m.snippet.take(220)).append("\n")
+                    }
+                    live.append("\n")
+                } else {
+                    // Silence reads as broken. Say the inbox was read and was clean.
+                    live.append("YOUR UNREAD INBOX: nothing unread that needs a person.\n\n")
+                }
                 val atts = try { Inbox.emailAttachments(ctx, 6).joinToString("\n") { "• ${it.name} (from ${it.who})" } } catch (e: Exception) { "" }
                 if (atts.isNotBlank()) live.append("RECENT EMAIL ATTACHMENTS:\n").append(atts).append("\n\n")
             }

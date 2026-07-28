@@ -439,6 +439,73 @@ object GmailClient {
         return added
     }
 
+    /** One unread mail, as something that can be triaged and replied to. */
+    data class Unread(
+        val id: String,
+        val from: String,
+        val fromEmail: String,
+        val subject: String,
+        val snippet: String,
+        val receivedMs: Long,
+        val automated: Boolean
+    )
+
+    /**
+     * The mail that plausibly needs the owner, as structured items.
+     *
+     * This did not exist. An inbox agent's whole job is to read the inbox, and the only thing it
+     * was ever handed was `Inbox.emailAttachments` — a list of PDFs — plus a dozen lines of recent
+     * message text. So "Maya read one email instead of all of them" was exactly right: she read
+     * what she was given, and it was not the inbox.
+     *
+     * Filtered server-side. Pulling everything and discarding most of it would be slow and would
+     * spend quota on mail nobody will ever answer.
+     */
+    fun unreadNeedingReply(ctx: Context, max: Int = 25): List<Unread> {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return emptyList()
+        val q = "is:unread in:inbox -category:promotions -category:social -category:forums"
+        val (lc, lb) = get("$BASE/messages?maxResults=$max&q=" + java.net.URLEncoder.encode(q, "UTF-8"), token)
+        if (lc !in 200..299) { Log.w(TAG, "unread list $lc: ${lb.take(140)}"); return emptyList() }
+
+        val ids = try {
+            val arr = JSONObject(lb).optJSONArray("messages") ?: return emptyList()
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("id") }
+        } catch (e: Exception) { return emptyList() }
+
+        val out = ArrayList<Unread>()
+        for (id in ids) {
+            if (id.isBlank()) continue
+            val (mc, mb) = get("$BASE/messages/$id?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=List-Unsubscribe&metadataHeaders=Precedence", token)
+            if (mc !in 200..299) continue
+            try {
+                val msg = JSONObject(mb)
+                val payload = msg.optJSONObject("payload") ?: continue
+                val fromHdr = header(payload, "From")
+                if (fromHdr.isBlank()) continue
+
+                // A List-Unsubscribe header means a mailing, not a person. That one check removes
+                // most of what would otherwise fill the queue.
+                val bulk = header(payload, "List-Unsubscribe").isNotBlank() ||
+                    header(payload, "Precedence").equals("bulk", true)
+                if (bulk) continue
+
+                val email = Regex("[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}").find(fromHdr)?.value?.lowercase().orEmpty()
+                out.add(Unread(
+                    id = id,
+                    from = senderName(fromHdr),
+                    fromEmail = email,
+                    subject = header(payload, "Subject").ifBlank { "(no subject)" },
+                    snippet = msg.optString("snippet").replace("&#39;", "'").replace("&quot;", "\"").replace("&amp;", "&"),
+                    receivedMs = msg.optString("internalDate").toLongOrNull() ?: 0L,
+                    // Still returned, not dropped: a booking or a code is often the thing that
+                    // matters. It just is not worth writing a reply to.
+                    automated = isNoisyEmail(email)))
+            } catch (e: Exception) { Log.w(TAG, "unread parse $id failed", e) }
+        }
+        return out.sortedByDescending { it.receivedMs }
+    }
+
     /** Skip automated / no-reply senders so the CRM stays PEOPLE, not robots. */
     private fun isNoisyEmail(email: String): Boolean {
         val local = email.substringBefore("@")
