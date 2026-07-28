@@ -188,6 +188,8 @@ fun HomeScreen(
         thinkingJob = null; thinking = false; replyDragX = 0f
     }
     var lastQuery by remember { mutableStateOf("") }
+    // The thing currently being worked on — a subject, never a mode.
+    var draft by remember { mutableStateOf(com.agentos.shell.tools.WorkingDraft.current(ctx)) }
     var rememberSuggestion by remember { mutableStateOf("") }
     var showChecklist by remember { mutableStateOf(false) }   // show the live checklist card under the answer
     var checklistTick by remember { mutableStateOf(0) }       // bump to re-read ChecklistStore after a change
@@ -538,6 +540,31 @@ fun HomeScreen(
                 return@submit
             }
         }
+        // AN EDIT TO THE PINNED DRAFT, NOT A NEW REQUEST.
+        //
+        // History alone was not enough: with nothing marking "this draft is the subject", "make it
+        // shorter" competed with every other turn and usually produced a fresh post written from
+        // the brief again. Checked before the planner sees the prompt, and only for instructions
+        // that plainly refer back — an unrelated question must answer normally and leave the draft
+        // untouched, or this becomes a mode people get stuck in.
+        val pinned = draft
+        if (pinned != null && com.agentos.shell.tools.WorkingDraft.isEdit(q)) {
+            thinking = true; reply = ""; text = ""; lastQuery = q; replyDragX = 0f
+            thinkingJob = scope.launch {
+                val revised = withContext(Dispatchers.IO) {
+                    AgentClient.answerWell(
+                        com.agentos.shell.tools.WorkingDraft.revisionPrompt(pinned, q), "", emptyList())
+                }
+                thinking = false
+                if (revised.isNotBlank() && !AgentClient.looksLikeError(revised)) {
+                    com.agentos.shell.tools.WorkingDraft.set(ctx, pinned.kind, revised, pinned.brief)
+                    draft = com.agentos.shell.tools.WorkingDraft.current(ctx)
+                    reply = revised
+                } else reply = revised.ifBlank { "Couldn't revise that." }
+            }
+            return@submit
+        }
+
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
         // Kept so it can be stopped. Without a handle on the job there was no way to abandon a
         // request already in flight — the only options were to wait it out or leave the screen.
@@ -892,6 +919,10 @@ fun HomeScreen(
                     ?: Regex("(?i)\\babout\\s+(.+)$").find(q)?.groupValues?.get(1)?.trim()
                     ?: q
                 thinking = false
+                // Pin the subject before leaving, so a follow-up on return edits THIS rather than
+                // starting a new post from the brief.
+                com.agentos.shell.tools.WorkingDraft.set(ctx, "$platform post", "", tpc)
+                draft = com.agentos.shell.tools.WorkingDraft.current(ctx)
                 onCompose(platform, tpc)
                 return@launch
             }
@@ -1444,6 +1475,45 @@ fun HomeScreen(
         calCard?.let { (label, evs) ->
             Spacer(Modifier.height(14.dp))
             CalendarCard(label, evs) { calCard = null }
+        }
+
+        // THE PINNED DRAFT — what "it" refers to.
+        draft?.takeIf { it.text.isNotBlank() }?.let { d ->
+            Spacer(Modifier.height(14.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(T.bgElevated).padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.label, fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text("✕", fontSize = T.caption, color = T.inkFaint,
+                        modifier = Modifier.clickable {
+                            com.agentos.shell.tools.WorkingDraft.clear(ctx); draft = null
+                        }.padding(6.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(d.text.take(240), fontSize = 13.sp, color = T.ink, lineHeight = 19.sp, maxLines = 5)
+                Spacer(Modifier.height(10.dp))
+                // The commonest edits as one tap. Typing does the same thing — these are shortcuts,
+                // not the only way in.
+                // A plain Row: the pill set is short and fixed, so nothing needs to wrap and an
+                // experimental layout is not worth the API risk here.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.agentos.shell.tools.WorkingDraft.QUICK.forEach { pill ->
+                        Text(pill, fontSize = T.caption, color = T.ink,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { submit(pill.lowercase(), false) }
+                                .padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                    Text("Keep", fontSize = T.caption, color = T.good, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(T.good.copy(alpha = 0.14f))
+                            .clickable {
+                                com.agentos.shell.tools.Brain.remember(ctx, "note", d.label, d.text)
+                                com.agentos.shell.tools.WorkingDraft.clear(ctx); draft = null
+                                reply = "Kept — it's in your brain."
+                            }.padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+            }
         }
 
         if (thinking || reply.isNotEmpty()) {
