@@ -3,6 +3,8 @@ package com.agentos.shell.tools
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -28,9 +30,12 @@ class HoldToTalk(private val ctx: Context) {
 
     private var recognizer: SpeechRecognizer? = null
     private var held = false
+    private val main = Handler(Looper.getMainLooper())
     /** Text from earlier segments of the same hold; each restart's result replaces only its own. */
     private var banked = ""
 
+    /** Live input level, 0..1 — drives the "it is hearing you" animation. */
+    var onLevel: (Float) -> Unit = {}
     var onPartial: (String) -> Unit = {}
     var onFinal: (String) -> Unit = {}
     var onError: (String) -> Unit = {}
@@ -53,11 +58,14 @@ class HoldToTalk(private val ctx: Context) {
         if (!held) return
         held = false
         try { recognizer?.stopListening() } catch (e: Exception) {}
-        // The final callback often never arrives when a hold is released during silence.
-        // Submitting what was banked is better than losing the sentence.
-        val text = banked.trim()
-        release()
-        if (text.isNotEmpty()) onFinal(text)
+        // Give the last segment a moment to deliver before reading what was banked. Reading
+        // immediately threw away whatever was still in flight — usually the final few words, and
+        // on a short hold the entire sentence.
+        main.postDelayed({
+            val text = banked.trim()
+            release()
+            if (text.isNotEmpty()) onFinal(text) else onError("Didn't catch that — hold and speak again.")
+        }, 900)
     }
 
     /** Slid away — throw it away, as a voice note does. */
@@ -82,7 +90,11 @@ class HoldToTalk(private val ctx: Context) {
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(p: Bundle?) {}
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rms: Float) {}
+            override fun onRmsChanged(rms: Float) {
+                // Android reports roughly -2..10 dB here. Normalised so the UI can show a level
+                // that visibly tracks the voice rather than a decorative pulse.
+                onLevel(((rms + 2f) / 12f).coerceIn(0f, 1f))
+            }
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() {}
 
@@ -97,7 +109,13 @@ class HoldToTalk(private val ctx: Context) {
                 onPartial(banked)
                 // Still held: the recogniser gave up on its own, not the user. Start another segment
                 // so a pause to think does not end the sentence.
-                if (held) listen() else if (banked.isNotEmpty()) onFinal(banked)
+                //
+                // POSTED, never inline. listen() destroys the recogniser, and destroying it from
+                // inside its own callback is unstable — the segment that was mid-delivery is lost,
+                // which is exactly how a held sentence came back empty despite the logs showing
+                // "handleFinalResult: 1 hyp" several times over.
+                if (held) main.post { if (held) listen() }
+                else if (banked.isNotEmpty()) onFinal(banked)
             }
 
             override fun onError(code: Int) {
@@ -106,7 +124,10 @@ class HoldToTalk(private val ctx: Context) {
                 val silence = code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
                     code == SpeechRecognizer.ERROR_NO_MATCH
                 when {
-                    held -> { if (!silence) Log.w("SlyOS", "hold-to-talk error $code"); listen() }
+                    held -> {
+                        if (!silence) Log.w("SlyOS", "hold-to-talk error $code")
+                        main.post { if (held) listen() }
+                    }
                     banked.isEmpty() && !silence -> onError("Voice input failed ($code).")
                 }
             }

@@ -1112,13 +1112,15 @@ fun HomeScreen(
     val holder = remember { com.agentos.shell.tools.HoldToTalk(ctx) }
     var holding by remember { mutableStateOf(false) }
     var heardSoFar by remember { mutableStateOf("") }
+    var micLevel by remember { mutableStateOf(0f) }
     DisposableEffect(Unit) {
+        holder.onLevel = { micLevel = it }
         holder.onPartial = { heardSoFar = it }
         holder.onFinal = { said ->
-            holding = false; heardSoFar = ""
+            holding = false; heardSoFar = ""; micLevel = 0f
             if (said.isNotBlank()) { text = said; submit(said, true) }
         }
-        holder.onError = { msg -> holding = false; heardSoFar = ""; reply = msg }
+        holder.onError = { msg -> holding = false; heardSoFar = ""; micLevel = 0f; reply = msg }
         onDispose { holder.cancel() }
     }
 
@@ -1753,22 +1755,53 @@ fun HomeScreen(
                 },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // WHAT YOU ARE SAYING GOES **ABOVE** THE DOT.
+            //
+            // It used to sit underneath, which is exactly where the thumb is during a hold — so the
+            // one thing that proves it is hearing you was the one thing you could not see. Above the
+            // control, and above the finger.
+            if (holding) {
+                Text(
+                    heardSoFar.ifBlank { "listening…" },
+                    fontSize = if (heardSoFar.isBlank()) T.small else 17.sp,
+                    color = if (heardSoFar.isBlank()) T.inkFaint else T.ink,
+                    lineHeight = 23.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 4)
+                Spacer(Modifier.height(14.dp))
+
+                // A level meter driven by the real microphone, not a decorative pulse. Bars that
+                // move when you speak and settle when you pause are the difference between
+                // "it is on" and "it is hearing me" — and through a thinking pause, that is the
+                // only reassurance there is.
+                val bars = 7
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.height(34.dp)) {
+                    repeat(bars) { i ->
+                        // Middle bars react most, so it reads as a voice rather than a graph.
+                        val weight = 1f - (kotlin.math.abs(i - bars / 2) / (bars / 2f)) * 0.55f
+                        val h = androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = 5f + micLevel * 28f * weight,
+                            animationSpec = androidx.compose.animation.core.tween(90),
+                            label = "bar$i").value
+                        Box(Modifier.width(4.dp).height(h.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(T.accent))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
             Text(if (holding) "◉" else if (speaking) "■" else "●", color = T.accent)
             Spacer(Modifier.height(6.dp))
             Text(
                 when {
-                    holding -> "listening — let go to send"
+                    holding -> "let go to send · slide down to record a meeting"
                     speaking -> "tap to stop"
                     else -> "hold to talk"
                 },
                 fontSize = T.small, color = T.inkSoft)
-            // The live transcript while held, so it is obvious it is still with you through a pause.
-            if (holding && heardSoFar.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(heardSoFar, fontSize = T.small, color = T.ink,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 3)
-            }
         }
 
         Spacer(Modifier.weight(1f))
