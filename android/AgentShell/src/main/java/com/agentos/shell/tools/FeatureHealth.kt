@@ -259,7 +259,45 @@ object FeatureHealth {
         out.addAll(outboundChecks(ctx))
         cleanup(ctx)
         persist(ctx, out)
+        recordToBrain(ctx, out)
         return out
+    }
+
+    /**
+     * Write what was found into the brain, so the app knows its own state.
+     *
+     * Health was a screen nobody opened. Everything it knew — that the calendar permission is off,
+     * that no provider answered, that nothing has been embedded — was locked inside a diagnostics
+     * list, while the answering path went on replying as though the calendar were simply empty.
+     *
+     * As memories it becomes ordinary knowledge. "Is everything working?" is answerable in
+     * conversation, a gap can be named at the moment it matters ("I can't see your calendar —
+     * access is off") rather than mimicked as an empty result, and because each run is stamped, a
+     * thing that broke on Tuesday is visible as having broken on Tuesday instead of appearing to
+     * have always been that way.
+     */
+    private fun recordToBrain(ctx: Context, checks: List<Check>) {
+        try {
+            val failed = checks.filter { it.status == "FAIL" }
+            val skipped = checks.filter { it.status == "SKIP" }
+            val passed = checks.count { it.status == "PASS" }
+
+            val body = buildString {
+                append("Self-check: ").append(passed).append(" of ").append(checks.size)
+                append(" working.")
+                if (failed.isNotEmpty()) {
+                    append("\n\nNOT WORKING — say so plainly if the owner asks something that needs one of these, ")
+                    append("rather than answering as if the feature returned nothing:\n")
+                    failed.forEach { append("• ").append(it.feature).append(" — ").append(it.detail).append("\n") }
+                }
+                if (skipped.isNotEmpty()) {
+                    append("\nNOT SET UP YET (needs the owner to switch something on):\n")
+                    skipped.take(8).forEach { append("• ").append(it.feature).append(" — ").append(it.detail).append("\n") }
+                }
+            }
+            // One memory per run, replacing nothing — the history is the point.
+            Brain.remember(ctx, "note", "SlyOS self-check", body)
+        } catch (e: Exception) { Log.w(TAG, "recordToBrain: ${e.message}") }
     }
 
     /** Remove anything the self-test wrote, so running it never pollutes the brain. */

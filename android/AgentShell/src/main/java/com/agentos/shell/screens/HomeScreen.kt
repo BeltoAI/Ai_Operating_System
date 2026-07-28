@@ -199,6 +199,9 @@ fun HomeScreen(
         thinkingJob = null; thinking = false; replyDragX = 0f
     }
     var lastQuery by remember { mutableStateOf("") }
+    // Bumped whenever setup progresses, so the card re-evaluates without a restart.
+    var brainTick by remember { mutableStateOf(0) }
+    var whatsNew by remember { mutableStateOf(com.agentos.shell.tools.FirstRun.whatsNew(ctx)) }
     // The thing currently being worked on — a subject, never a mode.
     var draft by remember { mutableStateOf(com.agentos.shell.tools.WorkingDraft.current(ctx)) }
     var rememberSuggestion by remember { mutableStateOf("") }
@@ -1556,6 +1559,79 @@ fun HomeScreen(
         calCard?.let { (label, evs) ->
             Spacer(Modifier.height(14.dp))
             CalendarCard(label, evs) { calCard = null }
+        }
+
+        // FIRST RUN — three things to do, each of which does the thing.
+        //
+        // A new install opened on "what should happen?" with an empty brain and no key, so the
+        // first honest answer it could give was that it could not help. Each card is a verb: the
+        // key card opens the field, the feed card opens the picker, the ask card runs a question
+        // drawn from their own history so the very first thing SlyOS does is prove it knows them.
+        if (!com.agentos.shell.tools.FirstRun.hidden(ctx) && reply.isBlank() && !thinking) {
+            val steps = remember(brainTick) { com.agentos.shell.tools.FirstRun.remaining(ctx) }
+            steps.firstOrNull()?.let { step ->
+                Spacer(Modifier.height(14.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(T.bgElevated).padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SET UP", fontSize = 10.sp, color = T.accent,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text("Not now", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.clickable {
+                                com.agentos.shell.tools.FirstRun.dismiss(ctx); brainTick++
+                            }.padding(4.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(step.title, fontSize = T.body, color = T.ink, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(step.why, fontSize = T.small, color = T.inkSoft, lineHeight = 19.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(step.action, fontSize = T.small, color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                            .clickable {
+                                when (step.id) {
+                                    // Both live in Memory settings: the key card and the import
+                                    // rows are on the same screen, so one destination serves both.
+                                    "key", "feed" -> onOpen(Screen.MemorySettings)
+                                    "ask" -> {
+                                        val q = com.agentos.shell.tools.FirstRun
+                                            .suggestedFirstQuestion(ctx)
+                                        com.agentos.shell.tools.FirstRun.markAsked(ctx)
+                                        brainTick++
+                                        submit(q, false)
+                                    }
+                                }
+                            }.padding(horizontal = 20.dp, vertical = 10.dp))
+                }
+            }
+        }
+
+        // WHAT'S NEW — once per version, then never again.
+        whatsNew?.let { notes ->
+            Spacer(Modifier.height(14.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(T.bgElevated).padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("WHAT'S NEW", fontSize = 10.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("Got it", fontSize = T.caption, color = T.inkFaint,
+                        modifier = Modifier.clickable {
+                            com.agentos.shell.tools.FirstRun.markNewSeen(ctx); whatsNew = null
+                        }.padding(4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                notes.take(4).forEach { note ->
+                    Row(Modifier.padding(vertical = 4.dp)) {
+                        Box(Modifier.padding(top = 7.dp).size(4.dp).clip(CircleShape)
+                            .background(T.accent))
+                        Spacer(Modifier.width(10.dp))
+                        Text(note, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+                    }
+                }
+            }
         }
 
         // THE PINNED DRAFT — what "it" refers to.
