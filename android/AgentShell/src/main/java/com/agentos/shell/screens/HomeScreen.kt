@@ -60,7 +60,9 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.awaitEachGesture
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.draw.clip
@@ -136,9 +138,11 @@ private fun promptGrad(seed: String): List<androidx.compose.ui.graphics.Color> {
     return listOf(p.first, p.second)
 }
 
-/** How far down the puck must travel to latch recording — far enough to be deliberate,
- *  short enough for a thumb that is already resting on the control. */
-private const val SLIDE_TARGET = 210f
+/** How long a finger must stay down before the microphone opens.
+ *
+ *  Without it, brushing this row started recording. Long enough that nothing accidental engages,
+ *  short enough that a real press-and-hold never feels laggy. */
+private const val HOLD_THRESHOLD_MS = 180L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1120,9 +1124,7 @@ fun HomeScreen(
     var holding by remember { mutableStateOf(false) }
     var heardSoFar by remember { mutableStateOf("") }
     var micLevel by remember { mutableStateOf(0f) }
-    // Slide-down-to-record: latched listening that survives the finger leaving.
-    var slidDown by remember { mutableStateOf(false) }
-    var slideY by remember { mutableStateOf(0f) }
+    // Latched listening for a meeting — started from its own button, not a gesture.
     var recording by remember { mutableStateOf(false) }
     var recordStarted by remember { mutableStateOf(0L) }
     DisposableEffect(Unit) {
@@ -1812,45 +1814,31 @@ fun HomeScreen(
         // target is the row rather than the glyph.
         Column(
             Modifier.fillMaxWidth()
-                // ONE gesture handler, not two.
+                // A DELIBERATE PRESS, NOT A BRUSH.
                 //
-                // This was a detectTapGestures block plus a separate detectVerticalDragGestures
-                // block on the same element. The tap detector consumes the pointer, so the drag
-                // detector never saw any movement and the slide simply did not work — the hint said
-                // it did, which is worse than not offering it.
-                //
-                // awaitEachGesture gives the down, every move and the release in one place, so the
-                // press, the drag distance and what happens on release are decided together.
+                // The mic opened the instant a finger landed, so a stray touch anywhere on this row
+                // started recording. A short threshold before it engages costs nothing to a real
+                // press-and-hold and rejects everything accidental.
                 .pointerInput(speaking) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        if (speaking) {
-                            stopSpeaking()
-                            return@awaitEachGesture
-                        }
-                        holding = true; slideY = 0f; slidDown = false
-                        holder.start()
+                        if (speaking) { stopSpeaking(); return@awaitEachGesture }
 
+                        val engaged = withTimeoutOrNull(HOLD_THRESHOLD_MS) {
+                            waitForUpOrCancellation()
+                        } == null
+                        if (!engaged) return@awaitEachGesture   // a tap, not a hold
+
+                        holding = true
+                        holder.start()
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
-                            // Downward only; dragging back up cancels the latch, so an accidental
-                            // wobble past the target can still be undone before letting go.
-                            slideY = (change.position.y - down.position.y).coerceAtLeast(0f)
-                            slidDown = slideY >= SLIDE_TARGET
                             change.consume()
                         }
-
-                        if (slidDown) {
-                            recordStarted = System.currentTimeMillis()
-                            recording = true
-                            holding = false
-                        } else {
-                            holder.stop()
-                            holding = false
-                        }
-                        slideY = 0f
+                        holder.stop()
+                        holding = false
                     }
                 },
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1925,71 +1913,48 @@ fun HomeScreen(
             }
 
             if (!recording) {
-                // THE PUCK AND ITS TRACK.
+                // TWO CONTROLS, NOT ONE CONTROL WITH A SECRET.
                 //
-                // A hidden gesture is one nobody finds and nobody trusts. While held, the dot
-                // becomes a puck that follows the finger down a visible track to a labelled target,
-                // so where to drag and how far are both on screen rather than in a hint.
-                Box(contentAlignment = Alignment.TopCenter) {
-                    if (holding) {
-                        // A CONTINUOUS RAIL, not a row of dots.
-                        //
-                        // Four small dots read as decoration; nobody sees a path in them. A solid
-                        // rail that fills orange as the finger travels shows both where to go and
-                        // how far is left, and the target grows and labels itself so it is a place
-                        // to arrive at rather than a hint to interpret.
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Spacer(Modifier.height(30.dp))
-                            Box(
-                                Modifier.width(6.dp).height(96.dp)
-                                    .clip(RoundedCornerShape(999.dp)).background(T.hairline),
-                                contentAlignment = Alignment.TopCenter
-                            ) {
-                                // Fills as you travel — the progress IS the instruction.
-                                val filled = (slideY / SLIDE_TARGET).coerceIn(0f, 1f)
-                                Box(Modifier.width(6.dp).height((96 * filled).dp)
-                                    .clip(RoundedCornerShape(999.dp)).background(T.accent))
-                            }
-                            Text("▼", fontSize = 13.sp,
-                                color = if (slidDown) T.accent else T.inkFaint)
-                            Spacer(Modifier.height(4.dp))
-                            Box(
-                                Modifier.clip(RoundedCornerShape(999.dp))
-                                    .background(if (slidDown) T.accent else T.bgElevated)
-                                    .padding(horizontal = 20.dp, vertical = 12.dp)
-                            ) {
-                                Text(if (slidDown) "RELEASE TO RECORD" else "DRAG DOWN TO RECORD",
-                                    fontSize = T.small,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (slidDown) Color.White else T.inkSoft)
-                            }
-                        }
-                    }
-                    // The puck itself, offset by however far the finger has travelled.
-                    Box(
-                        Modifier.offset {
-                            androidx.compose.ui.unit.IntOffset(
-                                0, slideY.coerceIn(0f, SLIDE_TARGET).toInt())
-                        }.size(if (holding) 34.dp else 22.dp)
-                            .clip(CircleShape)
-                            .background(if (holding) T.accent else Color.Transparent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(if (holding) "↓" else if (speaking) "■" else "●",
-                            fontSize = if (holding) 18.sp else 14.sp,
-                            fontWeight = if (holding) FontWeight.Bold else FontWeight.Normal,
-                            color = if (holding) Color.White else T.accent)
-                    }
+                // The drag was clever and nobody could see it. Speaking a prompt and recording a
+                // meeting are different jobs with different lengths, so they get different buttons —
+                // no gesture to discover, no mode to be surprised by, and each one says what it is.
+                Box(
+                    Modifier.size(if (holding) 74.dp else 58.dp)
+                        .clip(CircleShape)
+                        .background(if (holding) T.accent else T.bgElevated),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (holding) "◉" else if (speaking) "■" else "🎙",
+                        fontSize = if (holding) 26.sp else 20.sp,
+                        color = if (holding) Color.White else T.accent)
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     when {
-                        holding && slidDown -> "let go — it keeps recording"
                         holding -> "let go to send"
                         speaking -> "tap to stop"
                         else -> "hold to talk"
                     },
-                    fontSize = T.small, color = if (holding && slidDown) T.accent else T.inkSoft)
+                    fontSize = T.small, color = T.inkSoft)
+
+                // The second job, as its own button. Only offered when the mic is free, so the two
+                // can never be confused for one another mid-gesture.
+                if (!holding && !speaking) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                            .background(T.bgElevated)
+                            .clickable {
+                                recordStarted = System.currentTimeMillis()
+                                recording = true
+                                holder.start()
+                            }
+                            .padding(horizontal = 18.dp, vertical = 11.dp)) {
+                        Text("●", fontSize = 11.sp, color = T.danger)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Record a meeting", fontSize = T.small, color = T.ink)
+                    }
+                }
             }
         }
 
