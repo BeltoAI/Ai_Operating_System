@@ -181,6 +181,12 @@ fun HomeScreen(
     var vaultReveal by remember { mutableStateOf<List<com.agentos.shell.tools.BankVault.Item>?>(null) }
     var vaultErr by remember { mutableStateOf("") }
     var replyDragX by remember { mutableStateOf(0f) }     // swipe the answer card: left=dismiss, right=open/Google
+    // The in-flight request, so a swipe or a tap can stop it.
+    var thinkingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val stopThinking: () -> Unit = {
+        try { thinkingJob?.cancel() } catch (e: Exception) {}
+        thinkingJob = null; thinking = false; replyDragX = 0f
+    }
     var lastQuery by remember { mutableStateOf("") }
     var rememberSuggestion by remember { mutableStateOf("") }
     var showChecklist by remember { mutableStateOf(false) }   // show the live checklist card under the answer
@@ -365,8 +371,28 @@ fun HomeScreen(
     fun deviceSpeak(s: String) = ttsRef.value?.apply {
         language = java.util.Locale.getDefault(); speak(s, TextToSpeech.QUEUE_FLUSH, null, "slyos")
     }
+    // Is anything actually speaking right now? Drives the stop control below.
+    var speaking by remember { mutableStateOf(false) }
+
+    /**
+     * Silence it, whichever of the three paths is producing sound.
+     *
+     * There was no way to interrupt a spoken reply at all. VoiceOut.stop() existed and nothing
+     * called it, the MediaPlayer had no stop path, and TTS could only be flushed by speaking
+     * something else. So a long answer read aloud had to be waited out — in a meeting, in a car,
+     * with someone else in the room.
+     */
+    val stopSpeaking: () -> Unit = {
+        try { com.agentos.shell.tools.VoiceOut.stop() } catch (e: Exception) {}
+        try { ttsRef.value?.stop() } catch (e: Exception) {}
+        try { voicePlayer.value?.let { if (it.isPlaying) it.stop(); it.release() }; voicePlayer.value = null }
+        catch (e: Exception) {}
+        speaking = false
+    }
+
     val speak: (String) -> Unit = { s ->
         if (s.isNotBlank()) {
+            speaking = true
             // Cloned voice everywhere it's configured — not just the "hold brain" screen. If the user pasted
             // an ElevenLabs key + voice, Home speaks in THEIR voice; any failure falls back to device TTS so
             // it never goes silent. (Before this, Home always used the generic system voice.)
@@ -513,7 +539,9 @@ fun HomeScreen(
             }
         }
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
-        scope.launch {
+        // Kept so it can be stopped. Without a handle on the job there was no way to abandon a
+        // request already in flight — the only options were to wait it out or leave the screen.
+        thinkingJob = scope.launch {
             // ── GENERATIVE BUTTONS ───────────────────────────────────────────────────────────────────
             // "Make me a button that ___" → SlyOS turns it into a one-tap prompt-button on Home. Tapping it
             // runs that instruction through the brain/HomeAI (the non-negotiable path). Position it by drag.
@@ -1048,6 +1076,21 @@ fun HomeScreen(
             if (!spoken.isNullOrBlank()) { text = spoken; submit(spoken, true) }
         }
     }
+    // Hold-to-talk: an in-app recogniser, so a pause to think does not end the sentence. Tap still
+    // uses the system dialog, which is faster and familiar for a short question.
+    val holder = remember { com.agentos.shell.tools.HoldToTalk(ctx) }
+    var holding by remember { mutableStateOf(false) }
+    var heardSoFar by remember { mutableStateOf("") }
+    DisposableEffect(Unit) {
+        holder.onPartial = { heardSoFar = it }
+        holder.onFinal = { said ->
+            holding = false; heardSoFar = ""
+            if (said.isNotBlank()) { text = said; submit(said, true) }
+        }
+        holder.onError = { msg -> holding = false; heardSoFar = ""; reply = msg }
+        onDispose { holder.cancel() }
+    }
+
     val startVoice: () -> Unit = {
         try {
             voice.launch(
@@ -1414,12 +1457,18 @@ fun HomeScreen(
                 Modifier
                     .fillMaxWidth()
                     .offset { androidx.compose.ui.unit.IntOffset(replyDragX.toInt(), 0) }
-                    .let { m -> if (thinking) m else m.draggable(
+                    // Draggable WHILE thinking as well: swiping left now abandons the request
+                    // rather than only dismissing a finished answer. Same gesture, same meaning —
+                    // make this go away.
+                    .let { m -> m.draggable(
                         state = replyDrag,
                         orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
                         onDragStopped = {
                             when {
-                                replyDragX < -130f -> { reply = ""; rememberSuggestion = ""; showChecklist = false; producedImage = null }
+                                replyDragX < -130f -> {
+                                    if (thinking) stopThinking()
+                                    reply = ""; rememberSuggestion = ""; showChecklist = false; producedImage = null
+                                }
                                 replyDragX > 130f -> {
                                     val url = Regex("https?://\\S+").find(reply)?.value?.trimEnd('.', ')', ',')
                                         ?: "https://www.google.com/search?q=" + android.net.Uri.encode(lastQuery.ifBlank { reply.take(60) })
@@ -1438,6 +1487,13 @@ fun HomeScreen(
                         SlyOrbit(30)
                         Spacer(Modifier.width(14.dp))
                         Text("thinking…", fontSize = T.body, color = T.inkFaint)
+                        Spacer(Modifier.weight(1f))
+                        // A visible stop as well as the swipe. The gesture is faster once you know
+                        // it; the button is the one people find without being told.
+                        Text("■ Stop", fontSize = T.small, color = T.inkSoft,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.hairline)
+                                .clickable { stopThinking() }
+                                .padding(horizontal = 12.dp, vertical = 6.dp))
                     }
                 } else {
                     // Rich Visual Output: a stylized hero card from the model's card tag (reliable) or from
@@ -1602,13 +1658,43 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.height(18.dp))
+        // ONE CONTROL, TWO MEANINGS. While it is speaking the dot becomes a stop square and the
+        // whole row silences it — someone reaching to stop a voice is not aiming carefully, so the
+        // target is the row rather than the glyph.
         Column(
-            Modifier.fillMaxWidth().clickable { startVoice() },
+            Modifier.fillMaxWidth()
+                .pointerInput(speaking) {
+                    detectTapGestures(
+                        onTap = { if (speaking) stopSpeaking() else startVoice() },
+                        onPress = {
+                            // Only a real hold starts the recogniser — otherwise every tap would
+                            // open both paths at once.
+                            val long = kotlinx.coroutines.withTimeoutOrNull(260) { tryAwaitRelease() } == null
+                            if (long && !speaking) {
+                                holding = true; holder.start()
+                                tryAwaitRelease()
+                                holder.stop(); holding = false
+                            }
+                        })
+                },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("●", color = T.accent)
+            Text(if (holding) "◉" else if (speaking) "■" else "●", color = T.accent)
             Spacer(Modifier.height(6.dp))
-            Text("tap to talk", fontSize = T.small, color = T.inkSoft)
+            Text(
+                when {
+                    holding -> "listening — let go when you're done"
+                    speaking -> "tap to stop"
+                    else -> "tap to talk · hold to think"
+                },
+                fontSize = T.small, color = T.inkSoft)
+            // The live transcript while held, so it is obvious it is still with you through a pause.
+            if (holding && heardSoFar.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(heardSoFar, fontSize = T.small, color = T.ink,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 3)
+            }
         }
 
         Spacer(Modifier.weight(1f))
