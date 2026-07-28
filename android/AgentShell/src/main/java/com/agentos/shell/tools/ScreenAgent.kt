@@ -76,6 +76,9 @@ object ScreenAgent {
             return
         }
         running = true; stopFlag = false; lastTapText = ""
+        // A stop the owner can actually reach. The notification action is unreachable while the
+        // agent is typing in another app — pulling the shade fights the automation for the screen.
+        try { com.agentos.shell.StopOverlayService.show(ctx) } catch (e: Exception) {}
         acquireWake(ctx)   // keep the screen on so long / overnight mission runs can execute
         // REFLEX LEARN: if the user has taught a skill matching this goal, REPLAY it deterministically — no
         // LLM, no guessing. This is the reliable fast path for repeatable tasks.
@@ -425,6 +428,7 @@ object ScreenAgent {
 
     private fun finish(ctx: Context, goal: String, summary: String, history: String) {
         running = false
+        try { com.agentos.shell.StopOverlayService.stop(ctx) } catch (e: Exception) {}
         releaseWake()
         Log.i(TAG, "OP FINISH \"$summary\" | history: ${history.replace("\n", " · ").take(400)}")
         cancelBanner(ctx)
@@ -469,6 +473,7 @@ object ScreenAgent {
     }
     /** Live progress on the ongoing banner — so the user can SEE what the agent is doing step by step. */
     private fun updateBanner(ctx: Context, step: Int, doing: String) {
+        try { com.agentos.shell.StopOverlayService.show(ctx, doing.take(22)) } catch (e: Exception) {}
         try {
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val stopPi = PendingIntent.getBroadcast(ctx, 0, Intent(ctx, com.agentos.shell.StopActionReceiver::class.java),

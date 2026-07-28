@@ -108,6 +108,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 
+        <!-- The STOP pill shown over whatever the agent is driving. Not a foreground service: it
+             lives only for the length of a run and must start instantly. -->
+        <service
+            android:name=".StopOverlayService"
+            android:exported="false"/>
+
         <!-- Persistent floating nav panel that overlays other apps. -->
         <service
             android:name=".OverlayNavService"
