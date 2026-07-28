@@ -1924,8 +1924,8 @@ fun HomeScreen(
                         .background(if (holding) T.accent else T.bgElevated),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (holding) "◉" else if (speaking) "■" else "🎙",
-                        fontSize = if (holding) 26.sp else 20.sp,
+                    Text(if (holding) "◉" else if (speaking) "■" else "●",
+                        fontSize = if (holding) 26.sp else 18.sp,
                         color = if (holding) Color.White else T.accent)
                 }
                 Spacer(Modifier.height(8.dp))
