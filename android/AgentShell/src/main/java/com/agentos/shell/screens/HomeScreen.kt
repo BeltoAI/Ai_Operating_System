@@ -60,6 +60,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -1113,12 +1114,58 @@ fun HomeScreen(
     var holding by remember { mutableStateOf(false) }
     var heardSoFar by remember { mutableStateOf("") }
     var micLevel by remember { mutableStateOf(0f) }
+    // Slide-down-to-record: latched listening that survives the finger leaving.
+    var slidDown by remember { mutableStateOf(false) }
+    var slideY by remember { mutableStateOf(0f) }
+    var recording by remember { mutableStateOf(false) }
+    var recordStarted by remember { mutableStateOf(0L) }
     DisposableEffect(Unit) {
         holder.onLevel = { micLevel = it }
         holder.onPartial = { heardSoFar = it }
         holder.onFinal = { said ->
-            holding = false; heardSoFar = ""; micLevel = 0f
-            if (said.isNotBlank()) { text = said; submit(said, true) }
+            val wasRecording = recordStarted > 0L &&
+                System.currentTimeMillis() - recordStarted > 20_000
+            holding = false; heardSoFar = ""; micLevel = 0f; recording = false
+            when {
+                said.isBlank() -> {}
+                // A latched recording is a meeting, not a prompt. Sending forty minutes of
+                // transcript as a question would be nonsense; it wants summarising and keeping.
+                wasRecording -> {
+                    recordStarted = 0L
+                    thinking = true; reply = ""; lastQuery = "Meeting notes"
+                    thinkingJob = scope.launch {
+                        // The verbatim transcript is kept FIRST and unconditionally. The summary
+                        // needs a model and a model can fail; what was actually said must survive
+                        // that, and verbatim is what makes "what were his exact words" answerable.
+                        withContext(Dispatchers.IO) {
+                            com.agentos.shell.tools.Brain.remember(
+                                ctx, "note", "Meeting " + java.text.SimpleDateFormat(
+                                    "MMM d HH:mm", java.util.Locale.getDefault())
+                                    .format(java.util.Date()), said)
+                        }
+                        val summary = withContext(Dispatchers.IO) {
+                            AgentClient.answerWell(
+                                "Summarise this conversation transcript. It comes from live speech " +
+                                "recognition, so it has no speaker labels and contains mistakes — " +
+                                "read through them rather than quoting them as fact.\n\nWrite: two " +
+                                "or three sentences on what it was about; then DECISIONS (omit if " +
+                                "none); then ACTIONS with who owes what (omit if none); then OPEN " +
+                                "questions (omit if none). Do not invent a decision or a deadline " +
+                                "that is not in the transcript.\n\n" + said.take(20000),
+                                "", emptyList())
+                        }
+                        thinking = false
+                        reply = if (summary.isNotBlank() && !AgentClient.looksLikeError(summary))
+                            summary else "Kept the transcript — couldn't summarise it just now."
+                        if (summary.isNotBlank() && !AgentClient.looksLikeError(summary)) {
+                            withContext(Dispatchers.IO) {
+                                com.agentos.shell.tools.Brain.remember(ctx, "note", "Meeting summary", summary)
+                            }
+                        }
+                    }
+                }
+                else -> { recordStarted = 0L; text = said; submit(said, true) }
+            }
         }
         holder.onError = { msg -> holding = false; heardSoFar = ""; micLevel = 0f; reply = msg }
         onDispose { holder.cancel() }
@@ -1735,6 +1782,14 @@ fun HomeScreen(
         // target is the row rather than the glyph.
         Column(
             Modifier.fillMaxWidth()
+                // A downward drag while held latches recording on. Tracked separately from the tap
+                // detector because detectTapGestures consumes the gesture and reports no movement.
+                .pointerInput(holding) {
+                    detectVerticalDragGestures { _, dy ->
+                        if (holding && dy > 0) slideY += dy
+                        if (holding && slideY > 90f) slidDown = true
+                    }
+                }
                 .pointerInput(speaking) {
                     detectTapGestures(
                         // Tap only ever means "stop talking" now. There is no tap-to-dictate to
@@ -1742,14 +1797,24 @@ fun HomeScreen(
                         // rather than after a threshold — which also means the first word is never
                         // clipped while waiting to find out what kind of press this was.
                         onTap = { if (speaking) stopSpeaking() },
-                        onPress = {
+                        onPress = { down ->
                             if (!speaking) {
                                 holding = true
+                                slidDown = false
                                 holder.start()
                                 tryAwaitRelease()
-                                // Release IS the send. Whatever was said goes as the prompt.
-                                holder.stop()
-                                holding = false
+                                if (slidDown) {
+                                    recordStarted = System.currentTimeMillis()
+                                    // Slid down: keep listening after the finger leaves. This is the
+                                    // meeting/speakerphone case — put the phone on the table and let
+                                    // it run, rather than holding a button for forty minutes.
+                                    recording = true
+                                    holding = false
+                                } else {
+                                    // Release IS the send. Whatever was said goes as the prompt.
+                                    holder.stop()
+                                    holding = false
+                                }
                             }
                         })
                 },
@@ -1760,7 +1825,38 @@ fun HomeScreen(
             // It used to sit underneath, which is exactly where the thumb is during a hold — so the
             // one thing that proves it is hearing you was the one thing you could not see. Above the
             // control, and above the finger.
-            if (holding) {
+            // LATCHED RECORDING — a meeting, or a call on speakerphone.
+            //
+            // Android does not let any third-party app capture the far side of a phone call;
+            // VOICE_CALL audio is restricted at the OS level and no permission unlocks it. What
+            // does work is the microphone with the call on speaker, which picks up both sides
+            // through the air. Said plainly on screen rather than implied, so nobody points this at
+            // a handset call and wonders why only their half was heard.
+            if (recording) {
+                val mins = ((System.currentTimeMillis() - recordStarted) / 60000)
+                val secs = ((System.currentTimeMillis() - recordStarted) / 1000) % 60
+                Text("● recording  ${mins}:${secs.toString().padStart(2, '0')}",
+                    fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Text(heardSoFar.ifBlank { "listening — put the phone where it can hear the room" },
+                    fontSize = 15.sp, color = if (heardSoFar.isBlank()) T.inkFaint else T.ink,
+                    lineHeight = 21.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 6)
+                Spacer(Modifier.height(12.dp))
+                Text("Stop & summarise", fontSize = T.small, color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                        .clickable {
+                            recording = false
+                            holder.stop()
+                        }.padding(horizontal = 22.dp, vertical = 11.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("On a call? Put it on speaker — Android won't give any app the other side.",
+                    fontSize = T.caption, color = T.inkFaint,
+                    modifier = Modifier.padding(horizontal = 28.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            } else if (holding) {
                 Text(
                     heardSoFar.ifBlank { "listening…" },
                     fontSize = if (heardSoFar.isBlank()) T.small else 17.sp,
@@ -1793,15 +1889,18 @@ fun HomeScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            Text(if (holding) "◉" else if (speaking) "■" else "●", color = T.accent)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                when {
-                    holding -> "let go to send · slide down to record a meeting"
-                    speaking -> "tap to stop"
-                    else -> "hold to talk"
-                },
-                fontSize = T.small, color = T.inkSoft)
+            if (!recording) {
+                Text(if (holding) "◉" else if (speaking) "■" else "●", color = T.accent)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    when {
+                        holding && slidDown -> "let go — it keeps recording"
+                        holding -> "let go to send · slide down to keep recording"
+                        speaking -> "tap to stop"
+                        else -> "hold to talk"
+                    },
+                    fontSize = T.small, color = if (holding && slidDown) T.accent else T.inkSoft)
+            }
         }
 
         Spacer(Modifier.weight(1f))

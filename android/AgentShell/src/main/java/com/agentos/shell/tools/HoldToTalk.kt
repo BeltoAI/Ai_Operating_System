@@ -33,6 +33,16 @@ class HoldToTalk(private val ctx: Context) {
     private val main = Handler(Looper.getMainLooper())
     /** Text from earlier segments of the same hold; each restart's result replaces only its own. */
     private var banked = ""
+    /**
+     * The newest partial, which is the ONLY copy of the current segment until a final result lands.
+     *
+     * This was the bug behind "the second I release, it loses its content": `banked` was written
+     * solely in onResults, so a segment still in progress existed only in the partial callback. On
+     * release the recogniser is stopped and destroyed, that final result frequently never arrives,
+     * and everything said since the last restart went with it. Partials are held here so a release
+     * always has something to submit.
+     */
+    private var lastPartial = ""
 
     /** Live input level, 0..1 — drives the "it is hearing you" animation. */
     var onLevel: (Float) -> Unit = {}
@@ -50,6 +60,7 @@ class HoldToTalk(private val ctx: Context) {
         }
         held = true
         banked = ""
+        lastPartial = ""
         listen()
     }
 
@@ -62,10 +73,12 @@ class HoldToTalk(private val ctx: Context) {
         // immediately threw away whatever was still in flight — usually the final few words, and
         // on a short hold the entire sentence.
         main.postDelayed({
-            val text = banked.trim()
+            // Whatever landed, plus anything still only in the partial.
+            val text = (banked + " " + lastPartial).trim()
+            lastPartial = ""
             release()
             if (text.isNotEmpty()) onFinal(text) else onError("Didn't catch that — hold and speak again.")
-        }, 900)
+        }, 700)
     }
 
     /** Slid away — throw it away, as a voice note does. */
@@ -100,12 +113,17 @@ class HoldToTalk(private val ctx: Context) {
 
             override fun onPartialResults(res: Bundle?) {
                 val said = res?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (said.isNotBlank()) onPartial((banked + " " + said).trim())
+                if (said.isNotBlank()) {
+                    lastPartial = said
+                    onPartial((banked + " " + said).trim())
+                }
             }
 
             override fun onResults(res: Bundle?) {
                 val said = res?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (said.isNotBlank()) banked = (banked + " " + said).trim()
+                // The final result supersedes the partial for this segment; if it never comes, the
+                // partial is what gets used on release.
+                if (said.isNotBlank()) { banked = (banked + " " + said).trim(); lastPartial = "" }
                 onPartial(banked)
                 // Still held: the recogniser gave up on its own, not the user. Start another segment
                 // so a pause to think does not end the sentence.
@@ -114,8 +132,9 @@ class HoldToTalk(private val ctx: Context) {
                 // inside its own callback is unstable — the segment that was mid-delivery is lost,
                 // which is exactly how a held sentence came back empty despite the logs showing
                 // "handleFinalResult: 1 hyp" several times over.
+                // Only restart here. Delivery belongs to stop(), which waits for this callback —
+                // both of them calling onFinal submitted the same sentence twice.
                 if (held) main.post { if (held) listen() }
-                else if (banked.isNotEmpty()) onFinal(banked)
             }
 
             override fun onError(code: Int) {
