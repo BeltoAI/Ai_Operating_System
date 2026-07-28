@@ -672,10 +672,46 @@ object ToolRouter {
             val startMs = parseLocal(o.optString("start"))
             val endMs = parseLocal(o.optString("end"))
             if (startMs <= 0 || endMs <= 0) return "I couldn't read those times."
-            val attendees = ArrayList<String>()
-            o.optJSONArray("attendees")?.let { for (i in 0 until it.length()) attendees.add(it.optString(i)) }
+            val named = ArrayList<String>()
+            o.optJSONArray("attendees")?.let { for (i in 0 until it.length()) named.add(it.optString(i)) }
             val wantsMeet = o.optBoolean("meet", false) || o.optString("location").contains("meet", true)
-            val hasEmails = attendees.any { it.contains("@") && it.contains(".") }
+
+            // TURN NAMES INTO ADDRESSES BEFORE DECIDING ANYTHING.
+            //
+            // This read the model's array verbatim, so "invite Joslyn" arrived as the string "Joslyn",
+            // hasEmails was false, the Google path was skipped, and the event was written to a local
+            // calendar that emails nobody. The owner was told an event existed; Joslyn was never asked.
+            // PersonResolver already does contacts → messages → network and even reports genuine
+            // ambiguity — it simply was never called from here.
+            val attendees = ArrayList<String>()
+            val unresolved = ArrayList<String>()
+            var ambiguity = ""
+            for (who in named) {
+                if (who.contains("@") && who.contains(".")) { attendees.add(who.trim()); continue }
+                val p = try { PersonResolver.resolve(ctx, who) } catch (e: Exception) { null }
+                when {
+                    // Two people you actually message share this name. Picking one silently is how the
+                    // wrong Anna gets invited to something.
+                    p != null && p.candidates.size > 1 && p.email.isBlank() -> {
+                        ambiguity = "Which $who? " + p.candidates.joinToString(", ") + " — tell me which and I'll send it."
+                    }
+                    p != null && p.email.isNotBlank() -> attendees.add(p.email)
+                    else -> unresolved.add(who)
+                }
+            }
+            if (ambiguity.isNotBlank()) return ambiguity
+
+            // An invitation with nobody on it is not a partial success. When inviting WAS the request,
+            // create nothing and ask; when the owner wanted the slot anyway, make it and say plainly
+            // who is missing.
+            val invitingWasThePoint = named.isNotEmpty() && attendees.isEmpty() &&
+                !Regex("(?i)\\b(block|busy|hold|focus|reminder)\\b").containsMatchIn(title + " " + arg)
+            if (invitingWasThePoint && unresolved.isNotEmpty()) {
+                return "I don't have an email address for ${unresolved.joinToString(" or ")}. " +
+                    "Give me one and I'll create it and send the invite."
+            }
+
+            val hasEmails = attendees.isNotEmpty()
 
             // Real Google path: if connected, create the event via the Calendar API so we get an actual
             // Google Meet link and email invites — something CalendarContract simply can't do.
@@ -692,6 +728,10 @@ object ToolRouter {
                             (if (attendees.isNotEmpty()) " · with ${attendees.joinToString(", ")}" else "") +
                             (if (r.meetLink.isNotBlank()) " · Meet ${r.meetLink}" else ""))
                     val who = if (attendees.isNotEmpty()) ", invited ${attendees.joinToString(", ")}" else ""
+                    val missed = if (unresolved.isEmpty()) "" else
+                        " ${unresolved.joinToString(" and ")} " +
+                        (if (unresolved.size == 1) "was NOT invited" else "were NOT invited") +
+                        " — I don't have an address."
                     return if (r.meetLink.isNotBlank())
                         "Created “$title” on your Google Calendar$who. Google Meet link: ${r.meetLink}"
                     else "Created “$title” on your Google Calendar$who."
@@ -959,7 +999,17 @@ object ToolRouter {
     private fun sendEmail(ctx: Context, arg: String): String {
         return try {
             val o = JSONObject(arg)
-            val to = o.optString("to").trim()
+            var to = o.optString("to").trim()
+            // "Email Joslyn about dinner" used to be refused with "What's their email address?" every
+            // single time, while the brain held her address from thousands of imported messages. Same
+            // missing call as the calendar path — one resolver, three callers.
+            if (!to.contains("@")) {
+                val p = try { PersonResolver.resolve(ctx, to) } catch (e: Exception) { null }
+                if (p != null && p.candidates.size > 1 && p.email.isBlank()) {
+                    return "Which $to? " + p.candidates.joinToString(", ") + " — tell me which and I'll send it."
+                }
+                if (p != null && p.email.isNotBlank()) to = p.email
+            }
             if (!to.contains("@") || !to.contains(".")) return "What's their email address?"
             if (!GoogleAuth.isConnected(ctx)) return "Connect Google (Gmail) in settings first, then I can send it."
             val subject = o.optString("subject").ifBlank { "(no subject)" }

@@ -150,7 +150,16 @@ fun ConfirmActionCard(
                         busy = true
                         val rebuilt = actions.mapIndexed { idx, a ->
                             val o = objs[idx]
-                            edits[idx].forEach { (k, v) -> o.put(k, v) }
+                            // ONLY write back the fields actually shown and editable.
+                            //
+                            // This wrote back every key, and `edits` holds strings — so a JSON
+                            // array round-tripped into the literal text ["Joslyn"], and
+                            // optJSONArray("attendees") then returned null downstream. The event
+                            // was created with a Meet link and nobody invited, which is precisely
+                            // the "it didn't invite anyone" report. Booleans survived by coercion;
+                            // arrays did not, so the failure hit only the attendee list.
+                            val editable = ActionConfirm.fieldsFor(a.type).map { it.key }.toSet()
+                            edits[idx].forEach { (k, v) -> if (k in editable) o.put(k, v) }
                             a.copy(arg = o.toString())
                         }
                         scope.launch {

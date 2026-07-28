@@ -804,6 +804,26 @@ fun HomeScreen(
             // opened. If the model missed an unmistakable request, synthesise the action ourselves so the
             // feature works identically on every provider — and record the miss so we can see how often
             // the model is falling short.
+            // THE CALENDAR HAD NO SAFETY NET, AND IT IS WHERE A MISS COSTS MOST.
+            //
+            // Every other unmistakable request gets synthesised below when the planner misses it.
+            // The calendar did not, so a missed add_event fell through to the ANSWER path, which
+            // then narrated the action: "Creating a calendar event for tomorrow, 4:00–5:00 PM with
+            // a Google Meet link, inviting Joslyn now." Google's record showed no such event. The
+            // sentence was right about everything except whether it happened.
+            run {
+                if (result.actions.none { it.type == "add_event" }) {
+                    com.agentos.shell.tools.CalendarIntent.addEventArg(ctx, q)?.let { arg ->
+                        result = result.copy(actions = result.actions +
+                            com.agentos.shell.tools.AgentAction("add_event", arg))
+                        try {
+                            com.agentos.shell.tools.Fail.log(ctx, "Planner",
+                                "model missed \"add_event\"", "recovered locally for: ${q.take(80)}", "warn")
+                        } catch (e: Exception) {}
+                    }
+                }
+            }
+
             run {
                 val wanted = com.agentos.shell.tools.ScreenIntent.detect(q)
                 if (wanted != null && result.actions.none { it.type == wanted.action }) {
