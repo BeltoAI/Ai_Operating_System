@@ -59,6 +59,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.draw.clip
@@ -133,6 +135,10 @@ private fun promptGrad(seed: String): List<androidx.compose.ui.graphics.Color> {
     val p = PROMPT_GRADIENTS[((seed.hashCode() % PROMPT_GRADIENTS.size) + PROMPT_GRADIENTS.size) % PROMPT_GRADIENTS.size]
     return listOf(p.first, p.second)
 }
+
+/** How far down the puck must travel to latch recording — far enough to be deliberate,
+ *  short enough for a thumb that is already resting on the control. */
+private const val SLIDE_TARGET = 150f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1782,41 +1788,46 @@ fun HomeScreen(
         // target is the row rather than the glyph.
         Column(
             Modifier.fillMaxWidth()
-                // A downward drag while held latches recording on. Tracked separately from the tap
-                // detector because detectTapGestures consumes the gesture and reports no movement.
-                .pointerInput(holding) {
-                    detectVerticalDragGestures { _, dy ->
-                        if (holding && dy > 0) slideY += dy
-                        if (holding && slideY > 90f) slidDown = true
-                    }
-                }
+                // ONE gesture handler, not two.
+                //
+                // This was a detectTapGestures block plus a separate detectVerticalDragGestures
+                // block on the same element. The tap detector consumes the pointer, so the drag
+                // detector never saw any movement and the slide simply did not work — the hint said
+                // it did, which is worse than not offering it.
+                //
+                // awaitEachGesture gives the down, every move and the release in one place, so the
+                // press, the drag distance and what happens on release are decided together.
                 .pointerInput(speaking) {
-                    detectTapGestures(
-                        // Tap only ever means "stop talking" now. There is no tap-to-dictate to
-                        // disambiguate against, so the hold can begin the instant a finger lands
-                        // rather than after a threshold — which also means the first word is never
-                        // clipped while waiting to find out what kind of press this was.
-                        onTap = { if (speaking) stopSpeaking() },
-                        onPress = { down ->
-                            if (!speaking) {
-                                holding = true
-                                slidDown = false
-                                holder.start()
-                                tryAwaitRelease()
-                                if (slidDown) {
-                                    recordStarted = System.currentTimeMillis()
-                                    // Slid down: keep listening after the finger leaves. This is the
-                                    // meeting/speakerphone case — put the phone on the table and let
-                                    // it run, rather than holding a button for forty minutes.
-                                    recording = true
-                                    holding = false
-                                } else {
-                                    // Release IS the send. Whatever was said goes as the prompt.
-                                    holder.stop()
-                                    holding = false
-                                }
-                            }
-                        })
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        if (speaking) {
+                            stopSpeaking()
+                            return@awaitEachGesture
+                        }
+                        holding = true; slideY = 0f; slidDown = false
+                        holder.start()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            // Downward only; dragging back up cancels the latch, so an accidental
+                            // wobble past the target can still be undone before letting go.
+                            slideY = (change.position.y - down.position.y).coerceAtLeast(0f)
+                            slidDown = slideY >= SLIDE_TARGET
+                            change.consume()
+                        }
+
+                        if (slidDown) {
+                            recordStarted = System.currentTimeMillis()
+                            recording = true
+                            holding = false
+                        } else {
+                            holder.stop()
+                            holding = false
+                        }
+                        slideY = 0f
+                    }
                 },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -1890,12 +1901,51 @@ fun HomeScreen(
             }
 
             if (!recording) {
-                Text(if (holding) "◉" else if (speaking) "■" else "●", color = T.accent)
+                // THE PUCK AND ITS TRACK.
+                //
+                // A hidden gesture is one nobody finds and nobody trusts. While held, the dot
+                // becomes a puck that follows the finger down a visible track to a labelled target,
+                // so where to drag and how far are both on screen rather than in a hint.
+                Box(contentAlignment = Alignment.TopCenter) {
+                    if (holding) {
+                        // The track, drawn behind the puck.
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Spacer(Modifier.height(26.dp))
+                            repeat(4) { i ->
+                                Box(Modifier.size(3.dp).clip(CircleShape)
+                                    .background(if (slidDown) T.accent else T.hairline))
+                                Spacer(Modifier.height(9.dp))
+                            }
+                            Box(
+                                Modifier.clip(RoundedCornerShape(999.dp))
+                                    .background(if (slidDown) T.accent else T.hairline)
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) {
+                                Text(if (slidDown) "release to record" else "drag here to record",
+                                    fontSize = T.caption,
+                                    color = if (slidDown) Color.White else T.inkSoft)
+                            }
+                        }
+                    }
+                    // The puck itself, offset by however far the finger has travelled.
+                    Box(
+                        Modifier.offset {
+                            androidx.compose.ui.unit.IntOffset(
+                                0, slideY.coerceIn(0f, SLIDE_TARGET).toInt())
+                        }.size(if (holding) 34.dp else 22.dp)
+                            .clip(CircleShape)
+                            .background(if (holding) T.accent else Color.Transparent),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (holding) "◉" else if (speaking) "■" else "●",
+                            color = if (holding) Color.White else T.accent)
+                    }
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     when {
                         holding && slidDown -> "let go — it keeps recording"
-                        holding -> "let go to send · slide down to keep recording"
+                        holding -> "let go to send"
                         speaking -> "tap to stop"
                         else -> "hold to talk"
                     },
