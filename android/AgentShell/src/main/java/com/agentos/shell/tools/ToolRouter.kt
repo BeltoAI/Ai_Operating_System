@@ -238,11 +238,30 @@ object ToolRouter {
                 try { Analytics.track(ctx, "action_gated", a.type.take(30), categoryFor(a.type)) } catch (e: Exception) {}
                 continue
             }
+            // A DUPLICATE OF SOMETHING JUST DONE IS ASKED ABOUT, NOT REPEATED.
+            //
+            // Nothing guarded this. Say "send it" twice, or tap retry after a slow reply, and two
+            // emails went out, two events were created, two invitations arrived. The second one is
+            // never what anyone wanted, and it cannot be taken back.
+            if (a.type in GATED && ActionGuard.isRepeat(ctx, a.type, a.arg)) {
+                msgs.add(ActionGuard.repeatNotice(a.type))
+                continue
+            }
+
+            // ONE FAILING STEP MUST NOT KILL THE REST.
+            //
+            // This re-threw, so a chain — "make the doc and email it to Carlos" — lost everything
+            // after the first failure, and the caller reported an error for a request that was
+            // half done. The owner then had no idea a document had been created. Each step now
+            // reports its own outcome and the chain continues.
             val m = try { executeAction(ctx, a.type, a.arg) }
                     catch (e: Exception) {
                         try { Analytics.track(ctx, "action_failed", a.type.take(30), categoryFor(a.type)) } catch (ig: Exception) {}
-                        throw e
+                        Log.w("SlyOS", "action ${a.type} failed, continuing", e)
+                        msgs.add("**${channelFor(a.type)} didn't happen** — ${e.message ?: "it failed"}.")
+                        continue
                     }
+            if (a.type in GATED) ActionGuard.remember(ctx, a.type, a.arg)
             MetricsStore.record(ctx, MetricsStore.secondsFor(a.type))
             // WIN: an action actually ran. Tag it with the feature and the what-for bucket so you can see
             // both "which features get used" and "what people use SlyOS for" from the same stream.

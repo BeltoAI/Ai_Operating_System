@@ -959,6 +959,12 @@ fun HomeScreen(
             val confirmables = actionable.filter { it.type in ActionConfirm.CONFIRM_TYPES }
             // Any checklist change, or a "show my checklist / to-do / list" query → reveal the live checklist
             // card under the answer so what SlyOS shows always matches the brain (no more phantom clears).
+            // "Send it anyway" clears the guard, so the owner is never permanently blocked from
+            // repeating something they genuinely meant to repeat.
+            if (com.agentos.shell.tools.ActionGuard.overridden(q)) {
+                com.agentos.shell.tools.ActionGuard.clear(ctx)
+            }
+
             val touchedChecklist = actionable.any { it.type.startsWith("checklist") }
             val asksChecklist = Regex("(?i)\\b(show|see|view|what'?s on|open|my)\\b.*\\b(check ?list|to-?do'?s?|task list|list)\\b").containsMatchIn(q)
             if (touchedChecklist || asksChecklist) { showChecklist = true; checklistTick++ } else showChecklist = false

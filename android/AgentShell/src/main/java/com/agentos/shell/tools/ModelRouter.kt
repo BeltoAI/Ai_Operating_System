@@ -25,10 +25,14 @@ object ModelRouter {
 
     /** Default concrete model per provider per tier (each editable in settings). */
     val DEFAULT_MODELS: Map<String, Map<Tier, String>> = mapOf(
+        // Anthropic carries ~89% of real traffic on this device, so its tiers are the ones that
+        // actually decide answer quality. STANDARD and HEAVY were a generation behind — both
+        // Sonnet 5 and Opus 5 are available on the same key, and Sonnet 5 is currently cheaper than
+        // the 4.6 it replaces. Verified against the live API before changing.
         "anthropic" to mapOf(
             Tier.CHEAP to "claude-haiku-4-5",
-            Tier.STANDARD to "claude-sonnet-4-6",
-            Tier.HEAVY to "claude-opus-4-8"),
+            Tier.STANDARD to "claude-sonnet-5",
+            Tier.HEAVY to "claude-opus-5"),
         "openai" to mapOf(
             Tier.CHEAP to "gpt-4o-mini",
             Tier.STANDARD to "gpt-4o",
@@ -49,10 +53,13 @@ object ModelRouter {
         // llama-4-scout-17b-16e-instruct 404s on Cerebras ("Model does not exist or you do not have access
         // to it") — the last brain in the fallback chain was dead on arrival, so when every provider ahead
         // of it failed there was nothing left to answer with. llama-3.3-70b is Cerebras's served equivalent.
+        // llama-3.3-70b is ALSO gone now — this device's own blacklist holds it alongside four
+        // others, and ModelResolver had already self-healed to zai-glm-4.7. Making that the default
+        // saves every install one round of 404s before the resolver kicks in.
         "cerebras" to mapOf(
             Tier.CHEAP to "llama3.1-8b",
-            Tier.STANDARD to "llama-3.3-70b",
-            Tier.HEAVY to "llama-3.3-70b"),
+            Tier.STANDARD to "zai-glm-4.7",
+            Tier.HEAVY to "zai-glm-4.7"),
         "mistral" to mapOf(
             Tier.CHEAP to "mistral-small-latest",
             Tier.STANDARD to "mistral-small-latest",
