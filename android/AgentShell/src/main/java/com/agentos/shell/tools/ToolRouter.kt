@@ -374,17 +374,32 @@ object ToolRouter {
         }
 
         if (to.contains("@") && to.contains(".") && GoogleAuth.isConnected(ctx)) {
-            val file = ActionChain.asFile(ctx, d.uri, d.name)
-            if (file != null) {
-                val subject = d.name.substringBeforeLast('.').replace('_', ' ')
-                val (ok, msg) = GmailClient.sendWithAttachments(
-                    ctx, to, subject, "Here's the one you asked for — it's attached.", listOf(file))
-                if (ok) {
-                    MemoryLog.add(ctx, "response", "Email: $subject", "Sent “${d.name}” to $to", "Email")
-                    return "Emailed “${d.name}” to $to ✓"
-                }
-                return "Couldn't email “${d.name}” to $to — $msg"
+            val subject = d.name.substringBeforeLast('.').replace('_', ' ')
+            // THIS USED TO SEND, IMMEDIATELY AND UNSEEN.
+            //
+            // "Email that PDF to Carlos" attached the file to the body "Here's the one you asked
+            // for — it's attached." and sent it. One hardcoded line under the owner's name, to a
+            // client, with no preview and no way to have stopped it. The email screens were fixed
+            // to draft-then-approve weeks before this path was even looked at, and this is the one
+            // people reach through most — you ask for a document, then you ask for it to go.
+            //
+            // Now: a real email, written the way every other email here is written, queued for a
+            // yes. Nothing addressed to another human leaves this app unread by its sender.
+            val body = try {
+                AgentClient.complete("You write email bodies. Body only.",
+                    MailDraft.prompt(ctx, MailDraft.Purpose.MATERIALS, subject, "", "",
+                        listOf(to), d.name, ""), 800).let { MailDraft.plain(it) }
+            } catch (e: Exception) { "" }.ifBlank {
+                "Hello,\n\nPlease find “${d.name}” attached.\n\nBest regards,\n" +
+                    (try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" })
             }
+            ApprovalStore.request(ctx, "Documents", "email",
+                "Send “${d.name}” to $to",
+                "Subject: $subject\n\n$body\n\nAttached: ${d.name}",
+                listOf(AgentAction("send_email", JSONObject()
+                    .put("to", to).put("subject", subject).put("body", body)
+                    .put("attach", d.uri).put("attach_name", d.name).toString())))
+            return "Written and ready for $to — check it in Now and I'll send it."
         }
 
         return if (DocForge.share(ctx, d.uri, d.name)) "Pick where to send “${d.name}”."

@@ -37,6 +37,11 @@ object Places {
         // reads purely as a duplicate. Recording still starts from the spoken form and from the
         // button on the page itself, where the difference is obvious.
         Place("meetings", "Meetings", "record one, or read the last", listOf("recordings", "transcripts", "record", "transcribe", "notes")),
+        // The documents SlyOS has MADE, which had no home at all — decks and one-pagers were only
+        // reachable from inside an email draft, so anything generated from chat could be opened in
+        // a PDF viewer and never changed again.
+        Place("made_docs", "Documents", "preview and edit what you've made",
+            listOf("document", "doc", "slides", "deck", "pdf", "presentation", "one-pager", "report")),
         Place("invest", "Portfolio", "holdings and performance", listOf("stocks", "shares", "trading", "money", "investments")),
         Place("expenses", "Expenses", "what you've spent", listOf("spending", "receipts", "budget")),
         Place("find_job", "Job hunt", "roles, CV, outreach", listOf("jobs", "career", "cv", "resume")),

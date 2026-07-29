@@ -1628,6 +1628,7 @@ fun HomeScreen(
                                     "google" -> onGoogle("")
                                     "health" -> onHealth()
                                     "meetings" -> onMeeting(false)
+                                    "made_docs" -> onOpen(Screen.MadeDocs)
                                     "record_meeting" -> onMeeting(true)
                                     "invest" -> onInvest("")
                                     "expenses" -> onExpenses()
@@ -1829,6 +1830,7 @@ fun HomeScreen(
                                     when (step.action) {
                                         "prompt" -> submit(step.arg, false)
                                         "meetings" -> onMeeting(false)
+                                    "made_docs" -> onOpen(Screen.MadeDocs)
                                         "google" -> onGoogle("")
                                     "health" -> onHealth()
                                         "team" -> onOpen(Screen.Now)

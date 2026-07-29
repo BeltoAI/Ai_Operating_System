@@ -269,6 +269,9 @@ object DocForge {
      */
     fun draftContent(ctx: Context): String = p(ctx).getString("content", "") ?: ""
 
+    /** "deck" or "onepager" — what shape the last draft is, so an editor can show the right one. */
+    fun lastKind(ctx: Context): String = p(ctx).getString("kind", "onepager") ?: "onepager"
+
     /** The palette the last deck was actually built with: accent, background, ink — as hex. */
     fun lastPalette(ctx: Context): Triple<String, String, String> = p(ctx).let {
         Triple(it.getString("th_accent", "2F6BFF") ?: "2F6BFF",
@@ -362,9 +365,16 @@ object DocForge {
                 // produces a beautiful deck and an embarrassing one on consecutive taps. Slides get
                 // a fixed layout and a derived palette; the model writes the words.
                 val deck = isDeck(kind, title)
-                val html = if (deck) SlideDeck.html(title, content, th,
-                        try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" })
-                    else AgentClient.designHtml(kind, title, content, "", authorBlock(ctx, "$title $brief"))
+                val who = try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" }
+                // Documents get a fixed layout for the same reason decks do. The improvised path
+                // stays only for the things that genuinely are bespoke — sites, landing pages —
+                // where there is no single right shape to hold to.
+                val bespoke = Regex("(?i)site|web|landing|app").containsMatchIn(kind)
+                val html = when {
+                    deck -> SlideDeck.html(title, content, th, who)
+                    !bespoke -> PageDoc.html(title, content, th, who)
+                    else -> AgentClient.designHtml(kind, title, content, "", authorBlock(ctx, "$title $brief"))
+                }
                 if (html.length < 120) return Made(false, error = "the designer came back empty")
                 if (fmt == "html") {
                     val uri = SlyFolder.file(ctx, "$title.html", "text/html", html.toByteArray(), "documents", brief.take(180))

@@ -97,6 +97,13 @@ fun SlideEditor(
         (s.title + "\n" + s.bullets.joinToString("\n") { "- $it" }).trim()
     }
 
+    // A DECK IS NOT THE ONLY THING PEOPLE MAKE.
+    //
+    // This screen was built for slides, and slides are the minority of what gets generated — most
+    // of it is one-pagers, memos and reports, which had no preview and no editor at all. Same
+    // screen, two shapes: cards for a deck, a page for a document.
+    val isDeck = remember { DocForge.lastKind(ctx).contains("deck", true) }
+    var docText by remember { mutableStateOf(DocForge.draftContent(ctx)) }
     var slides by remember { mutableStateOf(parse(DocForge.draftContent(ctx))) }
     // The deck's OWN palette, as it was actually built — so this is a preview and not a lookalike.
     val palette = remember {
@@ -116,7 +123,8 @@ fun SlideEditor(
         busy = true
         scope.launch {
             val made = withContext(Dispatchers.IO) {
-                try { DocForge.rebuild(ctx, serialise(slides)) } catch (e: Exception) { null }
+                try { DocForge.rebuild(ctx, if (isDeck) serialise(slides) else docText) }
+                catch (e: Exception) { null }
             }
             busy = false
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -127,19 +135,82 @@ fun SlideEditor(
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(14.dp))
-        ScreenHeader("Slides", onBack)
+        ScreenHeader(if (isDeck) "Slides" else "Document", onBack)
 
-        if (slides.isEmpty()) {
+        if (if (isDeck) slides.isEmpty() else docText.isBlank()) {
             Spacer(Modifier.height(40.dp))
-            Text("No deck to edit yet.", fontSize = T.small, color = T.inkFaint)
+            Text("Nothing to edit yet.", fontSize = T.small, color = T.inkFaint)
             return@Column
         }
 
         Spacer(Modifier.height(6.dp))
-        Text("${slides.size} slides · tap one to edit", fontSize = T.caption, color = T.inkFaint)
+        Text(if (isDeck) "${slides.size} slides · tap one to edit"
+             else "the page, and the words behind it", fontSize = T.caption, color = T.inkFaint)
         Spacer(Modifier.height(14.dp))
 
-        slides.forEachIndexed { i, s ->
+        // ── A DOCUMENT: the page as it prints, then the words as they are ──
+        if (!isDeck) {
+            val lines = docText.lines()
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(Color.White).padding(horizontal = 20.dp, vertical = 20.dp)) {
+                Box(Modifier.width(30.dp).height(3.dp).clip(RoundedCornerShape(2.dp))
+                    .background(deckAccent))
+                Spacer(Modifier.height(10.dp))
+                Text(DocForge.lastTitle(ctx).ifBlank { "Untitled" }, fontSize = 17.sp,
+                    color = Color(0xFF17171A), fontWeight = FontWeight.Bold, lineHeight = 21.sp)
+                Spacer(Modifier.height(12.dp))
+                // Only the first screenful — this is a preview of the shape, not a PDF viewer, and
+                // the PDF itself is one tap away for anyone who wants every page.
+                lines.filter { it.isNotBlank() }.take(22).forEach { raw ->
+                    val l = raw.trim()
+                    when {
+                        l.startsWith("# ") -> {
+                            Spacer(Modifier.height(8.dp))
+                            Text(l.removePrefix("# "), fontSize = 12.sp, color = Color(0xFF17171A),
+                                fontWeight = FontWeight.Bold, lineHeight = 16.sp)
+                            Spacer(Modifier.height(3.dp))
+                        }
+                        l.startsWith("## ") -> {
+                            Spacer(Modifier.height(6.dp))
+                            Text(l.removePrefix("## "), fontSize = 10.sp, color = Color(0xFF17171A),
+                                fontWeight = FontWeight.SemiBold, lineHeight = 14.sp)
+                        }
+                        l.startsWith("> ") -> Row(Modifier.padding(vertical = 4.dp)) {
+                            Box(Modifier.width(2.dp).height(16.dp).background(deckAccent))
+                            Spacer(Modifier.width(8.dp))
+                            Text(l.removePrefix("> "), fontSize = 9.5.sp,
+                                color = Color(0xFF3A3A40), lineHeight = 14.sp)
+                        }
+                        l.startsWith("- ") || l.startsWith("• ") ->
+                            Row(Modifier.padding(bottom = 3.dp)) {
+                                Box(Modifier.padding(top = 5.dp).size(3.dp)
+                                    .clip(RoundedCornerShape(2.dp)).background(deckAccent))
+                                Spacer(Modifier.width(7.dp))
+                                Text(l.drop(2), fontSize = 9.5.sp, color = Color(0xFF3A3A40),
+                                    lineHeight = 14.sp)
+                            }
+                        else -> Text(l, fontSize = 9.5.sp, color = Color(0xFF3A3A40),
+                            lineHeight = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("EDIT THE WORDS", fontSize = 9.sp, color = T.inkFaint,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bg)
+                .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                BasicTextField(docText, { docText = it },
+                    textStyle = TextStyle(color = T.ink, fontSize = T.caption, lineHeight = 20.sp),
+                    modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("“# ” a heading · “- ” a bullet · “> ” a quote",
+                fontSize = 10.sp, color = T.inkFaint)
+            Spacer(Modifier.height(20.dp))
+        }
+
+        if (isDeck) slides.forEachIndexed { i, s ->
             val isOpen = open == i
             val lift by animateFloatAsState(if (isOpen) 1f else 0.985f,
                 spring(dampingRatio = 0.82f, stiffness = 300f), label = "l")
@@ -267,7 +338,7 @@ fun SlideEditor(
                 // Save what has been typed FIRST, so a hand edit is not silently discarded by the
                 // rewrite that follows it — refine works from the stored content, and losing an
                 // edit you just made is the fastest way to stop trusting a tool.
-                val edited = serialise(slides)
+                val edited = if (isDeck) serialise(slides) else docText
                 val made = withContext(Dispatchers.IO) {
                     try {
                         DocForge.rebuild(ctx, edited)
@@ -275,7 +346,8 @@ fun SlideEditor(
                     } catch (e: Exception) { null }
                 }
                 if (made != null && made.ok) {
-                    slides = parse(DocForge.draftContent(ctx))
+                    val fresh = DocForge.draftContent(ctx)
+                    slides = parse(fresh); docText = fresh
                     ask = ""; note = ""
                 } else note = "Couldn't make that change."
                 busy = false
