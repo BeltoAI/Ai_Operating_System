@@ -67,12 +67,23 @@ object ModelBench {
         }
     }
 
+    /**
+     * Checks that never call a model.
+     *
+     * They belong in the same run because they answer the same question — "would this actually work
+     * on this phone" — but they are properties of the device, so they cannot be silent and must not
+     * be scored as though a provider failed to reply.
+     */
+    private val LOCAL_ONLY = setOf("resolve", "google")
+
     val CASES = listOf(
         Case("recall", "Finds something only your own history could answer"),
         Case("grounding", "Says \"I don't know\" instead of inventing"),
         Case("planning", "Turns a request into the right action, with the right time"),
         Case("chaining", "Emits BOTH halves of a two-part request"),
-        Case("voice", "Writes a LinkedIn post at LinkedIn's length")
+        Case("voice", "Writes a LinkedIn post at LinkedIn's length"),
+        Case("resolve", "Turns a name into a real address before inviting them"),
+        Case("google", "Calendar and mail can actually execute")
     )
 
     // MARK: - Running
@@ -96,7 +107,9 @@ object ModelBench {
             CASES.forEach { case ->
                 onProgress("${label(provider)} · ${case.id}")
                 val t0 = System.currentTimeMillis()
-                lastRaw = ""
+                // Cases that make no model call are always "answered" — they check the phone, not
+                // the provider, and marking them silent because no reply arrived is nonsense.
+                lastRaw = if (case.id in LOCAL_ONLY) "local" else ""
                 val (ok, detail) = try { runCase(ctx, provider, case.id, topContact) }
                                    catch (e: Exception) { false to "error: ${e.message?.take(60)}" }
                 val silent = lastRaw.isBlank()
@@ -148,37 +161,38 @@ object ModelBench {
                 admits to (if (admits) "declined cleanly" else "INVENTED: ${a.take(80)}")
             }
 
-            // A request with a stated time has exactly one right reading. Checked structurally.
+            // THROUGH THE REAL PLANNER, NOT A BARE PROMPT.
+            //
+            // The first version asked each provider a hand-written question with a two-line system
+            // prompt, which measures general model ability and says nothing about this app. What
+            // ships is AgentClient.ask — the full SlyOS system prompt, the tool schema, the brain —
+            // followed by the local safety nets that exist precisely because raw model output is
+            // unreliable. Testing the model alone answered a question nobody was asking, and marked
+            // failures against models for things the shipped path recovers from a line later.
             "planning" -> {
                 val q = "invite Joslyn to a call tomorrow at 4pm with a google meet"
-                val a = ask(ctx, provider,
-                    "You output ONLY compact JSON: {\"action\":\"add_event\",\"title\":…," +
-                    "\"start\":\"YYYY-MM-DDTHH:mm:ss\",\"attendees\":[…],\"meet\":true|false}. No prose.",
-                    q, 240)
-                val o = try { JSONObject(a.substringAfter('{', "").let { "{$it" }.substringBeforeLast('}') + "}") }
-                        catch (e: Exception) { null }
+                val acts = plan(ctx, provider, q)
+                val ev = acts.firstOrNull { it.type == "add_event" }
+                val o = try { JSONObject(ev?.arg.orEmpty()) } catch (e: Exception) { null }
                 val hour = o?.optString("start").orEmpty().substringAfter('T').take(2)
-                val meet = o?.optBoolean("meet") == true
-                val who = o?.optJSONArray("attendees")?.optString(0).orEmpty()
+                val meet = o?.optBoolean("meet") == true ||
+                    o?.optString("location").orEmpty().contains("meet", true)
+                val who = (0 until (o?.optJSONArray("attendees")?.length() ?: 0))
+                    .joinToString(",") { o?.optJSONArray("attendees")?.optString(it).orEmpty() }
                 val ok = hour == "16" && meet && who.contains("Joslyn", true)
-                ok to (if (ok) "16:00, meet, Joslyn"
-                       else "hour=$hour meet=$meet who=$who")
+                ok to (if (ok) "add_event 16:00, meet, Joslyn"
+                       else "hour=$hour meet=$meet attendees=$who acts=${acts.map { it.type }}")
             }
 
             // Two things asked for, two actions emitted. A planner that drops the second half is
             // exactly the multi-step failure this product kept hitting.
             "chaining" -> {
                 val q = "make a one-pager about the pilot and email it to carlos@example.com"
-                val a = ask(ctx, provider,
-                    "You output ONLY a compact JSON array of actions, each {\"action\":…}. No prose.",
-                    q, 260)
-                val arr = try { JSONArray(a.substringAfter('[', "").let { "[$it" }.substringBeforeLast(']') + "]") }
-                          catch (e: Exception) { null }
-                val types = (0 until (arr?.length() ?: 0))
-                    .mapNotNull { arr?.optJSONObject(it)?.optString("action") }
-                val makes = types.any { it.contains("doc", true) || it.contains("create", true) }
-                val sends = types.any { it.contains("email", true) || it.contains("send", true) }
-                (makes && sends) to (if (makes && sends) "both steps" else "got $types")
+                val acts = plan(ctx, provider, q)
+                val types = acts.map { it.type }
+                val makes = types.any { it.contains("doc", true) || it.contains("document", true) }
+                val sends = types.any { it in setOf("send_email", "email", "send_document", "send_doc") }
+                (makes && sends) to (if (makes && sends) "both steps: $types" else "got $types")
             }
 
             // Channel voice. A LinkedIn post that reads like a tweet is the wrong product output,
@@ -194,6 +208,32 @@ object ModelBench {
                 ok to "$words words, $hashtags hashtags"
             }
 
+            // THE FAILURE THAT ACTUALLY REACHED A USER.
+            //
+            // "Invite Joslyn" once produced an event with a Meet link and NOBODY on it, because the
+            // name was never turned into an address — and the reply said it had been sent. This
+            // checks the resolution WITHOUT creating or sending anything: a bench that emails real
+            // people to prove it can is not a bench.
+            "resolve" -> {
+                val name = try {
+                    MessageStore.topContacts(ctx, 8).map { it.first }
+                        .firstOrNull { it.split(" ").firstOrNull()?.length ?: 0 > 2 }
+                } catch (e: Exception) { null } ?: return true to "no contacts to resolve against"
+                val first = name.split(" ").first()
+                val p = try { PersonResolver.resolve(ctx, first) } catch (e: Exception) { null }
+                val ok = p != null && (p.email.isNotBlank() || p.candidates.size > 1)
+                ok to (if (p?.email?.isNotBlank() == true) "$first → ${p.email}"
+                       else if ((p?.candidates?.size ?: 0) > 1) "$first is ambiguous — asks, correctly"
+                       else "$first → no address; an invite to them would reach nobody")
+            }
+
+            // Would a Google action actually go anywhere? Checked, never fired.
+            "google" -> {
+                val connected = try { GoogleAuth.isConnected(ctx) } catch (e: Exception) { false }
+                connected to (if (connected) "Google connected — calendar and mail can execute"
+                              else "Google not connected; calendar and email would be refused")
+            }
+
             else -> false to "unknown case"
         }
     }
@@ -202,6 +242,40 @@ object ModelBench {
 
     /** The last raw reply, so an empty one can be told apart from a wrong one. */
     @Volatile private var lastRaw = ""
+
+    /**
+     * The SHIPPED planning path, pinned to one provider: the real system prompt, the real tool
+     * schema, the real brain, then the local nets that recover what the model missed.
+     *
+     * This is the difference between "is this model good" and "does SlyOS work on this model",
+     * and only the second one decides anything.
+     */
+    private fun plan(ctx: Context, provider: String, prompt: String): List<AgentAction> {
+        ModelRouter.pinned = provider
+        val out = try {
+            val memory = try { BrainContext.build(ctx, prompt) } catch (e: Exception) { "" }
+            val res = AgentClient.ask(prompt, emptyList(), memory)
+            lastRaw = res.say + res.actions.joinToString { it.type }
+            val acts = res.actions.toMutableList()
+            // The nets that ship with it — ScreenIntent for a missed screen action, CalendarIntent
+            // for a missed event, ActionChain for a missed second half. Judging the model without
+            // them would score a path the owner never takes.
+            try {
+                ScreenIntent.detect(prompt)?.let { w ->
+                    if (acts.none { it.type == w.action }) acts.add(AgentAction(w.action, w.arg))
+                }
+            } catch (e: Exception) {}
+            try {
+                if (acts.none { it.type == "add_event" })
+                    CalendarIntent.addEventArg(ctx, prompt)?.let { acts.add(AgentAction("add_event", it)) }
+            } catch (e: Exception) {}
+            try { ActionChain.missingDelivery(prompt, acts)?.let { acts.add(it) } } catch (e: Exception) {}
+            acts
+        } catch (e: Exception) {
+            Log.w("SlyOS", "bench/plan/$provider: ${e.message}"); lastRaw = ""; emptyList()
+        } finally { ModelRouter.pinned = null }
+        return out
+    }
 
     private fun ask(ctx: Context, provider: String, system: String, user: String, maxTokens: Int): String {
         val out = try { AgentClient.completeWith(provider, system, user, maxTokens) }
@@ -294,6 +368,19 @@ object ModelBench {
             append("${label(best2)} scored highest at ${r.passRate(best2)}%.")
             val fastest2 = scored.minByOrNull { r.medianMs(it) } ?: best2
             if (fastest2 != best2) append(" ${label(fastest2)} was fastest at ${r.medianMs(fastest2)}ms.")
+            // A pass that the local nets produced is not evidence about the model. Said plainly,
+            // because a table where a dead provider passes two checks would otherwise be read as
+            // that provider being fine.
+            val netted = scored.filter { p ->
+                r.scores.any { it.provider == p && it.noAnswer } &&
+                    r.scores.any { it.provider == p && it.passed &&
+                        (it.caseId == "planning" || it.caseId == "chaining") }
+            }
+            if (netted.isNotEmpty()) {
+                append(" ${netted.joinToString(", ") { label(it) }} passed planning and chaining " +
+                    "without answering — SlyOS's own safety nets produced those actions, which is " +
+                    "the nets working, not the model.")
+            }
             if (grounding.size < scored.size) {
                 val bad = scored.filterNot { it in grounding }.joinToString(", ") { label(it) }
                 append(" $bad invented an answer to a question it had no data for — the one failure " +
