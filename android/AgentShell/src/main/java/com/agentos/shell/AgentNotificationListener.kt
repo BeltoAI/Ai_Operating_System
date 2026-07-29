@@ -26,7 +26,15 @@ class AgentNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         NotificationStore.listener = this
-        activeNotifications?.forEach { ingest(it) }   // backfill, no auto-reply
+        // CRASHES THE APP ON EVERY REINSTALL WITHOUT THIS.
+        //
+        // Right after an update Android calls this before the new process is registered as the
+        // notification listener, and `activeNotifications` throws SecurityException: "Disallowed
+        // call from unknown notification listener". It is a fatal exception on the main thread, so
+        // the first launch after every update dies — which is exactly the moment a user is looking
+        // at a build they just downloaded. The backfill is a nicety; it is not worth a crash.
+        try { activeNotifications?.forEach { ingest(it) } }   // backfill, no auto-reply
+        catch (e: Exception) { android.util.Log.w("SlyOS", "notif backfill skipped: ${e.message}") }
     }
 
     override fun onListenerDisconnected() {

@@ -85,10 +85,39 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     // in between there is no way to tell a working button from a dead one.
     val haptics = LocalHapticFeedback.current
 
+    // THE WHOLE HISTORY, FROM THE EXPORT WHOOP ALREADY OFFERS.
+    //
+    // Health Connect is the wrong tool for a strap that has been worn for months: it carries only
+    // what Whoop pushes from the moment it starts pushing, and Whoop pushes no HRV, recovery or
+    // strain into it at all. The export has all three, one row per day, going back to the beginning.
+    val pickExport = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        scope.launch {
+            syncing = true
+            val r = withContext(Dispatchers.IO) { com.agentos.shell.tools.WhoopImport.importFrom(ctx, uri) }
+            syncing = false; tick++
+            note = when {
+                r.error.isNotEmpty() -> r.error
+                r.samples > 0 -> {
+                    val f = java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.getDefault())
+                    "Imported ${r.samples} readings across ${r.rows} days — " +
+                        f.format(java.util.Date(r.from)) + " to " + f.format(java.util.Date(r.to)) + " ✓"
+                }
+                else -> "Nothing readable in that file."
+            }
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
     val present = remember(tick) { VitalsStore.present(ctx) }
     val headline = remember(tick) { if (present.isEmpty()) "" else VitalsInsight.headline(ctx) }
     val flags = remember(tick) { if (present.isEmpty()) emptyList() else VitalsInsight.flags(ctx) }
     val availability = remember(tick) { VitalsSource.availability(ctx) }
+    var grantedSome by remember { mutableStateOf(false) }
+    LaunchedEffect(tick) { grantedSome = VitalsSource.grantedAny(ctx) }
 
     // The system permission sheet. Health Connect grants are per-record-type and the owner can give
     // a subset — which is fine and normal, so the result is not checked for completeness, only for
@@ -137,8 +166,26 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         ScreenHeader("Health", onBack)
         Spacer(Modifier.height(18.dp))
 
-        if (present.isEmpty()) {
-            NotConnected(availability, syncing) {
+        // CONNECTED BUT EMPTY IS STILL THE PAGE.
+        //
+        // Showing a connect prompt INSTEAD of the page meant that until the first reading landed
+        // there was nothing to look at and no way to tell what you were even setting up. The layout
+        // is the promise; it should be visible while it fills. Only a phone with no connection at
+        // all gets the bare version.
+        val connected = remember(tick) {
+            availability == VitalsSource.State.READY &&
+                com.agentos.shell.tools.VitalsStore.count(ctx) >= 0 && grantedSome
+        }
+        if (present.isEmpty() && !connected) {
+            NotConnected(
+                availability, syncing,
+                onImport = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    try {
+                        pickExport.launch(arrayOf("application/zip", "text/csv", "text/comma-separated-values", "*/*"))
+                    } catch (e: Exception) { note = "Couldn't open the file picker." }
+                }
+            ) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 note = "Opening Health Connect…"
                 try { askPermissions.launch(VitalsSource.PERMISSIONS) }
@@ -152,10 +199,40 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             return@Column
         }
 
+        if (present.isEmpty()) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(T.bgElevated).padding(14.dp)) {
+                Text("Connected ✓ — waiting for your first readings",
+                    fontSize = T.small, color = T.ink)
+                Spacer(Modifier.height(4.dp))
+                Text("Health Connect has nothing in it yet. Open WHOOP and let it sync, or bring " +
+                     "your whole history in from a WHOOP export — that one also carries HRV, " +
+                     "recovery and strain, which the live connection can't send.",
+                    fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                Spacer(Modifier.height(12.dp))
+                Text(if (syncing) "Reading…" else "Import a WHOOP export",
+                    fontSize = T.small, color = Color.White, fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                        .background(T.accent).clickable(enabled = !syncing) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            try {
+                                pickExport.launch(arrayOf("application/zip", "text/csv",
+                                    "text/comma-separated-values", "*/*"))
+                            } catch (e: Exception) { note = "Couldn't open the file picker." }
+                        }.padding(vertical = 12.dp))
+            }
+            if (note.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Text(note, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+            }
+            Spacer(Modifier.height(22.dp))
+        }
+
         Readiness(ctx, tick)
 
         Spacer(Modifier.height(16.dp))
-        Text(headline, fontSize = T.small, color = T.ink, lineHeight = 22.sp)
+        if (headline.isNotEmpty()) Text(headline, fontSize = T.small, color = T.ink, lineHeight = 22.sp)
 
         flags.forEach { f ->
             Spacer(Modifier.height(14.dp))
@@ -171,7 +248,12 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(26.dp))
         SectionLabel("TODAY, AGAINST YOUR OWN BASELINE")
         Spacer(Modifier.height(10.dp))
-        present.forEach { m -> MetricRow(ctx, m, tick) { detail = m } }
+        // The full set while empty, so the shape of the page is visible before it fills.
+        val shown = if (present.isNotEmpty()) present
+                    else listOf(VitalsStore.M.HRV, VitalsStore.M.RHR, VitalsStore.M.SLEEP,
+                                VitalsStore.M.RECOVERY, VitalsStore.M.STRAIN, VitalsStore.M.STEPS,
+                                VitalsStore.M.RESP, VitalsStore.M.SPO2)
+        shown.forEach { m -> MetricRow(ctx, m, tick) { detail = m } }
 
         // Projections, as bands. Only for series long enough to earn one.
         val projections = remember(tick) {
@@ -287,8 +369,6 @@ private fun Readiness(ctx: android.content.Context, tick: Int) {
             if (parts.isEmpty()) null else (parts.sum() / parts.size).roundToInt().coerceIn(1, 99)
         }
     }
-    if (score == null) return
-
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(96.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
@@ -298,12 +378,13 @@ private fun Readiness(ctx: android.content.Context, tick: Int) {
                     topLeft = Offset(inset, inset),
                     size = Size(size.width - stroke, size.height - stroke),
                     style = Stroke(stroke))
-                drawArc(T.accent, -90f, 360f * (score / 100f), false,
+                drawArc(T.accent, -90f, 360f * ((score ?: 0) / 100f), false,
                     topLeft = Offset(inset, inset),
                     size = Size(size.width - stroke, size.height - stroke),
                     style = Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
             }
-            Text("$score", fontSize = 30.sp, color = T.ink, fontWeight = FontWeight.Medium)
+            Text(score?.toString() ?: "—", fontSize = 30.sp,
+                color = if (score == null) T.inkFaint else T.ink, fontWeight = FontWeight.Medium)
         }
         Spacer(Modifier.width(18.dp))
         Column {
@@ -312,13 +393,16 @@ private fun Readiness(ctx: android.content.Context, tick: Int) {
             Spacer(Modifier.height(4.dp))
             Text(
                 when {
+                    score == null -> "Waiting for readings"
                     score >= 66 -> "More than your usual"
                     score >= 40 -> "About your usual"
                     else -> "Less than your usual"
                 },
                 fontSize = T.small, color = T.inkSoft)
             Spacer(Modifier.height(2.dp))
-            Text("50 is exactly your own normal", fontSize = T.caption, color = T.inkFaint)
+            Text(if (score == null) "Needs about a week of nights"
+                 else "50 is exactly your own normal",
+                fontSize = T.caption, color = T.inkFaint)
         }
     }
 }
@@ -327,7 +411,17 @@ private fun Readiness(ctx: android.content.Context, tick: Int) {
 @Composable
 private fun MetricRow(ctx: android.content.Context, m: String, tick: Int, onOpen: () -> Unit) {
     val s = remember(tick, m) { VitalsStore.series(ctx, m, 30) }
-    if (s.isEmpty()) return
+    if (s.isEmpty()) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(VitalsStore.M.label(m), fontSize = T.small, color = T.inkFaint, modifier = Modifier.width(96.dp))
+            Text("—", fontSize = T.small, color = T.inkFaint, modifier = Modifier.width(78.dp))
+            // A flat rule where the sparkline will be: the row keeps its shape, and the absence is
+            // obviously an absence rather than a number that happens to be zero.
+            Box(Modifier.weight(1f).height(1.dp).background(T.hairline))
+            Spacer(Modifier.width(68.dp))
+        }
+        return
+    }
     val last = s.last().value
     val base = remember(tick, m) { VitalsMath.baseline(s.dropLast(1)) }
     val d = base?.let { last - it }
@@ -341,6 +435,13 @@ private fun MetricRow(ctx: android.content.Context, m: String, tick: Int, onOpen
             fontSize = T.small, color = T.ink, modifier = Modifier.width(78.dp))
         Spark(s.map { it.value }, Modifier.weight(1f).height(22.dp))
         Spacer(Modifier.width(10.dp))
+        // A delta against a "baseline" built from two days is not a baseline. Say how thin it is
+        // rather than printing a confident-looking number on top of nothing.
+        if (s.size < 7) {
+            Text("${s.size}d", fontSize = T.caption, color = T.inkFaint,
+                modifier = Modifier.width(58.dp), textAlign = TextAlign.End)
+            return@Row
+        }
         if (d != null && abs(d) > 0.01) {
             // GOOD IS NOT THE SAME AS UP. Resting heart rate rising is not HRV rising, and a page
             // that paints every increase green is wrong half the time.
@@ -356,9 +457,26 @@ private fun MetricRow(ctx: android.content.Context, m: String, tick: Int, onOpen
     }
 }
 
+/**
+ * A sparkline, or an honest admission that there isn't one yet.
+ *
+ * Two points draw a straight diagonal corner to corner, which looks like a dramatic trend and is
+ * nothing of the sort — it is the only line two points can make. Below four days it draws the points
+ * themselves instead, so the reader can see there are two of them.
+ */
 @Composable
 private fun Spark(values: List<Double>, modifier: Modifier) {
-    if (values.size < 2) { Spacer(modifier); return }
+    if (values.isEmpty()) { Spacer(modifier); return }
+    if (values.size < 4) {
+        Canvas(modifier) {
+            val dx = if (values.size == 1) size.width / 2 else size.width / (values.size - 1)
+            values.indices.forEach { i ->
+                drawCircle(T.accent.copy(alpha = 0.6f), radius = 2.2.dp.toPx(),
+                    center = Offset(if (values.size == 1) dx else i * dx, size.height / 2))
+            }
+        }
+        return
+    }
     Canvas(modifier) {
         val min = values.min(); val max = values.max()
         val span = (max - min).takeIf { it > 1e-9 } ?: 1.0
@@ -444,7 +562,12 @@ private fun MetricSheet(ctx: android.content.Context, m: String, onClose: () -> 
 
 /** The states before there is anything to show — each with the one thing that fixes it. */
 @Composable
-private fun NotConnected(state: VitalsSource.State, syncing: Boolean, onConnect: () -> Unit) {
+private fun NotConnected(
+    state: VitalsSource.State,
+    syncing: Boolean,
+    onImport: () -> Unit,
+    onConnect: () -> Unit
+) {
     val ctx = LocalContext.current
     Column {
         Text(
@@ -493,5 +616,25 @@ private fun NotConnected(state: VitalsSource.State, syncing: Boolean, onConnect:
             Text("Already connected but empty? " + VitalsSource.writerHint(ctx),
                 fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
         }
+
+        // ── The history route, which the live connection cannot cover ──
+        //
+        // Offered with equal weight rather than as a fallback: for anyone who has worn the strap for
+        // months this is the better source, and for a Whoop owner it is the ONLY source of HRV,
+        // recovery and strain.
+        Spacer(Modifier.height(26.dp))
+        Hairline()
+        Spacer(Modifier.height(20.dp))
+        Text("Bring your whole history", fontSize = T.body, color = T.ink)
+        Spacer(Modifier.height(8.dp))
+        Text(com.agentos.shell.tools.WhoopImport.howToGetIt(),
+            fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+        Spacer(Modifier.height(16.dp))
+        Text(if (syncing) "Reading…" else "Import a WHOOP export",
+            fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                .background(T.bgElevated).clickable(enabled = !syncing) { onImport() }
+                .padding(vertical = 14.dp))
     }
 }
