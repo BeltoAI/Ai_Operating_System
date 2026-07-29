@@ -163,8 +163,14 @@ object DocForge {
         val brain = authorBlock(ctx, "$title $brief")
         val sys = "You write SLIDE DECK content. Separate every slide with a line containing only ===. The FIRST " +
             "line of each block is that slide's title; the rest are its bullets, each starting with '- '. " +
-            "6-12 slides, ONE idea per slide, 3-5 short bullets max — never paragraphs. Slide 1 is a cover " +
-            "(title + one-line subtitle). Ruthless clarity, active voice, zero filler. No markdown besides the bullets. " +
+            "6-12 slides, ONE idea per slide, 3-5 short bullets max — never paragraphs. Slide 1 IS the cover: " +
+            "its first line is the deck's real title and its single bullet is the subtitle. Do NOT then write " +
+            "another slide called \"Cover\", \"Title\" or \"Title slide\" — that produced a deck with two " +
+            "covers, the second one headed literally \"Cover\". Never label a slide with its function; the " +
+            "heading is what the slide is ABOUT. " +
+            "ABSOLUTELY NO MARKDOWN: no **bold**, no *italics*, no # headings, no backticks. The layout sets " +
+            "the emphasis, and asterisks come out printed on the page. " +
+            "Ruthless clarity, active voice, zero filler. " +
             (if (brain.isNotBlank()) "Ground it in what you know about the user: $brain" else "")
         val (code, text) = AgentClient.chat("Deck: \"$title\".\nBrief: $brief", sys, emptyList())
         return if (code == 200 && text.isNotBlank()) cleanDeck(text, title) else "$title\n- $brief"
@@ -194,7 +200,19 @@ object DocForge {
                     title.trim().contains(lone[0], true))
             if (isLabel) return blocks.drop(1).joinToString("\n===\n") { it.trim() }.trim()
         }
-        return t
+        // A slide whose whole heading is the word "Cover" (or "Title slide") is the writer naming a
+        // section rather than titling one. Observed in a finished deck: page one was a proper cover
+        // and page two was headed "**Cover**" with the cover's contents in it. Never real content,
+        // so never worth keeping — and stripped by heading, not by position, because it has turned
+        // up second and third.
+        val kept = blocks.filterNot { b ->
+            val head = b.trim().lines().firstOrNull().orEmpty()
+                .replace("*", "").replace("#", "").trim()
+            Regex("(?i)^(cover|title|title slide|cover slide)$").matches(head)
+        }
+        return (if (kept.size in 1 until blocks.size)
+                    kept.joinToString("\n===\n") { it.trim() }
+                else t).trim()
     }
 
     private fun tableContent(ctx: Context, title: String, brief: String): List<List<String>> {

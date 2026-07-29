@@ -29,6 +29,35 @@ object SlideDeck {
     private fun esc(s: String) = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    /**
+     * Markdown, rendered rather than printed.
+     *
+     * The writer emits `**Own the edge** before Apple/Google notice` and this escaped the HTML and
+     * set the asterisks. A finished deck came out with `**Mission**` as a heading and `**4-bit
+     * quantization**` in a bullet — visible on every page, in the one artefact that gets put in
+     * front of investors. The same defect was found and fixed in email drafts days earlier; slides
+     * were never checked for it, which is exactly the kind of thing worth checking everywhere the
+     * moment it is found anywhere.
+     *
+     * Emphasis is rendered where it is meaningful and dropped where it is not: a whole slide title
+     * wrapped in asterisks is the model being emphatic about a heading that is already the largest
+     * type on the page.
+     */
+    private fun inline(s: String): String = esc(s)
+        .replace(Regex("\\*\\*(.+?)\\*\\*"), "<strong>$1</strong>")
+        .replace(Regex("(?<![\\w*])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\w*])"), "<em>$1</em>")
+        // Anything left is an unpaired asterisk the writer opened and never closed — the real deck
+        // ended its cover subtitle "…outmaneuver Apple & Android*". Only asterisks at an edge or
+        // against a space are dropped, so "4*3" and "a*b" survive as the arithmetic they are.
+        .replace("**", "")
+        .replace(Regex("^\\*+|\\*+$"), "")
+        .replace(Regex("\\*+(?=\\s)|(?<=\\s)\\*+"), "")
+
+    /** A title needs no emphasis — it is already the biggest thing on the slide. */
+    private fun plainTitle(s: String): String = esc(
+        s.replace("**", "").replace(Regex("(?<![\\w*])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\w*])"), "$1")
+            .removePrefix("#").trim())
+
     /** One slide's title and its bullets, from the `===`-separated form the writer produces. */
     private fun parse(content: String): List<Pair<String, List<String>>> =
         content.split(Regex("(?m)^===+\\s*$"))
@@ -63,18 +92,18 @@ object SlideDeck {
                 // a deck whose first slide is just another bulleted slide reads as a memo.
                 body.append("<section class=\"pg cover\">")
                     .append("<div class=\"cov-mark\"></div>")
-                    .append("<h1>").append(esc(st.ifBlank { title })).append("</h1>")
+                    .append("<h1>").append(plainTitle(st.ifBlank { title })).append("</h1>")
                 if (bullets.isNotEmpty())
-                    body.append("<p class=\"sub\">").append(esc(bullets.first())).append("</p>")
+                    body.append("<p class=\"sub\">").append(inline(bullets.first())).append("</p>")
                 if (footer.isNotBlank())
                     body.append("<p class=\"cov-foot\">").append(esc(footer)).append("</p>")
                 body.append("</section>")
             } else {
                 body.append("<section class=\"pg\">")
                     .append("<div class=\"rule\"></div>")
-                    .append("<h2>").append(esc(st)).append("</h2>")
+                    .append("<h2>").append(plainTitle(st)).append("</h2>")
                     .append("<ul>")
-                bullets.take(6).forEach { b -> body.append("<li>").append(esc(b)).append("</li>") }
+                bullets.take(6).forEach { b -> body.append("<li>").append(inline(b)).append("</li>") }
                 body.append("</ul>")
                     .append("<div class=\"num\">").append(i).append("</div>")
                     .append("</section>")
@@ -108,6 +137,7 @@ object SlideDeck {
   h2 { font-size:38pt; line-height:1.1; font-weight:700; letter-spacing:-0.022em;
        margin-top:7mm; margin-bottom:11mm; max-width:210mm; }
   ul { list-style:none; max-width:220mm; }
+  strong { font-weight:650; }
   li { font-size:20pt; line-height:1.45; font-weight:400; opacity:.9;
        padding-left:11mm; margin-bottom:6.5mm; position:relative; }
   /* A dot rather than a glyph — a real bullet character sits on the wrong baseline at this size. */
