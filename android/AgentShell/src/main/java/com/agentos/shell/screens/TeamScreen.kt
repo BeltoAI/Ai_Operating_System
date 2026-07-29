@@ -229,25 +229,95 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
             teamReply = reply.ifBlank { "Couldn't reach the team right now." }; flash = ""; busy = false
         }
     }
+    // Bumped on every thread write so the open sheet re-reads it — the thread lives on disk, and a
+    // composable has no other way to know it changed.
+    var threadTick by remember { mutableStateOf(0) }
+
+    /**
+     * Say something to one agent, and have the exchange survive being answered.
+     *
+     * This used to put the reply in a one-shot dialog and forget it, so the next question started
+     * from nothing and the only way to adjust a draft was to re-explain the whole brief. Both sides
+     * are now written to [AgentThread] — the owner's side was never recorded at all, which is why a
+     * follow-up could miss the thing it was following up on even though the agent's own log was
+     * being fed back in.
+     */
     fun askAgent(e: EmployeeStore.Employee, q: String) {
         if (q.isBlank() || busy) return
+        com.agentos.shell.tools.AgentThread.add(ctx, e.id, "you", q)
+        threadTick++
         busy = true; flash = "${e.name} is thinking…"
         scope.launch {
-            // Same full-capability engine as the Telegram chat: fed knowledge (PDFs) + brain + web + real actions.
             val reply = withContext(Dispatchers.IO) {
-                // Give the agent the CONTEXT of what it just did/asked, so ANSWERING its question actually
-                // continues that task. Before this, a reply arrived with no memory of the question it answered —
-                // which is why replying "felt" impossible and only Approve/Done showed up.
-                val history = try {
-                    EmployeeStore.logFor(ctx, e.id, 6).reversed().joinToString("\n") {
-                        (if (it.needsInput) "${e.name} asked you: " else "${e.name}: ") + it.line
+                val owner = com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "You" }
+                val draft = com.agentos.shell.tools.AgentDraft.get(ctx, e.id)
+
+                // "GIVE THIS TO MAYA" — the work moves, and both threads say so.
+                //
+                // Without this the only way to hand a task over was to re-brief the other agent from
+                // scratch, which loses the draft and every correction already made to it.
+                val hand = Regex("(?i)\\b(give|hand|pass|send) (this|it|the \\w+) (to|over to) (\\w+)")
+                    .find(q)?.groupValues?.get(4)
+                if (hand != null) {
+                    val other = staff.firstOrNull { it.name.equals(hand, true) && it.id != e.id }
+                    // Value on the SAME line as the return — a newline after `return@withContext`
+                    // makes it a Unit return and orphans the string below it.
+                    if (other == null) return@withContext ("I don't have a teammate called $hand. " +
+                        "Your team is: " + staff.joinToString(", ") { it.name } + ".")
+                    if (draft != null) {
+                        com.agentos.shell.tools.AgentDraft.set(
+                            ctx, other.id, draft.kind, draft.target, draft.title, draft.text)
+                        com.agentos.shell.tools.AgentDraft.clear(ctx, e.id)
                     }
-                } catch (ex: Exception) { "" }
-                val r = try { com.agentos.shell.tools.EmployeeRunner.answer(ctx, e, q, history, com.agentos.shell.tools.MemoryStore.ownerName(ctx).ifBlank { "You" }) } catch (ex: Exception) { "" }
+                    com.agentos.shell.tools.AgentThread.add(ctx, other.id, "agent",
+                        "Picked this up from ${e.name}: ${draft?.title.orEmpty().ifBlank { e.goal }}. " +
+                            "Tell me what you'd like changed.")
+                    try { EmployeeStore.log(ctx, other.id, "Took over from ${e.name}", false) } catch (ex: Exception) {}
+                    try { EmployeeStore.log(ctx, e.id, "Handed this to ${other.name}", false) } catch (ex: Exception) {}
+                    return@withContext ("Handed it to ${other.name}" +
+                        (if (draft != null) " — the draft went with it." else "."))
+                }
+
+                // "MAKE IT WARMER" EDITS THE DRAFT — it does not commission a new one.
+                //
+                // The exact reported case: a post is drafted, the owner asks for a change, and a
+                // fresh post arrives written from scratch. Only instructions that plainly refer to
+                // the thing itself are routed here; a real question passes through untouched.
+                if (draft != null && com.agentos.shell.tools.AgentThread.isEdit(ctx, e.id, q)) {
+                    val revised = try {
+                        com.agentos.shell.tools.AgentClient.complete(
+                            "You revise text precisely. Return only the revised text.",
+                            com.agentos.shell.tools.AgentThread.revisionPrompt(draft, q), 900)
+                    } catch (ex: Exception) { "" }
+                    if (revised.isNotBlank()) {
+                        com.agentos.shell.tools.AgentDraft.set(
+                            ctx, e.id, draft.kind, draft.target, draft.title, revised.trim())
+                        return@withContext "Updated it — ${q.lowercase().take(40)}.\n\n${revised.trim()}"
+                    }
+                }
+
+                // Everything the agent said AND everything you said, oldest first. The log alone
+                // gave the agent only its own half of the conversation.
+                val history = com.agentos.shell.tools.AgentThread
+                    .transcript(ctx, e.id, owner, e.name)
+                    .ifBlank {
+                        try {
+                            EmployeeStore.logFor(ctx, e.id, 6).reversed().joinToString("\n") {
+                                (if (it.needsInput) "${e.name} asked you: " else "${e.name}: ") + it.line
+                            }
+                        } catch (ex: Exception) { "" }
+                    }
+                val r = try { com.agentos.shell.tools.EmployeeRunner.answer(ctx, e, q, history, owner) } catch (ex: Exception) { "" }
                 if (e.status == "needs_you") try { EmployeeStore.setStatus(ctx, e.id, "idle") } catch (ex: Exception) {}
                 r
             }
-            teamReply = "${e.name}: " + reply.ifBlank { "Couldn't answer just now." }; flash = ""; refresh(); busy = false
+            val said = reply.ifBlank { "Couldn't answer just now." }
+            com.agentos.shell.tools.AgentThread.add(ctx, e.id, "agent", said)
+            threadTick++
+            // The dialog stays for a reply given while the sheet is closed; with it open the thread
+            // itself is the answer, so a second surface would only be in the way.
+            if (detailEmp?.id != e.id) teamReply = "${e.name}: $said"
+            flash = ""; refresh(); busy = false
         }
     }
 
@@ -761,17 +831,72 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                     }
                     Spacer(Modifier.height(6.dp))
                 }
+                // ── the conversation ──
+                //
+                // WHAT IT DID above is the agent's log. This is the exchange: what you asked and
+                // what came back, in order, still here tomorrow. Without it the reply appeared once
+                // in a dialog and the next question began from nothing.
+                val thread = remember(e.id, threadTick) {
+                    com.agentos.shell.tools.AgentThread.messages(ctx, e.id)
+                }
+                if (thread.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("CONVERSATION", fontSize = 10.sp, color = T.inkFaint,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                        Text("Clear", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.clickable {
+                                com.agentos.shell.tools.AgentThread.clear(ctx, e.id); threadTick++
+                            }.padding(start = 10.dp, top = 2.dp, bottom = 2.dp))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    // Only the tail: a long thread would push the input off the sheet, and the last
+                    // few turns are what a follow-up is about.
+                    thread.takeLast(6).forEach { m ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(if (m.fromOwner) "you" else e.name.take(9),
+                                fontSize = T.caption,
+                                color = if (m.fromOwner) T.inkFaint else T.accent,
+                                modifier = Modifier.width(62.dp))
+                            Text(com.agentos.shell.tools.TeamChat.stripMd(m.text).take(400),
+                                fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp,
+                                modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
                 // ── pinned action bar (always visible) ──
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(T.bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        if (askText.isEmpty()) Text(if (needs != null) "Answer ${e.name}…" else "Ask ${e.name} a question…", fontSize = 13.sp, color = T.inkFaint)
+                        if (askText.isEmpty()) Text(
+                            when {
+                                needs != null -> "Answer ${e.name}…"
+                                thread.isNotEmpty() -> "Reply to ${e.name}…"
+                                else -> "Ask ${e.name} a question…"
+                            }, fontSize = 13.sp, color = T.inkFaint)
                         BasicTextField(askText, { askText = it }, textStyle = TextStyle(color = T.ink, fontSize = 13.sp), modifier = Modifier.fillMaxWidth())
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(Modifier.size(38.dp).clip(CircleShape).background(if (askText.isBlank()) T.hairline else T.accent)
-                        .clickable(enabled = !busy && askText.isNotBlank()) { val q = askText; askText = ""; detailEmp = null; askAgent(e, q) }, contentAlignment = Alignment.Center) {
-                        Text("↑", fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        // THE SHEET STAYS OPEN. Closing it on send is what made this feel like a
+                        // one-shot question — the answer arrived somewhere else, and continuing
+                        // meant finding your way back and starting again.
+                        .clickable(enabled = !busy && askText.isNotBlank()) { val q = askText; askText = ""; askAgent(e, q) }, contentAlignment = Alignment.Center) {
+                        Text(if (busy) "…" else "↑", fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+                // Quick edits, but only while there is something to edit.
+                if (com.agentos.shell.tools.AgentDraft.get(ctx, e.id) != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row {
+                        com.agentos.shell.tools.AgentThread.QUICK.forEach { q ->
+                            Text(q, fontSize = T.caption, color = T.ink,
+                                modifier = Modifier.padding(end = 8.dp)
+                                    .clip(RoundedCornerShape(999.dp)).background(T.bg)
+                                    .clickable(enabled = !busy) { askAgent(e, "make it ${q.lowercase()}") }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp))
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
