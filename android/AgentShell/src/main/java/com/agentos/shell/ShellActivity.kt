@@ -417,7 +417,8 @@ class ShellActivity : ComponentActivity() {
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Health -> com.agentos.shell.screens.HealthScreen(m) { screen = Screen.Home }
-                        Screen.Google -> com.agentos.shell.screens.GoogleScreen(googlePrompt, m) {
+                        Screen.Google -> com.agentos.shell.screens.GoogleScreen(
+                            googlePrompt, m, onExample = { ex -> googlePrompt = ex }) {
                             googlePrompt = ""; screen = Screen.Home
                         }
                         Screen.Translate -> com.agentos.shell.screens.TranslateScreen(m) { screen = Screen.Home }

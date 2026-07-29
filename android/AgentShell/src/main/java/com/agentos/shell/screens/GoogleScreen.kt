@@ -77,6 +77,8 @@ import org.json.JSONObject
 fun GoogleScreen(
     prompt: String,
     modifier: Modifier = Modifier,
+    /** Tapping an example re-enters this page with that sentence parsed. */
+    onExample: (String) -> Unit = {},
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -96,6 +98,61 @@ fun GoogleScreen(
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(14.dp))
         ScreenHeader("Google", onBack)
+
+        // ── OPENED WITHOUT A REQUEST ──
+        //
+        // Reached from the shortcut rather than from a sentence, this is a place rather than a
+        // result: what is actually on the calendar right now, and the shapes of request that work.
+        // Showing the phrasings is not decoration — the whole surface is typed, so the examples ARE
+        // the interface, and a page that only ever appears mid-request teaches nobody what it does.
+        if (prompt.isBlank()) {
+            val today = remember { com.agentos.shell.tools.GoogleIntent.parse(ctx, "what's on my calendar today") }
+            Spacer(Modifier.height(6.dp))
+            Text("Calendar, mail and Meet. Times, guests and which event you mean are worked out " +
+                 "on this phone — the same every time, on any model.",
+                fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp)
+
+            today?.answer?.takeIf { it.isNotBlank() }?.let { a ->
+                Spacer(Modifier.height(18.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(T.bgElevated).padding(16.dp)) {
+                    Text("TODAY", fontSize = 9.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(a, fontSize = T.small, color = T.ink, lineHeight = 22.sp)
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SectionLabel("JUST SAY")
+            Spacer(Modifier.height(10.dp))
+            listOf(
+                "invite Joslyn to a call tomorrow at 4pm with a google meet",
+                "block Thursday 10 to 11 in the Boardroom with carlos@example.com",
+                "move my 2pm tomorrow to 4pm and let her know",
+                "cancel my 3pm with Carlos",
+                "let everyone in my 2pm know I'll be ten minutes late",
+                "make a one-pager on the pilot and email it to carlos@example.com",
+                "what's on my calendar this week"
+            ).forEachIndexed { i, ex ->
+                val fade by animateFloatAsState(if (appear) 1f else 0f, tween(220 + i * 70), label = "e$i")
+                val shift by animateFloatAsState(if (appear) 0f else 14f,
+                    spring(dampingRatio = 0.85f, stiffness = 300f - i * 18f), label = "s$i")
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    .offset(y = shift.dp)
+                    .graphicsLayer { alpha = fade }
+                    .clip(RoundedCornerShape(13.dp)).background(T.bgElevated)
+                    .clickable { onExample(ex) }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(ex, fontSize = T.caption, color = T.inkSoft,
+                        lineHeight = 18.sp, modifier = Modifier.weight(1f))
+                    Text("›", fontSize = T.body, color = T.inkFaint)
+                }
+            }
+            Spacer(Modifier.height(50.dp))
+            return@Column
+        }
 
         if (plan == null) {
             Spacer(Modifier.height(24.dp))

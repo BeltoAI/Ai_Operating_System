@@ -28,6 +28,8 @@ object Places {
     )
 
     val ALL = listOf(
+        Place("google", "Google", "calendar, mail and Meet",
+            listOf("calendar", "gmail", "mail", "email", "meet", "schedule", "diary", "invite", "meeting")),
         Place("health", "Health", "sleep, heart, recovery", listOf("vitals", "fitness", "whoop", "sleep", "hrv", "steps", "body")),
         // ONE entry, not two. "Meetings" and "Record a meeting" were separate Places that landed on
         // the same screen, so typing "meeting" offered what looked like two identical pages — the

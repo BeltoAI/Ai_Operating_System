@@ -1625,6 +1625,7 @@ fun HomeScreen(
                                 // The suggestion IS the request the owner could have typed, routed
                                 // through exactly the same path — nothing new downstream.
                                 when (p.key) {
+                                    "google" -> onGoogle("")
                                     "health" -> onHealth()
                                     "meetings" -> onMeeting(false)
                                     "record_meeting" -> onMeeting(true)
@@ -1828,7 +1829,8 @@ fun HomeScreen(
                                     when (step.action) {
                                         "prompt" -> submit(step.arg, false)
                                         "meetings" -> onMeeting(false)
-                                        "health" -> onHealth()
+                                        "google" -> onGoogle("")
+                                    "health" -> onHealth()
                                         "team" -> onOpen(Screen.Now)
                                         // The PDF path lands on the screen that holds the import
                                         // rows, which is where a file actually gets read.
