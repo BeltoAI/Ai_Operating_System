@@ -131,6 +131,8 @@ fun GoogleCompose(
     }
     var attach by remember { mutableStateOf<com.agentos.shell.tools.SlyFolder.Doc?>(null) }
     var remindMins by remember { mutableStateOf(0) }
+    /** Minutes before the start that "leave now" would mean, when the place is a real address. */
+    var leaveMins by remember { mutableStateOf(0) }
     var mailPurpose by remember { mutableStateOf<com.agentos.shell.tools.MailDraft.Purpose?>(null) }
 
     val startMs = remember(dayOffset, hour, minute) {
@@ -273,6 +275,60 @@ fun GoogleCompose(
                 java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                     .format(java.util.Date(startMs + mins * 60_000L)),
                 fontSize = T.caption, color = T.accent)
+
+            // ── WHAT THIS WOULD COLLIDE WITH ──
+            //
+            // Nothing checked. The event was created, the calendar showed two things at once, and
+            // the first anyone knew was two people waiting in different places. It does not block —
+            // double-booking on purpose is a real thing — it just refuses to be silent about it.
+            val clashes = remember(startMs, mins, event) {
+                com.agentos.shell.tools.CalendarSense.clashes(ctx, startMs, startMs + mins * 60_000L)
+                    .filterNot { event != null && it.title == event.title }
+            }
+            if (clashes.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(com.agentos.shell.tools.CalendarSense.clashLine(clashes),
+                    fontSize = T.caption, color = T.danger, lineHeight = 17.sp)
+            }
+            com.agentos.shell.tools.CalendarSense.oddHour(startMs)?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, fontSize = T.caption, color = T.danger)
+            }
+
+            // ── WHEN AM I ACTUALLY FREE ──
+            //
+            // The commonest calendar job had no path at all: you had to already know a time before
+            // you could book one. Working hours, weekdays, never the past.
+            var showFree by remember { mutableStateOf(false) }
+            Spacer(Modifier.height(10.dp))
+            Text(if (showFree) "Hide free times" else "Find me a free time",
+                fontSize = T.caption, color = T.accent,
+                modifier = Modifier.clickable { showFree = !showFree }.padding(vertical = 4.dp))
+            if (showFree) {
+                val slots = remember(mins, showFree) {
+                    com.agentos.shell.tools.CalendarSense.freeSlots(ctx, mins)
+                }
+                Spacer(Modifier.height(6.dp))
+                if (slots.isEmpty())
+                    Text("Nothing free in working hours this week.",
+                        fontSize = T.caption, color = T.inkFaint)
+                else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    slots.forEach { sl ->
+                        val c = Calendar.getInstance().apply { timeInMillis = sl.begin }
+                        Chip(java.text.SimpleDateFormat("EEE HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(sl.begin)), false) {
+                            // Pick it and the whole form follows — the day chips too.
+                            val today = Calendar.getInstance().apply {
+                                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                            }.timeInMillis
+                            dayOffset = ((sl.begin - today) / 86_400_000L).toInt().coerceAtLeast(0)
+                            hour = c.get(Calendar.HOUR_OF_DAY); minute = c.get(Calendar.MINUTE)
+                            showFree = false
+                        }
+                    }
+                }
+            }
             Spacer(Modifier.height(20.dp))
         }
 
@@ -343,6 +399,32 @@ fun GoogleCompose(
         if (mode in setOf(Verb.BOOK, Verb.INVITE)) {
             Field("WHAT  ·  OPTIONAL", title, "Meeting") { title = it }
             Field("WHERE  ·  OPTIONAL", place, "A room, an address, a link") { place = it }
+            // Rooms and addresses already used, then the geocoder. A calendar repeats itself far
+            // more than it invents, so what you booked last Tuesday outranks anything new.
+            val placeHits = remember(place) {
+                if (place.length < 2) com.agentos.shell.tools.CalendarSense.recentPlaces(ctx).take(4)
+                else com.agentos.shell.tools.CalendarSense.places(ctx, place)
+                    .filterNot { it.equals(place, true) }
+            }
+            if (placeHits.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp)) {
+                    placeHits.forEach { p -> Chip(p.take(26), place == p) { place = p } }
+                }
+            }
+            // WHEN TO SET OFF. A calendar that knows the address and says nothing about the journey
+            // is withholding the only part that changes what you do this afternoon.
+            var journey by remember { mutableStateOf<com.agentos.shell.tools.CalendarSense.Journey?>(null) }
+            androidx.compose.runtime.LaunchedEffect(place, startMs) {
+                journey = if (place.length < 6) null else withContext(Dispatchers.IO) {
+                    com.agentos.shell.tools.CalendarSense.journey(ctx, place, startMs)
+                }
+            }
+            androidx.compose.runtime.LaunchedEffect(journey) { leaveMins = journey?.minutes ?: 0 }
+            journey?.let {
+                Text(com.agentos.shell.tools.CalendarSense.journeyLine(it),
+                    fontSize = T.caption, color = T.accent, modifier = Modifier.padding(bottom = 14.dp))
+            }
             Field("AGENDA  ·  OPTIONAL", agenda, "What it's for") { agenda = it }
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -390,6 +472,9 @@ fun GoogleCompose(
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
                 listOf(0 to "No", 10 to "10m", 30 to "30m", 60 to "1h", 1440 to "1 day")
                     .forEach { (m, l) -> Chip(l, remindMins == m) { remindMins = m } }
+                // "Leave now" is a different reminder from "it starts soon", and the useful one
+                // when the meeting is across town.
+                if (leaveMins > 0) Chip("Leave by", remindMins == leaveMins) { remindMins = leaveMins }
             }
         }
 
@@ -505,8 +590,12 @@ fun GoogleCompose(
                                         withContext(Dispatchers.IO) {
                                             try {
                                                 ToolRouter.executeAction(ctx, "remind", JSONObject()
-                                                    .put("text", "${title.ifBlank { "Meeting" }} " +
-                                                        "starts in ${if (remindMins >= 60) "${remindMins / 60}h" else "${remindMins}m"}")
+                                                    .put("text",
+                                                        if (leaveMins > 0 && remindMins == leaveMins)
+                                                            "Leave now for ${title.ifBlank { "your meeting" }}" +
+                                                                (if (place.isNotBlank()) " — $place" else "")
+                                                        else "${title.ifBlank { "Meeting" }} starts in " +
+                                                            (if (remindMins >= 60) "${remindMins / 60}h" else "${remindMins}m"))
                                                     .put("at", iso(at)).toString())
                                             } catch (e: Exception) {}
                                         }
