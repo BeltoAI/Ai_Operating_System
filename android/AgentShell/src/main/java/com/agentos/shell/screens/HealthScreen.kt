@@ -158,6 +158,18 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         }
     }
 
+    // ONE-TIME REPAIR. The rollup rules changed — local days rather than UTC, and never adding two
+    // sources' account of the same night together — so every day already computed under the old
+    // rules is wrong and has to be rebuilt from the raw samples, which were always fine.
+    LaunchedEffect(Unit) {
+        val p = ctx.getSharedPreferences("slyos_vitals_prefs", android.content.Context.MODE_PRIVATE)
+        if (p.getInt("rollup_rules", 0) < 2) {
+            withContext(Dispatchers.IO) { VitalsStore.recomputeAll(ctx) }
+            p.edit().putInt("rollup_rules", 2).apply()
+            tick++
+        }
+    }
+
     // A quiet sync on arrival, so the page is never showing yesterday because nobody pressed refresh.
     LaunchedEffect(Unit) {
         if (availability == VitalsSource.State.READY && VitalsSource.grantedAny(ctx)) {

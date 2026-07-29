@@ -41,6 +41,17 @@ object WhoopImport {
     /** The date column, whichever of Whoop's names this export uses. */
     private val DATE_COLUMN = Regex("(?i)(cycle start time|sleep onset|wake onset|start time|date)")
 
+    /**
+     * When you WOKE — the day a night's sleep belongs to.
+     *
+     * Whoop files a night under the cycle that contains it, and a cycle can start either side of
+     * midnight. Measured on a real export: 2026-06-28 held one cycle beginning 00:20 (the night of
+     * the 27th) and another beginning 22:05 (the night of the 28th), so filing both under their
+     * start date put 16h32 of sleep on a single day. A night belongs to the morning you woke up,
+     * which is also the day you would ask about it.
+     */
+    private val WAKE_COLUMN = Regex("(?i)wake onset")
+
     fun importFrom(ctx: Context, uri: Uri): Result {
         val csvs = try { readCsvs(ctx, uri) } catch (e: Exception) {
             Log.w("SlyOS", "whoop/read: ${e.message}")
@@ -77,6 +88,8 @@ object WhoopImport {
             }
             if (mapped.isEmpty()) return@forEach
 
+            val wakeAt = header.indexOfFirst { WAKE_COLUMN.containsMatchIn(it) }
+
             lines.drop(1).forEach { line ->
                 val cells = splitCsv(line)
                 if (cells.size <= dateAt) return@forEach
@@ -86,8 +99,11 @@ object WhoopImport {
                 if (ts > to) to = ts
                 mapped.forEach { (i, metric) ->
                     val v = cells.getOrNull(i)?.trim()?.replace(",", "")?.toDoubleOrNull() ?: return@forEach
-                    // Whoop reports sleep in minutes already; everything else is in its own unit.
-                    samples.add(VitalsStore.Sample(metric, v, ts, ts, "whoop"))
+                    // Sleep is stamped with the WAKE time so it lands on the morning it belongs to;
+                    // everything else stays on the cycle it was measured in.
+                    val at = if (metric == VitalsStore.M.SLEEP && wakeAt >= 0)
+                        cells.getOrNull(wakeAt)?.let { parseDate(it) } ?: ts else ts
+                    samples.add(VitalsStore.Sample(metric, v, at, at, "whoop"))
                 }
             }
         }

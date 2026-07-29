@@ -134,25 +134,52 @@ object VitalsStore {
     /**
      * Collapse the series into one number per day.
      *
-     * Which number depends on the metric, and getting it wrong is the difference between a page that
-     * means something and one that does not: steps are a SUM over the day, resting heart rate is the
-     * MINIMUM, HRV is the overnight average, weight is an average of what few readings there are.
+     * Three things this has to get right, and the first version got all three wrong.
+     *
+     * **1. Which day.** Bucketing on `start/86400000` groups by UTC day, so for anyone west of
+     * Greenwich every evening reading lands on tomorrow — at UTC-7, everything after 5pm. A night's
+     * sleep beginning at 23:00 was filed under the next date, and "how did I sleep on Tuesday"
+     * answered with Monday night. Bucketed on the LOCAL day instead.
+     *
+     * **2. Not double-counting sources.** Sleep and steps are summed within a day, which is right
+     * for one source reporting several sessions and catastrophically wrong across two sources
+     * describing the same night. With Whoop and Health Connect both writing, the seven-day sleep
+     * average came out at 14h30 and the best night at 19h54. So the sum happens per SOURCE, and the
+     * day takes the largest of them — one source's full account of the day, never two added together.
+     *
+     * **3. Which number.** Steps are a sum over the day, resting heart rate is the minimum, HRV is
+     * the overnight average. Getting this wrong silently invalidates everything downstream.
      */
     private fun rollUp(ctx: Context, metrics: Set<String>) {
         try {
             val w = db(ctx).writableDatabase
+            // The device's current offset from UTC, so a day means the day the owner lived through.
+            val off = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong()
+            val day = "(((start + $off)/86400000)*86400000 - $off)"
             metrics.forEach { m ->
-                val agg = when (m) {
-                    M.STEPS, M.CALORIES, M.SLEEP, M.EXERCISE -> "SUM(value)"
-                    M.RHR -> "MIN(value)"
-                    else -> "AVG(value)"
+                // inner: how this metric combines WITHIN one source on one day.
+                // outer: how the day picks between sources — never by adding them.
+                val (inner, outer) = when (m) {
+                    M.STEPS, M.CALORIES, M.SLEEP, M.EXERCISE -> "SUM(value)" to "MAX(sv)"
+                    M.RHR -> "MIN(value)" to "MIN(sv)"
+                    else -> "AVG(value)" to "AVG(sv)"
                 }
                 w.execSQL(
                     "INSERT OR REPLACE INTO days (metric, dayStart, value) " +
-                    "SELECT metric, (start/86400000)*86400000 AS d, $agg FROM samples " +
-                    "WHERE metric=? GROUP BY metric, d", arrayOf(m))
+                    "SELECT metric, d, $outer FROM (" +
+                    "  SELECT metric, $day AS d, source, $inner AS sv FROM samples " +
+                    "  WHERE metric=? GROUP BY metric, d, source" +
+                    ") GROUP BY metric, d", arrayOf(m))
             }
         } catch (e: Exception) { Log.w("SlyOS", "vitals/rollup: ${e.message}") }
+    }
+
+    /** Recompute every day from the raw samples — used after a fix to the rules above. */
+    fun recomputeAll(ctx: Context) {
+        try {
+            db(ctx).writableDatabase.delete("days", null, null)
+            rollUp(ctx, M.ORDER.toSet())
+        } catch (e: Exception) { Log.w("SlyOS", "vitals/recompute: ${e.message}") }
     }
 
     // MARK: - Read
