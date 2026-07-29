@@ -29,8 +29,12 @@ object Places {
 
     val ALL = listOf(
         Place("health", "Health", "sleep, heart, recovery", listOf("vitals", "fitness", "whoop", "sleep", "hrv", "steps", "body")),
-        Place("meetings", "Meetings", "recordings, summaries, actions", listOf("recordings", "transcripts", "notes")),
-        Place("record_meeting", "Record a meeting", "start recording now", listOf("record", "transcribe")),
+        // ONE entry, not two. "Meetings" and "Record a meeting" were separate Places that landed on
+        // the same screen, so typing "meeting" offered what looked like two identical pages — the
+        // distinction between them (one starts recording) is invisible in a list of shortcuts and
+        // reads purely as a duplicate. Recording still starts from the spoken form and from the
+        // button on the page itself, where the difference is obvious.
+        Place("meetings", "Meetings", "record one, or read the last", listOf("recordings", "transcripts", "record", "transcribe", "notes")),
         Place("invest", "Portfolio", "holdings and performance", listOf("stocks", "shares", "trading", "money", "investments")),
         Place("expenses", "Expenses", "what you've spent", listOf("spending", "receipts", "budget")),
         Place("find_job", "Job hunt", "roles, CV, outreach", listOf("jobs", "career", "cv", "resume")),
