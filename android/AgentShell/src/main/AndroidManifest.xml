@@ -16,6 +16,21 @@
     <!-- Keep the screen on while the operate agent runs (long / overnight mission execution). -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- Telegram bot runs as a foreground service. -->
+
+    <!-- Health Connect reads. These MUST be declared here: without them the permission request has
+         nothing to request, SlyOS never appears in Health Connect's app list, and "Connect" returns
+         an empty grant that looks exactly like the owner having refused. -->
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY"/>
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE"/>
+    <uses-permission android:name="android.permission.health.READ_SLEEP"/>
+    <uses-permission android:name="android.permission.health.READ_STEPS"/>
+    <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE"/>
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION"/>
+    <uses-permission android:name="android.permission.health.READ_WEIGHT"/>
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED"/>
+    <uses-permission android:name="android.permission.health.READ_VO2_MAX"/>
+    <uses-permission android:name="android.permission.health.READ_EXERCISE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <!-- Live-location sharing "until I'm home" runs as a location foreground service. -->
@@ -101,6 +116,32 @@
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
             </intent-filter>
         </receiver>
+
+
+        <!-- HEALTH CONNECT DISCOVERY.
+             Health Connect lists an app only when it can show WHY the app wants the data. Without
+             these two entry points SlyOS is invisible in Health Connect's own "Your health apps"
+             list, so there is no way in from that side at all. The VIEW_PERMISSION_USAGE alias is
+             the Android 14+ route; the SHOW_PERMISSIONS_RATIONALE filter is the older one. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".ShellActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+            </intent-filter>
+        </activity-alias>
+
+        <activity
+            android:name=".HealthRationaleActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+            </intent-filter>
+        </activity>
 
         <!-- Telegram bot brain (foreground service). -->
         <service

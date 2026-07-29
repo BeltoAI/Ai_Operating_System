@@ -956,8 +956,10 @@ private fun HealthConnectCard() {
         }
     }
 
-    SectionTitle("Health")
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp)) {
+    // Same Collapsible as every other settings card. A bespoke block here looked like a different
+    // app bolted on, which is exactly what a health feature must not look like.
+    Collapsible("Health", "Whoop, Garmin, Fitbit and Samsung Health, via Health Connect",
+        keywords = "health whoop garmin fitbit samsung wearable vitals sleep hrv steps") {
         Text(
             when {
                 present.isNotEmpty() -> "Reading " + present.size + " kinds of data" +
