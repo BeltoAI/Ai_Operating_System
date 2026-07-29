@@ -1030,7 +1030,16 @@ fun HomeScreen(
             val operateAct = result.actions.firstOrNull { it.type == "operate" }
             if (operateAct != null) {
                 thinking = false
-                reply = "On it — I'll drive it on screen. Watch the STOP banner; I'll stop before anything final."
+                // THE REPLY FOLLOWS THE GATE, NOT THE INTENTION.
+                //
+                // This announced "On it — I'll drive it on screen" before anything was checked, so a
+                // request that could not run said it was running. The sheet that ShellActivity puts up
+                // explains the fix; this line must not contradict it.
+                val gate = com.agentos.shell.tools.ScreenControlGate.state(ctx)
+                reply = if (gate == com.agentos.shell.tools.ScreenControlGate.State.READY)
+                    "On it — I'll drive it on screen. There's a red STOP button on top the whole time; " +
+                    "I'll stop before anything final."
+                else com.agentos.shell.tools.ScreenControlGate.refusal(gate)
                 onOperate(operateAct.arg.ifBlank { q })
                 return@launch
             }
@@ -1081,6 +1090,25 @@ fun HomeScreen(
                     // of the action-selection prompt — the reason answers felt shallow and recall felt broken.
                     reply = withContext(Dispatchers.IO) { AgentClient.answerWell(q, context, history) }
                     pendingConfirm = null
+                    // A CLAIM TO HAVE DRIVEN THE PHONE, WITH NOTHING BEHIND IT.
+                    //
+                    // Observed on a device: "open instagram and like the top post" answered *"Opening
+                    // Instagram… Now liking the top post."* while the action list was empty. Nothing
+                    // opened, nothing was liked, and the sentence read exactly like success. An error
+                    // gets retried; a claim gets believed — and this one hides behind the stop button,
+                    // because there is no run to stop.
+                    if (com.agentos.shell.tools.ScreenIntent.narratedPhoneAction(reply)) {
+                        val gate = com.agentos.shell.tools.ScreenControlGate.state(ctx)
+                        reply = if (gate == com.agentos.shell.tools.ScreenControlGate.State.READY)
+                            "**I didn't actually do that.** I can drive your phone for it — say " +
+                            "\"take over and do it\" and you'll get a red STOP button the whole time."
+                        else com.agentos.shell.tools.ScreenControlGate.refusal(gate)
+                        try {
+                            com.agentos.shell.tools.Fail.log(ctx, "Planner",
+                                "narrated a phone action with no action attached",
+                                "blocked the false claim for: ${q.take(80)}", "warn")
+                        } catch (e: Exception) {}
+                    }
                 }
                 else -> {
                     // Concrete benign actions (open app/url, play music…) — just execute them.

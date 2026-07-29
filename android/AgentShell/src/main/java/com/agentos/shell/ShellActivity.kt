@@ -63,6 +63,10 @@ class ShellActivity : ComponentActivity() {
             if (missing.isNotEmpty())
                 androidx.core.app.ActivityCompat.requestPermissions(this, missing.toTypedArray(), 9911)
         } catch (e: Exception) {}
+        // A red STOP pill belongs to the window manager, not to us, so a crash or a low-memory kill
+        // mid-takeover leaves one floating over the phone that stops nothing. Process start is the one
+        // moment where "no run is in progress" is guaranteed.
+        try { StopOverlayService.clearOrphan(applicationContext) } catch (e: Exception) {}
         // Lets every model call read provider keys + record cost, and route across Claude/OpenAI/Gemini.
         com.agentos.shell.tools.AgentClient.appContext = applicationContext
         // Your Anthropic key, pasted in-app and stored on-device (so a prebuilt APK needs no compiled key).
@@ -272,6 +276,11 @@ class ShellActivity : ComponentActivity() {
             var missionGoal by remember { mutableStateOf("") }
             var shopQuery by remember { mutableStateOf("") }
             var tradePrompt by remember { mutableStateOf("") }
+            // Set when a screen-control request was REFUSED, so the reason and its one-tap fix go in
+            // front of the owner instead of the request simply appearing to do nothing.
+            var controlBlocked by remember {
+                mutableStateOf(com.agentos.shell.tools.ScreenControlGate.State.READY)
+            }
 
             // Boot -> Lock after a calm beat.
             // Boot animation → straight to Home (the glance/lock screen was removed per the owner's request).
@@ -377,7 +386,10 @@ class ShellActivity : ComponentActivity() {
                             onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onExpenses = { screen = Screen.Expenses },
-                            onOperate = { g -> com.agentos.shell.tools.ScreenAgent.start(applicationContext, g) },
+                            onOperate = { g ->
+                                com.agentos.shell.tools.ScreenAgent.start(applicationContext, g,
+                                    onBlocked = { why -> controlBlocked = why })
+                            },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
                         Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
@@ -429,6 +441,11 @@ class ShellActivity : ComponentActivity() {
               }
               BusyDog()   // non-blocking "generating" animation, app-wide
               EdgeShimmer()   // accent light glides around the phone's border while anything loads
+              // App-wide, because a refused takeover can be triggered from Home or from Team, and the
+              // answer is the same wherever it came from.
+              com.agentos.shell.screens.ScreenControlSheet(controlBlocked) {
+                  controlBlocked = com.agentos.shell.tools.ScreenControlGate.State.READY
+              }
               }
             }
         }

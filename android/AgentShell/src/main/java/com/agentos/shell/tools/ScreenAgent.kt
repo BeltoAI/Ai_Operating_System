@@ -63,10 +63,75 @@ object ScreenAgent {
 
     fun stop() { stopFlag = true }
 
-    /** Kick off a run (decoupled from any Activity lifecycle — the accessibility service outlives screens). */
-    fun start(ctx: Context, goal: String, openPkg: String? = null) {
-        if (running) { stop(); return }   // a second trigger = STOP
+    /**
+     * A step reduced to a couple of words for the pill: "liked", "typing", "opened Instagram".
+     *
+     * Anything longer competes with the app underneath for the same corner of the screen.
+     */
+    private fun shortStep(doing: String): String {
+        val d = doing.trim()
+        // "did 'like' → "Photo 1 of 6…"" — the quoted target is what makes these long, and it is the
+        // part nobody needs while deciding whether to hit stop.
+        Regex("(?i)^did '([^']+)'").find(d)?.let { return it.groupValues[1].take(14) }
+        Regex("(?i)^(opened|typed|tapped|scrolled|swiped|sent|searched)\\b\\s*(\\S+)?")
+            .find(d)?.let {
+                val verb = it.groupValues[1].lowercase()
+                val what = it.groupValues[2].trim('"', '\'', ',', '.').take(11)
+                return if (what.isBlank()) verb else "$verb $what"
+            }
+        return d.substringBefore(" →").substringBefore(" \"").take(16)
+    }
+
+    /** "LinkedIn", not "com.linkedin.android" — the pill is read at a glance, mid-takeover. */
+    private fun appLabel(ctx: Context, pkg: String): String = try {
+        if (pkg.isBlank()) "" else ctx.packageManager.let { pm ->
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        }
+    } catch (e: Exception) { "" }
+
+    /**
+     * Kick off a run (decoupled from any Activity lifecycle — the accessibility service outlives screens).
+     *
+     * Returns false without touching the phone when the run is not permitted. [onBlocked] fires on the
+     * caller's thread with the reason, so a screen can put the fix in front of the owner instead of
+     * leaving them watching nothing happen.
+     *
+     * THE GATE IS HERE, NOT INSIDE THE RUN. Previously the accessibility check lived in `run()`, so an
+     * impossible request still "started" and died quietly into the outbox; and the stop overlay was
+     * merely *attempted*, so a missing draw-over-apps permission meant the agent drove the phone with
+     * no stop button at all. Both are refusals now, and refusals happen before the first tap.
+     */
+    fun start(
+        ctx: Context,
+        goal: String,
+        openPkg: String? = null,
+        onBlocked: (ScreenControlGate.State) -> Unit = {}
+    ): Boolean {
+        if (running) { stop(); return false }   // a second trigger = STOP
+        val gate = ScreenControlGate.state(ctx)
+        if (gate != ScreenControlGate.State.READY) {
+            Log.i(TAG, "OP refused — gate=$gate goal=\"${goal.take(60)}\"")
+            // Recorded so "did you post that?" is answerable later. The brain must hold the refusal,
+            // because a request with no record reads at recall time exactly like one that succeeded.
+            try {
+                OutboxStore.record(ctx, "Action", "Screen control", "act", goal,
+                    "didn't run — " + when (gate) {
+                        ScreenControlGate.State.NO_ACCESSIBILITY -> "screen control is off"
+                        else -> "no stop button could be shown"
+                    }, status = "held")
+            } catch (e: Exception) {}
+            try {
+                Brain.remember(ctx, "action", "Screen control refused",
+                    "Asked to operate the phone: \"$goal\". NOT DONE — " +
+                    "${if (gate == ScreenControlGate.State.NO_ACCESSIBILITY) "screen control was off"
+                        else "there was no way to show a stop button"}. Nothing was tapped or typed.",
+                    role = "system")
+            } catch (e: Exception) {}
+            onBlocked(gate)
+            return false
+        }
         scope.launch { run(ctx.applicationContext, goal, openPkg) }
+        return true
     }
 
     private suspend fun run(ctx: Context, rawGoal: String, openPkg: String?) {
@@ -78,7 +143,19 @@ object ScreenAgent {
         running = true; stopFlag = false; lastTapText = ""
         // A stop the owner can actually reach. The notification action is unreachable while the
         // agent is typing in another app — pulling the shade fights the automation for the screen.
-        try { com.agentos.shell.StopOverlayService.show(ctx) } catch (e: Exception) {}
+        //
+        // If it cannot be shown, NOTHING RUNS. start() already gated on this, but a permission can be
+        // revoked between the gate and here, and a takeover with no stop is not a degraded run — it is
+        // the one outcome this whole file is written to prevent.
+        if (!com.agentos.shell.StopOverlayService.show(ctx)) {
+            running = false
+            Log.w(TAG, "OP aborted — stop overlay could not be shown")
+            try {
+                OutboxStore.record(ctx, "Action", "Screen control", "act", rawGoal,
+                    "didn't run — no stop button could be shown", status = "held")
+            } catch (e: Exception) {}
+            return
+        }
         acquireWake(ctx)   // keep the screen on so long / overnight mission runs can execute
         // REFLEX LEARN: if the user has taught a skill matching this goal, REPLAY it deterministically — no
         // LLM, no guessing. This is the reliable fast path for repeatable tasks.
@@ -104,6 +181,8 @@ object ScreenAgent {
         Log.i(TAG, "OP START goal=\"$goal\" openPkg=$openPkg\nPLAN:\n$plan")
         val history = StringBuilder()
         var lastDump = ""; var stall = 0; var replans = 0; var verifyTries = 0
+        /** When the screen last actually changed — drives the "stuck?" signal on the pill. */
+        var sameScreenSince = System.currentTimeMillis()
         try {
             if (!openPkg.isNullOrBlank()) { try { ctx.packageManager.getLaunchIntentForPackage(openPkg)?.let { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (e: Exception) {}; delay(1600) }
             // Repetitive tasks ("connect with 20…", "message 5…") need a bigger budget — scale it to the
@@ -112,7 +191,12 @@ object ScreenAgent {
             val budget = if (target != null && target in 2..100) (target * 6 + 12).coerceAtMost(200) else MAX_STEPS
             var step = 0
             while (step++ < budget) {
-                if (stopFlag) { finish(ctx, goal, "Stopped by you.", history.toString()); return }
+                // STOPPED MEANS SAYING WHAT HAD ALREADY HAPPENED.
+                //
+                // "Stopped by you." on its own leaves the owner holding a phone in an unknown state —
+                // was the message typed? was it sent? Half a takeover is exactly when an accurate
+                // account matters most, so the reply names what was done and states what wasn't.
+                if (stopFlag) { finish(ctx, goal, stoppedSummary(history.toString()), history.toString()); return }
                 // SETTLE FIRST: wait until the screen stops changing before reading it, so the planner never
                 // acts on a half-loaded list or a mid-animation frame — the single biggest cause of misfires.
                 var nodes = settle(svc)
@@ -141,6 +225,19 @@ object ScreenAgent {
                     }
                 }
                 if (nodes.isEmpty() && shot == null) { finish(ctx, goal, "Can't read this screen (it may be protected).", history.toString()); return }
+                // SAY SO WHEN NOTHING IS MOVING.
+                //
+                // The pill reporting a step that finished ten seconds ago looks identical to one that
+                // is working. Someone watching their own phone being driven deserves to know the
+                // difference — the honest signal is what makes the stop button worth reaching for.
+                if (dump == lastDump) {
+                    if (System.currentTimeMillis() - sameScreenSince > 15_000L) {
+                        val where = try { appLabel(ctx, pkg) } catch (e: Exception) { "" }
+                        com.agentos.shell.StopOverlayService.show(ctx,
+                            if (where.isBlank()) "stuck?" else "stuck on $where?")
+                    }
+                } else sameScreenSince = System.currentTimeMillis()
+
                 if (nodes.size >= 3 && dump == lastDump) {
                     if (++stall >= 3) {
                         if (replans < 1) { plan = try { AgentClient.planScreenGoal("$goal (I'm stuck on: $pkg; rethink the approach)", brainCtx) } catch (e: Exception) { plan }; replans++; stall = 0 }
@@ -171,6 +268,10 @@ object ScreenAgent {
                 // Surface the latest action on the banner so the user can watch progress live.
                 val lastDoing = history.toString().trimEnd().substringAfterLast("• ").substringBefore("\n").take(80)
                 updateBanner(ctx, step, if (shot != null) "$lastDoing (seeing screen)" else lastDoing)
+                // The pill gets a SHORT verb, not the history line. The history entry reads
+                // "did 'like' → \"Photo 1 of 6 by foundedceo\"" — accurate, and far too long for a
+                // control that has to stay out of the way of the app it is floating over.
+                com.agentos.shell.StopOverlayService.show(ctx, shortStep(lastDoing))
                 if (!ok) history.append("• (step had no effect)\n")
                 delay(300)   // small floor between actions; settle() at the top of the loop does the real waiting
             }
@@ -426,6 +527,22 @@ object ScreenAgent {
         }
     }
 
+    /**
+     * What to say when the owner hits stop: the steps that had already landed, then the fact that
+     * nothing after them did.
+     */
+    private fun stoppedSummary(history: String): String {
+        val did = history.lines()
+            .mapNotNull { it.trim().removePrefix("•").trim().takeIf { s -> s.isNotEmpty() } }
+            .filterNot { it.startsWith("(") || it.startsWith("self-check") }
+            // Same cleanup the pill uses — the raw entry reads `did 'like' → "Like"`, which is a log
+            // line, not a sentence anyone wants after taking their phone back.
+            .map { shortStep(it) }
+            .takeLast(4)
+        return if (did.isEmpty()) "**Stopped.** Nothing had happened yet."
+        else "**Stopped.** Up to then: ${did.joinToString(", ")}. Nothing after that."
+    }
+
     private fun finish(ctx: Context, goal: String, summary: String, history: String) {
         running = false
         try { com.agentos.shell.StopOverlayService.stop(ctx) } catch (e: Exception) {}
@@ -434,7 +551,15 @@ object ScreenAgent {
         cancelBanner(ctx)
         // Everything the agent did goes into the visible outbox AND the brain (so recall grows).
         OutboxStore.record(ctx, "Action", goal.take(40), "act", summary, "screen control: ${history.replace("\n", " ").take(300)}")
-        try { MessageStore.insertOne(ctx, "Screen agent", "Actions", "system", "system", "Operated the phone for \"$goal\": $summary") } catch (e: Exception) {}
+        // Through Brain.remember rather than MessageStore directly, so the run is searchable by
+        // meaning as well as by keyword — "did it ever post that thing about the pilot?" has to reach
+        // this row without sharing a word with it.
+        try {
+            Brain.remember(ctx, "action", "Operated the phone",
+                "Asked to: \"$goal\". Outcome: $summary" +
+                    (if (history.isBlank()) "" else "\nSteps: ${history.replace("\n", " · ").take(400)}"),
+                role = "system")
+        } catch (e: Exception) {}
     }
 
     // ── STOP banner (ongoing notification, visible from any app) ──

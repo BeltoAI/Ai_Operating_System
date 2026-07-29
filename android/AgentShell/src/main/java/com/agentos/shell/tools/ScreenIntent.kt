@@ -221,8 +221,6 @@ object ScreenIntent {
         r("cowork", "\\bcowork\\b|\\bwork (with me|session)\\b|\\blet'?s work on\\b"),
         // ── Faces / people ──
         r("faces", "\\b(faces|who is in (this|that) photo|recognise|recognize)\\b.{0,20}\\b(photo|picture|face)\\b|\\bmy people\\b"),
-        // ── Screen automation ──
-        r("operate", "\\b(do (this|that) for me|operate|take over|control the screen|do it in the app)\\b"),
         // ── Social posts ──
         r("spicy_post", "\\bspicy (take|post)\\b|\\bhot take\\b"),
         // EVERY verb and EVERY channel.
@@ -236,8 +234,49 @@ object ScreenIntent {
             ".{0,24}\\b(post|tweet|caption|thread|update|status)\\b" +
             "|\\bpost (about|on)\\b" +
             "|\\b(linkedin|instagram|twitter|reddit|threads|facebook|tiktok)\\b.{0,16}\\b(post|caption|update)\\b",
-            "\\babout\\s+(.+)$")
+            "\\babout\\s+(.+)$"),
+
+        // ── Screen automation — DELIBERATELY LAST ──────────────────────────────────────────────
+        //
+        // Order is the routing rule: writing always wins over driving. `operate` used to sit ABOVE
+        // compose_post, so a widened pattern here would quietly steal "make a LinkedIn post" and
+        // start tapping through an app instead of composing anything — which is precisely the
+        // "sometimes it operates the phone and sometimes it writes" complaint. Placed last, it can
+        // only catch what no compose rule wanted.
+        //
+        // The old pattern was five fixed phrases ("operate", "take over", "do this for me"), so a
+        // plain request to act inside an app — "open Instagram and like the top post" — matched
+        // nothing. The model then answered in prose: *"Opening Instagram… Now liking the top post."*
+        // with zero actions attached. Nothing opened, nothing was liked, and the sentence was
+        // indistinguishable from success. Observed on a device, and worse than the missing stop
+        // button it hid behind, because there was nothing to stop.
+        r("operate",
+            // The named phrasings, kept.
+            "\\b(do (this|that) for me|operate (my|the) phone|take over( my screen)?|" +
+            "control the screen|do it in the app)\\b" +
+            // "open <app> and <do something in it>" — opening alone is open_app; the trailing verb
+            // is what makes it screen control.
+            "|\\b(open|go to|go into|launch)\\b[^.]{0,24}\\b($APPS)\\b[^.]{0,40}\\b(and|then)\\b\\s*\\w+" +
+            // "<verb> ... on/in <app>" — acting inside a named app, whichever order it is said in.
+            "|\\b($ACTS)\\b[^.]{0,40}\\b(on|in|from)\\b[^.]{0,12}\\b($APPS)\\b" +
+            "|\\b($APPS)\\b[^.]{0,24}\\b($ACTS)\\b")
     )
+
+    /** Apps a screen-control request plausibly names. */
+    private const val APPS =
+        "instagram|linkedin|twitter|x|whatsapp|tiktok|facebook|reddit|threads|snapchat|telegram|" +
+        "youtube|gmail|chrome|spotify|tinder|bumble|discord|slack|notion|maps|uber|amazon"
+
+    /**
+     * Verbs that mean "act inside that app", never "write me something".
+     *
+     * `post`, `write` and `draft` are absent on purpose — they belong to the composer, and putting
+     * them here would re-create the ambiguity this ordering exists to remove.
+     */
+    private const val ACTS =
+        "like|unlike|comment|reply to|respond to|follow|unfollow|subscribe|upvote|downvote|" +
+        "swipe|scroll|tap|click|open the|search for|dm|message|repost|retweet|share the|" +
+        "accept|decline|delete the|mark as read|log in|sign in|check out"
 
     /**
      * The screen this text unambiguously wants, or null to let the model decide.
@@ -261,6 +300,38 @@ object ScreenIntent {
             return Hit(rule.action, arg.ifBlank { t })
         }
         return null
+    }
+
+    /**
+     * Whether a reply CLAIMS the phone was operated when no action was attached to it.
+     *
+     * Observed on a device: "open instagram and like the top post" came back as *"Opening
+     * Instagram… Now liking the top post."* with `actions=[]`. Nothing opened. Nothing was liked.
+     * The sentence was fluent, specific, present-tense, and completely false — and it is the same
+     * failure that put a narrated calendar invite in front of someone whose calendar was empty.
+     *
+     * A claim like this is worse than an error, because an error gets retried and a claim gets
+     * believed. It is also worse than a missing stop button: there is nothing to stop.
+     *
+     * Only used when the action list is empty, so a real run is never second-guessed.
+     */
+    fun narratedPhoneAction(reply: String): Boolean {
+        val r = reply.trim()
+        if (r.isBlank() || r.length > 400) return false
+        // Present or perfect tense about driving an app or its controls.
+        val claims = Regex("(?i)\\b(" +
+            "opening|i'?m opening|i have opened|i opened|launching|" +
+            "now (liking|tapping|clicking|typing|scrolling|swiping|opening|posting|sending)|" +
+            "i'?m (liking|tapping|clicking|typing|scrolling|swiping|posting)|" +
+            "i'?ve (liked|tapped|clicked|typed|posted|followed|commented)|" +
+            "liking|tapping through|taking over your (screen|phone)" +
+            ")\\b")
+        if (!claims.containsMatchIn(r)) return false
+        // Anything that is plainly an offer rather than a report is fine — "I can open Instagram
+        // for you" promises nothing that did not happen.
+        if (Regex("(?i)\\b(i can|shall i|would you like|do you want|if you'?d like|i could)\\b")
+                .containsMatchIn(r)) return false
+        return true
     }
 
     /** Human label for the screen an action opens — used in logs and confirmations. */

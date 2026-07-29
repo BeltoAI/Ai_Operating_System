@@ -72,6 +72,12 @@ class StopOverlayService : Service() {
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            // ONE LINE, BOUNDED. Measured on a device: an unbounded label let the step text grow the
+            // pill across a third of the screen, sitting on top of Instagram's stories row — so the
+            // control meant to give the screen back was itself taking a piece of it.
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = dp(150)
         }
         root.addView(label)
 
@@ -117,15 +123,36 @@ class StopOverlayService : Service() {
         fun canShow(ctx: Context): Boolean =
             Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(ctx)
 
-        fun show(ctx: Context, step: String = "") {
-            if (!canShow(ctx)) return
-            try {
+        /**
+         * Put the pill up, and say whether it actually went up.
+         *
+         * The return value is the whole point. This used to be `Unit`, so a missing draw-over-apps
+         * permission made `show()` a silent no-op and the agent carried on driving the phone with no
+         * stop button — the one control that must never be absent, absent, with nothing said. The
+         * caller is now forced to see the failure and can refuse to run.
+         */
+        fun show(ctx: Context, step: String = ""): Boolean {
+            if (!canShow(ctx)) return false
+            return try {
                 ctx.startService(Intent(ctx, StopOverlayService::class.java).putExtra(EXTRA_STEP, step))
-            } catch (e: Exception) {}
+                true
+            } catch (e: Exception) { false }
         }
 
         fun stop(ctx: Context) {
             try { ctx.stopService(Intent(ctx, StopOverlayService::class.java)) } catch (e: Exception) {}
+        }
+
+        /**
+         * Clear a pill left behind by a process that died mid-run.
+         *
+         * An overlay belongs to the window manager, not to the activity, so a crash or a low-memory
+         * kill during a takeover leaves a red STOP floating over the phone that stops nothing. Called
+         * on process start, where "no run is in progress" is guaranteed to be true.
+         */
+        fun clearOrphan(ctx: Context) {
+            if (com.agentos.shell.tools.ScreenAgent.running) return
+            stop(ctx)
         }
     }
 }

@@ -818,9 +818,17 @@ fun TeamPanel(modifier: Modifier = Modifier, onExit: () -> Unit = {}) {
                 Spacer(Modifier.height(14.dp))
                 Text("Or let SlyOS try setting it up in your browser (experimental — may not finish)", fontSize = T.caption, color = T.inkFaint, textAlign = TextAlign.Center, lineHeight = 17.sp,
                     modifier = Modifier.fillMaxWidth().clickable {
-                        com.agentos.shell.tools.ScreenAgent.start(ctx.applicationContext,
-                            "Set up the tool/connection ${e.name} (${e.role}) needs to do this goal: \"${e.goal}\". Open the right app or website, help me sign in or register step by step, and stop to ask me for any credentials or codes you need.")
-                        flash = "SlyOS is trying to set it up — follow along on your screen."; connectEmp = null
+                        // The flash follows the RESULT. It used to promise a takeover that the gate
+                        // could refuse, so "follow along on your screen" was shown for a run that
+                        // never started.
+                        var blocked = com.agentos.shell.tools.ScreenControlGate.State.READY
+                        val started = com.agentos.shell.tools.ScreenAgent.start(ctx.applicationContext,
+                            "Set up the tool/connection ${e.name} (${e.role}) needs to do this goal: \"${e.goal}\". Open the right app or website, help me sign in or register step by step, and stop to ask me for any credentials or codes you need.",
+                            onBlocked = { why -> blocked = why })
+                        flash = if (started) "SlyOS is trying to set it up — follow along on your screen."
+                                else com.agentos.shell.tools.TeamChat.stripMd(
+                                    com.agentos.shell.tools.ScreenControlGate.refusal(blocked))
+                        connectEmp = null
                     }.padding(vertical = 8.dp))
             }
         }
