@@ -806,7 +806,15 @@ object ToolRouter {
             // Real Google path: if connected, create the event via the Calendar API so we get an actual
             // Google Meet link and email invites — something CalendarContract simply can't do.
             if (GoogleAuth.isConnected(ctx) && (wantsMeet || hasEmails)) {
-                val r = GoogleCalendarClient.createEvent(ctx, title, startMs, endMs, attendees, wantsMeet)
+                // Location, agenda and recurrence travel with it now. They were parsed, shown back
+                // to the owner, and then dropped at the point of creation — a guest opening that
+                // invitation saw a title and a time and no idea where to go.
+                val r = GoogleCalendarClient.createEvent(
+                    ctx, title, startMs, endMs, attendees, wantsMeet,
+                    location = o.optString("location"),
+                    description = o.optString("description"),
+                    recurrence = o.optString("recurrence").takeIf { it.isNotBlank() },
+                    timeZone = o.optString("tz").takeIf { it.isNotBlank() })
                 if (r.ok) {
                     val link = r.meetLink.ifBlank { r.htmlLink }
                     MemoryLog.add(ctx, "response", "Calendar: $title",

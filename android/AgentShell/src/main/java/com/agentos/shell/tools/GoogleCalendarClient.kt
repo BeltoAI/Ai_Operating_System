@@ -30,15 +30,29 @@ object GoogleCalendarClient {
      * Insert an event on the user's primary calendar. If [withMeet], attaches a Google Meet
      * conference. [attendees] may be names or emails; only valid emails get invited.
      */
+    /**
+     * @param location where it is. WAS NOT SENT AT ALL — the room, the address and the agenda were
+     *   collected, shown back to the owner, and then dropped on the floor at the point of creation.
+     *   A guest opening that invitation saw a title and a time and had no idea where to go.
+     * @param description the agenda, which is the reason people accept an invitation.
+     * @param recurrence an RFC-5545 RRULE for a repeating event ("every Monday"), or null.
+     * @param timeZone the zone the times are IN. Defaults to this phone's, which is right until
+     *   someone says "3pm their time" and means a different hour entirely.
+     */
     fun createEvent(ctx: Context, title: String, startMs: Long, endMs: Long,
-                    attendees: List<String>, withMeet: Boolean): Result {
+                    attendees: List<String>, withMeet: Boolean,
+                    location: String = "", description: String = "",
+                    recurrence: String? = null, timeZone: String? = null): Result {
         val token = GoogleAuth.accessToken(ctx)
         if (token.isBlank()) return Result(false, error = "not-connected")
-        val tz = TimeZone.getDefault().id
+        val tz = timeZone ?: TimeZone.getDefault().id
         val body = JSONObject().apply {
             put("summary", title)
             put("start", JSONObject().put("dateTime", rfc3339(startMs)).put("timeZone", tz))
             put("end", JSONObject().put("dateTime", rfc3339(endMs)).put("timeZone", tz))
+            if (location.isNotBlank()) put("location", location)
+            if (description.isNotBlank()) put("description", description)
+            recurrence?.takeIf { it.isNotBlank() }?.let { put("recurrence", JSONArray().put(it)) }
             val emails = attendees.map { it.trim() }.filter { it.contains("@") && it.contains(".") }
             if (emails.isNotEmpty()) {
                 val arr = JSONArray()

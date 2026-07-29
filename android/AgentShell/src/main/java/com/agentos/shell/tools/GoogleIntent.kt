@@ -262,6 +262,67 @@ object GoogleIntent {
         return t.take(70)
     }
 
+    /**
+     * "Every Monday", "weekly", "every other week" — as an RFC-5545 rule.
+     *
+     * Recurring events were not parsed at all: "book a standup every Monday at 10" produced ONE
+     * standup, next Monday, and nothing after it. The owner then believes a recurring meeting
+     * exists, which is a worse state than knowing it does not.
+     */
+    fun recurrence(p: String): String? {
+        val t = p.lowercase()
+        if (!Regex("\\b(every|each|weekly|daily|monthly|recurring|repeats?)\\b").containsMatchIn(t)) return null
+        val until = Regex("\\b(?:for|next)\\s+(\\d{1,2})\\s*(weeks?|months?)\\b").find(t)?.let {
+            val n = it.groupValues[1].toInt()
+            ";COUNT=" + (if (it.groupValues[2].startsWith("month")) n * 4 else n)
+        }.orEmpty()
+
+        val days = listOf("sunday" to "SU", "monday" to "MO", "tuesday" to "TU", "wednesday" to "WE",
+            "thursday" to "TH", "friday" to "FR", "saturday" to "SA")
+            .filter { Regex("\\b${it.first}s?\\b").containsMatchIn(t) }.map { it.second }
+
+        val everyOther = Regex("\\bevery other\\b|\\bfortnight|\\bbi.?weekly\\b").containsMatchIn(t)
+        return when {
+            days.isNotEmpty() ->
+                "RRULE:FREQ=WEEKLY${if (everyOther) ";INTERVAL=2" else ""};BYDAY=${days.joinToString(",")}$until"
+            Regex("\\bevery (week|weekly)\\b|\\bweekly\\b").containsMatchIn(t) ->
+                "RRULE:FREQ=WEEKLY${if (everyOther) ";INTERVAL=2" else ""}$until"
+            Regex("\\bevery (day|morning|afternoon)\\b|\\bdaily\\b").containsMatchIn(t) ->
+                "RRULE:FREQ=DAILY$until"
+            Regex("\\bevery month\\b|\\bmonthly\\b").containsMatchIn(t) -> "RRULE:FREQ=MONTHLY$until"
+            Regex("\\bevery (weekday|working day)\\b").containsMatchIn(t) ->
+                "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR$until"
+            else -> null
+        }
+    }
+
+    /**
+     * The zone a stated time is IN, when the sentence names one.
+     *
+     * "3pm CET" and "9am their time" book at three and nine LOCAL otherwise — the meeting exists,
+     * everyone accepts, and it happens at the wrong hour for at least one person. Silent, and only
+     * discovered by someone sitting alone on a call.
+     *
+     * Null when nothing is named, which is the overwhelming majority and correctly means "here".
+     */
+    fun timeZone(p: String): String? {
+        val t = p.lowercase()
+        val named = mapOf(
+            "cet" to "Europe/Berlin", "cest" to "Europe/Berlin", "central european" to "Europe/Berlin",
+            "gmt" to "Europe/London", "bst" to "Europe/London", "uk time" to "Europe/London",
+            "london time" to "Europe/London", "berlin time" to "Europe/Berlin",
+            "est" to "America/New_York", "edt" to "America/New_York",
+            "new york time" to "America/New_York", "eastern" to "America/New_York",
+            "pst" to "America/Los_Angeles", "pdt" to "America/Los_Angeles",
+            "pacific time" to "America/Los_Angeles", "california time" to "America/Los_Angeles",
+            "ist" to "Asia/Kolkata", "india time" to "Asia/Kolkata",
+            "jst" to "Asia/Tokyo", "tokyo time" to "Asia/Tokyo",
+            "sgt" to "Asia/Singapore", "aest" to "Australia/Sydney", "sydney time" to "Australia/Sydney"
+        )
+        named.forEach { (k, v) -> if (Regex("\\b${Regex.escape(k)}\\b").containsMatchIn(t)) return v }
+        return null
+    }
+
     private fun wantsMeet(p: String) =
         Regex("(?i)\\b(google meet|meet link|video call|hangout|zoom|with meet|conference)\\b")
             .containsMatchIn(p)
@@ -345,6 +406,8 @@ object GoogleIntent {
         if (guests.length() > 0) o.put("attendees", guests)
         if (wantsMeet(p)) o.put("meet", true)
         location(p).takeIf { it.isNotBlank() }?.let { o.put("location", it) }
+        recurrence(p)?.let { o.put("recurrence", it) }
+        timeZone(p)?.let { o.put("tz", it) }
         // "agenda is pricing and the March timeline" — the reason people accept an invitation.
         Regex("(?i)\\bagenda\\s*(?:is|:)?\\s*(.{4,120})$").find(p)?.groupValues?.get(1)
             ?.trim()?.takeIf { it.isNotBlank() }?.let { o.put("description", it) }

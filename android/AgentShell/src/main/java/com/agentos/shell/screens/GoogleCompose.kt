@@ -206,6 +206,58 @@ fun GoogleCompose(
             Text(java.text.SimpleDateFormat("EEEE d MMMM, HH:mm", java.util.Locale.getDefault())
                 .format(java.util.Date(event.begin)),
                 fontSize = T.small, color = T.inkSoft)
+
+            // ── WHO IS ACTUALLY COMING ──
+            //
+            // A declined invitation was invisible: you found out by opening Google Calendar, or by
+            // turning up. Shown here because this is where someone looks when deciding what to do
+            // about the meeting, which is exactly when it matters.
+            var rsvp by remember(event) {
+                mutableStateOf<List<com.agentos.shell.tools.GoogleCalendarClient.Attendee>>(emptyList())
+            }
+            androidx.compose.runtime.LaunchedEffect(event) {
+                rsvp = withContext(Dispatchers.IO) {
+                    try {
+                        com.agentos.shell.tools.GoogleCalendarClient
+                            .findEvents(ctx, event.title).firstOrNull()?.attendees.orEmpty()
+                            .filterNot { it.organizer }
+                    } catch (e: Exception) { emptyList() }
+                }
+            }
+            if (rsvp.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                SectionLabel("WHO'S COMING")
+                Spacer(Modifier.height(8.dp))
+                rsvp.forEach { a ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(a.email.substringBefore('@'), fontSize = T.small, color = T.ink,
+                            modifier = Modifier.weight(1f), maxLines = 1)
+                        Text(
+                            when (a.responseStatus) {
+                                "accepted" -> "coming"
+                                "declined" -> "can't make it"
+                                "tentative" -> "maybe"
+                                else -> "no answer"
+                            },
+                            fontSize = T.caption,
+                            color = when (a.responseStatus) {
+                                "accepted" -> T.good
+                                "declined" -> T.danger
+                                else -> T.inkFaint
+                            })
+                    }
+                }
+                val declined = rsvp.count { it.responseStatus == "declined" }
+                if (declined > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(if (declined == rsvp.size)
+                            "Nobody can make it — worth moving or dropping."
+                         else "$declined can't make it. Move it, go ahead without them, or ask why.",
+                        fontSize = T.caption, color = T.danger, lineHeight = 17.sp)
+                }
+            }
+
             Spacer(Modifier.height(22.dp))
             // WHAT A CALENDAR BLOCK ACTUALLY GENERATES.
             //

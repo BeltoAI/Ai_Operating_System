@@ -585,6 +585,20 @@ object EmployeeRunner {
             if ((tools.contains("calendar") || tools.contains("schedule")) && CalendarTool.hasPermission(ctx)) {
                 val up = try { CalendarTool.upcoming(ctx) } catch (e: Exception) { "" }
                 if (up.isNotBlank()) live.append("YOUR CALENDAR (next 30 days):\n").append(up.take(1200)).append("\n\n")
+
+                // WHO REPLIED, AND WHO DIDN'T.
+                //
+                // Nothing watched this. An invitation went out and the owner found out someone had
+                // declined by opening Google Calendar and looking — or by turning up to a meeting
+                // that was not happening. A decline is not a fact to file, it is a decision to make,
+                // and the moment to make it is when it arrives.
+                val rsvp = try { RsvpWatch.check(ctx) } catch (e: Exception) { emptyList() }
+                if (rsvp.isNotEmpty()) {
+                    live.append("RSVP CHANGES SINCE YOUR LAST SHIFT — these need a decision, not a note:\n")
+                    rsvp.forEach { live.append("• ").append(RsvpWatch.line(it))
+                        .append(" — ").append(it.suggestion).append("\n") }
+                    live.append("\n")
+                }
             }
             if ((tools.contains("email") || tools.contains("inbox")) && GoogleAuth.isConnected(ctx)) {
                 // THE ACTUAL INBOX.
