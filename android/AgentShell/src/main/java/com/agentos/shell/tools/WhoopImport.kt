@@ -84,7 +84,10 @@ object WhoopImport {
             "Found the file but no readings in it — is this the Whoop export?")
 
         VitalsStore.put(ctx, samples)
-        try { VitalsInsight.rememberToday(ctx) } catch (e: Exception) {}
+        // The WHOLE imported history into the brain, one memory per day — that is the point of the
+        // import. Writing only today would leave months of readings in a database the assistant
+        // cannot search.
+        try { VitalsInsight.rememberDays(ctx, 400) } catch (e: Exception) {}
         return Result(rows, samples.size, from, to)
     }
 

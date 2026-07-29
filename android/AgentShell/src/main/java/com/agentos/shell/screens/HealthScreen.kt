@@ -154,7 +154,7 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     "Check which types are shared: " + VitalsSource.writerHint(ctx)
             }
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberToday(ctx) }
+            if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberDays(ctx) }
         }
     }
 
@@ -164,7 +164,7 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             syncing = true
             val n = withContext(Dispatchers.IO) { VitalsSource.sync(ctx, 90) }
             syncing = false; tick++
-            if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberToday(ctx) }
+            if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberDays(ctx) }
         }
         // The written week, at most once a week, into the brain — so a year from now "what was my
         // worst sleep month?" has something to answer from. A review that appears daily is a log,

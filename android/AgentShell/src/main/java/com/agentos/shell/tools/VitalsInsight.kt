@@ -124,27 +124,60 @@ object VitalsInsight {
     }
 
     /**
-     * The daily summary that goes into the brain — one line per day, never raw samples.
+     * One memory per day, written once, for every day there is data.
      *
-     * This is what makes "how did I sleep the week I was in Berlin?" answerable, which is the thing
-     * no wearable app can do, because none of them know what else was happening in your life.
+     * Two bugs this replaces, both found by reading the brain rather than the code:
+     *
+     *  - it wrote TODAY on every visit, so four opens of the Health page left four near-identical
+     *    rows for the same day, each of them embedded and each competing with the others at recall
+     *    time. A month of that is hundreds of rows saying the same thing, and the cost lands on
+     *    every unrelated question too, because they crowd the ranked context;
+     *  - it wrote ONLY today, so an imported history — the whole point of the Whoop export — was
+     *    invisible to the brain. "How did I sleep last Thursday?" had nothing to answer from.
+     *
+     * Raw samples are still never written. A heart-rate series is thousands of rows a day and would
+     * drown recall; "Tue 14 Jan: slept 6h12, HRV 52" is what a question actually gets asked against.
      */
-    fun rememberToday(ctx: Context) {
-        val bits = VitalsStore.present(ctx).mapNotNull { m ->
-            VitalsStore.latest(ctx, m)?.let {
-                "${VitalsStore.M.label(m)} ${VitalsStore.M.format(m, it.value)}${VitalsStore.M.unit(m)}"
+    fun rememberDays(ctx: Context, maxDays: Int = 120) {
+        val prefs = ctx.getSharedPreferences("slyos_vitals_prefs", Context.MODE_PRIVATE)
+        val metrics = VitalsStore.present(ctx)
+        if (metrics.isEmpty()) return
+
+        // Every day that has any reading at all, newest first.
+        val byDay = HashMap<Long, MutableList<Pair<String, Double>>>()
+        metrics.forEach { m ->
+            VitalsStore.series(ctx, m, maxDays).forEach { d ->
+                byDay.getOrPut(d.dayStart) { ArrayList() }.add(m to d.value)
             }
         }
-        if (bits.isEmpty()) return
-        val day = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
-            .format(java.util.Date())
-        val flagLine = flags(ctx).joinToString("; ") { it.title }
-        try {
-            Brain.remember(ctx, "health_day", "Health $day",
-                "$day: " + bits.joinToString(", ") + (if (flagLine.isBlank()) "" else ". Flags: $flagLine"),
-                sensitivity = Brain.Sensitivity.SENSITIVE)
-        } catch (e: Exception) {}
+
+        val fmt = java.text.SimpleDateFormat("EEE d MMM yyyy", java.util.Locale.getDefault())
+        var written = 0
+        byDay.entries.sortedByDescending { it.key }.forEach { (dayStart, vals) ->
+            val label = fmt.format(java.util.Date(dayStart))
+            val body = "$label: " + vals.sortedBy { VitalsStore.M.ORDER.indexOf(it.first) }
+                .joinToString(", ") {
+                    "${VitalsStore.M.label(it.first)} ${VitalsStore.M.format(it.first, it.second)}${VitalsStore.M.unit(it.first)}"
+                }
+            // Keyed on the CONTENT, not the day: a day whose numbers changed (a later sync filling
+            // in last night's sleep) is worth rewriting, and a day whose numbers did not is not.
+            val key = "wrote_" + dayStart + "_" + body.hashCode()
+            if (prefs.getBoolean(key, false)) return@forEach
+
+            val flagLine = if (dayStart == byDay.keys.maxOrNull()) flags(ctx).joinToString("; ") { it.title } else ""
+            try {
+                Brain.remember(ctx, "health_day", "Health $label",
+                    body + (if (flagLine.isBlank()) "" else ". Flags: $flagLine"),
+                    ts = dayStart,
+                    sensitivity = Brain.Sensitivity.SENSITIVE)
+                prefs.edit().putBoolean(key, true).apply()
+                written++
+            } catch (e: Exception) {}
+        }
     }
+
+    /** Kept for callers that only want today refreshed. */
+    fun rememberToday(ctx: Context) = rememberDays(ctx, 2)
 
     /**
      * The numbers, laid out for the model to answer a question against.
