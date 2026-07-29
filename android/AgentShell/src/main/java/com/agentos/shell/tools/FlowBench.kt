@@ -214,7 +214,7 @@ object FlowBench {
             // answer is to say so — and the parser does, with a question. Scoring that as failure
             // would push toward inventing an event to move, which is the opposite of what is wanted.
             val asked = GoogleIntent.parse(ctx, "move my 2pm tomorrow to 4pm")?.questions?.isNotEmpty() == true
-            (moved && !created) || asked to when {
+            ((moved && !created) || asked) to when {
                 created && !moved -> "created a NEW event instead of moving one"
                 asked -> "nothing at 2pm to move — asked, correctly"
                 else -> "got $types"
