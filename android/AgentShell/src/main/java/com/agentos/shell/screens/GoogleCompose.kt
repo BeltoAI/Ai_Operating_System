@@ -104,6 +104,34 @@ fun GoogleCompose(
     // Same rule here: never touch the directory synchronously from composition.
     androidx.compose.runtime.LaunchedEffect(Unit) { Directory.warm(ctx) }
 
+    // WHO IS ALREADY ON THE MEETING.
+    //
+    // Reported: an invitation was created with Joslyn on it, and choosing "email the guests"
+    // offered an empty box. The guests are a property of the event — asking someone to type them
+    // again, having just been asked once, is the app forgetting something it was told a minute ago.
+    androidx.compose.runtime.LaunchedEffect(event, mode) {
+        if (event != null && guests.isEmpty() && mode in setOf(Verb.EMAIL, Verb.NOTIFY)) {
+            val found = withContext(Dispatchers.IO) {
+                try {
+                    com.agentos.shell.tools.GoogleCalendarClient
+                        .findEvents(ctx, event.title).firstOrNull()?.attendees.orEmpty()
+                } catch (e: Exception) { emptyList() }
+            }
+            guests = found.filterNot { it.organizer }
+                .map { Directory.Entry(it.email.substringBefore('@'), it.email, "on this meeting", 999) }
+        }
+    }
+
+    // Anything already made, for attaching. Read once, off the main thread.
+    var docs by remember { mutableStateOf(listOf<com.agentos.shell.tools.SlyFolder.Doc>()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        docs = withContext(Dispatchers.IO) {
+            try { com.agentos.shell.tools.DocForge.library(ctx).take(12) } catch (e: Exception) { emptyList() }
+        }
+    }
+    var attach by remember { mutableStateOf<com.agentos.shell.tools.SlyFolder.Doc?>(null) }
+    var remindMins by remember { mutableStateOf(0) }
+
     val startMs = remember(dayOffset, hour, minute) {
         Calendar.getInstance().apply {
             add(Calendar.DAY_OF_YEAR, dayOffset)
@@ -310,6 +338,32 @@ fun GoogleCompose(
                 else "Leave blank and I'll write it") { note = it }
         }
 
+        // ── Attach something ──
+        //
+        // Before or after the meeting, and on the invitation itself. A deck that exists and cannot
+        // be attached without leaving the page is a deck nobody attaches.
+        if (docs.isNotEmpty() && mode in setOf(Verb.EMAIL, Verb.BOOK, Verb.INVITE)) {
+            SectionLabel("ATTACH  ·  OPTIONAL")
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 18.dp)) {
+                docs.forEach { d ->
+                    Chip(d.name.substringBeforeLast('.').take(18), attach?.name == d.name) {
+                        attach = if (attach?.name == d.name) null else d
+                    }
+                }
+            }
+        }
+
+        // ── A nudge before it starts ──
+        if (mode in setOf(Verb.BOOK, Verb.INVITE) || (event != null && mode == Verb.NOTIFY)) {
+            SectionLabel("REMIND ME  ·  OPTIONAL")
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
+                listOf(0 to "No", 10 to "10m", 30 to "30m", 60 to "1h", 1440 to "1 day")
+                    .forEach { (m, l) -> Chip(l, remindMins == m) { remindMins = m } }
+            }
+        }
+
         if (result.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(result, fontSize = T.small,
@@ -358,7 +412,12 @@ fun GoogleCompose(
                             .put("title", event!!.title)
                             .put("message", note.ifBlank { "A quick heads-up about “${event.title}”." })
                             .toString())
-                        Verb.EMAIL -> {
+                        // An attachment turns this into a send-the-document, which carries the file.
+                        Verb.EMAIL -> if (attach != null) {
+                            run("send_document", JSONObject()
+                                .put("name", attach!!.name)
+                                .put("to", guests.joinToString(",") { it.email }).toString())
+                        } else {
                             // TAILORED FROM THE BRAIN, NOT A TEMPLATE.
                             //
                             // The composer writes in the owner's voice already; what it lacked was
@@ -396,9 +455,47 @@ fun GoogleCompose(
                             if (guests.isNotEmpty())
                                 o.put("attendees", JSONArray().apply { guests.forEach { put(it.email) } })
                             if (place.isNotBlank()) o.put("location", place)
-                            if (agenda.isNotBlank()) o.put("description", agenda)
+                            // The attachment rides in the description as a note, because a calendar
+                            // invitation cannot carry a file — naming it there is the difference
+                            // between a guest knowing to look for it and not.
+                            val desc = listOfNotNull(
+                                agenda.takeIf { it.isNotBlank() },
+                                attach?.let { "Attached separately: ${it.name}" }
+                            ).joinToString("\n\n")
+                            if (desc.isNotBlank()) o.put("description", desc)
                             if (meet) o.put("meet", true)
                             run("add_event", o.toString())
+
+                            // A reminder is its own thing, not a calendar field — it fires on this
+                            // phone whether or not the calendar app is set up to nag.
+                            if (remindMins > 0) {
+                                val at = startMs - remindMins * 60_000L
+                                if (at > System.currentTimeMillis()) {
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            try {
+                                                ToolRouter.executeAction(ctx, "remind", JSONObject()
+                                                    .put("text", "${title.ifBlank { "Meeting" }} " +
+                                                        "starts in ${if (remindMins >= 60) "${remindMins / 60}h" else "${remindMins}m"}")
+                                                    .put("at", iso(at)).toString())
+                                            } catch (e: Exception) {}
+                                        }
+                                    }
+                                }
+                            }
+                            // And the file goes out separately, since the invitation cannot carry it.
+                            attach?.let { d ->
+                                if (guests.isNotEmpty()) scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            ToolRouter.executeAction(ctx, "send_document", JSONObject()
+                                                .put("name", d.name)
+                                                .put("to", guests.joinToString(",") { it.email })
+                                                .toString())
+                                        } catch (e: Exception) {}
+                                    }
+                                }
+                            }
                         }
                     }
                 }
