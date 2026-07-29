@@ -221,6 +221,30 @@ object ScreenIntent {
         r("cowork", "\\bcowork\\b|\\bwork (with me|session)\\b|\\blet'?s work on\\b"),
         // ── Faces / people ──
         r("faces", "\\b(faces|who is in (this|that) photo|recognise|recognize)\\b.{0,20}\\b(photo|picture|face)\\b|\\bmy people\\b"),
+        // ── Health ──
+        //
+        // Opens the page. A QUESTION about health ("how did I sleep this week?") is not this — it is
+        // answered in place with the numbers as context, because making someone navigate to a screen
+        // to hear an answer is the opposite of an assistant.
+        r("health",
+            "\\b(my (health|body|fitness|vitals|recovery)|health (page|screen|dashboard|data))\\b" +
+            "|\\b(show|open)\\b.{0,12}\\b(health|vitals|fitness)\\b" +
+            "|\\bconnect (my )?(whoop|garmin|fitbit|health connect|tracker|watch|band)\\b"),
+
+        // ── Meetings ────────────────────────────────────────────────────────────────────────────
+        //
+        // Two different things, deliberately separate actions. "Record my meeting" is a request to
+        // START — answering it by opening a screen with a Record button on it is asking someone to
+        // say the same thing twice. "Show me my meetings" is a request to LOOK.
+        r("record_meeting",
+            "\\b(record|take notes on|transcribe|capture)\\b\\s*(this|my|the|a)?\\s*" +
+            "\\b(meeting|call|conversation|standup|stand-up|interview|session|chat)\\b" +
+            "|\\bstart recording\\b|\\brecord (this|it|us)\\b|\\btake notes\\b"),
+        r("meetings",
+            "\\b(my|the|past|previous|last|recent)\\s+(meetings|recordings|meeting notes)\\b" +
+            "|\\b(show|open|see)\\b.{0,12}\\b(meetings|meeting notes|recordings)\\b" +
+            "|^meetings?$"),
+
         // ── Social posts ──
         r("spicy_post", "\\bspicy (take|post)\\b|\\bhot take\\b"),
         // EVERY verb and EVERY channel.
@@ -346,6 +370,7 @@ object ScreenIntent {
         "network_search" -> "My network"; "shop" -> "Shopping"; "expenses" -> "Expenses"
         "look" -> "Look"; "write_paper" -> "Research"; "cowork" -> "Cowork"
         "faces" -> "Faces"; "operate" -> "Screen control"; "spicy_post" -> "Spicy post"
+        "record_meeting" -> "Recording a meeting"; "meetings" -> "Meetings"; "health" -> "Health"
         "compose_post" -> "Compose post"
         "timer" -> "Timer"; "alarm" -> "Alarm"; "remind" -> "Reminder"
         "checklist_add" -> "Checklist"; "checklist_clear" -> "Checklist"; "checklist_remove" -> "Checklist"

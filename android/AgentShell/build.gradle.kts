@@ -99,6 +99,10 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Chrome Custom Tabs for the in-app Google sign-in flow.
     implementation("androidx.browser:browser:1.8.0")
+
+    // Health Connect — the one integration that reads Whoop, Garmin, Fitbit and Samsung Health,
+    // because they all write into it. No OAuth, no client secret in an APK, no partner programme.
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
     // CameraX — live viewfinder + frame capture for "Look" mode.
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")

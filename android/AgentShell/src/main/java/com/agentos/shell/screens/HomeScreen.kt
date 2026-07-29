@@ -170,6 +170,9 @@ fun HomeScreen(
     onInvest: (String) -> Unit = {},
     onExpenses: () -> Unit = {},
     onOperate: (String) -> Unit = {},
+    /** true = start recording on arrival; false = just show what has been recorded. */
+    onMeeting: (Boolean) -> Unit = {},
+    onHealth: () -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -1047,6 +1050,24 @@ fun HomeScreen(
                 onDocs()
                 return@launch
             }
+            if (result.actions.any { it.type == "health" }) {
+                thinking = false; reply = ""
+                onHealth()
+                return@launch
+            }
+            // "record my meeting" starts recording; "show me my meetings" opens the archive. Two
+            // different requests, and answering the first with the second is what made this
+            // confusing — you say the thing, and the app shows you a button saying the thing.
+            if (result.actions.any { it.type == "record_meeting" }) {
+                thinking = false; reply = ""
+                onMeeting(true)
+                return@launch
+            }
+            if (result.actions.any { it.type == "meetings" }) {
+                thinking = false; reply = ""
+                onMeeting(false)
+                return@launch
+            }
             // operate → the action layer drives an app by tapping the screen (with STOP + stop-before-send).
             val operateAct = result.actions.firstOrNull { it.type == "operate" }
             if (operateAct != null) {
@@ -1104,6 +1125,23 @@ fun HomeScreen(
                     val out = withContext(Dispatchers.IO) { AgentLoop.run(ctx, q, context, history, userInitiated = true) }
                     reply = out.answer
                     pendingConfirm = out.actions.ifEmpty { null }   // P0: consequential steps → confirm card
+                }
+                // A HEALTH QUESTION IS ANSWERED HERE, NOT BY OPENING A SCREEN.
+                //
+                // "How did I sleep this week?" wants an answer, not navigation. The numbers are
+                // added to the context so it comes back with figures instead of the brain's vague
+                // recollection of a summary — and the same rules travel with them: never diagnose,
+                // never call a number bad, cite what was used.
+                actionable.isEmpty() &&
+                    com.agentos.shell.tools.VitalsInsight.isHealthQuestion(q) &&
+                    com.agentos.shell.tools.VitalsStore.present(ctx).isNotEmpty() -> {
+                    val vitals = withContext(Dispatchers.IO) {
+                        com.agentos.shell.tools.VitalsInsight.contextFor(ctx, q)
+                    }
+                    reply = withContext(Dispatchers.IO) {
+                        AgentClient.answerWell(q, context + "\n\n" + vitals, history)
+                    }
+                    pendingConfirm = null
                 }
                 actionable.isEmpty() -> {
                     // PURE QUESTION → the dedicated high-quality answer path (strong model, FULL brain in
@@ -2062,23 +2100,12 @@ fun HomeScreen(
                     },
                     fontSize = T.small, color = T.inkSoft)
 
-                // The second job, as its own button. Only offered when the mic is free, so the two
-                // can never be confused for one another mid-gesture.
-                if (!holding && !speaking) {
-                    Spacer(Modifier.height(16.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
-                            .background(T.bgElevated)
-                            // Recording now has its own screen, and its own service. It used to run
-                            // inside this composable, so locking the phone during a meeting — which
-                            // is what people do in meetings — lost the recording.
-                            .clickable { onOpen(Screen.Meeting) }
-                            .padding(horizontal = 18.dp, vertical = 11.dp)) {
-                        Text("●", fontSize = 11.sp, color = T.danger)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Record a meeting", fontSize = T.small, color = T.ink)
-                    }
-                }
+                // NO BUTTON HERE ANY MORE.
+                //
+                // Home is one prompt and one dot. A recorder sat under it as a second,
+                // unrelated affordance — and since saying "record my meeting" now starts the
+                // recording, the button was asking someone to hunt for what they could just
+                // say. Still tappable from the SlyOS menu, for anyone who would rather tap.
             }
         }
 
@@ -2105,6 +2132,10 @@ fun HomeScreen(
                     item {
                         Text("⌨  Manual mode", fontSize = T.small, color = T.accent,
                             modifier = Modifier.fillMaxWidth().clickable { showAdd = false; showAddBtn = false; onManual() }.padding(vertical = 10.dp))
+                        // Off Home, but not hidden. Opens the archive rather than starting a
+                        // recording — someone browsing a menu is looking, not in a meeting.
+                        Text("●  Meetings", fontSize = T.small, color = T.accent,
+                            modifier = Modifier.fillMaxWidth().clickable { showAdd = false; showAddBtn = false; onMeeting(false) }.padding(vertical = 10.dp))
                         Text("＋  Create a new mini-app (Opus)", fontSize = T.small, color = T.accent,
                             modifier = Modifier.fillMaxWidth().clickable { showAdd = false; showAddBtn = false; onArchitect() }.padding(vertical = 10.dp))
                         Text("ADD TO HOME", fontSize = T.caption, color = T.inkFaint, modifier = Modifier.padding(top = 10.dp))

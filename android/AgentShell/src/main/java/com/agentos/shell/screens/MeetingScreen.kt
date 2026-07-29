@@ -55,7 +55,13 @@ import kotlinx.coroutines.withContext
  * send on — and none of that fits under a prompt box.
  */
 @Composable
-fun MeetingScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
+fun MeetingScreen(
+    modifier: Modifier = Modifier,
+    /** Arrived by asking to record, so recording starts on the way in rather than after another tap. */
+    autoStart: Boolean = false,
+    onStartConsumed: () -> Unit = {},
+    onBack: () -> Unit
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -72,6 +78,16 @@ fun MeetingScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     // service started correctly and the panel simply never appeared. A tick while this screen is in
     // front is the honest cost of not making the recording depend on the UI.
     LaunchedEffect(Unit) { while (true) { delay(500); tick++ } }
+
+    // "Record my meeting" means record it. Landing on a screen with a Record button on it is asking
+    // someone to say the same thing twice.
+    LaunchedEffect(autoStart) {
+        if (autoStart && !MeetingService.recording) {
+            MeetingService.start(ctx, MeetingStore.start(ctx))
+            tick++
+        }
+        if (autoStart) onStartConsumed()
+    }
 
     val meetings = remember(tick) { MeetingStore.all(ctx) }
     val live = remember(tick) { MeetingStore.live(ctx) }

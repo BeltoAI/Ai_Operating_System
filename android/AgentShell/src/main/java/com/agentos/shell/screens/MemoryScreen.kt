@@ -919,6 +919,118 @@ private fun fixIntentFor(ctx: android.content.Context, label: String): android.c
 }
 
 /** Live brain diagnostics: every metric with a trend sparkline + full wiring health. Expandable, for debugging. */
+
+/**
+ * Health — connecting a wearable, and taking it all back out again.
+ *
+ * One integration, because Whoop, Garmin, Fitbit and Samsung Health all write into Health Connect.
+ * Connecting each vendor directly would mean an OAuth client secret compiled into an APK (Whoop) or
+ * a partner-programme application measured in weeks (Garmin), and neither buys anything the phone
+ * cannot already read.
+ */
+@Composable
+private fun HealthConnectCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableStateOf(0) }
+    var note by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
+    val state = remember(tick) { com.agentos.shell.tools.VitalsSource.availability(ctx) }
+    val present = remember(tick) { com.agentos.shell.tools.VitalsStore.present(ctx) }
+    val sources = remember(tick) { com.agentos.shell.tools.VitalsStore.sources(ctx) }
+    val samples = remember(tick) { com.agentos.shell.tools.VitalsStore.count(ctx) }
+    val synced = remember(tick) { com.agentos.shell.tools.VitalsSource.lastSync(ctx) }
+
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
+    ) { granted ->
+        scope.launch {
+            if (granted.isEmpty()) { note = "Nothing granted, so there is nothing to read."; return@launch }
+            busy = true
+            val n = withContext(Dispatchers.IO) { com.agentos.shell.tools.VitalsSource.sync(ctx, 90) }
+            busy = false; tick++
+            note = if (n > 0) "Pulled $n readings."
+                   else "Connected, but nothing is writing to Health Connect yet. " +
+                        com.agentos.shell.tools.VitalsSource.writerHint()
+        }
+    }
+
+    SectionTitle("Health")
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated).padding(14.dp)) {
+        Text(
+            when {
+                present.isNotEmpty() -> "Reading " + present.size + " kinds of data" +
+                    (if (sources.isEmpty()) "" else " from " + sources.joinToString(", "))
+                state == com.agentos.shell.tools.VitalsSource.State.NOT_INSTALLED -> "Health Connect isn't installed"
+                state == com.agentos.shell.tools.VitalsSource.State.UNAVAILABLE -> "Not available on this phone"
+                else -> "Not connected"
+            },
+            fontSize = T.small, color = T.ink)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (present.isNotEmpty())
+                "$samples readings on this phone" +
+                (if (synced > 0) " · last synced " + java.text.SimpleDateFormat("d MMM, HH:mm",
+                    java.util.Locale.getDefault()).format(java.util.Date(synced)) else "")
+            else "Whoop, Garmin, Fitbit and Samsung Health all write into Health Connect — one " +
+                 "switch reads all of them. Nothing leaves this phone.",
+            fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
+
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    busy -> "Reading…"
+                    state == com.agentos.shell.tools.VitalsSource.State.NOT_INSTALLED -> "Get Health Connect"
+                    present.isNotEmpty() -> "Sync now"
+                    else -> "Connect"
+                },
+                fontSize = T.small, color = Color.White, fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(T.accent)
+                    .clickable(enabled = !busy) {
+                        when (state) {
+                            com.agentos.shell.tools.VitalsSource.State.NOT_INSTALLED ->
+                                try {
+                                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("market://details?id=com.google.android.apps.healthdata"))
+                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                } catch (e: Exception) {}
+                            com.agentos.shell.tools.VitalsSource.State.UNAVAILABLE ->
+                                note = "Health Connect isn't available on this phone."
+                            else ->
+                                if (present.isNotEmpty()) {
+                                    busy = true
+                                    scope.launch {
+                                        val n = withContext(Dispatchers.IO) {
+                                            com.agentos.shell.tools.VitalsSource.sync(ctx, 90)
+                                        }
+                                        busy = false; tick++
+                                        note = if (n > 0) "Pulled $n readings." else "Nothing new."
+                                    }
+                                } else try { ask.launch(com.agentos.shell.tools.VitalsSource.PERMISSIONS) }
+                                       catch (e: Exception) { note = "Couldn't open the permission screen." }
+                        }
+                    }.padding(vertical = 11.dp))
+            if (present.isNotEmpty()) {
+                Spacer(Modifier.width(10.dp))
+                // Deletes, and means it — the raw samples and the rollups both.
+                Text("Delete all", fontSize = T.small, color = T.danger,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(T.hairline)
+                        .clickable {
+                            com.agentos.shell.tools.VitalsStore.wipe(ctx); tick++
+                            note = "Deleted every health reading from this phone."
+                        }.padding(horizontal = 14.dp, vertical = 11.dp))
+            }
+        }
+        if (note.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(note, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
+        }
+    }
+}
+
 @Composable
 private fun BrainDiagnosticsCard() {
     val ctx = LocalContext.current
@@ -1425,6 +1537,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Report a bug — dead simple, sends centrally so we see every one.
         BugReportCard()
+
+        // Your wearable — one connection that covers Whoop, Garmin, Fitbit and Samsung Health.
+        HealthConnectCard()
 
         // Brain diagnostics — live counts with trend sparklines + wiring health, for debugging.
         BrainDiagnosticsCard()

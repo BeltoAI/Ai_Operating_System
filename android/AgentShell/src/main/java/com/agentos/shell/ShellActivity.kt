@@ -36,7 +36,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, Meeting }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, Meeting, Health }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -276,6 +276,9 @@ class ShellActivity : ComponentActivity() {
             var missionGoal by remember { mutableStateOf("") }
             var shopQuery by remember { mutableStateOf("") }
             var tradePrompt by remember { mutableStateOf("") }
+            // Set when the owner ASKED to record, so the Meetings screen starts rather than waiting
+            // for a second tap on a button that says what they just said.
+            var meetingAutoStart by remember { mutableStateOf(false) }
             // Set when a screen-control request was REFUSED, so the reason and its one-tap fix go in
             // front of the owner instead of the request simply appearing to do nothing.
             var controlBlocked by remember {
@@ -386,6 +389,8 @@ class ShellActivity : ComponentActivity() {
                             onShop = { q -> shopQuery = q; screen = Screen.Shop },
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onExpenses = { screen = Screen.Expenses },
+                            onHealth = { screen = Screen.Health },
+                            onMeeting = { start -> meetingAutoStart = start; screen = Screen.Meeting },
                             onOperate = { g ->
                                 com.agentos.shell.tools.ScreenAgent.start(applicationContext, g,
                                     onBlocked = { why -> controlBlocked = why })
@@ -408,7 +413,10 @@ class ShellActivity : ComponentActivity() {
                         Screen.Chat -> ChatScreen(m) { screen = Screen.Research }
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
-                        Screen.Meeting -> com.agentos.shell.screens.MeetingScreen(m) { screen = Screen.Home }
+                        Screen.Health -> com.agentos.shell.screens.HealthScreen(m) { screen = Screen.Home }
+                        Screen.Meeting -> com.agentos.shell.screens.MeetingScreen(
+                            m, autoStart = meetingAutoStart,
+                            onStartConsumed = { meetingAutoStart = false }) { screen = Screen.Home }
                         Screen.Look -> LookScreen(m) { screen = Screen.Home }
                         Screen.Faces -> FaceScreen(m) { screen = Screen.Home }
                         Screen.Docs -> DocsScreen(m) { screen = Screen.Home }

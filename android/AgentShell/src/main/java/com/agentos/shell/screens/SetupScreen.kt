@@ -42,6 +42,23 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
+    // Optional here on purpose: a wearable is not a precondition for anything else in SlyOS, so it
+    // sits alongside the other switches rather than blocking the way past them.
+    var healthNote by remember { mutableStateOf("") }
+    val setupCtx = androidx.compose.ui.platform.LocalContext.current
+    val setupScope = rememberCoroutineScope()
+    val askHealth = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
+    ) { granted ->
+        setupScope.launch {
+            if (granted.isEmpty()) { healthNote = "Skipped — you can connect it later in Settings."; return@launch }
+            val n = withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.VitalsSource.sync(setupCtx, 90)
+            }
+            healthNote = if (n > 0) "Pulled $n readings from the last 90 days ✓"
+                         else "Connected, but nothing is writing to Health Connect yet."
+        }
+    }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
@@ -291,6 +308,34 @@ fun SetupScreen(modifier: Modifier = Modifier, onDone: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text("Turn on “Display over other apps” so you can tap the brain on any screen to read and remember it.",
                     fontSize = T.caption, color = T.inkFaint)
+
+                // ── Your wearable, optional ──
+                //
+                // One connection covers Whoop, Garmin, Fitbit and Samsung Health, because they all
+                // write into Health Connect. Offered here because the ninety days pulled at setup are
+                // what make the health page mean something on day one rather than in three months.
+                Spacer(Modifier.height(16.dp))
+                bigButton("Connect your fitness tracker", primary = false) {
+                    when (com.agentos.shell.tools.VitalsSource.availability(setupCtx)) {
+                        com.agentos.shell.tools.VitalsSource.State.NOT_INSTALLED ->
+                            try {
+                                setupCtx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse("market://details?id=com.google.android.apps.healthdata"))
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (e: Exception) {}
+                        com.agentos.shell.tools.VitalsSource.State.UNAVAILABLE ->
+                            healthNote = "This phone doesn't have Health Connect."
+                        else -> try { askHealth.launch(com.agentos.shell.tools.VitalsSource.PERMISSIONS) }
+                                catch (e: Exception) { healthNote = "Couldn't open the permission screen." }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Whoop, Garmin, Fitbit and Samsung Health all write into Health Connect — one " +
+                     "switch reads all of them. Optional, and nothing leaves this phone.",
+                    fontSize = T.caption, color = T.inkFaint)
+                if (healthNote.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp)); Text(healthNote, fontSize = T.caption, color = T.accent)
+                }
             }
             // ---------- 4: HOME ----------
             4 -> {
