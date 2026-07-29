@@ -173,6 +173,7 @@ fun HomeScreen(
     /** true = start recording on arrival; false = just show what has been recorded. */
     onMeeting: (Boolean) -> Unit = {},
     onHealth: () -> Unit = {},
+    onGoogle: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
     val ctx = LocalContext.current
@@ -1051,6 +1052,23 @@ fun HomeScreen(
             if (result.actions.any { it.type == "documents" || it.type == "scan_doc" }) {
                 thinking = false
                 onDocs()
+                return@launch
+            }
+            // ── GOOGLE GOES TO THE GOOGLE PAGE, PARSED ON THE PHONE ──
+            //
+            // Measured across 24 scenarios on two providers: moving an event, cancelling one,
+            // telling the attendees you'll be late and sending an existing document produced NO
+            // action at all — on both. The whole surface depended on a model choosing to emit the
+            // right action name, and when it didn't the request became a sentence claiming it was
+            // done. These requests have exactly one reading each, and anything with one reading
+            // should be parsed rather than inferred.
+            //
+            // Checked BEFORE the planner result is used, so it cannot be undone by whatever the
+            // model happened to return.
+            if (com.agentos.shell.tools.GoogleIntent.looksGoogle(q) &&
+                com.agentos.shell.tools.GoogleIntent.parse(ctx, q) != null) {
+                thinking = false; reply = ""
+                onGoogle(q)
                 return@launch
             }
             if (result.actions.any { it.type == "translate_live" }) {

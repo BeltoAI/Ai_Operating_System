@@ -36,7 +36,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, Meeting, Health, Translate }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, Meeting, Health, Translate, Google }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -279,6 +279,8 @@ class ShellActivity : ComponentActivity() {
             // Set when the owner ASKED to record, so the Meetings screen starts rather than waiting
             // for a second tap on a button that says what they just said.
             var meetingAutoStart by remember { mutableStateOf(false) }
+            /** The sentence a Google plan was parsed from — the page re-parses it, deterministically. */
+            var googlePrompt by remember { mutableStateOf("") }
             // Set when a screen-control request was REFUSED, so the reason and its one-tap fix go in
             // front of the owner instead of the request simply appearing to do nothing.
             var controlBlocked by remember {
@@ -390,6 +392,7 @@ class ShellActivity : ComponentActivity() {
                             onInvest = { p -> tradePrompt = p; screen = Screen.Trade },
                             onExpenses = { screen = Screen.Expenses },
                             onHealth = { screen = Screen.Health },
+                            onGoogle = { p -> googlePrompt = p; screen = Screen.Google },
                             onMeeting = { start -> meetingAutoStart = start; screen = Screen.Meeting },
                             onOperate = { g ->
                                 com.agentos.shell.tools.ScreenAgent.start(applicationContext, g,
@@ -414,6 +417,9 @@ class ShellActivity : ComponentActivity() {
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Health -> com.agentos.shell.screens.HealthScreen(m) { screen = Screen.Home }
+                        Screen.Google -> com.agentos.shell.screens.GoogleScreen(googlePrompt, m) {
+                            googlePrompt = ""; screen = Screen.Home
+                        }
                         Screen.Translate -> com.agentos.shell.screens.TranslateScreen(m) { screen = Screen.Home }
                         Screen.Meeting -> com.agentos.shell.screens.MeetingScreen(
                             m, autoStart = meetingAutoStart,

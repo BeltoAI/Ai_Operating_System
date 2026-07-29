@@ -206,12 +206,19 @@ object FlowBench {
         // leaves two entries where the owner expects none.
         Scenario("move", "Changing plans", Kind.IDEAL,
             "move my 2pm tomorrow to 4pm",
-            "moves the existing block — never creates a second one") { _, acts ->
+            "moves the existing block — never creates a second one") { ctx, acts ->
             val types = acts.map { it.type }
             val moved = types.any { it in setOf("move_event", "update_event", "event_followup") }
             val created = types.contains("add_event")
-            (moved && !created) to (if (created && !moved) "created a NEW event instead of moving one"
-                                    else "got $types")
+            // NO SUCH EVENT IS A PASS. Asked to move a 2pm that is not in the calendar, the right
+            // answer is to say so — and the parser does, with a question. Scoring that as failure
+            // would push toward inventing an event to move, which is the opposite of what is wanted.
+            val asked = GoogleIntent.parse(ctx, "move my 2pm tomorrow to 4pm")?.questions?.isNotEmpty() == true
+            (moved && !created) || asked to when {
+                created && !moved -> "created a NEW event instead of moving one"
+                asked -> "nothing at 2pm to move — asked, correctly"
+                else -> "got $types"
+            }
         },
 
         Scenario("move_notify", "Changing plans", Kind.AWKWARD,
@@ -233,10 +240,12 @@ object FlowBench {
 
         Scenario("heads_up", "Changing plans", Kind.AWKWARD,
             "let everyone in my 2pm know I'll be ten minutes late",
-            "reaches the attendees of that meeting, not a guess at who they are") { _, acts ->
+            "reaches the attendees of that meeting, not a guess at who they are") { ctx, acts ->
             val types = acts.map { it.type }
             val reaches = types.any { it in EMAIL_ACTIONS + setOf("event_followup", "send_sms", "message") }
-            reaches to "got $types"
+            val asked = GoogleIntent.parse(ctx, "let everyone in my 2pm know I'll be ten minutes late")
+                ?.questions?.isNotEmpty() == true
+            (reaches || asked) to (if (asked) "no 2pm meeting to notify — asked, correctly" else "got $types")
         },
 
         // ── EMAIL ──────────────────────────────────────────────────────────────────────────────
@@ -402,6 +411,21 @@ object FlowBench {
 
     /** The shipped planning path, pinned to one provider, with the local nets applied. */
     private fun plan(ctx: Context, provider: String, prompt: String): List<AgentAction> {
+        // THE DETERMINISTIC PATH FIRST, exactly as Home routes it.
+        //
+        // Calendar, Gmail and Meet are parsed on the phone now, so the bench has to measure that or
+        // it is testing a path nobody takes. It also means these rows should be identical on every
+        // provider — if Claude and Groq ever differ on a calendar scenario, something has leaked
+        // back into the model's hands and that difference is the bug.
+        try {
+            if (GoogleIntent.looksGoogle(prompt)) {
+                GoogleIntent.parse(ctx, prompt)?.let { g ->
+                    if (g.runnable || g.answer.isNotEmpty())
+                        return g.steps.map { AgentAction(it.action, it.arg) }
+                }
+            }
+        } catch (e: Exception) {}
+
         ModelRouter.pinned = provider
         return try {
             val memory = try { BrainContext.build(ctx, prompt) } catch (e: Exception) { "" }
