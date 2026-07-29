@@ -161,9 +161,48 @@ object VitalsSource {
         ctx.getSharedPreferences("slyos_vitals_prefs", Context.MODE_PRIVATE).getLong("synced_at", 0L)
     } catch (e: Exception) { 0L }
 
-    /** Where to send someone whose vendor app is not writing into Health Connect yet. */
-    fun writerHint(): String =
-        "Whoop: Profile → Integrations → Health Connect. Garmin Connect: More → Settings → " +
-        "Connected Apps → Health Connect. Fitbit and Samsung Health have the same switch in their " +
-        "own settings."
+    /**
+     * Where to send someone whose vendor app is not writing into Health Connect yet — naming the app
+     * they actually have.
+     *
+     * The generic version listed four vendors and left the owner to work out which sentence was
+     * theirs. Worse, it read as SlyOS explaining its own failure, when the true state is that Health
+     * Connect is empty and every app reading it would show exactly the same thing.
+     */
+    fun writerHint(ctx: Context? = null): String {
+        val installed = ctx?.let { c ->
+            listOf(
+                "com.whoop.android" to "WHOOP: open the app, let it sync with your strap, then " +
+                    "Menu → Settings → Integrations → Health Connect",
+                "com.garmin.android.apps.connectmobile" to "Garmin Connect: More → Settings → " +
+                    "Connected Apps → Health Connect",
+                "com.fitbit.FitbitMobile" to "Fitbit: Account → Fitbit app settings → Health Connect",
+                "com.sec.android.app.shealth" to "Samsung Health: Settings → Health Connect"
+            ).filter { (pkg, _) ->
+                try { c.packageManager.getPackageInfo(pkg, 0); true } catch (e: Exception) { false }
+            }.map { it.second }
+        }.orEmpty()
+        return if (installed.isNotEmpty()) installed.joinToString(". ") + "."
+        else "Whoop, Garmin, Fitbit and Samsung Health each have a Health Connect switch in their " +
+             "own settings — turn it on there and the data appears here."
+    }
+
+    /**
+     * Whether Health Connect holds ANY data at all, from any app.
+     *
+     * The distinction that matters when a page comes up empty: "SlyOS cannot read" and "there is
+     * nothing there to read" look identical to the owner and have completely different fixes. Read
+     * across the record types rather than trusting a count, because a partial permission grant means
+     * some types are simply invisible to us.
+     */
+    suspend fun anyDataAtAll(ctx: Context): Boolean {
+        val c = client(ctx) ?: return false
+        val range = TimeRangeFilter.between(Instant.now().minusSeconds(365 * 86_400L), Instant.now())
+        suspend fun <T : androidx.health.connect.client.records.Record> has(k: kotlin.reflect.KClass<T>) =
+            try { c.readRecords(ReadRecordsRequest(k, range, pageSize = 1)).records.isNotEmpty() }
+            catch (e: Exception) { false }
+        return has(StepsRecord::class) || has(SleepSessionRecord::class) ||
+               has(RestingHeartRateRecord::class) || has(HeartRateVariabilityRmssdRecord::class) ||
+               has(ExerciseSessionRecord::class) || has(WeightRecord::class)
+    }
 }

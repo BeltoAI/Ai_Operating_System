@@ -942,17 +942,26 @@ private fun HealthConnectCard() {
     val samples = remember(tick) { com.agentos.shell.tools.VitalsStore.count(ctx) }
     val synced = remember(tick) { com.agentos.shell.tools.VitalsSource.lastSync(ctx) }
 
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val ask = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
     ) { granted ->
         scope.launch {
+            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
             if (granted.isEmpty()) { note = "Nothing granted, so there is nothing to read."; return@launch }
             busy = true
             val n = withContext(Dispatchers.IO) { com.agentos.shell.tools.VitalsSource.sync(ctx, 90) }
+            val anyone = if (n == 0) withContext(Dispatchers.IO) {
+                com.agentos.shell.tools.VitalsSource.anyDataAtAll(ctx)
+            } else true
             busy = false; tick++
-            note = if (n > 0) "Pulled $n readings."
-                   else "Connected, but nothing is writing to Health Connect yet. " +
-                        com.agentos.shell.tools.VitalsSource.writerHint()
+            note = when {
+                n > 0 -> "Pulled $n readings."
+                !anyone -> "Connected ✓ — but Health Connect itself is empty. " +
+                    com.agentos.shell.tools.VitalsSource.writerHint(ctx)
+                else -> "Connected ✓ — but none of the kinds SlyOS reads are shared yet. " +
+                    com.agentos.shell.tools.VitalsSource.writerHint(ctx)
+            }
         }
     }
 
@@ -992,6 +1001,7 @@ private fun HealthConnectCard() {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(T.accent)
                     .clickable(enabled = !busy) {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         when (state) {
                             com.agentos.shell.tools.VitalsSource.State.NOT_INSTALLED ->
                                 try {
@@ -1008,8 +1018,17 @@ private fun HealthConnectCard() {
                                         val n = withContext(Dispatchers.IO) {
                                             com.agentos.shell.tools.VitalsSource.sync(ctx, 90)
                                         }
+                                        val anyone = if (n == 0) withContext(Dispatchers.IO) {
+                                            com.agentos.shell.tools.VitalsSource.anyDataAtAll(ctx)
+                                        } else true
                                         busy = false; tick++
-                                        note = if (n > 0) "Pulled $n readings." else "Nothing new."
+                                        note = when {
+                                            n > 0 -> "Pulled $n readings."
+                                            !anyone -> "Health Connect is still empty — nothing has written to it. " +
+                                                com.agentos.shell.tools.VitalsSource.writerHint(ctx)
+                                            else -> "Nothing new."
+                                        }
+                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     }
                                 } else try { ask.launch(com.agentos.shell.tools.VitalsSource.PERMISSIONS) }
                                        catch (e: Exception) { note = "Couldn't open the permission screen." }

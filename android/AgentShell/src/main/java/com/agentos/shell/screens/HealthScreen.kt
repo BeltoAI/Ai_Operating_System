@@ -36,7 +36,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,6 +81,9 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var ask by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    // A tap on Connect used to do nothing observable — the system sheet appears a beat later, and
+    // in between there is no way to tell a working button from a dead one.
+    val haptics = LocalHapticFeedback.current
 
     val present = remember(tick) { VitalsStore.present(ctx) }
     val headline = remember(tick) { if (present.isEmpty()) "" else VitalsInsight.headline(ctx) }
@@ -92,15 +97,27 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
         scope.launch {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             if (granted.isEmpty()) {
-                note = "No permissions granted, so there is nothing to read yet."
+                note = "Nothing was granted, so there's nothing to read yet. Tap Connect again and " +
+                       "allow the ones you're happy with."
                 return@launch
             }
             syncing = true
             val n = withContext(Dispatchers.IO) { VitalsSource.sync(ctx, 90) }
+            // WHOSE EMPTY IS IT? "SlyOS can't read" and "there is nothing there to read" look
+            // identical to the owner and have completely different fixes, so ask Health Connect
+            // whether it holds anything from ANY app before implying this is our end.
+            val anyone = if (n == 0) withContext(Dispatchers.IO) { VitalsSource.anyDataAtAll(ctx) } else true
             syncing = false; tick++
-            note = if (n > 0) "Pulled $n readings from the last 90 days."
-                   else "Connected, but nothing is writing to Health Connect yet. " + VitalsSource.writerHint()
+            note = when {
+                n > 0 -> "Pulled $n readings from the last 90 days."
+                !anyone -> "Connected ✓ — but Health Connect itself is empty. Nothing has written " +
+                    "to it yet, so every app reading it would show the same. " + VitalsSource.writerHint(ctx)
+                else -> "Connected ✓ — Health Connect has data, but none of the kinds SlyOS reads. " +
+                    "Check which types are shared: " + VitalsSource.writerHint(ctx)
+            }
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberToday(ctx) }
         }
     }
@@ -122,6 +139,8 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         if (present.isEmpty()) {
             NotConnected(availability, syncing) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                note = "Opening Health Connect…"
                 try { askPermissions.launch(VitalsSource.PERMISSIONS) }
                 catch (e: Exception) { note = "Couldn't open the permission screen." }
             }
@@ -471,7 +490,7 @@ private fun NotConnected(state: VitalsSource.State, syncing: Boolean, onConnect:
                     }
                     .padding(vertical = 14.dp))
             Spacer(Modifier.height(10.dp))
-            Text("Already connected but empty? " + VitalsSource.writerHint(),
+            Text("Already connected but empty? " + VitalsSource.writerHint(ctx),
                 fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
         }
     }
