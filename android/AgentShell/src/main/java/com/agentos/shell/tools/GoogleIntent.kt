@@ -63,7 +63,10 @@ object GoogleIntent {
      */
     fun looksGoogle(prompt: String): Boolean {
         val p = prompt.lowercase()
-        return Regex("(?i)\\b(schedule|book|blocked?|reschedul\\w*|move|push|postpone|shift|" +
+        // `blocked?` meant "blocke" plus an optional d — it never matched the word "block", which
+        // silently disabled the whole deterministic path for every "block Thursday 2-3" request.
+        // One character, and it was the reason a scenario failed all day with no explanation.
+        return Regex("(?i)\\b(schedule|book|block(ing|ed)?|reschedul\\w*|move|push|postpone|shift|" +
             "cancel|call off|delete)\\b.{0,30}\\b$CAL_WORDS\\b").containsMatchIn(p) ||
             Regex("(?i)\\b(what'?s|what is|do i have|am i free|anything)\\b.{0,24}\\b(on|in|my)\\b.{0,12}" +
                 "\\b(calendar|schedule|diary|agenda|today|tomorrow|this week)\\b").containsMatchIn(p) ||
@@ -72,8 +75,12 @@ object GoogleIntent {
             Regex("(?i)\\b(move|push|cancel|reschedul\\w*)\\b.{0,20}\\b(my|the)\\b.{0,16}" +
                 "(\\d{1,2}\\s*(am|pm)|$CAL_WORDS)").containsMatchIn(p) ||
             Regex("(?i)\\b(let|tell)\\b.{0,24}\\b(know|heads up)\\b").containsMatchIn(p) ||
+            // A day name IS a time word. Leaving them out meant "block Thursday 2-3 for the
+            // review" read as having no time in it at all.
             CAL_WORDS.toRegex(RegexOption.IGNORE_CASE).containsMatchIn(p) &&
-                Regex("(?i)\\b(at|on|tomorrow|today|next)\\b").containsMatchIn(p)
+                Regex("(?i)\\b(at|on|tomorrow|today|tonight|next|monday|tuesday|wednesday|thursday|" +
+                    "friday|saturday|sunday|\\d{1,2}\\s*(am|pm)|\\d{1,2}\\s*[-–]\\s*\\d{1,2})\\b")
+                    .containsMatchIn(p)
     }
 
     // MARK: - The parse
@@ -114,8 +121,8 @@ object GoogleIntent {
     private fun isSendDoc(p: String) = Regex("(?i)\\bsend\\b.{0,26}\\b(pdf|doc|document|deck|" +
         "one.?pager|slides|sheet|file|attachment|report)\\b").containsMatchIn(p)
 
-    private fun isCreate(p: String) = Regex("(?i)\\b(schedule|book|block|set up|arrange|put|add|" +
-        "invite|create)\\b").containsMatchIn(p) && hasTime(p)
+    private fun isCreate(p: String) = Regex("(?i)\\b(schedule|book|block(ing|ed)?|set up|arrange|" +
+        "put|add|invite|create|pencil|slot)\\b").containsMatchIn(p) && hasTime(p)
 
     private fun isEmail(p: String) = Regex("(?i)\\b(e-?mail|write to|drop .{0,10}a line)\\b")
         .containsMatchIn(p)

@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,8 @@ import com.agentos.shell.theme.T
 import com.agentos.shell.tools.CalendarTool
 import com.agentos.shell.tools.Directory
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 /**
@@ -78,6 +81,7 @@ fun GoogleHome(
 ) {
     val ctx = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
 
     var dayOffset by remember { mutableStateOf(0) }
     var typed by remember { mutableStateOf("") }
@@ -153,6 +157,66 @@ fun GoogleHome(
                                 else -> T.accent
                             }))
                     }
+                }
+            }
+
+            // ── INVITATIONS WAITING ON YOU ──
+            //
+            // The RSVP loop only ran one way: SlyOS could see who had answered its own invitations
+            // and had no way at all to answer one. An invitation arriving sat unanswered forever
+            // unless the owner opened Google Calendar — the app SlyOS exists to replace.
+            var pending by remember { mutableStateOf<List<com.agentos.shell.tools.GoogleCalendarClient.EventInfo>>(emptyList()) }
+            var rsvpNote by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                pending = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try { com.agentos.shell.tools.GoogleCalendarClient.awaitingMyReply(ctx) }
+                    catch (e: Exception) { emptyList() }
+                }
+            }
+            if (pending.isNotEmpty()) {
+                Spacer(Modifier.height(22.dp))
+                SectionLabel("WAITING ON YOU")
+                Spacer(Modifier.height(10.dp))
+                pending.take(4).forEach { inv ->
+                    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                        Text(inv.title.ifBlank { "Untitled" }, fontSize = T.small, color = T.ink)
+                        Spacer(Modifier.height(2.dp))
+                        Text(inv.startIso.replace('T', ' ').take(16) +
+                            (inv.attendees.firstOrNull { it.organizer }
+                                ?.let { "  ·  from ${it.email.substringBefore('@')}" } ?: ""),
+                            fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.height(8.dp))
+                        Row {
+                            listOf("accepted" to "Yes", "tentative" to "Maybe", "declined" to "No")
+                                .forEach { (status, label) ->
+                                    Box(Modifier.padding(end = 8.dp)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (status == "accepted") T.accent else T.bgElevated)
+                                        .clickable {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            scope.launch {
+                                                val r = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                    com.agentos.shell.tools.GoogleCalendarClient
+                                                        .respond(ctx, inv.id, status)
+                                                }
+                                                rsvpNote = if (r.ok)
+                                                    "Answered “${inv.title}” — $label" else "Couldn't answer that one."
+                                                if (r.ok) pending = pending.filterNot { it.id == inv.id }
+                                            }
+                                        }
+                                        .padding(horizontal = 18.dp, vertical = 9.dp)) {
+                                        Text(label, fontSize = T.caption,
+                                            color = if (status == "accepted") Color.White else T.inkSoft,
+                                            maxLines = 1, softWrap = false)
+                                    }
+                                }
+                        }
+                    }
+                    Hairline()
+                }
+                if (rsvpNote.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(rsvpNote, fontSize = T.caption, color = T.good)
                 }
             }
 

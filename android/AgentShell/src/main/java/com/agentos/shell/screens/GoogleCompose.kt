@@ -133,6 +133,7 @@ fun GoogleCompose(
     var remindMins by remember { mutableStateOf(0) }
     /** Minutes before the start that "leave now" would mean, when the place is a real address. */
     var leaveMins by remember { mutableStateOf(0) }
+    var takeNotes by remember { mutableStateOf(false) }
     var mailPurpose by remember { mutableStateOf<com.agentos.shell.tools.MailDraft.Purpose?>(null) }
 
     val startMs = remember(dayOffset, hour, minute) {
@@ -478,6 +479,36 @@ fun GoogleCompose(
                     fontSize = T.caption, color = T.accent, modifier = Modifier.padding(bottom = 14.dp))
             }
             Field("AGENDA  ·  OPTIONAL", agenda, "What it's for") { agenda = it }
+            // ── NOTES FOR THIS MEETING ──
+            //
+            // Google's own "take notes for me" is a Workspace feature with no Calendar API surface —
+            // it cannot be switched on from here, and a toggle that pretends to would be the worst
+            // kind of feature. What CAN be promised is the recorder SlyOS already has: it starts
+            // when the meeting does, separates the speakers, and puts the decisions and your own
+            // commitments on your list. So the toggle says what actually happens.
+            if (meet) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Record it and take notes", fontSize = T.small, color = T.ink)
+                        Text("SlyOS records, separates who said what, and adds your commitments",
+                            fontSize = T.caption, color = T.inkFaint, lineHeight = 16.sp)
+                    }
+                    val nx by animateFloatAsState(if (takeNotes) 18f else 0f,
+                        spring(dampingRatio = 0.6f, stiffness = 600f), label = "nsw")
+                    Box(Modifier.size(width = 44.dp, height = 26.dp).clip(RoundedCornerShape(999.dp))
+                        .background(if (takeNotes) T.accent else T.hairline)
+                        .clickable {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            takeNotes = !takeNotes
+                        }, contentAlignment = Alignment.CenterStart) {
+                        Box(Modifier.padding(start = (3 + nx).dp).size(20.dp).clip(CircleShape)
+                            .background(Color.White))
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("Add a Google Meet link", fontSize = T.small, color = T.ink,
@@ -651,6 +682,20 @@ fun GoogleCompose(
                                                     .put("at", iso(at)).toString())
                                             } catch (e: Exception) {}
                                         }
+                                    }
+                                }
+                            }
+                            // "Take notes" is a nudge at the start time that opens the recorder —
+                            // the honest mechanism, rather than a switch that quietly does nothing.
+                            if (takeNotes && startMs > System.currentTimeMillis()) {
+                                scope.launch {
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            ToolRouter.executeAction(ctx, "remind", JSONObject()
+                                                .put("text", "Record “${title.ifBlank { "the meeting" }}” — " +
+                                                    "open Meetings and tap record")
+                                                .put("at", iso(startMs)).toString())
+                                        } catch (e: Exception) {}
                                     }
                                 }
                             }

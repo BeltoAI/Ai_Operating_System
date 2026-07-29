@@ -144,6 +144,75 @@ object GoogleCalendarClient {
      * lacks one goes through here too (conferenceDataVersion=1), as does adding or removing an invitee.
      * Only the fields passed are touched; everything else on the event is left alone.
      */
+    /**
+     * Answer an invitation someone sent YOU.
+     *
+     * The whole RSVP loop ran one way: SlyOS could see who had accepted its own invitations and had
+     * no way at all to answer one. So an invitation arriving in the calendar sat at "no answer"
+     * forever unless the owner opened Google Calendar — which is precisely the app SlyOS exists to
+     * replace.
+     *
+     * Google has no "respond" endpoint: you patch the attendee array with your own entry changed,
+     * and the array is REPLACED, so everyone else's response has to be carried across untouched.
+     * Getting that wrong resets the whole meeting's replies to nothing.
+     *
+     * @param status "accepted", "declined" or "tentative".
+     */
+    fun respond(ctx: Context, eventId: String, status: String, comment: String = ""): EventInfo {
+        val token = GoogleAuth.accessToken(ctx)
+        if (token.isBlank()) return EventInfo(false, error = "not-connected")
+        val me = try { GoogleAuth.account(ctx) } catch (e: Exception) { "" }
+        if (me.isBlank()) return EventInfo(false, error = "no-account")
+
+        val existing = getEvent(ctx, eventId)
+        if (!existing.ok) return existing
+        val arr = JSONArray()
+        var found = false
+        existing.attendees.forEach { a ->
+            val o = JSONObject().put("email", a.email)
+            if (a.email.equals(me, true)) {
+                o.put("responseStatus", status)
+                if (comment.isNotBlank()) o.put("comment", comment)
+                found = true
+            } else {
+                // Everyone else's answer carried across verbatim — the array is replaced wholesale,
+                // so omitting this resets the entire meeting's replies.
+                o.put("responseStatus", a.responseStatus)
+            }
+            arr.put(o)
+        }
+        if (!found) arr.put(JSONObject().put("email", me).put("responseStatus", status))
+
+        val body = JSONObject().put("attendees", arr)
+        val url = "https://www.googleapis.com/calendar/v3/calendars/primary/events/" +
+            eventId + "?sendUpdates=all"
+        val (code, resp) = request("PATCH", url, token, body.toString())
+        if (code !in 200..299) {
+            Log.e(TAG, "rsvp $code: $resp")
+            return EventInfo(false, error = "$code")
+        }
+        return parseEvent(JSONObject(resp))
+    }
+
+    /**
+     * Invitations waiting on YOU — someone else's meeting, still unanswered.
+     *
+     * Filtered to events the owner did not organise, because an invitation you sent yourself is not
+     * a decision, and to ones still at needsAction, because a decision already made is not either.
+     */
+    fun awaitingMyReply(ctx: Context, limit: Int = 10): List<EventInfo> {
+        val me = try { GoogleAuth.account(ctx) } catch (e: Exception) { "" }
+        if (me.isBlank()) return emptyList()
+        return try {
+            findEvents(ctx, "", System.currentTimeMillis()).filter { ev ->
+                ev.attendees.any {
+                    it.email.equals(me, true) &&
+                        (it.responseStatus == "needsAction" || it.responseStatus.isBlank())
+                } && ev.attendees.any { it.organizer && !it.email.equals(me, true) }
+            }.take(limit)
+        } catch (e: Exception) { emptyList() }
+    }
+
     fun patchEvent(ctx: Context, eventId: String, title: String? = null,
                    startMs: Long? = null, endMs: Long? = null,
                    addAttendees: List<String> = emptyList(), addMeet: Boolean = false,
