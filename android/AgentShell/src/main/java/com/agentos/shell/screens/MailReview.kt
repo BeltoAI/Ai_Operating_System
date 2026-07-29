@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,7 +50,6 @@ import com.agentos.shell.tools.Brain
 import com.agentos.shell.tools.Directory
 import com.agentos.shell.tools.DocForge
 import com.agentos.shell.tools.MailDraft
-import com.agentos.shell.tools.SlyFolder
 import com.agentos.shell.tools.ToolRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,6 +81,15 @@ fun MailReview(
     where: String,
     recipients: List<Directory.Entry>,
     modifier: Modifier = Modifier,
+    /**
+     * What the owner already said this email is about, before the draft is written.
+     *
+     * Carries whatever the previous screen knows: the sentence typed into the heads-up box, the new
+     * time an event just moved to, or — for the notes email — what was actually decided in the
+     * recording. Without it the draft is written from the title alone and reads like a template,
+     * which is the failure this whole screen exists to prevent.
+     */
+    seed: String = "",
     onSent: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -90,20 +99,34 @@ fun MailReview(
 
     var subject by remember { mutableStateOf(MailDraft.subject(purpose, eventTitle)) }
     var body by remember { mutableStateOf("") }
-    var extra by remember { mutableStateOf("") }
+    var extra by remember { mutableStateOf(seed) }
     var writing by remember { mutableStateOf(true) }
-    var attach by remember { mutableStateOf<SlyFolder.Doc?>(null) }
-    var making by remember { mutableStateOf(false) }
-    var makeBrief by remember { mutableStateOf("") }
-    var showMake by remember { mutableStateOf(false) }
     var sent by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
 
-    var docs by remember { mutableStateOf(listOf<SlyFolder.Doc>()) }
-    LaunchedEffect(Unit) {
-        docs = withContext(Dispatchers.IO) {
-            try { DocForge.library(ctx).take(14) } catch (e: Exception) { emptyList() }
-        }
+    /** A file the owner picked off their phone: what to send, and what to call it. */
+    data class Picked(val uri: String, val name: String)
+    var files by remember { mutableStateOf(listOf<Picked>()) }
+    /** The deck generated on this screen, if any — kept apart so "revise" edits it in place. */
+    var madeDeck by remember { mutableStateOf<Picked?>(null) }
+    var making by remember { mutableStateOf(false) }
+    var makeBrief by remember { mutableStateOf("") }
+    var showMake by remember { mutableStateOf(false) }
+
+    // OpenMultipleDocuments rather than GetContent: it returns a persistable content:// that can
+    // still be read when the send happens, which GetContent's one-shot uri cannot promise.
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        files = files + uris.mapNotNull { u ->
+            try {
+                ctx.contentResolver.query(u, null, null, null, null)?.use { c ->
+                    val i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (c.moveToFirst() && i >= 0) Picked(u.toString(), c.getString(i))
+                    else Picked(u.toString(), u.lastPathSegment.orEmpty().substringAfterLast('/'))
+                } ?: Picked(u.toString(), "attachment")
+            } catch (e: Exception) { null }
+        }.filterNot { p -> files.any { it.uri == p.uri } }
     }
 
     fun draft(tweak: String? = null) {
@@ -117,10 +140,10 @@ fun MailReview(
                     else
                         AgentClient.complete("You write email bodies. Body only.",
                             MailDraft.prompt(ctx, purpose, eventTitle, whenText, where,
-                                recipients.map { it.email }, attach?.name.orEmpty(), extra), 900)
+                                recipients.map { it.email }, files.joinToString(", ") { f -> f.name }, extra), 900)
                 } catch (e: Exception) { "" }
             }
-            if (out.isNotBlank()) body = out.trim()
+            if (out.isNotBlank()) body = MailDraft.plain(out)
             writing = false
         }
     }
@@ -173,10 +196,10 @@ fun MailReview(
 
         // ── Change it ──
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            MailDraft.TWEAKS.forEach { t ->
-                Pill(t, false, enabled = !writing) {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress); draft(t)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            MailDraft.TWEAKS.forEach { (label, _) ->
+                Pill(label, false, enabled = !writing, modifier = Modifier.weight(1f)) {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress); draft(label)
                 }
             }
         }
@@ -195,24 +218,38 @@ fun MailReview(
         Text("ATTACH  ·  OPTIONAL", fontSize = 9.sp, color = T.inkFaint,
             fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            docs.forEach { d ->
-                Pill(d.name.substringBeforeLast('.').take(20), attach?.name == d.name) {
-                    attach = if (attach?.name == d.name) null else d
-                }
-            }
-            // The other half of the case: the file does not exist yet and what you have is a
-            // sentence about what it should say.
-            Pill(if (making) "writing…" else "＋ Create one", false, enabled = !making) {
-                showMake = !showMake
-            }
+        // FILES OFF THE PHONE. NOTHING ELSE.
+        //
+        // What was here offered a row of documents SlyOS had generated, plus a box for describing a
+        // document you wanted written. Both were real features and together they answered a question
+        // nobody was asking — the thing people mean by "attach" is the file already sitting in their
+        // Downloads. It went through the system picker in one tap and everything else went away.
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+            .clickable { pick.launch(arrayOf("*/*")) }
+            .padding(vertical = 13.dp), horizontalArrangement = Arrangement.Center) {
+            Text(if (files.isEmpty()) "Choose files" else "Add another",
+                fontSize = T.small, color = T.inkSoft)
+        }
+        Spacer(Modifier.height(8.dp))
+        // SLIDES, MADE HERE.
+        //
+        // The one thing people attach that they do not already have. Everything else is a file
+        // sitting in Downloads; a deck is the thing they were going to go and build somewhere else
+        // and come back for. Generated, opened to read, revised until right, and attached — without
+        // leaving the email it belongs to.
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+            .clickable(enabled = !making) { showMake = !showMake }
+            .padding(vertical = 13.dp), horizontalArrangement = Arrangement.Center) {
+            Text(if (making) "designing…" else "Make slides",
+                fontSize = T.small, color = if (making) T.inkFaint else T.inkSoft)
         }
         if (showMake) {
             Spacer(Modifier.height(8.dp))
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(T.bg)
                 .padding(horizontal = 14.dp, vertical = 11.dp)) {
                 if (makeBrief.isEmpty())
-                    Text("What should it say? e.g. a one-page brief on the pilot numbers",
+                    Text(if (madeDeck == null) "What should the deck cover?"
+                         else "What should change? e.g. add a slide on pricing",
                         fontSize = T.caption, color = T.inkFaint)
                 BasicTextField(makeBrief, { makeBrief = it },
                     textStyle = TextStyle(color = T.ink, fontSize = T.caption),
@@ -220,36 +257,53 @@ fun MailReview(
             }
             Spacer(Modifier.height(8.dp))
             Row {
-                Pill(if (making) "writing…" else if (attach != null) "Write it again" else "Write it",
-                    true, enabled = !making && makeBrief.isNotBlank()) {
+                Pill(if (madeDeck == null) "Design it" else "Revise it", true,
+                    enabled = !making && makeBrief.isNotBlank()) {
                     making = true
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         val made = withContext(Dispatchers.IO) {
                             try {
-                                ToolRouter.executeAction(ctx, "create_document", JSONObject()
-                                    .put("title", makeBrief.take(50))
-                                    .put("brief", MailDraft.attachmentBrief(makeBrief, eventTitle, whenText))
-                                    .put("format", "pdf").toString())
-                                DocForge.library(ctx).firstOrNull()
+                                // Revising edits the SAME deck rather than generating a different
+                                // one — the whole point of iterating is that slide 4 survives.
+                                if (madeDeck == null)
+                                    DocForge.create(ctx, eventTitle.ifBlank { subject }.take(50),
+                                        makeBrief, "pdf", "deck")
+                                else DocForge.refine(ctx, makeBrief, "pdf")
                             } catch (e: Exception) { null }
                         }
-                        if (made != null) {
-                            attach = made
-                            docs = withContext(Dispatchers.IO) { DocForge.library(ctx).take(14) }
-                            note = "Made “${made.name}”. Open it to read, or ask for it again."
-                        } else note = "Couldn't write that one."
+                        if (made != null && made.ok && made.uri != null) {
+                            madeDeck = Picked(made.uri.toString(), made.name)
+                            files = files.filterNot { it.name == made.name } + madeDeck!!
+                            makeBrief = ""
+                            note = "“${made.name}” attached. Open it to read, or say what to change."
+                        } else note = "Couldn't design that one — try saying more about it."
                         making = false
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
                 }
-                // Read what was written before deciding it is right — the whole point of iterating.
-                attach?.let { d ->
+                // Read it before deciding it is right. A deck you cannot see is a deck you cannot
+                // approve, and this one is going out under the owner's name.
+                madeDeck?.let { d ->
                     Pill("Open it", false) {
                         try { DocForge.open(ctx, d.uri, d.name) } catch (e: Exception) {}
                     }
                 }
             }
         }
+
+        files.forEach { f ->
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(T.bg)
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(f.name, fontSize = T.caption, color = T.ink, maxLines = 1,
+                    modifier = Modifier.weight(1f))
+                Text("✕", fontSize = T.caption, color = T.inkFaint,
+                    modifier = Modifier.clickable { files = files.filterNot { it.uri == f.uri } })
+            }
+        }
+
         if (note.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(note, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
@@ -275,12 +329,20 @@ fun MailReview(
                         val to = recipients.joinToString(",") { it.email }
                         val out = withContext(Dispatchers.IO) {
                             try {
-                                if (attach != null)
-                                    ToolRouter.executeAction(ctx, "send_document", JSONObject()
-                                        .put("name", attach!!.name).put("to", to).toString())
-                                else
-                                    ToolRouter.executeAction(ctx, "send_email", JSONObject()
-                                        .put("to", to).put("subject", subject).put("body", body).toString())
+                                // ALWAYS send_email, never send_document. Routing an email with an
+                                // attachment through send_document threw away the subject and the
+                                // body the owner had just read and edited, and sent the file under
+                                // a generated covering note instead — the one screen whose entire
+                                // purpose is "what you approved is what goes" quietly did not.
+                                val arg = JSONObject()
+                                    .put("to", to).put("subject", subject).put("body", body)
+                                if (files.isNotEmpty()) arg.put("attachments",
+                                    org.json.JSONArray().apply {
+                                        files.forEach { f ->
+                                            put(JSONObject().put("uri", f.uri).put("name", f.name))
+                                        }
+                                    })
+                                ToolRouter.executeAction(ctx, "send_email", arg.toString())
                             } catch (e: Exception) { "Couldn't send — ${e.message?.take(60)}" }
                         }
                         sent = out.ifBlank { "Sent ✓" }
@@ -291,7 +353,8 @@ fun MailReview(
                             try {
                                 Brain.remember(ctx, "response", subject,
                                     "To $to:\n\n$body" +
-                                        (attach?.let { "\n\nAttached: ${it.name}" } ?: ""),
+                                        (if (files.isEmpty()) ""
+                                         else "\n\nAttached: " + files.joinToString(", ") { f -> f.name }),
                                     actors = recipients.map { it.email }, role = "me")
                             } catch (e: Exception) {}
                         }
@@ -309,16 +372,20 @@ fun MailReview(
 }
 
 @Composable
-private fun Pill(label: String, on: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun Pill(
+    label: String, on: Boolean, enabled: Boolean = true,
+    modifier: Modifier = Modifier.padding(end = 7.dp, bottom = 7.dp),
+    onClick: () -> Unit
+) {
     val scale by animateFloatAsState(if (on) 1.04f else 1f,
         spring(dampingRatio = 0.45f, stiffness = 800f), label = "p")
     Box(
-        Modifier.padding(end = 7.dp, bottom = 7.dp)
+        modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(999.dp))
             .background(if (on) T.accent else T.bgElevated)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 15.dp, vertical = 9.dp),
+            .padding(horizontal = 10.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(label, fontSize = T.caption,

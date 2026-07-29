@@ -41,7 +41,17 @@ object MeetingStore {
          * is either a task for the person holding the phone or a note about someone else — and
          * putting a colleague's promise on your own list is how a checklist stops being believed.
          */
-        val me: Int = -1
+        val me: Int = -1,
+        /**
+         * The calendar block this recording belongs to, when it was started from one.
+         *
+         * Without it a recording is an orphan: the notes exist, the meeting exists, and nothing
+         * connects them — so "email everyone the notes from this morning's review" cannot be
+         * answered even though both halves are on the device. Matching on title alone is not
+         * enough, because a weekly standup has the same title every week.
+         */
+        val eventTitle: String = "",
+        val eventStartMs: Long = 0L
     ) {
         val running: Boolean get() = endedAt == 0L
         val durationMs: Long get() = (if (running) System.currentTimeMillis() else endedAt) - startedAt
@@ -86,7 +96,9 @@ object MeetingStore {
             segments = segs,
             summary = o.optString("summary"),
             names = names,
-            me = if (o.has("me")) o.optInt("me", -1) else -1)
+            me = if (o.has("me")) o.optInt("me", -1) else -1,
+            eventTitle = o.optString("eventTitle"),
+            eventStartMs = o.optLong("eventStartMs"))
     }
 
     private fun write(ctx: Context, meetings: List<Meeting>) {
@@ -102,7 +114,8 @@ object MeetingStore {
                 .put("id", m.id).put("title", m.title)
                 .put("startedAt", m.startedAt).put("endedAt", m.endedAt)
                 .put("segments", segs).put("summary", m.summary).put("names", names)
-                .put("me", m.me))
+                .put("me", m.me)
+                .put("eventTitle", m.eventTitle).put("eventStartMs", m.eventStartMs))
         }
         p(ctx).edit().putString(KEY, arr.toString()).apply()
     }
@@ -117,7 +130,7 @@ object MeetingStore {
 
     // MARK: - Write
 
-    fun start(ctx: Context, title: String = ""): Long {
+    fun start(ctx: Context, title: String = "", eventTitle: String = "", eventStartMs: Long = 0L): Long {
         val now = System.currentTimeMillis()
         val name = title.ifBlank {
             "Meeting " + java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
@@ -126,8 +139,27 @@ object MeetingStore {
         // Any meeting left running by a crash is closed, so `live` can never return a ghost that
         // makes the screen show a recorder for a recording that stopped hours ago.
         val cleaned = all(ctx).map { if (it.running) it.copy(endedAt = it.startedAt + it.durationMs) else it }
-        write(ctx, cleaned + Meeting(now, name, now, 0L, emptyList(), "", emptyMap(), -1))
+        write(ctx, cleaned + Meeting(now, name, now, 0L, emptyList(), "", emptyMap(), -1,
+            eventTitle, eventStartMs))
         return now
+    }
+
+    /**
+     * The recording made for a calendar block, if there is one.
+     *
+     * Matched on start time rather than title, within a generous window either side — people start
+     * recording a few minutes late and a weekly standup carries the same title every week, so the
+     * title alone would hand back the wrong one. Falls back to the title only when nothing was
+     * linked, which covers recordings started by hand before this existed.
+     */
+    fun forEvent(ctx: Context, eventTitle: String, eventStartMs: Long): Meeting? {
+        val list = all(ctx).filterNot { it.running }
+        return list.firstOrNull {
+            it.eventStartMs > 0 && kotlin.math.abs(it.eventStartMs - eventStartMs) < 30 * 60_000L
+        } ?: list.firstOrNull {
+            eventTitle.isNotBlank() && it.title.equals(eventTitle, true) &&
+                kotlin.math.abs(it.startedAt - eventStartMs) < 6 * 3_600_000L
+        }
     }
 
     /**

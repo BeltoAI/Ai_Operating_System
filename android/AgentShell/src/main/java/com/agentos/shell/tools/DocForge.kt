@@ -105,9 +105,13 @@ object DocForge {
         return try {
             // Generate the SOURCE content first and keep it, then build the file from it — so a later
             // "make it shorter" edits this content rather than regenerating a different document.
-            val content = when (fmt) {
-                "xlsx" -> tableContent(ctx, title, brief).joinToString("\n") { it.joinToString(",") }
-                "pptx" -> deckContent(ctx, title, brief)
+            // BY KIND, NOT BY FORMAT. Asking for a deck as a PDF used to fall through to
+            // `writtenContent` and produce a prose one-pager — the same request produced slides or
+            // an essay depending only on which file extension was chosen, which is not a choice
+            // anybody was making about the content.
+            val content = when {
+                fmt == "xlsx" -> tableContent(ctx, title, brief).joinToString("\n") { it.joinToString(",") }
+                fmt == "pptx" || k == "deck" -> deckContent(ctx, title, brief)
                 else -> writtenContent(ctx, title, brief, k)
             }
                 if (content.isBlank()) {
@@ -286,13 +290,23 @@ object DocForge {
                 // The designer used to be handed an EMPTY author block, so it had no idea whose document it
                 // was building. Asked for "a one-pager summarising my company", it invented a company called
                 // Northbeam, complete with positioning — a fabricated document that looks entirely correct.
-                val html = AgentClient.designHtml(kind, title, content, "", authorBlock(ctx, "$title $brief"))
+                // A DECK'S LAYOUT IS NOT A THING TO IMPROVISE.
+                //
+                // Everything else goes to the HTML designer, which is right for a document — the
+                // shape is a column of text and it is hard to get wrong. A deck is a grid, a type
+                // scale and a rhythm, and asking for those afresh each time means the same brief
+                // produces a beautiful deck and an embarrassing one on consecutive taps. Slides get
+                // a fixed layout and a derived palette; the model writes the words.
+                val deck = isDeck(kind, title)
+                val html = if (deck) SlideDeck.html(title, content, th,
+                        try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" })
+                    else AgentClient.designHtml(kind, title, content, "", authorBlock(ctx, "$title $brief"))
                 if (html.length < 120) return Made(false, error = "the designer came back empty")
                 if (fmt == "html") {
                     val uri = SlyFolder.file(ctx, "$title.html", "text/html", html.toByteArray(), "documents", brief.take(180))
                     return Made(uri != null, "html", "$title.html", uri, error = if (uri == null) "couldn't save" else "")
                 }
-                val f = HtmlPdf.render(ctx, html, title, landscape = isDeck(kind, title))
+                val f = HtmlPdf.render(ctx, html, title, landscape = deck)
                     ?: return Made(false, error = "couldn't render the PDF")
                 val uri = SlyFolder.file(ctx, "$title.pdf", "application/pdf", f.readBytes(), "documents", brief.take(180))
                 Made(uri != null, "pdf", "$title.pdf", uri, f.absolutePath, if (uri == null) "couldn't save" else "")

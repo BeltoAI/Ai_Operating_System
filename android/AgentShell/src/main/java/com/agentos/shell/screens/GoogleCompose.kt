@@ -178,6 +178,32 @@ fun GoogleCompose(
 
     // A chosen purpose takes over the screen — the draft is the thing now, not the menu.
     mailPurpose?.let { p ->
+        // WHAT THE DRAFT ALREADY KNOWS.
+        //
+        // "Notes afterwards" is the one that used to be impossible to write: the meeting happened,
+        // SlyOS recorded it, and the email asking what was decided started from a blank page. If a
+        // recording is linked to this block, its summary IS the content of that email — otherwise
+        // the owner is retyping something the phone already has.
+        // Off the main thread: reading the store parses every meeting it holds, and doing that in
+        // composition is how this app has been killed by the watchdog before.
+        var seed by remember(p) { mutableStateOf(note) }
+        var seedReady by remember(p) { mutableStateOf(p != com.agentos.shell.tools.MailDraft.Purpose.NOTES) }
+        androidx.compose.runtime.LaunchedEffect(p, event?.begin) {
+            if (seedReady) return@LaunchedEffect
+            val found = withContext(Dispatchers.IO) {
+                try {
+                    com.agentos.shell.tools.MeetingStore
+                        .forEvent(ctx, event?.title.orEmpty(), event?.begin ?: 0L)
+                        ?.let { m -> m.summary.ifBlank { m.transcript().take(2500) } }.orEmpty()
+                } catch (e: Exception) { "" }
+            }
+            if (found.isNotBlank()) seed = found
+            seedReady = true
+        }
+        // The draft is written ONCE, from whatever the seed turns out to be — so it must not start
+        // writing before the recording has been looked for, or the notes email is written from the
+        // title while the notes sit on the device unused.
+        if (!seedReady) { Spacer(Modifier.height(1.dp)); return }
         MailReview(
             purpose = p,
             eventTitle = event?.title.orEmpty(),
@@ -188,6 +214,7 @@ fun GoogleCompose(
             where = event?.location.orEmpty(),
             recipients = guests,
             modifier = modifier,
+            seed = seed,
             onSent = { },
             onBack = { mailPurpose = null })
         return
@@ -565,6 +592,36 @@ fun GoogleCompose(
             Spacer(Modifier.height(4.dp))
             Text(result, fontSize = T.small,
                 color = if (result.contains("✓")) T.good else T.danger, lineHeight = 20.sp)
+
+            // MOVING A MEETING IS HALF A JOB.
+            //
+            // The block moved, Google emailed a bare invitation update, and the people who had put
+            // it in their day got a notification with no reason in it. The half that matters — "we
+            // moved it to Thursday because Ana's flight changed, sorry" — had no path at all. It is
+            // offered here, at the only moment anyone would want it, pre-filled with the change.
+            val told = mode == Verb.MOVE || mode == Verb.CANCEL
+            if (told && result.contains("✓") && guests.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                    .background(T.hairline)
+                    .clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        note = if (mode == Verb.MOVE)
+                            "It has moved to " + java.text.SimpleDateFormat(
+                                "EEEE d MMMM 'at' HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(startMs)) + "."
+                        else "It is cancelled."
+                        mailPurpose = if (mode == Verb.MOVE)
+                            com.agentos.shell.tools.MailDraft.Purpose.MOVED
+                        else com.agentos.shell.tools.MailDraft.Purpose.CANCELLED
+                    }
+                    .padding(vertical = 13.dp, horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tell the ${guests.size} guest${if (guests.size == 1) "" else "s"} why",
+                        fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
+                    Text("›", fontSize = T.body, color = T.inkFaint)
+                }
+            }
             Spacer(Modifier.height(12.dp))
         }
 
@@ -580,7 +637,7 @@ fun GoogleCompose(
                 running -> "Working…"
                 mode == Verb.MOVE -> "Move it"
                 mode == Verb.CANCEL -> "Cancel it"
-                mode == Verb.NOTIFY -> "Send the heads-up"
+                mode == Verb.NOTIFY -> "Write the heads-up"
                 mode == Verb.EMAIL -> "Write and open it"
                 guests.isEmpty() -> "Put it in the calendar"
                 else -> "Invite ${guests.size}"
@@ -605,46 +662,25 @@ fun GoogleCompose(
                             run("cancel_event",
                                 JSONObject().put("id", f?.id ?: 0L).put("title", event.title).toString())
                         }
-                        Verb.NOTIFY -> run("event_followup", JSONObject()
-                            .put("title", event!!.title)
-                            .put("message", note.ifBlank { "A quick heads-up about “${event.title}”." })
-                            .toString())
+                        // A HEADS-UP IS STILL AN EMAIL TO COLLEAGUES.
+                        //
+                        // This fired `event_followup` — one line, straight at every attendee, never
+                        // shown to the person it was sent on behalf of, no attachment possible. The
+                        // one flow on this screen that still sent blind, and the one people reach
+                        // for most. It goes through the same draft as everything else now: read it,
+                        // edit it, attach to it, then send.
+                        // A heads-up is what the owner TYPED, written properly — not an agenda.
+                        // Routing it to Agenda made every heads-up come back as a list of items
+                        // nobody asked for, and lost the sentence they had actually written.
+                        Verb.NOTIFY -> {
+                            mailPurpose = com.agentos.shell.tools.MailDraft.Purpose.CUSTOM
+                        }
                         // Straight to the draft, never straight to a send. Even a plain "email
                         // someone" gets read before it leaves.
                         Verb.EMAIL -> {
                             mailPurpose = com.agentos.shell.tools.MailDraft.Purpose.CUSTOM
                         }
                         Verb.ACT_ON -> {}
-                        Verb.NOTIFY -> if (false) {
-                            // TAILORED FROM THE BRAIN, NOT A TEMPLATE.
-                            //
-                            // The composer writes in the owner's voice already; what it lacked was
-                            // the specifics — which meeting this is about, what is attached, and
-                            // who the recipient actually is to them. A note to someone you speak to
-                            // weekly should not read like a note to a stranger, and the brain knows
-                            // which is which.
-                            val who = guests.firstOrNull()?.name.orEmpty()
-                            val about = buildString {
-                                append(note)
-                                event?.let {
-                                    append(". This is about “${it.title}” on ")
-                                    append(java.text.SimpleDateFormat("EEEE d MMMM 'at' HH:mm",
-                                        java.util.Locale.getDefault()).format(java.util.Date(it.begin)))
-                                    if (it.location.isNotBlank()) append(" in ${it.location}")
-                                }
-                                if (who.isNotBlank()) {
-                                    val hist = try {
-                                        com.agentos.shell.tools.PersonResolver.historyFor(ctx, who, 6)
-                                    } catch (e: Exception) { "" }
-                                    if (hist.isNotBlank())
-                                        append(". How you two normally write to each other:\n")
-                                            .append(hist.take(900))
-                                }
-                            }
-                            run("compose_email", JSONObject()
-                                .put("to", guests.joinToString(",") { it.email })
-                                .put("topic", about).toString())
-                        }
                         else -> {
                             val o = JSONObject()
                                 .put("title", title.ifBlank { "Meeting" })
@@ -685,19 +721,14 @@ fun GoogleCompose(
                                     }
                                 }
                             }
-                            // "Take notes" is a nudge at the start time that opens the recorder —
-                            // the honest mechanism, rather than a switch that quietly does nothing.
+                            // "Take notes" puts the RECORDER on the lock screen at the start time,
+                            // one tap, already named and linked to this block. The earlier version
+                            // set a reminder saying "open Meetings and tap record" — honest, and
+                            // useless at the only moment it matters, because nobody unlocks a phone
+                            // and hunts for a button while a meeting is starting.
                             if (takeNotes && startMs > System.currentTimeMillis()) {
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        try {
-                                            ToolRouter.executeAction(ctx, "remind", JSONObject()
-                                                .put("text", "Record “${title.ifBlank { "the meeting" }}” — " +
-                                                    "open Meetings and tap record")
-                                                .put("at", iso(startMs)).toString())
-                                        } catch (e: Exception) {}
-                                    }
-                                }
+                                com.agentos.shell.MeetingCue.schedule(
+                                    ctx, title.ifBlank { "Meeting" }, startMs)
                             }
                             // And the file goes out separately, since the invitation cannot carry it.
                             attach?.let { d ->

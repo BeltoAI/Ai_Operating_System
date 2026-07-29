@@ -1128,18 +1128,37 @@ object ToolRouter {
             // one-pager and email it to Carlos" sent Carlos an email about a document he could not
             // read, and both steps were reported as done.
             val attachUri = o.optString("attach")
-            val attached = if (attachUri.isNotBlank())
+            val files = ArrayList<java.io.File>()
+            if (attachUri.isNotBlank())
                 ActionChain.asFile(ctx, attachUri, o.optString("attach_name").ifBlank { "attachment" })
-            else null
+                    ?.let { files.add(it) }
+            // SEVERAL FILES, BECAUSE PEOPLE SEND SEVERAL FILES.
+            //
+            // One was enough for the chained case ("make a one-pager and email it"), and wrong for
+            // the human one — nobody attaches the slides without the agenda. Picked straight off the
+            // phone, so `uri` is a content:// from the system picker rather than anything of ours.
+            o.optJSONArray("attachments")?.let { arr ->
+                (0 until arr.length()).forEach { i ->
+                    arr.optJSONObject(i)?.let { a ->
+                        ActionChain.asFile(ctx, a.optString("uri"),
+                            a.optString("name").ifBlank { "attachment" })?.let { files.add(it) }
+                    }
+                }
+            }
 
-            val (ok, msg) = if (attached != null)
-                GmailClient.sendWithAttachments(ctx, to, subject, body, listOf(attached))
+            val (ok, msg) = if (files.isNotEmpty())
+                GmailClient.sendWithAttachments(ctx, to, subject, body, files)
             else GmailClient.send(ctx, to, subject, body)
+            val attached = files.firstOrNull()
             if (ok) {
                 MemoryLog.add(ctx, "response", "Email: $subject", "Sent to $to — $subject", "Email")
                 // Name the attachment. "Sent ✓" for an email whose whole point was the file tells
                 // the owner nothing about whether the file went with it.
-                if (attached != null) "Sent to $to with “${attached.name}” attached ✓" else "Sent to $to ✓"
+                when {
+                    files.size == 1 -> "Sent to $to with “${attached?.name}” attached ✓"
+                    files.size > 1 -> "Sent to $to with ${files.size} files attached ✓"
+                    else -> "Sent to $to ✓"
+                }
             } else "Couldn't send the email — $msg"
         } catch (e: Exception) { Log.e("SlyOS", "sendEmail failed", e); "I couldn't send that email." }
     }
