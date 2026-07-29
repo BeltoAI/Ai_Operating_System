@@ -71,13 +71,20 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
+    // A metric gets a PAGE, not a dialog. Everything worth showing — the windows, the projection,
+    // the day-of-week shape, what moves with it — was already being computed and then hidden behind
+    // a tap into a box too small to hold it, which is exactly why the page looked empty.
+    var openMetric by remember { mutableStateOf<String?>(null) }
+    openMetric?.let { m ->
+        MetricScreen(m, onBack = { openMetric = null }, modifier = modifier)
+        return
+    }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var tick by remember { mutableStateOf(0) }
     var syncing by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
-    var detail by remember { mutableStateOf<String?>(null) }
     var ask by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
@@ -253,7 +260,7 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     else listOf(VitalsStore.M.HRV, VitalsStore.M.RHR, VitalsStore.M.SLEEP,
                                 VitalsStore.M.RECOVERY, VitalsStore.M.STRAIN, VitalsStore.M.STEPS,
                                 VitalsStore.M.RESP, VitalsStore.M.SPO2)
-        shown.forEach { m -> MetricRow(ctx, m, tick) { detail = m } }
+        shown.forEach { m -> MetricCard(ctx, m, tick) { openMetric = m } }
 
         // Projections, as bands. Only for series long enough to earn one.
         val projections = remember(tick) {
@@ -340,7 +347,6 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(40.dp))
     }
 
-    detail?.let { m -> MetricSheet(ctx, m) { detail = null } }
 }
 
 /**
@@ -407,63 +413,92 @@ private fun Readiness(ctx: android.content.Context, tick: Int) {
     }
 }
 
-/** One metric: value, its own sparkline, and how far it is from this person's baseline. */
+/**
+ * One metric as a card you can actually read: the number, how far it is from your own baseline, the
+ * shape of the last month, and the averages that would otherwise need a tap to find.
+ *
+ * The previous version was a single 22dp line in a row — enough to say a number exists, not enough
+ * to say anything about it.
+ */
 @Composable
-private fun MetricRow(ctx: android.content.Context, m: String, tick: Int, onOpen: () -> Unit) {
+private fun MetricCard(ctx: android.content.Context, m: String, tick: Int, onOpen: () -> Unit) {
     val s = remember(tick, m) { VitalsStore.series(ctx, m, 30) }
-    if (s.isEmpty()) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(VitalsStore.M.label(m), fontSize = T.small, color = T.inkFaint, modifier = Modifier.width(96.dp))
-            Text("—", fontSize = T.small, color = T.inkFaint, modifier = Modifier.width(78.dp))
-            // A flat rule where the sparkline will be: the row keeps its shape, and the absence is
-            // obviously an absence rather than a number that happens to be zero.
-            Box(Modifier.weight(1f).height(1.dp).background(T.hairline))
-            Spacer(Modifier.width(68.dp))
-        }
-        return
-    }
-    val last = s.last().value
-    val base = remember(tick, m) { VitalsMath.baseline(s.dropLast(1)) }
-    val d = base?.let { last - it }
+    val unit = VitalsStore.M.unit(m)
 
-    Row(
-        Modifier.fillMaxWidth().clickable { onOpen() }.padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        Modifier.fillMaxWidth().padding(bottom = 12.dp)
+            .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+            .clickable { onOpen() }
+            .padding(16.dp)
     ) {
-        Text(VitalsStore.M.label(m), fontSize = T.small, color = T.inkSoft, modifier = Modifier.width(96.dp))
-        Text(VitalsStore.M.format(m, last) + VitalsStore.M.unit(m),
-            fontSize = T.small, color = T.ink, modifier = Modifier.width(78.dp))
-        Spark(s.map { it.value }, Modifier.weight(1f).height(22.dp))
-        Spacer(Modifier.width(10.dp))
-        // A delta against a "baseline" built from two days is not a baseline. Say how thin it is
-        // rather than printing a confident-looking number on top of nothing.
-        if (s.size < 7) {
-            Text("${s.size}d", fontSize = T.caption, color = T.inkFaint,
-                modifier = Modifier.width(58.dp), textAlign = TextAlign.End)
-            return@Row
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(VitalsStore.M.label(m), fontSize = T.small, color = T.inkSoft,
+                modifier = Modifier.weight(1f))
+            Text("›", fontSize = T.body, color = T.inkFaint)
         }
-        if (d != null && abs(d) > 0.01) {
-            // GOOD IS NOT THE SAME AS UP. Resting heart rate rising is not HRV rising, and a page
-            // that paints every increase green is wrong half the time.
-            val better = VitalsStore.M.higherIsBetter(m)
-            val col = when (better) {
-                null -> T.inkSoft
-                true -> if (d > 0) T.good else T.danger
-                false -> if (d < 0) T.good else T.danger
+        Spacer(Modifier.height(6.dp))
+
+        if (s.isEmpty()) {
+            Text("—", fontSize = 30.sp, color = T.inkFaint)
+            Spacer(Modifier.height(4.dp))
+            Text("waiting for readings", fontSize = T.caption, color = T.inkFaint)
+            return@Column
+        }
+
+        val last = s.last().value
+        val base = remember(tick, m) { VitalsMath.baseline(s.dropLast(1)) }
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(VitalsStore.M.format(m, last), fontSize = 30.sp, color = T.ink,
+                fontWeight = FontWeight.Medium)
+            if (unit.isNotBlank()) {
+                Spacer(Modifier.width(4.dp))
+                Text(unit, fontSize = T.caption, color = T.inkFaint,
+                    modifier = Modifier.padding(bottom = 5.dp))
             }
-            Text(VitalsStore.M.formatDelta(m, d), fontSize = T.caption, color = col,
-                modifier = Modifier.width(58.dp), textAlign = TextAlign.End)
-        } else Spacer(Modifier.width(58.dp))
+            Spacer(Modifier.weight(1f))
+            if (s.size < 7) {
+                Text("${s.size} day${if (s.size == 1) "" else "s"} in",
+                    fontSize = T.caption, color = T.inkFaint)
+            } else base?.let {
+                val d = last - it
+                // GOOD IS NOT THE SAME AS UP. Resting heart rate rising is not HRV rising, and a
+                // page that paints every increase green is wrong half the time.
+                val better = VitalsStore.M.higherIsBetter(m)
+                val col = when (better) {
+                    null -> T.inkSoft
+                    true -> if (d > 0) T.good else T.danger
+                    false -> if (d < 0) T.good else T.danger
+                }
+                Text(VitalsStore.M.formatDelta(m, d), fontSize = T.small, color = col)
+            }
+        }
+
+        if (s.size >= 2) {
+            Spacer(Modifier.height(12.dp))
+            VitalsChart(m, s, Modifier.fillMaxWidth().height(64.dp), showProjection = false)
+        }
+
+        // The averages, on the card. They were behind a tap, which is why the page read as though it
+        // had computed nothing.
+        if (s.size >= 3) {
+            Spacer(Modifier.height(10.dp))
+            Row {
+                @Composable fun mini(k: String, v: Double?) {
+                    Column(Modifier.weight(1f)) {
+                        Text(k, fontSize = 9.sp, color = T.inkFaint,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                        Text(v?.let { VitalsStore.M.format(m, it) } ?: "—",
+                            fontSize = T.caption, color = T.inkSoft)
+                    }
+                }
+                mini("7-DAY", VitalsMath.meanOfLast(s, 7))
+                mini("30-DAY", VitalsMath.meanOfLast(s, 30))
+                mini("BASELINE", base)
+            }
+        }
     }
 }
 
-/**
- * A sparkline, or an honest admission that there isn't one yet.
- *
- * Two points draw a straight diagonal corner to corner, which looks like a dramatic trend and is
- * nothing of the sort — it is the only line two points can make. Below four days it draws the points
- * themselves instead, so the reader can see there are two of them.
- */
 @Composable
 private fun Spark(values: List<Double>, modifier: Modifier) {
     if (values.isEmpty()) { Spacer(modifier); return }
@@ -488,75 +523,6 @@ private fun Spark(values: List<Double>, modifier: Modifier) {
             if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
         }
         drawPath(p, T.accent.copy(alpha = 0.75f), style = Stroke(1.6.dp.toPx()))
-    }
-}
-
-/** One metric in full: the windows, the spread, the day-of-week shape, and where it is heading. */
-@Composable
-private fun MetricSheet(ctx: android.content.Context, m: String, onClose: () -> Unit) {
-    val s = remember(m) { VitalsStore.series(ctx, m, 90) }
-    Dialog(onDismissRequest = onClose) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(18.dp)) {
-            Text(VitalsStore.M.label(m), fontSize = 17.sp, color = T.ink, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(2.dp))
-            Text("${s.size} days of your own readings", fontSize = T.caption, color = T.inkFaint)
-
-            Spacer(Modifier.height(16.dp))
-            Spark(s.map { it.value }, Modifier.fillMaxWidth().height(60.dp))
-
-            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
-                Spacer(Modifier.height(16.dp))
-                @Composable fun line(k: String, v: String) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                        Text(k, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
-                        Text(v, fontSize = T.caption, color = T.ink)
-                    }
-                }
-                fun fmt(v: Double?) = v?.let { VitalsStore.M.format(m, it) + VitalsStore.M.unit(m) } ?: "—"
-                line("7-day mean", fmt(VitalsMath.meanOfLast(s, 7)))
-                line("30-day mean", fmt(VitalsMath.meanOfLast(s, 30)))
-                line("90-day mean", fmt(VitalsMath.mean(s)))
-                line("Your baseline", fmt(VitalsMath.baseline(s)))
-                line("Spread (1 sd)", fmt(VitalsMath.sd(s)))
-                VitalsMath.z(s)?.let {
-                    line("Today, in your own terms",
-                        if (abs(it) < 1) "within your normal range"
-                        else String.format("%.1f sd %s your average", abs(it), if (it > 0) "above" else "below"))
-                }
-                VitalsMath.trend(s)?.let {
-                    line("Where it's heading (30d)",
-                        "${VitalsStore.M.format(m, it.projected)} ±${VitalsStore.M.format(m, it.band)}")
-                }
-                if (m == VitalsStore.M.SLEEP) {
-                    VitalsMath.sleepDebt(s)?.let { d ->
-                        Spacer(Modifier.height(10.dp))
-                        Text("You sleep ${VitalsStore.M.format(m, d.needMinutes.toDouble())} on your better " +
-                             "nights. Over the last fortnight you're ${d.minutes / 60}h short" +
-                             (d.paybackDays?.let { ", which clears in about $it days at the last few nights' rate" } ?: "") + ".",
-                            fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
-                    }
-                }
-
-                // Day of week — your Mondays are not your Saturdays.
-                val byDay = remember(m) { VitalsMath.byWeekday(s) }
-                if (byDay.size >= 5) {
-                    Spacer(Modifier.height(16.dp))
-                    SectionLabel("BY DAY")
-                    Spacer(Modifier.height(6.dp))
-                    val names = listOf("", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-                    (1..7).forEach { d ->
-                        byDay[d]?.let { v ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                                Text(names[d], fontSize = T.caption, color = T.inkFaint, modifier = Modifier.width(44.dp))
-                                Text(VitalsStore.M.format(m, v) + VitalsStore.M.unit(m),
-                                    fontSize = T.caption, color = T.inkSoft)
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-        }
     }
 }
 
