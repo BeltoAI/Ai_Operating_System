@@ -231,6 +231,14 @@ object ToolRouter {
     fun executeActions(ctx: Context, actions: List<AgentAction>, userInitiated: Boolean = true): String {
         Log.i("SlyOS", "actions(${actions.size}, user=$userInitiated): " + actions.joinToString { "${it.type}=${it.arg}" })
         val msgs = mutableListOf<String>()
+        // WHAT EACH STEP PRODUCED, FOR THE STEPS AFTER IT.
+        //
+        // Every argument here was written by the planner before anything ran, so step 2 referred to
+        // a document or a Meet link that did not exist yet. "Make the deck and email it to Carlos"
+        // sent Carlos an empty email and reported both steps as done.
+        val bus = ArrayList<ActionChain.Produced>()
+        /** Kinds a step was supposed to produce and didn't — the reason to skip what depended on it. */
+        val failedKinds = HashSet<String>()
         for (a in actions) {
             if (a.type.isBlank() || a.type == "none") continue
             if (!userInitiated && a.type in GATED) {   // code-level gate: never auto-fire these unattended
@@ -254,13 +262,31 @@ object ToolRouter {
             // after the first failure, and the caller reported an error for a request that was
             // half done. The owner then had no idea a document had been created. Each step now
             // reports its own outcome and the chain continues.
-            val m = try { executeAction(ctx, a.type, a.arg) }
+            // Fill in what earlier steps produced, then decide whether this step still makes sense.
+            val arg = ActionChain.resolve(ctx, a.type, a.arg, bus)
+            val blocked = ActionChain.blockedBy(a.type, arg, bus, failedKinds)
+            if (blocked != null) {
+                // Running it anyway would put a message in front of a real person with the important
+                // part missing, and tell the owner it worked.
+                Log.i("SlyOS", "action ${a.type} skipped — its subject was never created")
+                msgs.add(blocked)
+                continue
+            }
+
+            val m = try { executeAction(ctx, a.type, arg) }
                     catch (e: Exception) {
                         try { Analytics.track(ctx, "action_failed", a.type.take(30), categoryFor(a.type)) } catch (ig: Exception) {}
                         Log.w("SlyOS", "action ${a.type} failed, continuing", e)
+                        ActionChain.producesKind(a.type)?.let { k -> failedKinds.add(k) }
                         msgs.add("**${channelFor(a.type)} didn't happen** — ${e.message ?: "it failed"}.")
                         continue
                     }
+            // A step that returned without throwing can still have produced nothing — "Couldn't build
+            // that document" is a normal return value here, and the next step must know.
+            val made = ActionChain.capture(ctx, a.type, arg, m)
+            if (made != null) bus.add(made)
+            else ActionChain.producesKind(a.type)?.let { k -> failedKinds.add(k) }
+
             if (a.type in GATED) ActionGuard.remember(ctx, a.type, a.arg)
             MetricsStore.record(ctx, MetricsStore.secondsFor(a.type))
             // WIN: an action actually ran. Tag it with the feature and the what-for bucket so you can see
@@ -272,6 +298,9 @@ object ToolRouter {
             try { recordAction(ctx, a.type, a.arg, m, userInitiated) } catch (e: Exception) {}
             if (m.isNotEmpty()) msgs.add(m)
         }
+        // Hand what this batch made to whatever runs next — the confirmation card executes in its
+        // own call, after this one has returned and taken the bus with it.
+        ActionChain.publishBatch(bus)
         return msgs.joinToString("  ")
     }
 
@@ -282,7 +311,10 @@ object ToolRouter {
      */
     private fun createDocument(ctx: Context, arg: String): String {
         val o = try { JSONObject(arg) } catch (e: Exception) { JSONObject().put("brief", arg) }
-        val brief = o.optString("brief").ifBlank { arg }
+        // "…and email it to eshir010@ucr.edu" is who it goes to, not what it is about. Left in, it
+        // became the title, so the file was named after the recipient's address and that name then
+        // travelled onward as the subject line and the attachment.
+        val brief = ActionChain.stripDelivery(o.optString("brief").ifBlank { arg })
         val title = o.optString("title").ifBlank {
             brief.split(Regex("[.\\n]")).firstOrNull()?.take(60)?.trim().orEmpty().ifBlank { "Document" }
         }
@@ -314,8 +346,47 @@ object ToolRouter {
                else "Couldn't open “${d.name}” — no app on this phone handles that file type."
     }
 
+    /**
+     * Send the document — actually send it, when the owner said who to.
+     *
+     * This ignored the recipient completely. "Make a one-pager and email it to eshir010@ucr.edu"
+     * planned `send_document {"name":…,"to":"eshir010@ucr.edu"}` and this opened a share sheet,
+     * dropping the address on the floor and handing the job back to the person who had just asked
+     * for it to be done. The document was made; the sending — the half that involves another human
+     * being — quietly became homework.
+     *
+     * The share sheet stays as the fallback for when nobody was named, which is a genuine case
+     * ("send it" with no recipient), not a failure.
+     */
     private fun sendDocument(ctx: Context, arg: String): String {
-        val d = latestDoc(ctx, arg) ?: return "I haven't made any documents yet."
+        val o = try { JSONObject(arg) } catch (e: Exception) { null }
+        // A JSON argument must not be passed to the name matcher whole — it would score the doc
+        // against "to", "name" and the address itself.
+        val name = o?.optString("name").orEmpty().ifBlank { if (o == null) arg else "" }
+        val d = latestDoc(ctx, name) ?: return "I haven't made any documents yet."
+
+        var to = o?.optString("to").orEmpty().trim()
+        if (to.isNotBlank() && !to.contains("@")) {
+            val p = try { PersonResolver.resolve(ctx, to) } catch (e: Exception) { null }
+            if (p != null && p.candidates.size > 1 && p.email.isBlank())
+                return "Which $to? " + p.candidates.joinToString(", ") + " — tell me which and I'll send it."
+            if (p != null && p.email.isNotBlank()) to = p.email
+        }
+
+        if (to.contains("@") && to.contains(".") && GoogleAuth.isConnected(ctx)) {
+            val file = ActionChain.asFile(ctx, d.uri, d.name)
+            if (file != null) {
+                val subject = d.name.substringBeforeLast('.').replace('_', ' ')
+                val (ok, msg) = GmailClient.sendWithAttachments(
+                    ctx, to, subject, "Here's the one you asked for — it's attached.", listOf(file))
+                if (ok) {
+                    MemoryLog.add(ctx, "response", "Email: $subject", "Sent “${d.name}” to $to", "Email")
+                    return "Emailed “${d.name}” to $to ✓"
+                }
+                return "Couldn't email “${d.name}” to $to — $msg"
+            }
+        }
+
         return if (DocForge.share(ctx, d.uri, d.name)) "Pick where to send “${d.name}”."
                else "Couldn't share “${d.name}”."
     }
@@ -1043,10 +1114,24 @@ object ToolRouter {
                     if (r.ok && r.meetLink.isNotBlank()) body += "\n\nJoin Google Meet: ${r.meetLink}"
                 }
             }
-            val (ok, msg) = GmailClient.send(ctx, to, subject, body)
+            // THE THING THE OWNER MEANT BY "IT".
+            //
+            // ActionChain puts the document made moments ago on this argument; without it, "make a
+            // one-pager and email it to Carlos" sent Carlos an email about a document he could not
+            // read, and both steps were reported as done.
+            val attachUri = o.optString("attach")
+            val attached = if (attachUri.isNotBlank())
+                ActionChain.asFile(ctx, attachUri, o.optString("attach_name").ifBlank { "attachment" })
+            else null
+
+            val (ok, msg) = if (attached != null)
+                GmailClient.sendWithAttachments(ctx, to, subject, body, listOf(attached))
+            else GmailClient.send(ctx, to, subject, body)
             if (ok) {
                 MemoryLog.add(ctx, "response", "Email: $subject", "Sent to $to — $subject", "Email")
-                "Sent to $to ✓"
+                // Name the attachment. "Sent ✓" for an email whose whole point was the file tells
+                // the owner nothing about whether the file went with it.
+                if (attached != null) "Sent to $to with “${attached.name}” attached ✓" else "Sent to $to ✓"
             } else "Couldn't send the email — $msg"
         } catch (e: Exception) { Log.e("SlyOS", "sendEmail failed", e); "I couldn't send that email." }
     }

@@ -905,6 +905,27 @@ fun HomeScreen(
                     } catch (e: Exception) {}
                 }
             }
+            // THE SECOND HALF OF A TWO-PART REQUEST.
+            //
+            // "make a one-pager and email it to eshir010@ucr.edu" produced NO actions at all — the
+            // planner narrated *"Making the one-pager now and sending it to…"* — and the ScreenIntent
+            // net above recovered only the document. The sending half was never planned, so no
+            // amount of passing results between steps could have helped.
+            //
+            // MUST RUN AFTER THAT NET, not before: the document it looks for is often the net's own
+            // work, and checking first finds an empty action list and does nothing.
+            run {
+                com.agentos.shell.tools.ActionChain.missingDelivery(q, result.actions)?.let { extra ->
+                    android.util.Log.i("SlyOS", "chain: added missing ${extra.type} — ${extra.arg.take(90)}")
+                    result = result.copy(actions = result.actions + extra)
+                    try {
+                        com.agentos.shell.tools.Fail.log(ctx, "Planner",
+                            "planned the document but not the send",
+                            "recovered locally for: ${q.take(80)}", "warn")
+                    } catch (e: Exception) {}
+                }
+            }
+
             // Auto-grow the brain: durable facts learned in conversation are saved automatically
             // (to the separate learned-facts store, not your curated About).
             if (result.remember.isNotBlank()) MemoryStore.addLearnedFact(ctx, result.remember)

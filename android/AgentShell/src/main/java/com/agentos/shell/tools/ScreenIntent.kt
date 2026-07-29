@@ -233,6 +233,12 @@ object ScreenIntent {
             "(?i)\\b(write|draft|make|create|compose|come up with|put together|generate|give me)\\b" +
             ".{0,24}\\b(post|tweet|caption|thread|update|status)\\b" +
             "|\\bpost (about|on)\\b" +
+            // "post this on Instagram", "publish it to LinkedIn", "share that on Threads" — the
+            // publish verbs. They belong to the COMPOSER: the owner sees the text, then chooses to
+            // publish. Without this they matched no rule at all and fell through to the planner,
+            // which is the coin-flip that made the same request sometimes drive the phone.
+            "|\\b(post|publish|share|put up)\\b\\s+(this|that|it|the post|the caption)?\\s*" +
+            "\\b(on|to)\\b\\s*\\b(linkedin|instagram|twitter|x|reddit|threads|facebook|tiktok)\\b" +
             "|\\b(linkedin|instagram|twitter|reddit|threads|facebook|tiktok)\\b.{0,16}\\b(post|caption|update)\\b",
             "\\babout\\s+(.+)$"),
 
