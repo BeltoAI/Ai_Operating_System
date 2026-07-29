@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -100,6 +101,8 @@ fun GoogleCompose(
     var note by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf("") }
+    // Same rule here: never touch the directory synchronously from composition.
+    androidx.compose.runtime.LaunchedEffect(Unit) { Directory.warm(ctx) }
 
     val startMs = remember(dayOffset, hour, minute) {
         Calendar.getInstance().apply {
@@ -122,6 +125,22 @@ fun GoogleCompose(
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             result = out.ifBlank { "Done ✓" }
             running = false
+            // INTO THE BRAIN, like everything else. A calendar change made here should be
+            // answerable from Home tomorrow — otherwise this page knows things the assistant does
+            // not, which is the failure the whole brain exists to prevent.
+            withContext(Dispatchers.IO) {
+                try {
+                    com.agentos.shell.tools.Brain.remember(ctx, "action",
+                        when (action) {
+                            "add_event" -> "Booked"
+                            "move_event" -> "Moved an event"
+                            "cancel_event" -> "Cancelled an event"
+                            "event_followup" -> "Told the attendees"
+                            else -> "Email"
+                        },
+                        "$action — $out\nDetails: ${arg.take(400)}", role = "system")
+                } catch (e: Exception) {}
+            }
         }
     }
 
@@ -171,10 +190,9 @@ fun GoogleCompose(
             SectionLabel(if (mode == Verb.MOVE) "MOVE IT TO" else "WHEN")
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-                listOf("Today" to 0, "Tomorrow" to 1, "In 2 days" to 2, "Next week" to 7)
-                    .forEach { (l, d) ->
-                        Chip(l, dayOffset == d) { dayOffset = d }
-                    }
+                // Short labels so four fit a narrow phone without scrolling or wrapping.
+                listOf("Today" to 0, "Tomorrow" to 1, "+2d" to 2, "+1w" to 7)
+                    .forEach { (l, d) -> Chip(l, dayOffset == d) { dayOffset = d } }
             }
             // Hours as chips: nine taps covers the working day, and a wheel picker for a thing
             // people say out loud is a worse trade than a row of numbers.
@@ -213,7 +231,8 @@ fun GoogleCompose(
                             .clickable { guests = guests - g }
                             .padding(horizontal = 12.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(g.name.ifBlank { g.email }, fontSize = T.caption, color = T.ink)
+                            Text(g.name.ifBlank { g.email }.take(22), fontSize = T.caption,
+                                color = T.ink, maxLines = 1, softWrap = false)
                             Spacer(Modifier.width(6.dp))
                             Text("✕", fontSize = 10.sp, color = T.inkFaint)
                         }
@@ -229,7 +248,11 @@ fun GoogleCompose(
                     modifier = Modifier.fillMaxWidth())
             }
             if (guestQuery.length >= 2) {
-                val hits = remember(guestQuery) { Directory.search(ctx, guestQuery) }
+                // Searched off the composition thread, so a long list can never stall a keystroke.
+                var hits by remember { mutableStateOf(listOf<Directory.Entry>()) }
+                androidx.compose.runtime.LaunchedEffect(guestQuery) {
+                    hits = withContext(Dispatchers.Default) { Directory.search(ctx, guestQuery) }
+                }
                 Spacer(Modifier.height(6.dp))
                 hits.forEach { h ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)
@@ -389,17 +412,33 @@ fun GoogleCompose(
     }
 }
 
+/**
+ * A pill whose text always fits inside it.
+ *
+ * maxLines and softWrap are not defaults worth trusting here: a chip that wraps grows to two lines
+ * and shunts the row below it, and one that clips looks broken. Both were happening — "Next week"
+ * and "1h30" are wider than they look once the font scales up on someone's phone.
+ *
+ * The press is a scale-down that springs back rather than a colour flash: it reads as the thing
+ * being pushed, which is what a finger just did to it.
+ */
 @Composable
 private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
-    val scale by animateFloatAsState(if (on) 1f else 0.97f,
-        spring(dampingRatio = 0.55f, stiffness = 700f), label = "c")
-    Text(label, fontSize = T.caption, color = if (on) Color.White else T.inkSoft,
-        modifier = Modifier.padding(end = 6.dp, bottom = 6.dp)
+    val scale by animateFloatAsState(if (on) 1.04f else 1f,
+        spring(dampingRatio = 0.45f, stiffness = 800f), label = "c")
+    Box(
+        Modifier.padding(end = 7.dp, bottom = 7.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(999.dp))
             .background(if (on) T.accent else T.bgElevated)
             .clickable { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onClick() }
-            .padding(horizontal = 13.dp, vertical = 8.dp))
+            .padding(horizontal = 15.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, fontSize = T.caption, color = if (on) Color.White else T.inkSoft,
+            maxLines = 1, softWrap = false)
+    }
 }
 
 @Composable

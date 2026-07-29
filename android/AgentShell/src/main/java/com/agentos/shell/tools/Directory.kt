@@ -29,28 +29,65 @@ object Directory {
     data class Entry(val name: String, val email: String, val source: String, val weight: Int)
 
     @Volatile private var cache: List<Entry> = emptyList()
-    @Volatile private var cachedAt = 0L
-    private const val TTL_MS = 60_000L
+    @Volatile private var building = false
+
+    /**
+     * Ready to search, or still being built.
+     *
+     * The first version was called straight from a composable and did four hundred
+     * [PersonResolver.resolve] lookups plus a four-hundred-row text search on the main thread. That
+     * is not slow, it is a watchdog kill: the app vanished and restarted with no exception in the
+     * log, which reads exactly like a crash and is impossible to find by looking for one.
+     *
+     * So it builds once, off the main thread, and callers ask whether it is ready rather than
+     * blocking on it.
+     */
+    val ready: Boolean get() = cache.isNotEmpty()
+
+    /** Build in the background. Safe to call repeatedly; only the first call does any work. */
+    fun warm(ctx: Context) {
+        if (ready || building) return
+        building = true
+        Thread {
+            try { cache = build(ctx.applicationContext) } catch (e: Exception) {} finally { building = false }
+        }.start()
+    }
 
     fun all(ctx: Context): List<Entry> {
-        if (cache.isNotEmpty() && System.currentTimeMillis() - cachedAt < TTL_MS) return cache
+        if (!ready) warm(ctx)
+        return cache
+    }
+
+    /**
+     * Every address the phone can reach, read straight from the stores.
+     *
+     * Deliberately NOT via PersonResolver. That resolves one name at a time by scoring it against
+     * contacts, message history and the network graph — excellent for "which Anna did you mean",
+     * and hopeless four hundred times in a row. It was also lossy: anyone the resolver could not
+     * confidently match simply never appeared, which is why addresses that plainly exist in the
+     * brain were missing from the picker.
+     *
+     * Here the addresses are taken directly instead: contacts, then every stored message whose
+     * sender IS an address, then every address appearing in any stored body. Nothing is inferred,
+     * so nothing is lost.
+     */
+    private fun build(ctx: Context): List<Entry> {
         val byEmail = LinkedHashMap<String, Entry>()
 
         fun add(name: String, email: String, source: String, weight: Int) {
-            val e = email.trim().lowercase()
-            if (!e.contains('@') || !e.contains('.') || e.length < 6) return
-            // Addresses nobody replies to are noise in a guest picker.
-            if (Regex("(?i)(no-?reply|do-?not-?reply|notifications?@|mailer-|bounce|postmaster)")
-                    .containsMatchIn(e)) return
-            val existing = byEmail[e]
-            if (existing == null || existing.weight < weight) {
-                byEmail[e] = Entry(
-                    name.trim().ifBlank { existing?.name ?: e.substringBefore('@') },
-                    e, source, maxOf(weight, existing?.weight ?: 0))
-            }
+            val e = email.trim().trimEnd('.', ',', ';', ')', '>').lowercase()
+            if (!e.contains('@') || !e.contains('.') || e.length < 6 || e.length > 100) return
+            if (Regex("(?i)(no-?reply|do-?not-?reply|notifications?@|mailer-|bounce|postmaster|" +
+                    "@sentry\\.|@example\\.|\\.png|\\.jpg)").containsMatchIn(e)) return
+            val prev = byEmail[e]
+            byEmail[e] = Entry(
+                name.trim().ifBlank { prev?.name.orEmpty() }.ifBlank { e.substringBefore('@') },
+                e,
+                if (prev != null && prev.weight >= weight) prev.source else source,
+                maxOf(weight, prev?.weight ?: 0) + (prev?.let { 1 } ?: 0))
         }
 
-        // 1. The contacts app — deliberate, so weighted above anything inferred.
+        // 1. Contacts — deliberate, so ranked above anything inferred.
         try {
             ctx.contentResolver.query(
                 ContactsContract.CommonDataKinds.Email.CONTENT_URI,
@@ -63,31 +100,31 @@ object Directory {
             }
         } catch (e: Exception) {}
 
-        // 2. Everyone in the brain's message history — the addresses that actually get used.
+        // 2. EVERY stored sender that is itself an address — not just the top few hundred.
+        //     topContacts ranks and truncates, which is right for "who do you talk to most" and
+        //     wrong for an address book: the person emailed twice in March is exactly the one
+        //     someone is surprised to find missing.
         try {
-            MessageStore.topContacts(ctx, 400).forEachIndexed { i, t ->
-                val name = t.first
-                // A contact whose "name" already IS an address needs no resolving.
-                if (name.contains('@')) { add("", name, "you message them", 500 + (400 - i)); return@forEachIndexed }
-                val p = try { PersonResolver.resolve(ctx, name) } catch (e: Exception) { null }
-                if (p != null && p.email.isNotBlank())
-                    add(p.name.ifBlank { name }, p.email, "you message them", 500 + (400 - i))
+            MessageStore.allContacts(ctx, 8000).forEach { c ->
+                if (c.contains('@')) add("", c, "you've corresponded", 600)
             }
         } catch (e: Exception) {}
 
-        // 3. Addresses appearing anywhere in stored text — the long tail nothing else catches. A
-        // search for "@" is a cheap way to reach every message that mentions one.
+        // 3. Addresses written inside message bodies — signatures, forwards, cc lines.
+        //
+        //    By LIKE, not by the full-text index. FTS tokenises, so punctuation is not searchable
+        //    and a search for "@" matched NOTHING — which is why the picker offered nineteen
+        //    addresses on a phone holding thousands of messages.
         try {
-            MessageStore.search(ctx, "@", 400).forEach { hit ->
-                Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}").findAll(hit.body).forEach {
-                    add("", it.value, "seen in your messages", 100)
-                }
+            val re = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+            MessageStore.bodiesContaining(ctx, "@", 4000).forEach { (contact, body) ->
+                re.findAll(body).take(8).forEach { add("", it.value, "seen in your messages", 120) }
+                if (contact.contains('@')) add("", contact, "you've corresponded", 500)
             }
         } catch (e: Exception) {}
 
-        cache = byEmail.values.sortedByDescending { it.weight }
-        cachedAt = System.currentTimeMillis()
-        return cache
+        return byEmail.values.sortedWith(
+            compareByDescending<Entry> { it.weight }.thenBy { it.name.lowercase() })
     }
 
     /**
@@ -96,9 +133,10 @@ object Directory {
      * Name first, then address — someone typing "car" means Carlos, not carrier@shipping.com, and a
      * picker that leads with the second one is a picker people stop trusting.
      */
-    fun search(ctx: Context, q: String, max: Int = 6): List<Entry> {
+    fun search(ctx: Context, q: String, max: Int = 8): List<Entry> {
         val t = q.trim().lowercase()
-        if (t.length < 2) return all(ctx).take(max)
+        if (!ready) { warm(ctx); return emptyList() }
+        if (t.length < 2) return cache.take(max)
         return all(ctx).asSequence()
             .mapNotNull { e ->
                 val n = e.name.lowercase()
@@ -116,6 +154,6 @@ object Directory {
             .sortedByDescending { it.first }.take(max).map { it.second }.toList()
     }
 
-    /** How many addresses are behind the picker — worth showing once, so it looks like a directory. */
-    fun count(ctx: Context): Int = all(ctx).size
+    /** How many addresses are behind the picker. Zero while it is still building. */
+    fun count(ctx: Context): Int = cache.size
 }

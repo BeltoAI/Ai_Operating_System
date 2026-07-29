@@ -83,6 +83,14 @@ fun GoogleHome(
     var typed by remember { mutableStateOf("") }
     var appear by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(40); appear = true }
+    // Built on a background thread. Reading it from a composable is what killed the app: four
+    // hundred resolver lookups on the main thread is a watchdog kill, not an exception, which is
+    // why nothing appeared in the log.
+    LaunchedEffect(Unit) { Directory.warm(ctx) }
+    var known by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        repeat(30) { if (Directory.ready) { known = Directory.count(ctx); return@LaunchedEffect }; delay(400) }
+    }
 
     val dayStart = remember(dayOffset) {
         Calendar.getInstance().apply {
@@ -166,74 +174,56 @@ fun GoogleHome(
                     val fade by animateFloatAsState(if (appear) 1f else 0f, tween(200 + i * 60), label = "e$i")
                     val shift by animateFloatAsState(if (appear) 0f else 12f,
                         spring(dampingRatio = 0.85f, stiffness = 320f), label = "s$i")
+                    // No card, no coloured bar, no chevron. A time and a title is what a day is;
+                    // everything else was chrome competing with the only two things that matter.
                     Row(
-                        Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        Modifier.fillMaxWidth()
                             .offset(y = shift.dp).graphicsLayer { alpha = fade }
-                            .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
                             // Tapping an event is the whole point: no parsing, no ambiguity about
                             // which one, because you pointed at it.
                             .clickable {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onCompose(Verb.ACT_ON, ev)
                             }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 11.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Column(Modifier.width(52.dp)) {
-                            Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date(ev.begin)),
-                                fontSize = T.small, color = T.ink)
-                            Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date(ev.end)),
-                                fontSize = T.caption, color = T.inkFaint)
-                        }
-                        Box(Modifier.width(3.dp).height(30.dp).clip(RoundedCornerShape(999.dp))
-                            .background(T.accent))
-                        Spacer(Modifier.width(12.dp))
+                        Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(ev.begin)),
+                            fontSize = T.small, color = T.inkFaint, modifier = Modifier.width(58.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(ev.title, fontSize = T.small, color = T.ink)
+                            Text(ev.title, fontSize = T.small, color = T.ink, lineHeight = 20.sp)
                             if (ev.location.isNotBlank())
                                 Text(ev.location, fontSize = T.caption, color = T.inkFaint)
                         }
-                        Text("›", fontSize = T.body, color = T.inkFaint)
                     }
                 }
             }
 
             // ── The verbs ──
-            Spacer(Modifier.height(24.dp))
-            SectionLabel("DO SOMETHING")
-            Spacer(Modifier.height(10.dp))
-            // Two per row: big enough to hit without looking, small enough that six fit above the
-            // fold. Verbs, not example sentences — an example with somebody else's name in it
-            // teaches the phrasing rather than the feature.
-            Verb.values().toList().filter { it != Verb.ACT_ON }.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                    pair.forEach { v ->
-                        Row(
-                            Modifier.weight(1f).padding(end = 8.dp)
-                                .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
-                                .clickable {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onCompose(v, null)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(v.glyph, fontSize = 14.sp, color = T.accent)
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text(v.label, fontSize = T.small, color = T.ink)
-                                Text(v.hint, fontSize = T.caption, color = T.inkFaint)
-                            }
+            //
+            // One per line, no icons, no two-column grid. A grid of tiles reads as a dashboard;
+            // six words down the left reads as a list of things you can do, which is what it is.
+            Spacer(Modifier.height(26.dp))
+            Verb.values().toList().filter { it != Verb.ACT_ON }.forEachIndexed { i, v ->
+                val fade by animateFloatAsState(if (appear) 1f else 0f, tween(180 + i * 55), label = "v$i")
+                Row(
+                    Modifier.fillMaxWidth().graphicsLayer { alpha = fade }
+                        .clickable {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onCompose(v, null)
                         }
-                    }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        .padding(vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(v.label, fontSize = T.body, color = T.ink, modifier = Modifier.width(104.dp))
+                    Text(v.hint, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+                    Text("›", fontSize = T.body, color = T.inkFaint)
                 }
+                if (i < 5) Hairline()
             }
 
             Spacer(Modifier.height(18.dp))
-            val known = remember { Directory.count(ctx) }
             if (known > 0) {
                 Text("$known addresses to invite from — your contacts and everyone you've " +
                      "corresponded with.",
@@ -253,7 +243,8 @@ fun GoogleHome(
             Box(Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(T.bgElevated)
                 .padding(horizontal = 16.dp, vertical = 13.dp)) {
                 if (typed.isEmpty())
-                    Text("Book, move, cancel, invite, email…", fontSize = T.small, color = T.inkFaint)
+                    Text("Say what you want…", fontSize = T.small, color = T.inkFaint,
+                        maxLines = 1, softWrap = false)
                 BasicTextField(typed, { typed = it },
                     textStyle = TextStyle(color = T.ink, fontSize = T.small),
                     modifier = Modifier.fillMaxWidth())
