@@ -142,6 +142,13 @@
             android:exported="false"
             android:foregroundServiceType="microphone"/>
 
+        <!-- Recording a meeting. Foreground so it survives the lock screen and a backgrounded app —
+             losing an hour of a meeting to a screen timeout is the one failure this cannot have. -->
+        <service
+            android:name=".MeetingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"/>
+
         <!-- Chess Coach overlay (board hints). Plain started service; kept alive by its overlay windows. -->
         <service
             android:name=".ChessCoachService"

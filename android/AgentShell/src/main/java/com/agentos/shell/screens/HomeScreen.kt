@@ -2069,11 +2069,10 @@ fun HomeScreen(
                     Row(verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp))
                             .background(T.bgElevated)
-                            .clickable {
-                                recordStarted = System.currentTimeMillis()
-                                recording = true
-                                holder.start()
-                            }
+                            // Recording now has its own screen, and its own service. It used to run
+                            // inside this composable, so locking the phone during a meeting — which
+                            // is what people do in meetings — lost the recording.
+                            .clickable { onOpen(Screen.Meeting) }
                             .padding(horizontal = 18.dp, vertical = 11.dp)) {
                         Text("●", fontSize = 11.sp, color = T.danger)
                         Spacer(Modifier.width(8.dp))
