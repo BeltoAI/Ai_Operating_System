@@ -29,8 +29,14 @@ import org.json.JSONObject
  */
 object ModelBench {
 
-    /** The three that matter. Ordered as the results table shows them. */
-    val PROVIDERS = listOf("anthropic", "groq", "gemini")
+    /**
+     * Claude and Groq.
+     *
+     * Gemini is spend-capped on this phone and returns an empty string to everything, so a column of
+     * dashes made the comparison harder to read for no information. It stays routable — it is simply
+     * not worth a column until the cap is lifted.
+     */
+    val PROVIDERS = listOf("anthropic", "groq")
 
     data class Case(val id: String, val what: String)
     data class Score(
@@ -290,6 +296,9 @@ object ModelBench {
     fun label(p: String) = when (p) {
         "anthropic" -> "Claude"; "groq" -> "Groq"; "gemini" -> "Gemini"; else -> p
     }
+
+    /** Kept for the card's copy, which counts the calls it is about to make. */
+    val CALL_COUNT get() = PROVIDERS.size * CASES.size
 
     // MARK: - Storage
 

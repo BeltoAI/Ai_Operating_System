@@ -1138,7 +1138,7 @@ private fun ModelBenchCard() {
                     }
                 }.padding(vertical = 12.dp))
         Spacer(Modifier.height(6.dp))
-        Text("Fifteen calls — a few cents on a paid key, free on Groq and Gemini.",
+        Text("${com.agentos.shell.tools.ModelBench.CALL_COUNT} calls — a few cents on a paid key, free on Groq.",
             fontSize = T.caption, color = T.inkFaint)
     }
 }
@@ -1655,6 +1655,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Which model is actually better here — measured, not assumed.
         ModelBenchCard()
+
+        // The Google flows against the input people really give it, including the input that breaks it.
+        FlowBenchCard()
 
         // Brain diagnostics — live counts with trend sparklines + wiring health, for debugging.
         BrainDiagnosticsCard()
