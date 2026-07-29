@@ -109,8 +109,8 @@ fun GoogleCompose(
     // Reported: an invitation was created with Joslyn on it, and choosing "email the guests"
     // offered an empty box. The guests are a property of the event — asking someone to type them
     // again, having just been asked once, is the app forgetting something it was told a minute ago.
-    androidx.compose.runtime.LaunchedEffect(event, mode) {
-        if (event != null && guests.isEmpty() && mode in setOf(Verb.EMAIL, Verb.NOTIFY)) {
+    androidx.compose.runtime.LaunchedEffect(event) {
+        if (event != null && guests.isEmpty()) {
             val found = withContext(Dispatchers.IO) {
                 try {
                     com.agentos.shell.tools.GoogleCalendarClient
@@ -131,6 +131,7 @@ fun GoogleCompose(
     }
     var attach by remember { mutableStateOf<com.agentos.shell.tools.SlyFolder.Doc?>(null) }
     var remindMins by remember { mutableStateOf(0) }
+    var mailPurpose by remember { mutableStateOf<com.agentos.shell.tools.MailDraft.Purpose?>(null) }
 
     val startMs = remember(dayOffset, hour, minute) {
         Calendar.getInstance().apply {
@@ -172,6 +173,23 @@ fun GoogleCompose(
         }
     }
 
+    // A chosen purpose takes over the screen — the draft is the thing now, not the menu.
+    mailPurpose?.let { p ->
+        MailReview(
+            purpose = p,
+            eventTitle = event?.title.orEmpty(),
+            whenText = event?.let {
+                java.text.SimpleDateFormat("EEEE d MMMM 'at' HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(it.begin))
+            }.orEmpty(),
+            where = event?.location.orEmpty(),
+            recipients = guests,
+            modifier = modifier,
+            onSent = { },
+            onBack = { mailPurpose = null })
+        return
+    }
+
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(14.dp))
         ScreenHeader(
@@ -187,25 +205,36 @@ fun GoogleCompose(
                 .format(java.util.Date(event.begin)),
                 fontSize = T.small, color = T.inkSoft)
             Spacer(Modifier.height(22.dp))
-            listOf(
-                Triple("Move it", "⇄", Verb.MOVE),
-                Triple("Cancel it", "✕", Verb.CANCEL),
-                Triple("Heads-up to everyone", "▤", Verb.NOTIFY),
-                Triple("Email the guests", "✉", Verb.EMAIL)
-            ).forEach { (label, glyph, to) ->
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
-                    .clickable {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        mode = to
-                    }
-                    .padding(horizontal = 16.dp, vertical = 15.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(glyph, fontSize = 14.sp, color = T.accent)
-                    Spacer(Modifier.width(12.dp))
+            // WHAT A CALENDAR BLOCK ACTUALLY GENERATES.
+            //
+            // Two things you do TO the event, and six things you write ABOUT it. Every one of the
+            // six goes through a draft you read before it leaves — the old path fired a one-line
+            // message straight at the attendees, which is fine for a friend and unacceptable for
+            // anyone else, and most of a calendar is anyone else.
+            listOf("Move it" to Verb.MOVE, "Cancel it" to Verb.CANCEL).forEach { (label, to) ->
+                Row(Modifier.fillMaxWidth().clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress); mode = to
+                    }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(label, fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f))
                     Text("›", fontSize = T.body, color = T.inkFaint)
                 }
+                Hairline()
+            }
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("WRITE TO THE GUESTS")
+            Spacer(Modifier.height(4.dp))
+            Text("You'll see the email before it goes.", fontSize = T.caption, color = T.inkFaint)
+            Spacer(Modifier.height(10.dp))
+            com.agentos.shell.tools.MailDraft.Purpose.values().forEach { p ->
+                Row(Modifier.fillMaxWidth().clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        mailPurpose = p
+                    }.padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(p.label, fontSize = T.small, color = T.ink, modifier = Modifier.width(150.dp))
+                    Text(p.hint, fontSize = T.caption, color = T.inkFaint, modifier = Modifier.weight(1f))
+                    Text("›", fontSize = T.body, color = T.inkFaint)
+                }
+                Hairline()
             }
             Spacer(Modifier.height(50.dp))
             return@Column
@@ -412,12 +441,13 @@ fun GoogleCompose(
                             .put("title", event!!.title)
                             .put("message", note.ifBlank { "A quick heads-up about “${event.title}”." })
                             .toString())
-                        // An attachment turns this into a send-the-document, which carries the file.
-                        Verb.EMAIL -> if (attach != null) {
-                            run("send_document", JSONObject()
-                                .put("name", attach!!.name)
-                                .put("to", guests.joinToString(",") { it.email }).toString())
-                        } else {
+                        // Straight to the draft, never straight to a send. Even a plain "email
+                        // someone" gets read before it leaves.
+                        Verb.EMAIL -> {
+                            mailPurpose = com.agentos.shell.tools.MailDraft.Purpose.CUSTOM
+                        }
+                        Verb.ACT_ON -> {}
+                        Verb.NOTIFY -> if (false) {
                             // TAILORED FROM THE BRAIN, NOT A TEMPLATE.
                             //
                             // The composer writes in the owner's voice already; what it lacked was

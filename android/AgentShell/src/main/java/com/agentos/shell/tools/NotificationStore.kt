@@ -93,7 +93,16 @@ object NotificationStore {
         }
 
         /** Whether it is worth drafting a reply to this at all. */
-        val worthDrafting: Boolean get() = !isLikelyBot && canReply
+        /**
+         * Whether to offer a drafted reply.
+         *
+         * EMAIL COUNTS, even though Gmail's notification carries no reply box. canReply asks
+         * whether the NOTIFICATION can be replied to; that is the wrong question for mail, which is
+         * replied to through Gmail itself. Tying the two together meant every email in Now offered
+         * no draft at all — the one place a drafted reply is most obviously wanted, and the one
+         * kind of message where a considered answer matters most.
+         */
+        val worthDrafting: Boolean get() = !isLikelyBot && (canReply || isEmail)
         /**
          * Engagement-bait / digest notifications with no real person behind them
          * ("see updates you missed", "people you may know", "X is hiring", trending, etc.).

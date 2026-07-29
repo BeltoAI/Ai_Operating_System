@@ -514,7 +514,7 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
         }
         // Actions — Reply (opens inline draft) and Open. Nothing else.
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (latest.canReply)
+            if (latest.worthDrafting)
                 Text(if (expanded) "Close" else if (staged != null) "✦ Reply ready" else "✦ Reply", fontSize = T.small, color = T.accent,
                     modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp, horizontal = 2.dp))
             Spacer(Modifier.weight(1f))
@@ -539,8 +539,35 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
                             .clickable(enabled = draft.isNotBlank()) {
                                 val d = draft
                                 scope.launch {
-                                    val ok = withContext(Dispatchers.IO) { NotificationStore.sendReply(ctx, latest, d) }
+                                    val ok = withContext(Dispatchers.IO) {
+                                        // Mail goes out through Gmail, not through the notification
+                                        // — there is no reply box on it to send through.
+                                        if (latest.isEmail && !latest.canReply) {
+                                            val to = com.agentos.shell.tools.Directory
+                                                .search(ctx, latest.title, 1).firstOrNull()?.email
+                                                ?: try {
+                                                    com.agentos.shell.tools.PersonResolver
+                                                        .resolve(ctx, latest.title).email
+                                                } catch (e: Exception) { "" }
+                                            if (to.isBlank()) false
+                                            else com.agentos.shell.tools.ToolRouter.executeAction(
+                                                ctx, "send_email",
+                                                org.json.JSONObject().put("to", to)
+                                                    .put("subject", "Re: " + latest.text.take(60))
+                                                    .put("body", d).toString()
+                                            ).contains("✓")
+                                        } else NotificationStore.sendReply(ctx, latest, d)
+                                    }
                                     sendMsg = if (ok) "sent ✓" else "couldn't send"
+                                    // Into the brain either way: what you actually said, in your
+                                    // own words, is the highest-value thing this app stores.
+                                    if (ok) withContext(Dispatchers.IO) {
+                                        try {
+                                            com.agentos.shell.tools.Brain.remember(ctx, "response",
+                                                "Replied to ${latest.title}", d,
+                                                actors = listOf(latest.title), role = "me")
+                                        } catch (e: Exception) {}
+                                    }
                                 }
                             }.padding(horizontal = 22.dp, vertical = 9.dp))
                     Spacer(Modifier.width(12.dp))
