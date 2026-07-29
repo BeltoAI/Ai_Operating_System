@@ -73,18 +73,36 @@ fun VitalsChart(
         baseline ?: Double.MIN_VALUE,
         trend?.let { it.projected + it.band } ?: Double.MIN_VALUE)
     val pad = ((hi0 - lo0) * 0.12).takeIf { it > 1e-9 } ?: (kotlin.math.abs(hi0) * 0.1 + 1)
-    val lo = lo0 - pad
-    val hi = hi0 + pad
+    // THE SCALE GLIDES; IT DOES NOT JUMP.
+    //
+    // Switching 30d → 90d changes both the points and the vertical range they are drawn in, and
+    // swapping both at once is a cut — the eye has nothing to follow and has to re-read the whole
+    // chart. Animating the axis means the old shape visibly re-scales into the new one, so the
+    // change reads as "same series, wider view" rather than "different picture".
+    val loT by animateFloatAsState((lo0 - pad).toFloat(),
+        androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 190f), label = "lo")
+    val hiT by animateFloatAsState((hi0 + pad).toFloat(),
+        androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 190f), label = "hi")
+    val lo = loT.toDouble()
+    val hi = hiT.toDouble()
     val span = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
 
-    // The line draws itself in on arrival and on every range change. Not decoration: switching from
-    // 30d to 90d otherwise swaps one static shape for another with no sense that the same series
-    // just got longer, and the eye loses its place.
-    var shown by remember(metric, days.size, days.lastOrNull()?.dayStart) { mutableStateOf(false) }
-    LaunchedEffect(metric, days.size) { shown = true }
+    // MOTION THAT IS CONTINUOUS, NOT STEPPED.
+    //
+    // The first attempt revealed the series one point at a time, so it arrived as a stutter of
+    // discrete segments — a progress bar wearing a chart's clothes. This instead grows every point
+    // from the flat baseline into its real value at once, on a spring: the shape RISES out of the
+    // line it is measured against, which is also what the chart means. Nothing pops, nothing steps,
+    // and a range change morphs rather than cuts.
+    // Re-keyed on the window as well as the metric, so a range change REPLAYS the rise instead of
+    // snapping to a finished chart — the new span forms in front of you.
+    var shown by remember(metric, days.size) { mutableStateOf(false) }
+    LaunchedEffect(metric, days.size) { shown = false; shown = true }
     val grow by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
-        animationSpec = tween(durationMillis = 520, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = 0.82f,           // a touch of settle, no visible bounce
+            stiffness = 220f),
         label = "chart")
 
     Column {
@@ -111,17 +129,33 @@ fun VitalsChart(
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f)))
             }
 
+            // Every point eased from the baseline toward its real value — the whole shape rises
+            // together instead of being drawn on left to right.
+            val restY = baseline?.let { y(it) } ?: size.height
+            fun ay(v: Double): Float {
+                val target = y(v)
+                return restY + (target - restY) * grow
+            }
+
             // The series: filled, so a month reads as a shape rather than as a wire.
-            // How much of the series is revealed so far.
-            val upTo = (days.size * grow).toInt().coerceAtLeast(if (grow > 0f) 2 else 0)
-            val vis = days.take(upTo.coerceAtLeast(0))
-            if (vis.size >= 2) {
+            if (days.size >= 2) {
                 val line = Path().apply {
-                    vis.forEachIndexed { i, d -> if (i == 0) moveTo(x(i), y(d.value)) else lineTo(x(i), y(d.value)) }
+                    // A quadratic through the midpoints: the join at every reading is smooth, and a
+                    // month of nights stops looking like a saw.
+                    days.forEachIndexed { i, d ->
+                        val px = x(i); val py = ay(d.value)
+                        if (i == 0) moveTo(px, py)
+                        else {
+                            val prevX = x(i - 1); val prevY = ay(days[i - 1].value)
+                            val midX = (prevX + px) / 2
+                            quadraticBezierTo(prevX, prevY, midX, (prevY + py) / 2)
+                            quadraticBezierTo(px, py, px, py)
+                        }
+                    }
                 }
                 val area = Path().apply {
                     addPath(line)
-                    lineTo(x(vis.size - 1), size.height)
+                    lineTo(x(days.size - 1), size.height)
                     lineTo(x(0), size.height)
                     close()
                 }
@@ -129,20 +163,53 @@ fun VitalsChart(
                     listOf(T.accent.copy(alpha = 0.28f), T.accent.copy(alpha = 0.02f))))
                 drawPath(line, T.accent, style = Stroke(2.2.dp.toPx()))
             }
-            // Every point, so a thin series is visibly thin.
-            days.take(upTo).forEachIndexed { i, d ->
-                drawCircle(T.accent, radius = if (days.size > 30) 1.4.dp.toPx() else 2.4.dp.toPx(),
-                    center = Offset(x(i), y(d.value)))
+            // ── THE TREND THROUGH THE NOISE ──
+            //
+            // A rolling seven-day mean, drawn thin over the daily line. The daily series answers
+            // "what happened"; this answers "which way is it going", and on ninety days of sleep
+            // those are genuinely different questions — the raw line is a saw and the trend under
+            // it can be moving steadily the other way.
+            if (days.size >= 10) {
+                val w = if (days.size > 45) 7 else 5
+                val roll = days.indices.map { i ->
+                    val from = (i - w + 1).coerceAtLeast(0)
+                    days.subList(from, i + 1).sumOf { it.value } / (i - from + 1)
+                }
+                val trendPath = Path().apply {
+                    roll.forEachIndexed { i, v ->
+                        val px = x(i); val py = ay(v)
+                        if (i == 0) moveTo(px, py) else lineTo(px, py)
+                    }
+                }
+                drawPath(trendPath, T.ink.copy(alpha = 0.42f * grow),
+                    style = Stroke(1.4.dp.toPx()))
+            }
+
+            // Points only on a short series — on ninety days they are noise, and the last one is
+            // the only one anybody looks for.
+            if (days.size <= 31) {
+                days.forEachIndexed { i, d ->
+                    drawCircle(T.accent.copy(alpha = 0.55f + 0.45f * grow),
+                        radius = 2.4.dp.toPx(), center = Offset(x(i), ay(d.value)))
+                }
+            }
+            days.lastOrNull()?.let { d ->
+                // The current reading, haloed. It is the number in the headline, and the eye should
+                // be able to find it on the line without counting.
+                drawCircle(T.accent.copy(alpha = 0.18f * grow), radius = 8.dp.toPx(),
+                    center = Offset(x(days.size - 1), ay(d.value)))
+                drawCircle(T.accent, radius = 3.4.dp.toPx(),
+                    center = Offset(x(days.size - 1), ay(d.value)))
             }
 
             // The forecast, as a cone opening from today to the band at 30 days.
             trend?.let { t ->
-                val x0 = x(days.size - 1); val y0 = y(days.last().value)
-                val x1 = size.width; val yc = y(t.projected)
+                val x0 = x(days.size - 1); val y0 = ay(days.last().value)
+                val x1 = size.width; val yc = ay(t.projected)
                 val cone = Path().apply {
                     moveTo(x0, y0)
-                    lineTo(x1, y(t.projected + t.band))
-                    lineTo(x1, y(t.projected - t.band))
+                    lineTo(x1, ay(t.projected + t.band))
+                    lineTo(x1, ay(t.projected - t.band))
                     close()
                 }
                 // The forecast arrives after the history has drawn, which is also the order it
@@ -159,10 +226,12 @@ fun VitalsChart(
         Row(Modifier.fillMaxWidth()) {
             Text(VitalsStore.M.format(metric, lo0), fontSize = T.caption, color = T.inkFaint,
                 modifier = Modifier.weight(1f))
-            baseline?.let {
-                Text("- - -  your baseline ${VitalsStore.M.format(metric, it)}",
-                    fontSize = T.caption, color = T.inkFaint)
-            }
+            // Why 30d and 90d can look identical: there are only so many days. Said, rather than
+            // left as a puzzle about whether the buttons work.
+            Text((if (days.size >= 10) "— trend  ·  " else "") +
+                "${days.size} day${if (days.size == 1) "" else "s"}" +
+                (baseline?.let { "  ·  baseline ${VitalsStore.M.format(metric, it)}" } ?: ""),
+                fontSize = T.caption, color = T.inkFaint)
         }
     }
 }

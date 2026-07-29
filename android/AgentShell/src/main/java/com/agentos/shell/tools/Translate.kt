@@ -21,6 +21,21 @@ object Translate {
     } catch (e: Exception) { "und" }
 
     /** Translate [text] into [targetTag] (default English). Returns the translation, or the original on failure. */
+    /**
+     * The languages people actually hold a phone across a table for.
+     *
+     * A list rather than the full ML Kit set: fifty-nine options in a picker is worse than twelve,
+     * and the twelve cover the overwhelming majority of the moment this feature exists for.
+     */
+    val COMMON: List<Pair<String, String>> = listOf(
+        "en" to "English", "es" to "Spanish", "fr" to "French", "de" to "German",
+        "it" to "Italian", "pt" to "Portuguese", "nl" to "Dutch", "pl" to "Polish",
+        "ru" to "Russian", "tr" to "Turkish", "ar" to "Arabic", "zh" to "Chinese",
+        "ja" to "Japanese", "ko" to "Korean", "hi" to "Hindi", "uk" to "Ukrainian"
+    )
+
+    fun nameOf(tag: String): String = COMMON.firstOrNull { it.first == tag }?.second ?: tag.uppercase()
+
     fun translate(text: String, targetTag: String = "en"): String {
         if (text.isBlank()) return text
         val srcTag = detect(text)

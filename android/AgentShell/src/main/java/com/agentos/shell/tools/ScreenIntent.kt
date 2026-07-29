@@ -221,6 +221,12 @@ object ScreenIntent {
         r("cowork", "\\bcowork\\b|\\bwork (with me|session)\\b|\\blet'?s work on\\b"),
         // ── Faces / people ──
         r("faces", "\\b(faces|who is in (this|that) photo|recognise|recognize)\\b.{0,20}\\b(photo|picture|face)\\b|\\bmy people\\b"),
+        // ── Live translation ──
+        r("translate_live",
+            "\\b(live|two.?way|conversation|real.?time)\\s+translat\\w*\\b" +
+            "|\\btranslate\\b.{0,20}\\b(conversation|for (us|them|me and)|between us|back and forth)\\b" +
+            "|\\b(interpreter|translate mode|translation mode)\\b"),
+
         // ── Health ──
         //
         // Opens the page. A QUESTION about health ("how did I sleep this week?") is not this — it is
@@ -370,7 +376,7 @@ object ScreenIntent {
         "network_search" -> "My network"; "shop" -> "Shopping"; "expenses" -> "Expenses"
         "look" -> "Look"; "write_paper" -> "Research"; "cowork" -> "Cowork"
         "faces" -> "Faces"; "operate" -> "Screen control"; "spicy_post" -> "Spicy post"
-        "record_meeting" -> "Recording a meeting"; "meetings" -> "Meetings"; "health" -> "Health"
+        "record_meeting" -> "Recording a meeting"; "meetings" -> "Meetings"; "health" -> "Health"; "translate_live" -> "Live translate"
         "compose_post" -> "Compose post"
         "timer" -> "Timer"; "alarm" -> "Alarm"; "remind" -> "Reminder"
         "checklist_add" -> "Checklist"; "checklist_clear" -> "Checklist"; "checklist_remove" -> "Checklist"

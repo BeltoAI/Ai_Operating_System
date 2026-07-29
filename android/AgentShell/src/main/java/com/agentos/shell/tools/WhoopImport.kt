@@ -52,7 +52,19 @@ object WhoopImport {
         var rows = 0
         var from = Long.MAX_VALUE; var to = 0L
 
-        csvs.forEach { text ->
+        // ORDER MATTERS. Several files in the export carry the same column names against the same
+        // cycle start time — workouts.csv has "Energy burned" per workout, physiological_cycles.csv
+        // has it per day — and a later write wins on (metric, timestamp). Processed so the daily
+        // file lands last, or a day with three gym sessions would end up reporting the calories of
+        // whichever one happened to be read last.
+        val ordered = csvs.sortedBy { (name, _) ->
+            when {
+                name.contains("physiological", true) -> 3
+                name.contains("sleep", true) -> 2
+                else -> 1
+            }
+        }
+        ordered.forEach { (_, text) ->
             val lines = text.lineSequence().filter { it.isNotBlank() }.toList()
             if (lines.size < 2) return@forEach
             val header = splitCsv(lines.first())
@@ -94,17 +106,17 @@ object WhoopImport {
     // MARK: - Reading
 
     /** Every CSV in the zip, or the file itself when it already is one. */
-    private fun readCsvs(ctx: Context, uri: Uri): List<String> {
+    private fun readCsvs(ctx: Context, uri: Uri): List<Pair<String, String>> {
         val name = (uri.lastPathSegment ?: "").lowercase()
         val looksZip = name.endsWith(".zip") ||
             (ctx.contentResolver.getType(uri)?.contains("zip") == true)
 
         if (!looksZip) {
             val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-            return listOfNotNull(text?.takeIf { it.contains(',') })
+            return listOfNotNull(text?.takeIf { it.contains(',') }?.let { name to it })
         }
 
-        val out = ArrayList<String>()
+        val out = ArrayList<Pair<String, String>>()
         ctx.contentResolver.openInputStream(uri)?.use { raw ->
             ZipInputStream(raw.buffered()).use { zip ->
                 while (true) {
@@ -112,7 +124,7 @@ object WhoopImport {
                     if (!entry.isDirectory && entry.name.lowercase().endsWith(".csv")) {
                         // Read without closing the stream — closing the reader would close the zip
                         // and cost every entry after this one.
-                        out.add(zip.readBytes().toString(Charsets.UTF_8))
+                        out.add(entry.name to zip.readBytes().toString(Charsets.UTF_8))
                     }
                     zip.closeEntry()
                 }

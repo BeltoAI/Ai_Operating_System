@@ -403,6 +403,51 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Text(answer, fontSize = T.small, color = T.ink, lineHeight = 21.sp)
         }
 
+        // ── Sources ──
+        //
+        // The import lived ONLY on the empty state, so the moment a single reading arrived the way
+        // to bring in months of history disappeared — exactly backwards, since the history is worth
+        // more once you can see what it would join.
+        Spacer(Modifier.height(26.dp))
+        SectionLabel("SOURCES")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            (VitalsStore.sources(ctx).filter { it.isNotBlank() }.distinct()
+                .takeIf { it.isNotEmpty() }?.joinToString(", ")?.let { "Reading from $it. " } ?: "") +
+            "A WHOOP export also carries HRV, recovery and strain — which the live connection " +
+            "cannot send at all — plus everything from before you connected.",
+            fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Text(if (syncing) "Reading…" else "Import a WHOOP export",
+                fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(999.dp))
+                    .background(T.bgElevated).clickable(enabled = !syncing) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        try {
+                            pickExport.launch(arrayOf("application/zip", "text/csv",
+                                "text/comma-separated-values", "*/*"))
+                        } catch (e: Exception) { note = "Couldn't open the file picker." }
+                    }.padding(vertical = 13.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Sync", fontSize = T.small, color = T.ink, textAlign = TextAlign.Center,
+                modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.bgElevated)
+                    .clickable(enabled = !syncing) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch {
+                            syncing = true
+                            val n = withContext(Dispatchers.IO) { VitalsSource.sync(ctx, 90) }
+                            syncing = false; tick++
+                            note = if (n > 0) "Pulled $n readings." else "Nothing new."
+                        }
+                    }.padding(horizontal = 20.dp, vertical = 13.dp))
+        }
+        if (note.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(note, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+        }
+
         Spacer(Modifier.height(26.dp))
         Text("SlyOS is not a medical device. It describes your own numbers and never diagnoses.",
             fontSize = T.caption, color = T.inkFaint, lineHeight = 16.sp)

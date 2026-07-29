@@ -216,6 +216,39 @@ object VitalsInsight {
         return sb.toString()
     }
 
+    /**
+     * Which metrics a question is actually about, for showing beside the answer.
+     *
+     * Named metrics first; failing that, the handful that a general "how am I doing" is about. A
+     * health answer that is a paragraph of prose makes the reader hunt for the figure it describes,
+     * when the figure is something the phone already has.
+     */
+    fun metricsFor(ctx: Context, q: String): List<String> {
+        val present = VitalsStore.present(ctx)
+        if (present.isEmpty()) return emptyList()
+        val named = present.filter { m ->
+            val words = when (m) {
+                VitalsStore.M.SLEEP -> listOf("sleep", "slept", "rested", "bed", "night")
+                VitalsStore.M.HRV -> listOf("hrv", "variability")
+                VitalsStore.M.RHR -> listOf("resting", "heart rate", "pulse")
+                VitalsStore.M.STEPS -> listOf("steps", "walked", "walking")
+                VitalsStore.M.RECOVERY -> listOf("recovery", "recovered")
+                VitalsStore.M.STRAIN -> listOf("strain", "exertion")
+                VitalsStore.M.RESP -> listOf("breathing", "respiratory")
+                VitalsStore.M.SPO2 -> listOf("oxygen", "spo2")
+                VitalsStore.M.WEIGHT -> listOf("weight", "kilos", "kg")
+                VitalsStore.M.EXERCISE -> listOf("exercise", "workout", "training", "train")
+                else -> emptyList()
+            }
+            words.any { q.contains(it, ignoreCase = true) }
+        }
+        if (named.isNotEmpty()) return named.take(4)
+        // A general question gets the ones that answer "how am I today".
+        return present.filter {
+            it in listOf(VitalsStore.M.RECOVERY, VitalsStore.M.SLEEP, VitalsStore.M.HRV, VitalsStore.M.RHR)
+        }.take(4)
+    }
+
     /** Whether a question is about the body rather than the calendar. */
     fun isHealthQuestion(q: String): Boolean = Regex(
         "(?i)\\b(sleep|slept|hrv|heart rate|resting heart|recovery|strain|steps|weight|" +

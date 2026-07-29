@@ -197,6 +197,8 @@ fun HomeScreen(
     var replyDragX by remember { mutableStateOf(0f) }     // swipe the answer card: left=dismiss, right=open/Google
     // The in-flight request, so a swipe or a tap can stop it.
     var thinkingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    /** Metrics the current answer is about, rendered beside it rather than described in it. */
+    var healthCard by remember { mutableStateOf<List<String>>(emptyList()) }
     val stopThinking: () -> Unit = {
         try { thinkingJob?.cancel() } catch (e: Exception) {}
         thinkingJob = null; thinking = false; replyDragX = 0f
@@ -582,6 +584,7 @@ fun HomeScreen(
             return@submit
         }
 
+        healthCard = emptyList()
         thinking = true; reply = ""; rememberSuggestion = ""; text = ""; pendingConfirm = null; lastQuery = q; replyDragX = 0f; calCard = null; producedImage = null
         // Kept so it can be stopped. Without a handle on the job there was no way to abandon a
         // request already in flight — the only options were to wait it out or leave the screen.
@@ -1050,6 +1053,11 @@ fun HomeScreen(
                 onDocs()
                 return@launch
             }
+            if (result.actions.any { it.type == "translate_live" }) {
+                thinking = false; reply = ""
+                onOpen(Screen.Translate)
+                return@launch
+            }
             if (result.actions.any { it.type == "health" }) {
                 thinking = false; reply = ""
                 onHealth()
@@ -1140,6 +1148,12 @@ fun HomeScreen(
                     }
                     reply = withContext(Dispatchers.IO) {
                         AgentClient.answerWell(q, context + "\n\n" + vitals, history)
+                    }
+                    // The numbers the answer is ABOUT, shown as numbers. A health answer that is a
+                    // paragraph of prose makes the reader hunt for the figure it is describing, when
+                    // the figure is a thing the phone already has and can simply put on screen.
+                    healthCard = withContext(Dispatchers.IO) {
+                        com.agentos.shell.tools.VitalsInsight.metricsFor(ctx, q)
                     }
                     pendingConfirm = null
                 }
@@ -1565,6 +1579,64 @@ fun HomeScreen(
             )
         }
 
+        // ── WHERE YOU MEANT TO GO ──
+        //
+        // SlyOS replaced the launcher, and a launcher's one job is getting you somewhere fast. But
+        // these screens have no icons on a grid — they are reached by asking, which is wonderful
+        // when you know what to ask and useless when you half-remember there is a portfolio page
+        // somewhere. A phone's app drawer answers "por…" with Portfolio before you finish the word;
+        // there was no equivalent here, so features that took a week to build were unreachable by
+        // anyone who had not been told they existed.
+        val places = remember(text) { com.agentos.shell.tools.Places.suggest(text) }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = places.isNotEmpty() && !thinking,
+            enter = androidx.compose.animation.fadeIn(
+                androidx.compose.animation.core.tween(160)) +
+                androidx.compose.animation.expandVertically(
+                    androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 380f)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(110)) +
+                androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(140))
+        ) {
+            Column(Modifier.padding(top = 12.dp)) {
+                places.forEach { p ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                            .clip(RoundedCornerShape(13.dp)).background(T.bgElevated)
+                            .clickable {
+                                text = ""
+                                // The suggestion IS the request the owner could have typed, routed
+                                // through exactly the same path — nothing new downstream.
+                                when (p.key) {
+                                    "health" -> onHealth()
+                                    "meetings" -> onMeeting(false)
+                                    "record_meeting" -> onMeeting(true)
+                                    "invest" -> onInvest("")
+                                    "expenses" -> onExpenses()
+                                    "find_job" -> onJob("")
+                                    "network_search" -> onNetwork("")
+                                    "write_paper" -> onResearch("")
+                                    "cowork" -> onOpen(Screen.Cowork)
+                                    "shop" -> onShop("")
+                                    "look" -> onLook()
+                                    "faces" -> onFaces()
+                                    "set_mission" -> onSetMission("")
+                                    "translate_live" -> onOpen(Screen.Translate)
+                                    "spicy_post" -> onSpicy("")
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(p.name, fontSize = T.small, color = T.ink)
+                            Text(p.hint, fontSize = T.caption, color = T.inkFaint)
+                        }
+                        Text("›", fontSize = T.body, color = T.inkFaint)
+                    }
+                }
+            }
+        }
+
         if (photos.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             AttachChip(
@@ -1767,6 +1839,46 @@ fun HomeScreen(
             val replyDrag = androidx.compose.foundation.gestures.rememberDraggableState { delta ->
                 replyDragX = (replyDragX + delta).coerceIn(-360f, 360f)
             }
+            // THE NUMBERS THE ANSWER IS ABOUT, AS NUMBERS.
+            //
+            // A health reply that is a paragraph of prose makes the reader hunt through it for the
+            // figure it is describing — a figure the phone already has and can simply put on
+            // screen. Shown above the words, in the same shapes the Health page uses, so the two
+            // never disagree about what a metric looks like.
+            if (healthCard.isNotEmpty() && !thinking) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    healthCard.forEach { m ->
+                        val series = com.agentos.shell.tools.VitalsStore.series(ctx, m, 30)
+                        val v = series.lastOrNull()?.value
+                        Column(
+                            Modifier.weight(1f).padding(end = 8.dp)
+                                .clip(RoundedCornerShape(13.dp)).background(T.bgElevated)
+                                .clickable { onHealth() }
+                                .padding(horizontal = 12.dp, vertical = 11.dp)
+                        ) {
+                            Text(com.agentos.shell.tools.VitalsStore.M.label(m),
+                                fontSize = 9.sp, color = T.inkFaint,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                            Spacer(Modifier.height(3.dp))
+                            Text(v?.let { com.agentos.shell.tools.VitalsStore.M.format(m, it) } ?: "—",
+                                fontSize = 19.sp, color = T.ink)
+                            val base = com.agentos.shell.tools.VitalsMath.baseline(series.dropLast(1))
+                            if (v != null && base != null && series.size >= 7) {
+                                val d = v - base
+                                val better = com.agentos.shell.tools.VitalsStore.M.higherIsBetter(m)
+                                val col = when (better) {
+                                    null -> T.inkSoft
+                                    true -> if (d > 0) T.good else T.danger
+                                    false -> if (d < 0) T.good else T.danger
+                                }
+                                Text(com.agentos.shell.tools.VitalsStore.M.formatDelta(m, d),
+                                    fontSize = T.caption, color = col)
+                            }
+                        }
+                    }
+                }
+            }
+
             Column(
                 Modifier
                     .fillMaxWidth()
