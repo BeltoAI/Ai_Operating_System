@@ -118,12 +118,9 @@ object FirstRun {
      * Written as what they can now do, not as what was repaired. "Invitations now reach people"
      * tells someone something; "fixed attendee serialisation in the confirmation card" does not.
      */
-    private val NOTES = listOf(
-        "Invitations reach people. Say \"invite Joslyn to a call at 4\" and she gets it — SlyOS finds the address itself.",
-        "Hold the dot to talk. Pause to think as long as you like; it waits for you to let go.",
-        "Record a meeting, and get the decisions and who owes what — with your commitments added to your list.",
-        "Posts work on every channel, in that channel's voice, however you ask for them.",
-        "Your inbox agent reads the whole inbox, and its drafts are approvable from the Team tab.",
-        "Nothing sends twice. A repeat inside five minutes asks first."
-    )
+    /**
+     * Written once, in [Walkthrough.WHATS_NEW]. Two lists of release notes drift, and the one that
+     * drifts is always the one on screen.
+     */
+    private val NOTES get() = Walkthrough.WHATS_NEW
 }

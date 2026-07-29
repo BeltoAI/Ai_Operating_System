@@ -158,6 +158,18 @@ object AgentClient {
         return if (code == 200) text.trim() else ""
     }
 
+    /**
+     * A completion from ONE named provider, whatever the router would otherwise have chosen.
+     *
+     * Only for comparing providers against each other. Everywhere else the router's fallback is the
+     * feature — it is what keeps SlyOS answering when a key is out of quota — so the pin is set and
+     * cleared around this single call and never left on.
+     */
+    fun completeWith(provider: String, system: String, user: String, maxTokens: Int = 500): String {
+        ModelRouter.pinned = provider
+        return try { complete(system, user, maxTokens) } finally { ModelRouter.pinned = null }
+    }
+
     // ── Last successful call's token usage (for per-employee ledgers). Serialize callers to avoid races. ──
     @Volatile var lastInTok = 0
     @Volatile var lastOutTok = 0

@@ -1052,6 +1052,97 @@ private fun HealthConnectCard() {
     }
 }
 
+
+/**
+ * Which model is actually better, on this phone, against this brain.
+ *
+ * FeatureHealth proves a key answers and ApiHealth proves the endpoint is up; neither says anything
+ * about quality. This asks the same five questions of Claude, Groq and Gemini and grades the answers
+ * — mostly deterministically, so the bench cannot fail in the same direction as the thing it tests.
+ */
+@Composable
+private fun ModelBenchCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var step by remember { mutableStateOf("") }
+    var tick by remember { mutableStateOf(0) }
+    val report = remember(tick) { com.agentos.shell.tools.ModelBench.last(ctx) }
+
+    Collapsible("Compare the models", "Claude vs Groq vs Gemini, on your own brain",
+        keywords = "model bench compare quality claude groq gemini benchmark speed") {
+        Text("Five questions asked of each: can it find something only your history knows, does it " +
+             "say \"I don't know\" instead of inventing, does it read a time correctly, does it emit " +
+             "both halves of a two-part request, and does a LinkedIn post come out at LinkedIn's length.",
+            fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
+
+        report?.let { r ->
+            Spacer(Modifier.height(14.dp))
+            com.agentos.shell.tools.ModelBench.PROVIDERS
+                .filter { p -> r.scores.any { it.provider == p } }
+                .sortedByDescending { r.passRate(it) }
+                .forEach { p ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(com.agentos.shell.tools.ModelBench.label(p),
+                            fontSize = T.small, color = T.ink, modifier = Modifier.width(78.dp))
+                        // A bar rather than a number alone: three percentages in a column are read
+                        // one at a time, three bars are read at once.
+                        Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(999.dp))
+                            .background(T.hairline)) {
+                            if (!r.isDown(p))
+                                Box(Modifier.fillMaxWidth(r.passRate(p) / 100f).height(6.dp)
+                                    .clip(RoundedCornerShape(999.dp)).background(T.accent))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        // A provider that answered nothing gets a dash, never a 0%. They are
+                        // different facts: one is a bad model, the other is a dead key.
+                        Text(if (r.isDown(p)) "—" else "${r.passRate(p)}%",
+                            fontSize = T.caption, color = T.inkSoft,
+                            modifier = Modifier.width(38.dp), textAlign = TextAlign.End)
+                        Text("${r.medianMs(p)}ms", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.width(62.dp), textAlign = TextAlign.End)
+                    }
+                    // Only the failures are spelled out. A list of passes is noise; a failure is the
+                    // reason to change something.
+                    if (r.isDown(p)) {
+                        Text("answered nothing — key rejected or out of quota, not a quality result",
+                            fontSize = T.caption, color = T.inkFaint, lineHeight = 16.sp,
+                            modifier = Modifier.padding(start = 78.dp, bottom = 3.dp))
+                    } else r.scores.filter { it.provider == p && !it.passed }.forEach { sc ->
+                        Text("${sc.caseId} — ${sc.detail}", fontSize = T.caption, color = T.danger,
+                            lineHeight = 16.sp, modifier = Modifier.padding(start = 78.dp, bottom = 3.dp))
+                    }
+                }
+            Spacer(Modifier.height(10.dp))
+            Text(com.agentos.shell.tools.ModelBench.recommendation(r),
+                fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp)
+            Spacer(Modifier.height(4.dp))
+            Text("Run " + java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(r.at)) + ". Also saved to your brain, so you can ask about it.",
+                fontSize = T.caption, color = T.inkFaint)
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Text(if (running) (step.ifBlank { "Running…" }) else "Run the comparison",
+            fontSize = T.small, color = Color.White, fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.accent)
+                .clickable(enabled = !running) {
+                    running = true; step = ""
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            com.agentos.shell.tools.ModelBench.run(ctx) { s -> step = s }
+                        }
+                        running = false; tick++
+                    }
+                }.padding(vertical = 12.dp))
+        Spacer(Modifier.height(6.dp))
+        Text("Fifteen calls — a few cents on a paid key, free on Groq and Gemini.",
+            fontSize = T.caption, color = T.inkFaint)
+    }
+}
+
 @Composable
 private fun BrainDiagnosticsCard() {
     val ctx = LocalContext.current
@@ -1561,6 +1652,9 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         // Your wearable — one connection that covers Whoop, Garmin, Fitbit and Samsung Health.
         HealthConnectCard()
+
+        // Which model is actually better here — measured, not assumed.
+        ModelBenchCard()
 
         // Brain diagnostics — live counts with trend sparklines + wiring health, for debugging.
         BrainDiagnosticsCard()

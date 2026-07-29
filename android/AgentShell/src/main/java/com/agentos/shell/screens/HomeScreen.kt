@@ -1767,6 +1767,67 @@ fun HomeScreen(
             }
         }
 
+        // ── THE WALKTHROUGH ──
+        //
+        // FirstRun stops the moment the app can function, which is setup, not learning. This shows
+        // what SlyOS is FOR — and every step is a verb: tapping runs the question, opens the
+        // recorder, picks the PDF. A tour that only describes an app leaves someone where they
+        // started, and this one has no icons on a grid to browse instead.
+        //
+        // One card at a time, never modal, dismissible forever. A list of eight is a chore.
+        if (!com.agentos.shell.tools.FirstRun.hidden(ctx) &&
+            com.agentos.shell.tools.FirstRun.remaining(ctx).isEmpty() &&
+            reply.isBlank() && !thinking) {
+            val wstep = remember(brainTick) { com.agentos.shell.tools.Walkthrough.next(ctx) }
+            wstep?.let { step ->
+                Spacer(Modifier.height(14.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(T.bgElevated).padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SHOW ME", fontSize = 10.sp, color = T.accent,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                        Spacer(Modifier.weight(1f))
+                        Text("${com.agentos.shell.tools.Walkthrough.remaining(ctx)} left",
+                            fontSize = T.caption, color = T.inkFaint)
+                        Spacer(Modifier.width(12.dp))
+                        Text("No thanks", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.clickable {
+                                com.agentos.shell.tools.Walkthrough.dismiss(ctx); brainTick++
+                            }.padding(4.dp))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(step.title, fontSize = T.body, color = T.ink)
+                    Spacer(Modifier.height(4.dp))
+                    Text(step.why, fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+                    Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(step.cta, fontSize = T.small, color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
+                                .clickable {
+                                    com.agentos.shell.tools.Walkthrough.done(ctx, step.id)
+                                    brainTick++
+                                    when (step.action) {
+                                        "prompt" -> submit(step.arg, false)
+                                        "meetings" -> onMeeting(false)
+                                        "health" -> onHealth()
+                                        "team" -> onOpen(Screen.Now)
+                                        // The PDF path lands on the screen that holds the import
+                                        // rows, which is where a file actually gets read.
+                                        "pdf" -> onOpen(Screen.MemorySettings)
+                                        else -> {}
+                                    }
+                                }.padding(horizontal = 20.dp, vertical = 10.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Text("Skip", fontSize = T.caption, color = T.inkFaint,
+                            modifier = Modifier.clickable {
+                                com.agentos.shell.tools.Walkthrough.done(ctx, step.id); brainTick++
+                            }.padding(6.dp))
+                    }
+                }
+            }
+        }
+
         // WHAT'S NEW — once per version, then never again.
         whatsNew?.let { notes ->
             Spacer(Modifier.height(14.dp))

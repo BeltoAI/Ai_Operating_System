@@ -117,8 +117,23 @@ object ModelRouter {
      * with a key, while respecting capability needs (web → Anthropic; vision → vision model). Returns
      * null only if NO provider has a key at all.
      */
+    /**
+     * Force every routing decision to one provider, or null for normal behaviour.
+     *
+     * Exists for the bench, which has to ask the SAME question of each provider — comparing them is
+     * meaningless if the router silently answers three times from whichever one it prefers. Set and
+     * cleared around a single call by [AgentClient.completeWith]; nothing else should touch it,
+     * because a pin left set would quietly disable fallback for the whole app.
+     */
+    @Volatile var pinned: String? = null
+
     fun choose(ctx: Context?, tier: Tier, needVision: Boolean, needWeb: Boolean): Choice? {
         if (ctx == null) return null
+        pinned?.let { p ->
+            val k = keyFor(ctx, p)
+            val model = modelFor(ctx, p, tier)
+            return if (k.isNotBlank() && model != null) Choice(p, model, k) else null
+        }
         val geminiKey = MemoryStore.geminiKey(ctx)
 
         // HARD BUDGET CAP: once this month's PAID spend crosses your cap, route ONLY to FREE brains (any of
@@ -160,6 +175,9 @@ object ModelRouter {
      */
     fun chooseAll(ctx: Context?, tier: Tier, needVision: Boolean, needWeb: Boolean): List<Choice> {
         if (ctx == null) return emptyList()
+        // Pinned means pinned: no fallback list, or the bench would score one provider's answer
+        // against another provider's name.
+        pinned?.let { return listOfNotNull(choose(ctx, tier, needVision, needWeb)) }
         val geminiKey = MemoryStore.geminiKey(ctx)
         val budget = MemoryStore.monthlyBudget(ctx)
         val overBudget = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget
