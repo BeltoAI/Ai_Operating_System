@@ -1,0 +1,284 @@
+package com.agentos.shell.screens
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.agentos.shell.theme.T
+import com.agentos.shell.tools.CalendarTool
+import com.agentos.shell.tools.Directory
+import kotlinx.coroutines.delay
+import java.util.Calendar
+
+/**
+ * The Google page as a *place*: your week, then a way to change it.
+ *
+ * The first version opened onto seven example sentences with real people's names baked into them,
+ * which is both useless to anyone else and slightly rude — it teaches the app's phrasing rather than
+ * showing the owner their own week, and it only ever appeared mid-request anyway.
+ *
+ * Three ways in, and the ordering is the whole design:
+ *
+ *  1. **The calendar.** Tap an event and act on THAT event. The ambiguity that breaks every parser —
+ *     which 2pm, whose meeting — simply does not exist when you have pointed at the thing.
+ *  2. **The verbs.** Book, Move, Cancel, Invite, Email, Meet. For when you know what you want and
+ *     would rather not compose a sentence about it. Each opens a form where everything is optional
+ *     except what makes it valid.
+ *  3. **The prompt bar.** For when saying it is faster, which for fluent requests it usually is.
+ *
+ * All three build the same steps and run through the same executor, so there is one path to be right
+ * about rather than three to keep in sync.
+ */
+@Composable
+fun GoogleHome(
+    modifier: Modifier = Modifier,
+    onAsk: (String) -> Unit,
+    onCompose: (Verb, CalendarTool.Event?) -> Unit,
+    onBack: () -> Unit
+) {
+    val ctx = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+
+    var dayOffset by remember { mutableStateOf(0) }
+    var typed by remember { mutableStateOf("") }
+    var appear by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(40); appear = true }
+
+    val dayStart = remember(dayOffset) {
+        Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, dayOffset)
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+    val events = remember(dayStart) {
+        CalendarTool.eventsBetween(ctx, dayStart, dayStart + 86_400_000L, 40)
+    }
+
+    Column(modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            Spacer(Modifier.height(14.dp))
+            ScreenHeader("Calendar & mail", onBack)
+
+            // ── The week, as a strip ──
+            //
+            // Seven days is the unit people plan in, and a strip costs one line where a month grid
+            // costs a screen. The dot says "something is here" without needing to read anything.
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                (0..6).forEach { i ->
+                    val d = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, i) }
+                    val busy = remember(i) {
+                        val s = Calendar.getInstance().apply {
+                            add(Calendar.DAY_OF_YEAR, i)
+                            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
+                        }.timeInMillis
+                        CalendarTool.eventsBetween(ctx, s, s + 86_400_000L, 5).size
+                    }
+                    val on = dayOffset == i
+                    val scale by animateFloatAsState(if (on) 1f else 0.94f,
+                        spring(dampingRatio = 0.6f, stiffness = 500f), label = "d$i")
+                    Column(
+                        Modifier.weight(1f).padding(horizontal = 2.dp)
+                            .graphicsLayer { scaleX = scale; scaleY = scale }
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(if (on) T.accent else T.bgElevated)
+                            .clickable {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                dayOffset = i
+                            }
+                            .padding(vertical = 9.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault())
+                            .format(d.time).take(2),
+                            fontSize = 9.sp, color = if (on) Color.White else T.inkFaint,
+                            fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(3.dp))
+                        Text(d.get(Calendar.DAY_OF_MONTH).toString(),
+                            fontSize = T.small, color = if (on) Color.White else T.ink)
+                        Spacer(Modifier.height(4.dp))
+                        Box(Modifier.size(4.dp).clip(CircleShape)
+                            .background(when {
+                                busy == 0 -> Color.Transparent
+                                on -> Color.White
+                                else -> T.accent
+                            }))
+                    }
+                }
+            }
+
+            // ── That day ──
+            Spacer(Modifier.height(20.dp))
+            Text(
+                when (dayOffset) {
+                    0 -> "Today"; 1 -> "Tomorrow"
+                    else -> java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.getDefault())
+                        .format(java.util.Date(dayStart))
+                },
+                fontSize = 20.sp, color = T.ink, fontWeight = FontWeight.Medium)
+
+            Spacer(Modifier.height(12.dp))
+            if (events.isEmpty()) {
+                Text("Nothing scheduled.", fontSize = T.small, color = T.inkFaint)
+            } else {
+                events.forEachIndexed { i, ev ->
+                    val fade by animateFloatAsState(if (appear) 1f else 0f, tween(200 + i * 60), label = "e$i")
+                    val shift by animateFloatAsState(if (appear) 0f else 12f,
+                        spring(dampingRatio = 0.85f, stiffness = 320f), label = "s$i")
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                            .offset(y = shift.dp).graphicsLayer { alpha = fade }
+                            .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+                            // Tapping an event is the whole point: no parsing, no ambiguity about
+                            // which one, because you pointed at it.
+                            .clickable {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onCompose(Verb.ACT_ON, ev)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.width(52.dp)) {
+                            Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(ev.begin)),
+                                fontSize = T.small, color = T.ink)
+                            Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(ev.end)),
+                                fontSize = T.caption, color = T.inkFaint)
+                        }
+                        Box(Modifier.width(3.dp).height(30.dp).clip(RoundedCornerShape(999.dp))
+                            .background(T.accent))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(ev.title, fontSize = T.small, color = T.ink)
+                            if (ev.location.isNotBlank())
+                                Text(ev.location, fontSize = T.caption, color = T.inkFaint)
+                        }
+                        Text("›", fontSize = T.body, color = T.inkFaint)
+                    }
+                }
+            }
+
+            // ── The verbs ──
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("DO SOMETHING")
+            Spacer(Modifier.height(10.dp))
+            // Two per row: big enough to hit without looking, small enough that six fit above the
+            // fold. Verbs, not example sentences — an example with somebody else's name in it
+            // teaches the phrasing rather than the feature.
+            Verb.values().toList().filter { it != Verb.ACT_ON }.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    pair.forEach { v ->
+                        Row(
+                            Modifier.weight(1f).padding(end = 8.dp)
+                                .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+                                .clickable {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onCompose(v, null)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(v.glyph, fontSize = 14.sp, color = T.accent)
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(v.label, fontSize = T.small, color = T.ink)
+                                Text(v.hint, fontSize = T.caption, color = T.inkFaint)
+                            }
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            val known = remember { Directory.count(ctx) }
+            if (known > 0) {
+                Text("$known addresses to invite from — your contacts and everyone you've " +
+                     "corresponded with.",
+                    fontSize = T.caption, color = T.inkFaint, lineHeight = 17.sp)
+            }
+            Spacer(Modifier.height(30.dp))
+        }
+
+        // ── The prompt bar ──
+        //
+        // Pinned, because it is the fastest route for anyone who already knows what to say, and it
+        // should not be something you scroll to find.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(T.bgElevated)
+                .padding(horizontal = 16.dp, vertical = 13.dp)) {
+                if (typed.isEmpty())
+                    Text("Book, move, cancel, invite, email…", fontSize = T.small, color = T.inkFaint)
+                BasicTextField(typed, { typed = it },
+                    textStyle = TextStyle(color = T.ink, fontSize = T.small),
+                    modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("↑", fontSize = 17.sp, color = Color.White, fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.size(44.dp).clip(CircleShape)
+                    .background(if (typed.isBlank()) T.hairline else T.accent)
+                    .clickable(enabled = typed.isNotBlank()) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val q = typed; typed = ""; onAsk(q)
+                    }.padding(top = 11.dp))
+        }
+    }
+}
+
+/** The things anyone actually wants to do here. Named as verbs because that is how they are thought of. */
+enum class Verb(val label: String, val hint: String, val glyph: String) {
+    BOOK("Book", "a meeting or a block", "▣"),
+    INVITE("Invite", "someone, with a Meet link", "✚"),
+    MOVE("Move", "something to another time", "⇄"),
+    CANCEL("Cancel", "and tell the guests", "✕"),
+    EMAIL("Email", "someone, with an attachment", "✉"),
+    NOTIFY("Heads-up", "everyone in a meeting", "▤"),
+    /** Not a chip — what tapping an existing event opens. */
+    ACT_ON("", "", "")
+}

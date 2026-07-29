@@ -281,6 +281,10 @@ class ShellActivity : ComponentActivity() {
             var meetingAutoStart by remember { mutableStateOf(false) }
             /** The sentence a Google plan was parsed from — the page re-parses it, deterministically. */
             var googlePrompt by remember { mutableStateOf("") }
+            var googleVerb by remember { mutableStateOf<com.agentos.shell.screens.Verb?>(null) }
+            var googleEvent by remember {
+                mutableStateOf<com.agentos.shell.tools.CalendarTool.Event?>(null)
+            }
             // Set when a screen-control request was REFUSED, so the reason and its one-tap fix go in
             // front of the owner instead of the request simply appearing to do nothing.
             var controlBlocked by remember {
@@ -417,9 +421,25 @@ class ShellActivity : ComponentActivity() {
                         Screen.Job -> JobScreen(m, jobTopic) { jobTopic = ""; screen = Screen.Home }
                         Screen.Network -> NetworkScreen(m, networkQuery) { networkQuery = ""; screen = Screen.Home }
                         Screen.Health -> com.agentos.shell.screens.HealthScreen(m) { screen = Screen.Home }
-                        Screen.Google -> com.agentos.shell.screens.GoogleScreen(
-                            googlePrompt, m, onExample = { ex -> googlePrompt = ex }) {
-                            googlePrompt = ""; screen = Screen.Home
+                        // Three ways in, one screen. A prompt goes to the plan view; a verb or a
+                        // tapped event goes to the form; nothing goes to the calendar itself.
+                        Screen.Google -> when {
+                            googlePrompt.isNotBlank() ->
+                                com.agentos.shell.screens.GoogleScreen(
+                                    googlePrompt, m, onExample = { ex -> googlePrompt = ex }) {
+                                    googlePrompt = ""
+                                }
+                            googleVerb != null ->
+                                com.agentos.shell.screens.GoogleCompose(
+                                    googleVerb!!, googleEvent, m, onDone = { googleVerb = null }) {
+                                    googleVerb = null; googleEvent = null
+                                }
+                            else -> com.agentos.shell.screens.GoogleHome(
+                                m,
+                                onAsk = { q -> googlePrompt = q },
+                                onCompose = { v, ev -> googleVerb = v; googleEvent = ev }) {
+                                screen = Screen.Home
+                            }
                         }
                         Screen.Translate -> com.agentos.shell.screens.TranslateScreen(m) { screen = Screen.Home }
                         Screen.Meeting -> com.agentos.shell.screens.MeetingScreen(
