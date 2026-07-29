@@ -164,7 +164,10 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             syncing = true
             val n = withContext(Dispatchers.IO) { VitalsSource.sync(ctx, 90) }
             syncing = false; tick++
-            if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberDays(ctx) }
+            // Unconditionally, not only when a sync brought something new: days can arrive by
+            // import as well as by sync, and a day already written is skipped inside anyway. Gated
+            // on the sync count, an imported history sat in the database with no memory of it.
+            withContext(Dispatchers.IO) { VitalsInsight.rememberDays(ctx) }
         }
         // The written week, at most once a week, into the brain — so a year from now "what was my
         // worst sleep month?" has something to answer from. A review that appears daily is a log,
