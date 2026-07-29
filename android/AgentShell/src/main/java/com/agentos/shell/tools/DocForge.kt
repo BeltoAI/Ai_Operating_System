@@ -167,7 +167,34 @@ object DocForge {
             "(title + one-line subtitle). Ruthless clarity, active voice, zero filler. No markdown besides the bullets. " +
             (if (brain.isNotBlank()) "Ground it in what you know about the user: $brain" else "")
         val (code, text) = AgentClient.chat("Deck: \"$title\".\nBrief: $brief", sys, emptyList())
-        return if (code == 200 && text.isNotBlank()) text else "$title\n- $brief"
+        return if (code == 200 && text.isNotBlank()) cleanDeck(text, title) else "$title\n- $brief"
+    }
+
+    /**
+     * Drop the preamble the model puts before the deck.
+     *
+     * Asked for a deck called "smooch", it answered with the line `smooch`, then `===`, then the
+     * real cover. That stray line became slide one — a black page with a single lowercase word on
+     * it — and pushed the actual cover into the numbered body as slide 1. Nothing errored; the deck
+     * was simply wrong in the way you only see by opening it.
+     *
+     * Anything before the first separator that is a lone line and no more than the title itself is
+     * a label for the deck, not a slide in it.
+     */
+    private fun cleanDeck(raw: String, title: String): String {
+        var t = raw.trim().removePrefix("```").removeSuffix("```").trim()
+        // Some models fence the whole thing and label the fence.
+        t = t.removePrefix("markdown").removePrefix("text").trimStart()
+        val blocks = t.split(Regex("(?m)^===+\\s*$"))
+        if (blocks.size > 1) {
+            val first = blocks[0].trim()
+            val lone = first.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val isLabel = lone.size == 1 && lone[0].none { it == '-' || it == '•' } &&
+                (lone[0].equals(title.trim(), true) || lone[0].length <= 40 &&
+                    title.trim().contains(lone[0], true))
+            if (isLabel) return blocks.drop(1).joinToString("\n===\n") { it.trim() }.trim()
+        }
+        return t
     }
 
     private fun tableContent(ctx: Context, title: String, brief: String): List<List<String>> {
@@ -234,6 +261,38 @@ object DocForge {
     fun hasDraft(ctx: Context): Boolean = (p(ctx).getString("content", "") ?: "").isNotBlank()
 
     /**
+     * The source the last document was built from — the thing to edit by hand.
+     *
+     * A PDF is output, not a document: you cannot move a bullet in it. What people mean by "edit
+     * the slides" is edit the words and see the deck again, and the words are right here — they
+     * were kept for [refine] and never exposed to anyone but the model.
+     */
+    fun draftContent(ctx: Context): String = p(ctx).getString("content", "") ?: ""
+
+    /** The palette the last deck was actually built with: accent, background, ink — as hex. */
+    fun lastPalette(ctx: Context): Triple<String, String, String> = p(ctx).let {
+        Triple(it.getString("th_accent", "2F6BFF") ?: "2F6BFF",
+               it.getString("th_deckBg", "101014") ?: "101014",
+               it.getString("th_deckInk", "F5F5F7") ?: "F5F5F7")
+    }
+
+    /** Rebuild the file from content the OWNER edited, keeping title, brief, kind and format. */
+    fun rebuild(ctx: Context, content: String): Made {
+        val pr = p(ctx)
+        val title = pr.getString("title", "") ?: ""
+        val brief = pr.getString("brief", "") ?: ""
+        val kind = pr.getString("kind", "onepager") ?: "onepager"
+        val fmt = pr.getString("format", "pdf") ?: "pdf"
+        if (content.isBlank()) return Made(false, error = "there is nothing to build")
+        val made = buildFrom(ctx, title, brief, fmt, kind, content)
+        if (made.ok) {
+            remember(ctx, title, brief, fmt, kind, content)
+            indexIntoBrain(ctx, made, title, brief, content)
+        }
+        return made
+    }
+
+    /**
      * Refine the document just made — "make it shorter", "add a slide on pricing", "more formal".
      * Edits the EXISTING content rather than regenerating from the brief, so earlier work isn't lost,
      * then rebuilds the file (optionally into a different format).
@@ -266,6 +325,11 @@ object DocForge {
     /** Build a file from ALREADY-GENERATED content (used by refine, and by create after generation). */
     private fun buildFrom(ctx: Context, title: String, brief: String, fmt: String, kind: String, content: String): Made {
         val th = designTheme(title, brief, kind)
+        // Kept so a preview elsewhere can draw the SAME deck rather than an approximation of it.
+        // A preview whose colours differ from the output is one you stop trusting the first time
+        // you notice, and re-deriving the theme costs a model call.
+        p(ctx).edit().putString("th_accent", th.accent).putString("th_deckBg", th.deckBg)
+            .putString("th_deckInk", th.deckInk).apply()
         return when (fmt) {
             "docx" -> {
                 val uri = SlyFolder.file(ctx, "$title.docx", mimeFor("docx"), Ooxml.docx(title, content, th), "documents", brief.take(180))

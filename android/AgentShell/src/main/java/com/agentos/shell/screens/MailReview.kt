@@ -112,6 +112,7 @@ fun MailReview(
     var making by remember { mutableStateOf(false) }
     var makeBrief by remember { mutableStateOf("") }
     var showMake by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
 
     // OpenMultipleDocuments rather than GetContent: it returns a persistable content:// that can
     // still be read when the send happens, which GetContent's one-shot uri cannot promise.
@@ -148,6 +149,22 @@ fun MailReview(
         }
     }
     LaunchedEffect(Unit) { draft() }
+
+    if (editing) {
+        SlideEditor(
+            modifier = modifier,
+            onDone = { uri ->
+                // Whatever came back is what gets attached — the edited deck replaces the old one
+                // rather than joining it, so nobody sends two versions of the same slides.
+                val name = DocForge.lastTitle(ctx) + ".pdf"
+                files = files.filterNot { it.uri == madeDeck?.uri } + Picked(uri, name)
+                madeDeck = Picked(uri, name)
+                editing = false
+                note = "“$name” updated and attached."
+            },
+            onBack = { editing = false })
+        return
+    }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(14.dp))
@@ -284,11 +301,9 @@ fun MailReview(
                 }
                 // Read it before deciding it is right. A deck you cannot see is a deck you cannot
                 // approve, and this one is going out under the owner's name.
-                madeDeck?.let { d ->
-                    Pill("Open it", false) {
-                        try { DocForge.open(ctx, d.uri, d.name) } catch (e: Exception) {}
-                    }
-                }
+                // PREVIEW AND EDIT, not "open in whatever app handles PDFs". Seeing a deck you
+                // cannot change is not a review — the point of looking is to fix what is wrong.
+                if (madeDeck != null) Pill("Preview & edit", false) { editing = true }
             }
         }
 
