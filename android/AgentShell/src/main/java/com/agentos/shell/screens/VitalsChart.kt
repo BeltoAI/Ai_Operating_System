@@ -1,5 +1,7 @@
 package com.agentos.shell.screens
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -70,6 +77,16 @@ fun VitalsChart(
     val hi = hi0 + pad
     val span = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
 
+    // The line draws itself in on arrival and on every range change. Not decoration: switching from
+    // 30d to 90d otherwise swaps one static shape for another with no sense that the same series
+    // just got longer, and the eye loses its place.
+    var shown by remember(metric, days.size, days.lastOrNull()?.dayStart) { mutableStateOf(false) }
+    LaunchedEffect(metric, days.size) { shown = true }
+    val grow by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(durationMillis = 520, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "chart")
+
     Column {
         Row(Modifier.fillMaxWidth()) {
             Text(VitalsStore.M.format(metric, hi0), fontSize = T.caption, color = T.inkFaint,
@@ -95,13 +112,16 @@ fun VitalsChart(
             }
 
             // The series: filled, so a month reads as a shape rather than as a wire.
-            if (days.size >= 2) {
+            // How much of the series is revealed so far.
+            val upTo = (days.size * grow).toInt().coerceAtLeast(if (grow > 0f) 2 else 0)
+            val vis = days.take(upTo.coerceAtLeast(0))
+            if (vis.size >= 2) {
                 val line = Path().apply {
-                    days.forEachIndexed { i, d -> if (i == 0) moveTo(x(i), y(d.value)) else lineTo(x(i), y(d.value)) }
+                    vis.forEachIndexed { i, d -> if (i == 0) moveTo(x(i), y(d.value)) else lineTo(x(i), y(d.value)) }
                 }
                 val area = Path().apply {
                     addPath(line)
-                    lineTo(x(days.size - 1), size.height)
+                    lineTo(x(vis.size - 1), size.height)
                     lineTo(x(0), size.height)
                     close()
                 }
@@ -110,7 +130,7 @@ fun VitalsChart(
                 drawPath(line, T.accent, style = Stroke(2.2.dp.toPx()))
             }
             // Every point, so a thin series is visibly thin.
-            days.forEachIndexed { i, d ->
+            days.take(upTo).forEachIndexed { i, d ->
                 drawCircle(T.accent, radius = if (days.size > 30) 1.4.dp.toPx() else 2.4.dp.toPx(),
                     center = Offset(x(i), y(d.value)))
             }
@@ -125,8 +145,11 @@ fun VitalsChart(
                     lineTo(x1, y(t.projected - t.band))
                     close()
                 }
-                drawPath(cone, T.accent.copy(alpha = 0.13f))
-                drawLine(T.accent.copy(alpha = 0.6f), Offset(x0, y0), Offset(x1, yc),
+                // The forecast arrives after the history has drawn, which is also the order it
+                // should be read in.
+                val late = ((grow - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                drawPath(cone, T.accent.copy(alpha = 0.13f * late))
+                drawLine(T.accent.copy(alpha = 0.6f * late), Offset(x0, y0), Offset(x1, yc),
                     strokeWidth = 1.6.dp.toPx(),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f)))
             }

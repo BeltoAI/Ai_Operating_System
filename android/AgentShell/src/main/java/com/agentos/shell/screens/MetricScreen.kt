@@ -67,6 +67,7 @@ fun MetricScreen(metric: String, onBack: () -> Unit, modifier: Modifier = Modifi
     var ask by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    var goalTick by remember { mutableStateOf(0) }
 
     val all = remember(metric) { VitalsStore.series(ctx, metric, 365) }
     val days = remember(metric, window) { all.takeLast(window) }
@@ -145,6 +146,12 @@ fun MetricScreen(metric: String, onBack: () -> Unit, modifier: Modifier = Modifi
         stat("Last 7 days", f(VitalsMath.meanOfLast(all, 7)))
         stat("Last 30 days", f(VitalsMath.meanOfLast(all, 30)))
         stat("Last 90 days", f(VitalsMath.meanOfLast(all, 90)))
+        // The median next to the mean, because where they disagree that gap IS the finding: a mean
+        // well below the median means a few very bad days, not a generally bad stretch.
+        stat("Median", f(VitalsMath.median(days)),
+            "the middle day of this window — one bad day can't drag it")
+        stat("Your better days", f(VitalsMath.percentile(all, 0.75)),
+            "75th percentile — what you manage when it goes well")
         stat("Your baseline", f(base), "weighted to the recent — this is what deltas are measured from")
         stat("Typical spread", f(VitalsMath.sd(all)), "one standard deviation of your own range")
         stat("Best / worst", f(all.maxOfOrNull { it.value }) + "  ·  " + f(all.minOfOrNull { it.value }))
@@ -153,6 +160,65 @@ fun MetricScreen(metric: String, onBack: () -> Unit, modifier: Modifier = Modifi
                 if (abs(it) < 1) "within your normal range"
                 else String.format("%.1f sd %s average", abs(it), if (it > 0) "above" else "below"),
                 "how unusual this is for you, not for anyone else")
+        }
+
+        // ── The target ──
+        //
+        // A goal without a projection is a wish written down. This says when the current trend gets
+        // there, how often you have actually hit it, and — when the honest answer is "not at this
+        // rate" — that, instead of an encouraging line to a date that will not happen.
+        Spacer(Modifier.height(26.dp))
+        SectionLabel("GOAL")
+        Spacer(Modifier.height(8.dp))
+        val goal = remember(metric, goalTick) { com.agentos.shell.tools.VitalsGoals.forMetric(ctx, metric) }
+        if (goal == null) {
+            val suggested = remember(metric) { com.agentos.shell.tools.VitalsGoals.suggestTarget(ctx, metric) }
+            Text(if (suggested != null)
+                    "No target set. Your better days sit around ${VitalsStore.M.format(metric, suggested)}$unit — " +
+                    "a reasonable place to aim, since it's a number you've already reached."
+                 else "No target set yet.",
+                fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
+            if (suggested != null) {
+                Spacer(Modifier.height(10.dp))
+                Text("Aim for ${VitalsStore.M.format(metric, suggested)}$unit",
+                    fontSize = T.small, color = Color.White, fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                        .background(T.accent).clickable {
+                            com.agentos.shell.tools.VitalsGoals.set(ctx,
+                                com.agentos.shell.tools.VitalsGoals.Goal(
+                                    metric, suggested,
+                                    com.agentos.shell.tools.VitalsGoals.defaultDirection(metric)))
+                            goalTick++
+                        }.padding(vertical = 12.dp))
+            }
+        } else {
+            val pr = remember(metric, goalTick) { com.agentos.shell.tools.VitalsGoals.progress(ctx, goal) }
+            Text(VitalsStore.M.format(metric, goal.target) + unit,
+                fontSize = 24.sp, color = T.ink, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(6.dp))
+            pr?.let {
+                Text(com.agentos.shell.tools.VitalsGoals.sentence(ctx, it),
+                    fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
+                Spacer(Modifier.height(10.dp))
+                // Days met, as a row of marks — a fraction people can see rather than read.
+                Row {
+                    repeat(it.ofDays) { i ->
+                        val met = i >= it.ofDays - it.hitDays
+                        Box(Modifier.padding(end = 4.dp).size(width = 14.dp, height = 5.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (met) T.good else T.hairline))
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("${it.hitDays} of the last ${it.ofDays} days met it",
+                    fontSize = T.caption, color = T.inkFaint)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text("Remove target", fontSize = T.caption, color = T.inkFaint,
+                modifier = Modifier.clickable {
+                    com.agentos.shell.tools.VitalsGoals.remove(ctx, metric); goalTick++
+                }.padding(vertical = 6.dp))
         }
 
         // ── Where it is heading ──

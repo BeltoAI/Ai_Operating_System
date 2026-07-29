@@ -135,6 +135,19 @@ object BrainContext {
      */
     fun build(ctx: Context, q: String): String {
         val tBuild = System.currentTimeMillis()
+        // HEALTH NUMBERS, WHEREVER THE QUESTION IS ASKED.
+        //
+        // Every path that answers anything comes through here — Home, the Telegram bot, the team
+        // agents, Research. Putting the vitals only in the Health screen's own ask box would mean
+        // the assistant knew less than one of its own pages, and "how did I sleep this week?" typed
+        // on Home would be answered from a vague memory of a summary rather than from the series.
+        //
+        // Gated on the question so the ordinary path pays nothing: this block is a few hundred
+        // characters of a context window that is already contested.
+        val vitals = try {
+            if (VitalsInsight.isHealthQuestion(q) && VitalsStore.present(ctx).isNotEmpty())
+                VitalsInsight.contextFor(ctx, q) else ""
+        } catch (e: Exception) { "" }
         // CAP THE PROFILE. Measured on a real device: profileBlock alone was 27,490 characters, and it is
         // emitted FIRST — while answerWell() truncates the whole context at 20,000. The settings card was
         // therefore consuming the entire window before a single remembered message, relationship line, or
@@ -336,6 +349,11 @@ object BrainContext {
             JobStore.summary(ctx).takeIf { it.isNotBlank() }?.let {
                 append("\n").append(it).append(" (Use this when the user asks what jobs they applied to or prepared.)")
             }
+            // The vitals, when the question is about them. Every path that answers anything comes
+            // through here, so this is what makes "how did I sleep this week?" answerable on Home,
+            // in Telegram and to a team agent — rather than only inside the Health screen's own ask
+            // box, which would leave the assistant knowing less than one of its own pages.
+            if (vitals.isNotEmpty()) append("\n\n").append(vitals)
             append("\nCurrent time: ").append(now)
         }
     }

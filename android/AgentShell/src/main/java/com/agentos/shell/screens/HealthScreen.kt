@@ -166,6 +166,10 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             syncing = false; tick++
             if (n > 0) withContext(Dispatchers.IO) { VitalsInsight.rememberToday(ctx) }
         }
+        // The written week, at most once a week, into the brain — so a year from now "what was my
+        // worst sleep month?" has something to answer from. A review that appears daily is a log,
+        // and nobody rereads a log.
+        withContext(Dispatchers.IO) { try { com.agentos.shell.tools.VitalsReview.weekly(ctx) } catch (e: Exception) {} }
     }
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -249,6 +253,64 @@ fun HealthScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Text(f.title, fontSize = T.small, color = if (f.serious) T.danger else T.ink)
                 Spacer(Modifier.height(4.dp))
                 Text(f.detail, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+            }
+        }
+
+        // ── What is actually notable ──
+        //
+        // Computed, not generated. A model asked to comment on a table of numbers will eventually
+        // round one or call a figure low, and this is the part read first and trusted most. Each
+        // observation carries the figures it came from: "you sleep 52 minutes less on Sundays,
+        // across 11 of them" is a fact; "your sleep is worse on Sundays" is a claim.
+        val notes = remember(tick) { com.agentos.shell.tools.VitalsReview.notes(ctx) }
+        if (notes.isNotEmpty()) {
+            Spacer(Modifier.height(26.dp))
+            SectionLabel("WHAT STANDS OUT")
+            Spacer(Modifier.height(10.dp))
+            notes.forEach { n ->
+                Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+                    .clickable { openMetric = n.metric }
+                    .padding(14.dp)) {
+                    Text(n.title, fontSize = T.small, color = T.ink)
+                    Spacer(Modifier.height(4.dp))
+                    Text(n.detail, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                }
+            }
+        }
+
+        // ── Goals ──
+        val goals = remember(tick) { com.agentos.shell.tools.VitalsGoals.all(ctx) }
+        if (goals.isNotEmpty()) {
+            Spacer(Modifier.height(26.dp))
+            SectionLabel("GOALS")
+            Spacer(Modifier.height(10.dp))
+            goals.forEach { g ->
+                com.agentos.shell.tools.VitalsGoals.progress(ctx, g)?.let { pr ->
+                    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                        .clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
+                        .clickable { openMetric = g.metric }
+                        .padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(VitalsStore.M.label(g.metric), fontSize = T.small, color = T.inkSoft,
+                                modifier = Modifier.weight(1f))
+                            Text(VitalsStore.M.format(g.metric, g.target) + VitalsStore.M.unit(g.metric),
+                                fontSize = T.small, color = T.ink)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(com.agentos.shell.tools.VitalsGoals.sentence(ctx, pr),
+                            fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row {
+                            repeat(pr.ofDays) { i ->
+                                val met = i >= pr.ofDays - pr.hitDays
+                                Box(Modifier.padding(end = 4.dp).size(width = 13.dp, height = 5.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (met) T.good else T.hairline))
+                            }
+                        }
+                    }
+                }
             }
         }
 

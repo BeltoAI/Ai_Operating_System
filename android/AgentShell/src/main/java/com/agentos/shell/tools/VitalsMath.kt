@@ -44,6 +44,25 @@ object VitalsMath {
 
     fun meanOfLast(days: List<VitalsStore.Day>, n: Int): Double? = mean(days.takeLast(n))
 
+    /**
+     * The middle value, which is the one to quote when a single bad night would drag the mean.
+     *
+     * Shown alongside the mean rather than instead of it: where they disagree, that gap is itself
+     * the finding — a mean well below the median means a few very bad days, not a generally bad week.
+     */
+    fun median(days: List<VitalsStore.Day>): Double? {
+        if (days.isEmpty()) return null
+        val v = days.map { it.value }.sorted()
+        return if (v.size % 2 == 1) v[v.size / 2] else (v[v.size / 2 - 1] + v[v.size / 2]) / 2
+    }
+
+    /** The value below which [p] of days fall — "your better nights" made precise. */
+    fun percentile(days: List<VitalsStore.Day>, p: Double): Double? {
+        if (days.isEmpty()) return null
+        val v = days.map { it.value }.sorted()
+        return v[((v.size - 1) * p).roundToInt().coerceIn(0, v.size - 1)]
+    }
+
     fun sd(days: List<VitalsStore.Day>): Double? {
         if (days.size < 3) return null
         val m = mean(days) ?: return null
