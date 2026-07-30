@@ -73,16 +73,27 @@ begin
            '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
     where not exists (select 1 from auth.users a where a.email = u.email);
 
+    -- Contact details, so the handoff has somewhere to land. `share_on_intro` is what they agreed
+    -- to release the moment they make an introduction — Omar gives both, Ada prefers a calendar
+    -- slot, Mira gives an address only. The variety is the point: it is the one setting that
+    -- decides what a stranger gets.
     insert into public.profiles (id, email, display_name, offer, looking_for, open_to,
-                                 tags, reachability, network_size, asks_left)
+                                 tags, reachability, network_size, asks_left,
+                                 contact_email, contact_phone, calendly, share_on_intro)
     select au.id, u.email, u.name, u.offer, u.looking_for, u.open_to,
-           u.tags, u.reach, u.network_size, 3
+           u.tags, u.reach, u.network_size, 3,
+           u.email, '+44 7700 900' || lpad((u.network_size % 1000)::text, 3, '0'),
+           'https://cal.com/' || split_part(u.email, '@', 1),
+           case split_part(u.email,'@',1)
+             when 'omar' then 'both' when 'ada' then 'calendly' else 'email' end
       from auth.users au where au.email = u.email
     on conflict (id) do update set
       display_name = excluded.display_name, offer = excluded.offer,
       looking_for  = excluded.looking_for,  open_to = excluded.open_to,
       tags = excluded.tags, reachability = excluded.reachability,
-      network_size = excluded.network_size;
+      network_size = excluded.network_size,
+      contact_email = excluded.contact_email, contact_phone = excluded.contact_phone,
+      calendly = excluded.calendly, share_on_intro = excluded.share_on_intro;
   end loop;
 end $$;
 

@@ -480,3 +480,90 @@ returns table(
 $$;
 
 grant execute on function public.network_health() to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The handoff — how a name turns into an actual conversation
+--
+-- Three tiers, and they really are asymmetric keys:
+--
+--   PUBLIC     your three lines, your tags, how many people you know.
+--              Readable by anyone signed in. You wrote it on purpose.
+--   SCOPED     closeness numbers. They exist only inside one ask, they cross before any name
+--              does, and they are what lets the asker rank ten offers without knowing who anyone
+--              is. A number between 0 and 1 identifies nobody.
+--   PRIVATE    names and contact details. They cross ONE HOP AT A TIME, and only when a human
+--              taps accept.
+--
+-- The one-hop rule is the important one and it is what makes this a warm intro rather than a
+-- scrape. When Omar says he knows Priya, the asker does NOT get Priya's details — Omar has no
+-- right to hand those over and Priya has not been asked yet. The asker gets OMAR: his chosen
+-- contact, his note, and a drafted message. Priya's details reach the asker only if Priya says
+-- yes, on her own device, in her own time. Double opt-in, enforced by what the database will
+-- release rather than by good manners.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.profiles add column if not exists contact_email  text;
+alter table public.profiles add column if not exists contact_phone  text;
+alter table public.profiles add column if not exists calendly       text;
+
+-- What you are willing to hand over the moment you agree to make an introduction. Default is the
+-- least: an email address, which is the one channel a stranger cannot use to interrupt you.
+alter table public.profiles add column if not exists share_on_intro text default 'email';
+do $$ begin
+  alter table public.profiles add constraint profiles_share_ck
+    check (share_on_intro in ('email','calendly','both','none'));
+exception when duplicate_object then null; end $$;
+
+-- What the holder's agent actually wrote. Not a transcript of two bots being polite at each other
+-- — the useful artefact is the paragraph a human can send, and the reason it thinks this is a fit.
+alter table public.bridges add column if not exists intro_draft text default '';
+alter table public.bridges add column if not exists why         text default '';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- reveal_contact — the release gate
+--
+-- Returns the HOLDER's contact details, and only to the person they agreed to introduce. There is
+-- no query that returns anybody else's: a bridge between you and them is the entire condition, and
+-- it exists only because they tapped accept.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.reveal_contact(p_ask uuid, p_holder uuid)
+returns table(name text, email text, phone text, calendly text, policy text)
+language sql security definer stable set search_path = public as $$
+  select p.display_name,
+         case when p.share_on_intro in ('email','both')    then p.contact_email end,
+         case when p.share_on_intro = 'both'               then p.contact_phone end,
+         case when p.share_on_intro in ('calendly','both') then p.calendly end,
+         coalesce(p.share_on_intro, 'email')
+    from profiles p
+   where p.id = p_holder
+     and exists (select 1 from bridges b
+                 where b.ask_id = p_ask and b.holder = p_holder and b.asker = auth.uid());
+$$;
+
+grant execute on function public.reveal_contact(uuid, uuid) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Did it work? — per introduction, not per ask
+--
+-- An ask that produced three names and no conversations is a failure that every screen above this
+-- line reports as a success. So the outcome lives on the bridge, it is set by the person who asked,
+-- and `no_reply` is a first-class value rather than an absence — a network cannot be improved on
+-- the evidence of the introductions that happened to work.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.bridges add column if not exists outcome text default 'pending';
+do $$ begin
+  alter table public.bridges add constraint bridges_outcome_ck
+    check (outcome in ('pending','reaching_out','connected','no_reply','not_useful'));
+exception when duplicate_object then null; end $$;
+
+drop policy if exists "asker records the outcome" on public.bridges;
+create policy "asker records the outcome"
+  on public.bridges for update using (auth.uid() = asker) with check (auth.uid() = asker);
+
+create or replace function public.intro_outcomes()
+returns table(outcome text, n bigint, avg_strength numeric)
+language sql security definer stable set search_path = public as $$
+  select coalesce(outcome,'pending'), count(*), round(avg(strength)::numeric, 2)
+    from bridges where asker = auth.uid() group by 1 order by 2 desc;
+$$;
+
+grant execute on function public.intro_outcomes() to authenticated;

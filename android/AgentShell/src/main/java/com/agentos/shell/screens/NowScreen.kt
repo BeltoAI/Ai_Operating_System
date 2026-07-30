@@ -372,28 +372,25 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                     } catch (e: Exception) { 0 }
                 }
             }
-            if (netIntros.isNotEmpty() || netAsked > 0) {
+            // One card per introduction. A single stacked card meant one gesture for several
+            // different people, and there is nothing sensible for "dismiss all of them" to mean.
+            netIntros.forEach { b ->
+                key(b.askId + b.person) { IntroCard(ctx, b) }
+                Spacer(Modifier.height(10.dp))
+            }
+            if (netAsked > 0) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
                     .background(T.bgElevated).padding(18.dp)) {
-                    Text("FROM THE NETWORK", fontSize = 11.sp, color = T.accent,
+                    Text("SOMEONE IS LOOKING", fontSize = 11.sp, color = T.inkFaint,
                         fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    netIntros.take(3).forEach { b ->
-                        Spacer(Modifier.height(11.dp))
-                        Text(b.person, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
-                        Text("introduced to you  ·  they're ${(b.strength * 100).toInt()}% close" +
-                             (if (b.routes > 1) "  ·  ${b.routes} people know them" else ""),
-                            fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
-                    }
-                    if (netAsked > 0) {
-                        Spacer(Modifier.height(11.dp))
-                        Text(if (netAsked == 1) "Someone is looking for a person you know."
-                             else "$netAsked people are looking for someone you know.",
-                            fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
-                        Spacer(Modifier.height(7.dp))
-                        Text("Open Asks →", fontSize = T.caption, color = T.accent,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clickable { onOpenAsks() })
-                    }
+                    Spacer(Modifier.height(9.dp))
+                    Text(if (netAsked == 1) "Someone is looking for a person you know."
+                         else "$netAsked people are looking for someone you know.",
+                        fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                    Spacer(Modifier.height(7.dp))
+                    Text("Open Asks →", fontSize = T.caption, color = T.accent,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable { onOpenAsks() })
                 }
                 Spacer(Modifier.height(14.dp))
             }
@@ -751,4 +748,138 @@ private fun NoteGroupCard(ctx: android.content.Context, contact: String, group: 
     }
     }
     Spacer(Modifier.height(10.dp))
+}
+
+/**
+ * One introduction, and the only card here that leads somewhere outside the app.
+ *
+ * Swipe right to take it, left to let it go — and both directions say what they do while your
+ * thumb is still on them, because a card that reacts to a gesture without naming it is a card
+ * people stop touching.
+ *
+ * Taking it does NOT hand you the person. It hands you whoever offered them, which is the only
+ * thing anybody has agreed to: Omar said he knows Priya, so you get Omar. Priya gets asked by
+ * Omar, on his own phone, in his own words. That is what makes this a warm introduction rather
+ * than a lookup.
+ */
+@Composable
+private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.Asks.Bridge) {
+    val scope = rememberCoroutineScope()
+    var gone by remember { mutableStateOf(false) }
+    var dragX by remember { mutableStateOf(0f) }
+    var open by remember { mutableStateOf(false) }
+    var who by remember { mutableStateOf<com.agentos.shell.tools.Asks.Handoff?>(null) }
+    var reason by remember { mutableStateOf("") }
+    var outcome by remember { mutableStateOf(b.outcome) }
+    if (gone) return
+
+    fun take() {
+        open = true
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                who = com.agentos.shell.tools.Asks.handoff(ctx, b.askId, b.holder)
+                // Never leave a spinner as the final state. If the release gate refuses or is not
+                // deployed, say which — an introduction that silently never opens is worse than one
+                // that says it could not.
+                if (who == null) reason =
+                    com.agentos.shell.tools.SupabaseClient.lastError.take(90)
+                        .ifBlank { "they haven't shared a way to reach them yet" }
+                if (outcome == "pending") {
+                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "reaching_out")
+                    outcome = "reaching_out"
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxWidth()
+        .offset { IntOffset(dragX.roundToInt(), 0) }
+        // ONE pointerInput for both. A separate drag detector consumes the events a clickable
+        // needs and the tap silently stops working — the same trap as the papers list.
+        .pointerInput(b.askId + b.person) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    if (dragX > 120f) take() else if (dragX < -120f) {
+                        gone = true
+                        scope.launch { withContext(Dispatchers.IO) {
+                            com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "not_useful")
+                        } }
+                    }
+                    dragX = 0f
+                },
+                onDragCancel = { dragX = 0f }
+            ) { _, dx -> dragX += dx }
+        }
+        .clip(RoundedCornerShape(18.dp)).background(T.bgElevated).padding(18.dp)) {
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("FROM THE NETWORK", fontSize = 11.sp, color = T.accent,
+                fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+            // What the gesture in progress is going to do, said before it happens.
+            if (dragX > 30f) Text("connect", fontSize = 10.sp, color = T.good)
+            else if (dragX < -30f) Text("not useful", fontSize = 10.sp, color = T.inkFaint)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(b.person, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
+        Text(buildString {
+                append("${(b.strength * 100).toInt()}% close")
+                if (b.routes > 1) append("  ·  ${b.routes} people know them")
+                if (b.note.isNotBlank()) append("  ·  ").append(b.note)
+            }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+
+        if (!open) {
+            Spacer(Modifier.height(12.dp))
+            Text("Connect →", fontSize = T.caption, color = T.accent,
+                fontWeight = FontWeight.Medium, modifier = Modifier.clickable { take() })
+        } else {
+            Spacer(Modifier.height(13.dp))
+            val h = who
+            if (h == null) {
+                Text(if (reason.isBlank()) "opening the introduction…" else reason,
+                    fontSize = 10.sp, color = if (reason.isBlank()) T.inkFaint else T.danger,
+                    lineHeight = 15.sp)
+            } else {
+                // Said plainly, because the alternative is somebody cold-emailing a person who has
+                // not agreed to hear from them.
+                Text("${h.name} offered to introduce you. Ask them — not ${b.person} directly.",
+                    fontSize = 10.sp, color = T.inkFaint, lineHeight = 16.sp)
+                Spacer(Modifier.height(10.dp))
+                if (h.email.isNotBlank()) ContactLine(ctx, "Email ${h.name.split(' ').first()}",
+                    "mailto:" + h.email + "?subject=" +
+                    android.net.Uri.encode("Intro to " + b.person + "?"))
+                if (h.calendly.isNotBlank()) ContactLine(ctx, "Book time", h.calendly)
+                if (h.phone.isNotBlank()) ContactLine(ctx, h.phone, "tel:" + h.phone)
+                if (h.email.isBlank() && h.calendly.isBlank() && h.phone.isBlank())
+                    Text("${h.name} hasn't shared a way to reach them yet.",
+                        fontSize = 10.sp, color = T.inkFaint)
+
+                Spacer(Modifier.height(13.dp))
+                // The measurement, asked at the only moment anybody knows the answer.
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    listOf("connected" to "It worked", "no_reply" to "No reply").forEach { (k, label) ->
+                        Text(label, fontSize = T.caption,
+                            color = if (outcome == k) T.good else T.inkSoft,
+                            modifier = Modifier.clickable {
+                                outcome = k
+                                scope.launch { withContext(Dispatchers.IO) {
+                                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, k)
+                                } }
+                            })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactLine(ctx: android.content.Context, label: String, uri: String) {
+    Text(label, fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(vertical = 5.dp).clickable {
+            try {
+                ctx.startActivity(android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {}
+        })
 }

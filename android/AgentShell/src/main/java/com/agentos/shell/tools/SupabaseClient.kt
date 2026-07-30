@@ -141,6 +141,13 @@ object SupabaseClient {
         code in 200..299
     } catch (e: Exception) { false }
 
+    /** An RPC that returns rows. */
+    fun rpcJson(name: String, args: JSONObject, accessToken: String? = null): String? = try {
+        val c = open("/rest/v1/rpc/$name", "POST", accessToken)
+        val (code, txt) = send(c, args.toString())
+        if (code in 200..299) txt else { lastError = "HTTP $code ${txt.take(160)}"; null }
+    } catch (e: Exception) { null }
+
     /** An RPC that returns a scalar — the fan-out count is the one that matters. */
     fun rpcInt(name: String, args: JSONObject, accessToken: String? = null): Int? = try {
         val c = open("/rest/v1/rpc/$name", "POST", accessToken)

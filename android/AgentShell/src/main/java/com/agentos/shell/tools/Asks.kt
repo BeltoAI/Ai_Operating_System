@@ -313,7 +313,43 @@ object Asks {
     data class Bridge(val person: String, val note: String, val strength: Float,
                       val holder: String, val asker: String, val mine: Boolean,
                       /** How many different people offered this same person. */
-                      val routes: Int = 1)
+                      val routes: Int = 1,
+                      val askId: String = "",
+                      /** pending · reaching_out · connected · no_reply · not_useful */
+                      val outcome: String = "pending")
+
+    /** Who is actually going to make the introduction, and how to reach THEM. Never the target. */
+    data class Handoff(val name: String, val email: String, val phone: String, val calendly: String)
+
+    /**
+     * The one hop the database will release.
+     *
+     * Omar said he knows Priya. That does not entitle anybody to Priya — Omar has no right to hand
+     * her details over and she has not been asked yet. What it entitles you to is OMAR: whatever he
+     * chose to share, released only because he tapped accept. Priya's details reach you if and when
+     * Priya says yes on her own phone. Double opt-in, enforced by what the server will return.
+     */
+    fun handoff(ctx: Context, askId: String, holder: String): Handoff? {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return null
+        return try {
+            val txt = SupabaseClient.rpcJson("reveal_contact",
+                JSONObject().put("p_ask", askId).put("p_holder", holder), token) ?: return null
+            val o = JSONArray(txt).optJSONObject(0) ?: return null
+            fun f(k: String) = if (o.isNull(k)) "" else o.optString(k)
+            Handoff(f("name"), f("email"), f("phone"), f("calendly"))
+        } catch (e: Exception) { null }
+    }
+
+    /** Record what actually came of it. `no_reply` matters more than `connected`. */
+    fun setOutcome(ctx: Context, askId: String, holder: String, outcome: String): Boolean {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return false
+        return try {
+            SupabaseClient.patch("bridges", "ask_id=eq.$askId&holder=eq.$holder", token,
+                JSONObject().put("outcome", outcome))
+        } catch (e: Exception) { false }
+    }
 
     /**
      * One node per PERSON, not per route.
@@ -328,7 +364,10 @@ object Asks {
         return all.groupBy { it.person.lowercase().trim() }
             .map { (_, rows) ->
                 val best = rows.maxByOrNull { it.strength }!!
-                best.copy(routes = rows.size)
+                // Distinct PEOPLE, not rows. The same person offering the same contact on two
+                // separate asks is one route, and counting rows said "4 people know them" when
+                // two did.
+                best.copy(routes = rows.map { it.holder }.distinct().size)
             }
             .sortedByDescending { it.strength }
     }
@@ -338,15 +377,30 @@ object Asks {
         val uid = AccountStore.userId(ctx)
         if (token.isBlank() || uid.isBlank()) return emptyList()
         return try {
-            val arr = JSONArray(SupabaseClient.get("bridges",
-                "select=person,note,strength,holder,asker&order=created_at.desc&limit=60", token))
+            // Widest select that works.
+            //
+            // Adding a column to a select is a breaking change until the migration runs, and
+            // PostgREST rejects the WHOLE query over one unknown name — so the third time this
+            // happened the introductions simply stopped appearing. Ask for everything, fall back
+            // to what has always been there.
+            val arr = JSONArray(
+                SupabaseClient.getOrNull("bridges",
+                    "select=person,note,strength,holder,asker,ask_id,outcome" +
+                    "&order=created_at.desc&limit=60", token)
+                ?: SupabaseClient.getOrNull("bridges",
+                    "select=person,note,strength,holder,asker,ask_id" +
+                    "&order=created_at.desc&limit=60", token)
+                ?: SupabaseClient.get("bridges",
+                    "select=person,note,strength,holder,asker&order=created_at.desc&limit=60", token))
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
                 Bridge(o.optString("person"),
                     if (o.isNull("note")) "" else o.optString("note"),
                     o.optDouble("strength", 0.0).toFloat(),
                     o.optString("holder"), o.optString("asker"),
-                    o.optString("asker") == uid)
+                    o.optString("asker") == uid, 1,
+                    if (o.isNull("ask_id")) "" else o.optString("ask_id"),
+                    if (o.isNull("outcome")) "pending" else o.optString("outcome"))
             }
         } catch (e: Exception) { emptyList() }
     }
