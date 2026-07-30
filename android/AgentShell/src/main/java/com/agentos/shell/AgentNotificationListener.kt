@@ -45,6 +45,57 @@ class AgentNotificationListener : NotificationListenerService() {
         val note = ingest(sbn) ?: return
         maybeAutoReply(note)
         proactiveScan(note)
+        connectionScan(note)
+    }
+
+    /**
+     * Somebody just accepted an invitation or followed — put them in the book.
+     *
+     * The CRM was a snapshot: whatever the LinkedIn export held on the day it was imported, plus
+     * whoever had emailed. A network grows by exactly the events that arrive as notifications and
+     * were being read for nothing — "X accepted your invitation", "Y started following you" — so a
+     * new connection sat unrecorded until the next manual export, which is to say indefinitely.
+     *
+     * Deliberately regex-only, no model call: the shape of these notifications is fixed, and a
+     * language model asked to parse "Ana Ruiz accepted your invitation" is cost and latency spent on
+     * a solved problem. The name is lifted out, so nothing named "… started following you" is ever
+     * stored as a person.
+     */
+    private val CONNECT_RE = Regex(
+        "(?i)^(.{2,60}?)\\s+(?:has\\s+)?(?:just\\s+)?" +
+        "(accepted your (?:connection )?(?:invitation|invite|request)|" +
+        "started following you|began following you|followed you|" +
+        "is now (?:connected|following you)|added you)")
+    private val MUTUAL_RE = Regex("(?i)^you and (.{2,60}?) are now connected")
+
+    private fun connectionScan(note: NotificationStore.Note) {
+        val line = "${note.title} ${note.text}".trim()
+        if (line.length < 8) return
+        val who = (CONNECT_RE.find(line)?.groupValues?.getOrNull(1)
+            ?: MUTUAL_RE.find(line)?.groupValues?.getOrNull(1))
+            ?.trim()?.trim(',', '.', '!', ':')?.takeIf { it.length in 2..60 } ?: return
+        // A headline, not a name — "3 people started following you".
+        if (Regex("^\\d+\\s").containsMatchIn(who) || who.contains("people", true)) return
+        if (!firstTime("conn|${note.app}|${who.lowercase()}")) return
+
+        val where = when {
+            note.app.contains("linkedin", true) -> "LinkedIn"
+            note.app.contains("instagram", true) -> "Instagram"
+            note.app.contains("twitter", true) || note.app.contains("x", true) -> "X"
+            else -> note.app
+        }
+        scope.launch {
+            try {
+                com.agentos.shell.tools.LeadStore.add(
+                    applicationContext, who, "", "", "", "new on $where",
+                    "Connected on $where " + java.text.SimpleDateFormat(
+                        "d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date()))
+                // Into the brain too, so "who followed me this week" is answerable.
+                com.agentos.shell.tools.Brain.remember(applicationContext, "note",
+                    "New connection: $who",
+                    "$who connected with you on $where.", actors = listOf(who), role = "system")
+            } catch (e: Exception) {}
+        }
     }
 
     // P5.3: spot a booking/flight/reservation confirmation and drop a one-tap "add to calendar + remind"

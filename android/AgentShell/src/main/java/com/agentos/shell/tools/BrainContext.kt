@@ -156,6 +156,15 @@ object BrainContext {
         // The identity essentials (name, contact details, about-me, learned facts) lead this block, so a cap
         // keeps what every answer needs and drops the long LinkedIn work-history tail that no single question
         // ever needed in full.
+        // WHO PEOPLE ARE, WHEREVER THE QUESTION IS ASKED.
+        //
+        // The CRM resolved one human out of ten scattered rows and then only the CRM screen could
+        // read it, so "what's Joslyn's Instagram" was unanswerable from Home while the answer sat
+        // in the same database. Gated on the question, exactly like the vitals block, so an ordinary
+        // question pays nothing for it.
+        val crm = try {
+            if (Crm.isPeopleQuestion(q)) Crm.contextFor(ctx, q) else ""
+        } catch (e: Exception) { "" }
         val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
@@ -354,6 +363,7 @@ object BrainContext {
             // in Telegram and to a team agent — rather than only inside the Health screen's own ask
             // box, which would leave the assistant knowing less than one of its own pages.
             if (vitals.isNotEmpty()) append("\n\n").append(vitals)
+            if (crm.isNotEmpty()) append("\n\n").append(crm)
             append("\nCurrent time: ").append(now)
         }
     }

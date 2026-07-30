@@ -42,6 +42,11 @@ object Places {
         // a PDF viewer and never changed again.
         Place("made_docs", "Documents", "preview and edit what you've made",
             listOf("document", "doc", "slides", "deck", "pdf", "presentation", "one-pager", "report")),
+        // Replaces a contact list, which answers "what is their number" — a question that mattered
+        // when you had to dial it, and not the two people actually have: who is this again, and do
+        // I owe them something.
+        Place("crm", "People", "who you know, and where you stand",
+            listOf("contacts", "crm", "person", "who", "company", "companies", "relationship", "owed")),
         Place("invest", "Portfolio", "holdings and performance", listOf("stocks", "shares", "trading", "money", "investments")),
         Place("expenses", "Expenses", "what you've spent", listOf("spending", "receipts", "budget")),
         Place("find_job", "Job hunt", "roles, CV, outreach", listOf("jobs", "career", "cv", "resume")),
