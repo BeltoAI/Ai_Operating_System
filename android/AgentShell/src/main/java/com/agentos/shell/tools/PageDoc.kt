@@ -32,10 +32,25 @@ object PageDoc {
     private fun esc(s: String) = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    /** Light inline emphasis, since the writer is told it may use `**bold**` and `*italic*`. */
+    /**
+     * Light inline emphasis — and the asterisks nobody closed.
+     *
+     * The paired forms were handled and the UNPAIRED ones were not, so a writer that opened `**` and
+     * never closed it put raw asterisks on a finished page. Exactly the same defect was found and
+     * fixed in slides; documents were never checked for it, which is the argument for checking
+     * everywhere the moment something is found anywhere.
+     */
     private fun inline(s: String): String = esc(s)
         .replace(Regex("\\*\\*(.+?)\\*\\*"), "<strong>$1</strong>")
         .replace(Regex("(?<![\\w*])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\w*])"), "<em>$1</em>")
+        // Only asterisks at an edge or against a space go, so "4*3" and "a*b" survive as arithmetic.
+        .replace("**", "")
+        .replace(Regex("^\\*+|\\*+$"), "")
+        .replace(Regex("\\*+(?=\\s)|(?<=\\s)\\*+"), "")
+
+    /** A heading is already the largest type in its section; emphasis inside one is noise. */
+    private fun plainHead(s: String): String = esc(
+        s.replace("**", "").replace(Regex("(?<![\\w*])\\*(?!\\s)(.+?)(?<!\\s)\\*(?![\\w*])"), "$1").trim())
 
     /**
      * The document as one printable A4 page-stream.
@@ -52,25 +67,44 @@ object PageDoc {
 
         val body = StringBuilder()
         var inList = false
-        fun closeList() { if (inList) { body.append("</ul>"); inList = false } }
+        var inOrdered = false
+        fun closeList() {
+            if (inList) { body.append("</ul>"); inList = false }
+            if (inOrdered) { body.append("</ol>"); inOrdered = false }
+        }
 
         content.lines().forEach { rawLine ->
             val line = rawLine.trim()
             when {
                 line.isEmpty() -> closeList()
                 line.startsWith("# ") -> {
-                    closeList(); body.append("<h2>").append(inline(line.removePrefix("# "))).append("</h2>")
+                    closeList(); body.append("<h2>").append(plainHead(line.removePrefix("# "))).append("</h2>")
                 }
                 line.startsWith("## ") -> {
-                    closeList(); body.append("<h3>").append(inline(line.removePrefix("## "))).append("</h3>")
+                    closeList(); body.append("<h3>").append(plainHead(line.removePrefix("## "))).append("</h3>")
                 }
                 line.startsWith("> ") -> {
                     closeList()
                     body.append("<blockquote>").append(inline(line.removePrefix("> "))).append("</blockquote>")
                 }
                 line.startsWith("- ") || line.startsWith("• ") -> {
+                    if (inOrdered) { body.append("</ol>"); inOrdered = false }
                     if (!inList) { body.append("<ul>"); inList = true }
                     body.append("<li>").append(inline(line.drop(2))).append("</li>")
+                }
+                // A NUMBERED LIST, WHICH AN AGENDA ALWAYS IS.
+                //
+                // "1. Market positioning (20 min)" fell through to the paragraph branch — no indent,
+                // no hanging number, no grouping, the bare digits set as body text. The single most
+                // common shape this renderer produces is an agenda, and it was the one shape it did
+                // not know. Numbering comes from the list so the items renumber themselves after an
+                // edit, rather than the writer's digits going stale the moment one is deleted.
+                Regex("^\\d{1,2}[.)]\\s").containsMatchIn(line) -> {
+                    if (inList) { body.append("</ul>"); inList = false }
+                    if (!inOrdered) { body.append("<ol>"); inOrdered = true }
+                    body.append("<li>")
+                        .append(inline(line.replaceFirst(Regex("^\\d{1,2}[.)]\\s+"), "")))
+                        .append("</li>")
                 }
                 else -> { closeList(); body.append("<p>").append(inline(line)).append("</p>") }
             }
@@ -90,7 +124,7 @@ object PageDoc {
   body { font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
          color:$ink; font-size:10.5pt; line-height:1.62; }
   /* ~90 characters. Full-width A4 body text is the thing that makes a document look generated. */
-  header, p, ul, blockquote, h2, h3 { max-width:158mm; }
+  header, p, ul, ol, blockquote, h2, h3 { max-width:158mm; }
 
   header { margin-bottom:9mm; }
   .bar { width:17mm; height:1.7mm; background:$accent; border-radius:1mm; margin-bottom:5mm; }
@@ -102,7 +136,15 @@ object PageDoc {
   h3 { font-size:11pt; font-weight:600; margin:5.5mm 0 1.5mm; color:$ink;
        break-after:avoid; page-break-after:avoid; }
   p { margin-bottom:3.2mm; }
-  ul { margin:0 0 3.4mm 0; list-style:none; }
+  ul, ol { margin:0 0 3.4mm 0; list-style:none; }
+  /* Hanging numbers on their own tabular column, so multi-line items align under their text
+     rather than under the digit — the difference between an agenda and a numbered paragraph. */
+  ol { counter-reset:item; }
+  ol > li { padding-left:9mm; }
+  ol > li:before { counter-increment:item; content:counter(item) "."; position:absolute; left:0;
+                   top:0; width:7mm; text-align:left; color:$accent; font-weight:650;
+                   font-variant-numeric:tabular-nums; background:none; border-radius:0;
+                   height:auto; }
   li { position:relative; padding-left:6.5mm; margin-bottom:1.8mm;
        break-inside:avoid; page-break-inside:avoid; }
   li:before { content:""; position:absolute; left:0.6mm; top:2.1mm; width:1.9mm; height:1.9mm;

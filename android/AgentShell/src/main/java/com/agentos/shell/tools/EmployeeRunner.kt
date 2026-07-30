@@ -688,7 +688,12 @@ object EmployeeRunner {
                 detail = raw.trim().removePrefix("```").removeSuffix("```").trim().take(1600)
                 if (did.isBlank()) did = "Put together a brief on ${emp.goal.take(30)}"
             }
-            did = did.ifBlank { if (raw.isBlank()) "Couldn't finish — check your model key allows web search (Anthropic or Gemini)." else "Worked on: ${emp.goal.take(40)}" }
+            did = did.ifBlank {
+                if (raw.isBlank())
+                    "Couldn't finish — " + AgentClient.lastWorkError.ifBlank {
+                        "the model came back empty" }
+                else "Worked on: ${emp.goal.take(40)}"
+            }
             val act = o?.optJSONObject("action")
             val actType = act?.optString("type").orEmpty()
 
@@ -773,6 +778,14 @@ object EmployeeRunner {
             try { MemoryLog.add(ctx, "action", "${emp.name} (${emp.role})", (did + (if (outcome.isNotBlank()) "\n$outcome" else "") + (if (detail.isNotBlank()) "\n$detail" else "")).take(800), "Team") } catch (e: Exception) {}
 
             EmployeeStore.setStatus(ctx, emp.id, if (needsEff.isNotBlank()) "needs_you" else "idle", touchRun = true)
+            // Did this shift earn its cost? An action taken, something worth writing down, or a
+            // question for the owner all count; "nothing new to act on" does not, and a run of those
+            // stretches the interval instead of repeating at full price. See dueAfterMs.
+            try {
+                EmployeeStore.noteShift(ctx, emp.id,
+                    didAction == 1 || needsEff.isNotBlank() || outcome.isNotBlank() ||
+                        detail.length > 80)
+            } catch (e: Exception) {}
             // Don't SPAM the same ask every shift: only ping/post a "needs you" the FIRST time (or when it
             // genuinely changes). If nothing's blocked, clear the memory so a future ask can surface again.
             val repeatAsk = needsEff.isNotBlank() && EmployeeStore.alreadyAsked(ctx, emp.id, needsEff)

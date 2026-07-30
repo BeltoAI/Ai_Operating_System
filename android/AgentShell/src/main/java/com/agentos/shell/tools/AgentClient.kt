@@ -180,11 +180,31 @@ object AgentClient {
      * A real WORK call for an autonomous employee: quality tier, optional live web browsing, and it
      * returns the token usage so the worker's cost can be billed to it. Returns (text, inTok, outTok).
      */
+    /**
+     * WHY THE SHIFT FAILED, kept rather than thrown away.
+     *
+     * [work] used to collapse every non-200 into an empty string, and the one caller that mattered
+     * — an agent's shift — then wrote "Couldn't finish — check your model key allows web search" to
+     * the log. That line appeared 50 times for one agent. It is a guess, not a diagnosis: a 429
+     * rate-limit, an expired key, a provider 500 and a read timeout all produce exactly the same
+     * empty string, so the owner was being sent to check a setting that may well have been fine
+     * while the actual reason sat in a variable that was discarded one line later.
+     */
+    @Volatile var lastWorkError = ""; private set
+
     fun work(system: String, user: String, maxTokens: Int = 900, web: Boolean = true): Triple<String, Int, Int> {
         val tools = if (web) webTool() else null
         val msgs = JSONArray().put(JSONObject().put("role", "user").put("content", user))
         val (code, text) = callMessages(system, msgs, maxTokens, VOICE, 120000, tools)
-        return if (code == 200) Triple(text.trim(), lastInTok, lastOutTok) else Triple("", lastInTok, lastOutTok)
+        if (code == 200) { lastWorkError = ""; return Triple(text.trim(), lastInTok, lastOutTok) }
+        lastWorkError = when (code) {
+            401, 403 -> "your model key was rejected ($code)"
+            429 -> "the model is rate-limiting us — it'll retry next shift"
+            in 500..599 -> "the model provider is down ($code)"
+            0 -> "no network, or the request timed out"
+            else -> "the model returned $code"
+        } + text.trim().takeIf { it.isNotBlank() }?.let { " — ${it.take(160)}" }.orEmpty()
+        return Triple("", lastInTok, lastOutTok)
     }
 
     private fun stripHtmlFences(s: String): String {

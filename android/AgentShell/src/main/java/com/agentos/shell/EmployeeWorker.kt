@@ -34,9 +34,27 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
             } catch (e: Exception) {}
             if (!com.agentos.shell.tools.AgentClient.hasKey()) return com.agentos.shell.tools.WorkerHealth.finished(applicationContext, "EmployeeWorker", true).let { Result.success() }   // nothing to spend, skip
+            // ONE-TIME CRM CLEAN-UP.
+            //
+            // Runs here rather than at launch because it walks every row, and because the damage is
+            // already done: the CRM feeds twelve of its contacts into every brain prompt, so while
+            // newsletters were filed as people the assistant was being told that "Zapier News" and
+            // "F6S Startup Alert" were contacts of the owner's. Guarded by a flag, so it is once.
+            try {
+                val flags = ctx.getSharedPreferences("slyos_migrations", android.content.Context.MODE_PRIVATE)
+                if (!flags.getBoolean("crm_tidy_v1", false)) {
+                    val (dropped, filled) = com.agentos.shell.tools.LeadStore.tidy(ctx)
+                    flags.edit().putBoolean("crm_tidy_v1", true).apply()
+                    if (dropped > 0 || filled > 0)
+                        com.agentos.shell.tools.MemoryLog.add(ctx, "note", "CRM tidied",
+                            "Removed $dropped bulk senders that were filed as contacts and filled in " +
+                            "$filled companies from their addresses.", "Team")
+                }
+            } catch (e: Exception) {}
+
             val now = System.currentTimeMillis()
             val due = EmployeeStore.all(ctx).filter { e ->
-                e.intervalMin > 0 && (now - e.lastRun) >= e.intervalMin * 60_000L
+                e.intervalMin > 0 && (now - e.lastRun) >= EmployeeStore.dueAfterMs(ctx, e)
             }
             // Run at most a few per cycle so a big team doesn't hammer the API in one wake-up.
             due.sortedBy { it.lastRun }.take(3).forEach { e ->

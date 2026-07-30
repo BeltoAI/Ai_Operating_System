@@ -105,6 +105,36 @@ object EmployeeStore {
     // Remember the last "needs you" an agent already surfaced, so it doesn't re-ask the SAME thing every shift.
     private fun needsPrefs(ctx: Context) = ctx.getSharedPreferences("slyos_needs", Context.MODE_PRIVATE)
     private fun normNeeds(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim().take(90)
+    // MARK: - Backing off when there is nothing to do
+
+    private fun quietPrefs(ctx: Context) =
+        ctx.getSharedPreferences("slyos_emp_quiet", Context.MODE_PRIVATE)
+
+    /**
+     * How long this agent should wait before its next shift.
+     *
+     * The measured problem: two agents on 30-minute intervals produced 150–240 log lines a day, and
+     * the overwhelming majority read "checked calendar and inbox again; no new action items found".
+     * Every half hour, forever, two paid model calls to conclude that nothing had changed — and
+     * because the interval was a constant, finding nothing a hundred times in a row cost exactly as
+     * much as finding something.
+     *
+     * So an empty shift doubles the wait, up to eight times the interval; a shift that actually did
+     * something resets it. A 30-minute agent still answers within half an hour of real work
+     * appearing, and idles at four hours through a quiet weekend instead of waking 96 times.
+     */
+    fun dueAfterMs(ctx: Context, e: Employee): Long {
+        val quiet = quietPrefs(ctx).getInt("q_${e.id}", 0).coerceIn(0, 3)
+        return e.intervalMin * 60_000L * (1L shl quiet)
+    }
+
+    /** Called after every shift: [didSomething] false means back off, true means back to normal. */
+    fun noteShift(ctx: Context, id: String, didSomething: Boolean) {
+        val p = quietPrefs(ctx)
+        if (didSomething) p.edit().remove("q_$id").apply()
+        else p.edit().putInt("q_$id", (p.getInt("q_$id", 0) + 1).coerceAtMost(3)).apply()
+    }
+
     fun alreadyAsked(ctx: Context, id: String, needs: String): Boolean =
         needsPrefs(ctx).getString(id, "").orEmpty() == normNeeds(needs) && normNeeds(needs).isNotBlank()
     fun rememberAsked(ctx: Context, id: String, needs: String) = needsPrefs(ctx).edit().putString(id, normNeeds(needs)).apply()

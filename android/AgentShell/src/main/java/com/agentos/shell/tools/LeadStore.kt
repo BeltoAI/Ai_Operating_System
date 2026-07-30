@@ -46,8 +46,83 @@ object LeadStore {
     } catch (e: Exception) { newJson.ifBlank { oldJson } }
 
     /** Add or update a lead, deduped by email. [extra] is free-form JSON of anything useful about them. */
-    fun add(ctx: Context, name: String, email: String, role: String = "", company: String = "", source: String = "", notes: String = "", extra: String = "{}"): Boolean = try {
+    /**
+     * Senders that are not people, and must never become CRM contacts.
+     *
+     * Measured on a real device: 436 rows, 98% with no company and no role, and dozens of them
+     * newsletters — "Zapier News", "F6S Startup Alert", noreply@app.documenso.com. A CRM whose rows
+     * are mostly bulk mail is worse than an empty one, because the handful of real people in it can
+     * no longer be found. The inbox harvester was adding every address it saw.
+     *
+     * Matched on the local part rather than the domain, because the domain is often a company you
+     * genuinely deal with — noreply@stripe.com is not a contact, but a person at stripe.com is.
+     */
+    private val NOT_A_PERSON = Regex(
+        "(?i)^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|noreply|news|newsletter|notifications?|" +
+        "notify|updates?|alerts?|mailer|mailer[-_.]?daemon|bounce[sd]?|postmaster|automated|auto|" +
+        "marketing|promo(tions?)?|offers?|deals?|billing|invoices?|receipts?|statements?|" +
+        "support|help|helpdesk|info|contact|hello|hi|team|admin|webmaster|security|" +
+        "careers|jobs|recruiting|unsubscribe|feedback|survey|digest|reply|robot|bot|system|" +
+        "account|accounts|service|services|mail|email|messages?)([-_.+].*)?$")
+
+    /** A bulk-mail domain: nothing at e.foo.com or send.foo.com is a person writing to you. */
+    private val BULK_DOMAIN = Regex("(?i)^(e|em|email|send|sendgrid|mail|mailer|news|reply|m|t|mg|smtp|" +
+        "notifications?|updates?|marketing|bounces?|list|links?)\\.")
+
+    /**
+     * Is this address a human correspondent, or machinery?
+     *
+     * Public so the harvester can skip before it even builds a row, and so a future clean-up pass
+     * can be honest about which existing rows it is removing.
+     */
+    fun isPerson(email: String): Boolean {
+        val e = email.trim().lowercase()
+        if (!e.contains('@') || e.count { it == '@' } != 1) return false
+        val local = e.substringBefore('@')
+        val domain = e.substringAfter('@')
+        if (NOT_A_PERSON.matches(local)) return false
+        if (BULK_DOMAIN.containsMatchIn(domain)) return false
+        // A local part that is a long opaque token is a per-message reply address, not a person.
+        if (local.length > 28 && !local.contains('.')) return false
+        return true
+    }
+
+    /**
+     * The company, from the address, when nobody supplied one.
+     *
+     * 98% of rows had an empty company field, which is most of what makes a CRM row worth having.
+     * The domain is not a perfect answer but it is a true one and it is free — and it turns an
+     * address list into something you can actually group and search by. Free-mail domains are left
+     * blank rather than filed as though Gmail were an employer.
+     */
+    private val FREE_MAIL = setOf("gmail.com", "googlemail.com", "yahoo.com", "ymail.com",
+        "hotmail.com", "outlook.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+        "aol.com", "proton.me", "protonmail.com", "gmx.com", "mail.com", "yandex.com", "qq.com")
+
+    fun companyFromEmail(email: String): String {
+        val domain = email.trim().lowercase().substringAfter('@', "")
+        if (domain.isBlank() || domain in FREE_MAIL) return ""
+        // Drop a leading subdomain that is not part of the name, keep the registrable-ish part.
+        val parts = domain.split('.').filter { it.isNotBlank() }
+        if (parts.size < 2) return ""
+        val name = if (parts.size > 2 && parts[parts.size - 2].length <= 3)
+            parts[parts.size - 3]          // co.uk, com.au and friends
+        else parts[parts.size - 2]
+        return name.replace('-', ' ').split(' ')
+            .joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
+    }
+
+    fun add(ctx: Context, name: String, email: String, role: String = "", company: String = "", source: String = "", notes: String = "", extra: String = "{}"): Boolean {
         val key = email.trim().lowercase()
+        // Machinery never becomes a contact. Rejected here rather than at each caller, because there
+        // are several callers and only one of them was ever going to remember.
+        if (key.isNotBlank() && !isPerson(key)) return false
+        return addChecked(ctx, name, key, role, company.ifBlank { companyFromEmail(key) },
+            source, notes, extra)
+    }
+
+    private fun addChecked(ctx: Context, name: String, key: String, role: String, company: String,
+                           source: String, notes: String, extra: String): Boolean = try {
         val cv = ContentValues().apply {
             put("name", name.trim()); put("email", key); put("role", role.trim())
             put("company", company.trim()); put("source", source.trim()); put("notes", notes.trim())
@@ -73,6 +148,36 @@ object LeadStore {
     } catch (e: Exception) { false }
 
     fun byEmail(ctx: Context, email: String): Lead? = all(ctx).firstOrNull { it.email.equals(email.trim(), true) }
+
+    /**
+     * Clean what is already in there, once.
+     *
+     * The filter above stops new machinery arriving and does nothing about the rows already filed —
+     * and the whole complaint is about the state of the existing CRM, not the next entry. Removes
+     * the bulk senders and backfills the company from the address for everyone else, so the
+     * existing 400-odd rows become groupable instead of only future ones.
+     *
+     * Returns how many were dropped and how many gained a company, so the result can be reported
+     * rather than quietly assumed.
+     */
+    fun tidy(ctx: Context): Pair<Int, Int> {
+        var dropped = 0; var filled = 0
+        try {
+            all(ctx).forEach { l ->
+                if (l.email.isNotBlank() && !isPerson(l.email)) {
+                    db(ctx).delete("leads", "email=?", arrayOf(l.email.lowercase())); dropped++
+                } else if (l.company.isBlank()) {
+                    val c = companyFromEmail(l.email)
+                    if (c.isNotBlank()) {
+                        db(ctx).update("leads", ContentValues().apply { put("company", c) },
+                            "email=?", arrayOf(l.email.lowercase()))
+                        filled++
+                    }
+                }
+            }
+        } catch (e: Exception) {}
+        return dropped to filled
+    }
 
     fun all(ctx: Context): List<Lead> = try {
         val out = ArrayList<Lead>()
