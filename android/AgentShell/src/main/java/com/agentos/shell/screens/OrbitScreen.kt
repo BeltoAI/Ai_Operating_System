@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -39,106 +38,326 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
+import com.agentos.shell.tools.Field
 import com.agentos.shell.tools.Crm
+import com.agentos.shell.tools.Galaxy
+import com.agentos.shell.tools.NetworkProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.cos
+import kotlin.math.log10
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * Orbit — your network as a living field.
+ * Orbit — your whole network as one field.
  *
  * The thing this replaces was a shelf: rows of cards you scroll past. That is a directory, and a
- * directory is not a place anybody returns to. What makes a social product work is that something is
- * always quietly moving and it is *yours* — so the canvas IS the app, and the list is the record
- * underneath it.
+ * directory is not a place anybody returns to. What makes a social product work is that something
+ * is always quietly moving and it is *yours* — so the canvas IS the app.
  *
- * You are the bright node in the middle, because everything here exists only in relation to you:
- * your people, your asks, your answers. Distance is how close you actually are — messages exchanged
- * — and brightness is how alive it is right now, which is a fact the CRM already knows and no screen
- * has ever shown.
+ * Everyone is here, not a curated few. A screen that showed thirty-six of twenty thousand people
+ * was a chart of a sample, and a sample does not feel like anything. The whole address book does:
+ * you pull back and the disc keeps going, which is the single most accurate thing this screen can
+ * tell you about what you have built.
  *
- * It drifts. Not an animation loop for its own sake: a still field of dots reads as a diagram, and
- * a diagram is something you look at once. A field that breathes reads as something with people in
- * it, and the movement is slow enough that a name never crawls away from your thumb.
+ * Three layers, and the difference between them is the whole point:
  *
- * The empty state matters more than the full one, because almost everybody opens this with nothing
- * in it. Here it opens with the hundred and forty-three people already on the phone — so it is never
- * empty, and it needs no network to exist before it is worth looking at.
+ *  - **You**, at the centre, because everything here exists only in relation to you.
+ *  - **The people you actually talk to** — the inner ring. Named, tappable, sized by how much you
+ *    have said to each other and lit by how recently. This is a fact the CRM has always held and
+ *    no screen has ever shown.
+ *  - **Everyone else** — the disc. Twenty thousand of them, clustered into arms by employer, so
+ *    three hundred people at one company reads instantly as a streak you are deep inside.
+ *
+ * It turns, and the inner bands turn faster than the outer ones. Not decoration: a still field of
+ * dots reads as a diagram, something you look at once, and uniform rotation reads as a spinning
+ * picture. Differential rotation is the thing that makes it read as depth.
  */
 @Composable
 fun OrbitScreen(
     modifier: Modifier = Modifier,
     onPerson: (String) -> Unit,
+    onStanding: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
     var people by remember { mutableStateOf<List<Crm.Person>>(emptyList()) }
+    var sky by remember { mutableStateOf<Field.Sky?>(null) }
+    var galaxy by remember { mutableStateOf<Galaxy.Layout?>(null) }
     var loaded by remember { mutableStateOf(false) }
-    var scale by remember { mutableStateOf(1f) }
+
+    var zoom by remember { mutableStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
-    var picked by remember { mutableStateOf(-1) }
-    var sheet by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(-1) }       // index into `people`
+    var pickedDust by remember { mutableStateOf(-1) }   // index into `sky`
+    var peers by remember { mutableStateOf<List<NetworkProfile.Peer>>(emptyList()) }
+    var pickedPeer by remember { mutableStateOf(-1) }
 
     LaunchedEffect(Unit) {
-        people = withContext(Dispatchers.IO) {
-            try { Crm.peopleCached(ctx, 120).filter { it.reciprocal } } catch (e: Exception) { emptyList() }
+        // Everything off the main thread, and the layout is built exactly once — twenty thousand
+        // sines belong in a background coroutine, not in a frame.
+        val loadedPeople = withContext(Dispatchers.IO) {
+            try { Crm.peopleCached(ctx, 400).filter { it.reciprocal } } catch (e: Exception) { emptyList() }
+        }
+        people = loadedPeople
+
+        // Show the field it had last time FIRST, then quietly rebuild. Reading twenty-one thousand
+        // people takes sixteen seconds, and staring at an empty screen for sixteen seconds is how
+        // somebody decides a page is broken.
+        val warm = withContext(Dispatchers.IO) { try { Field.cached(ctx) } catch (e: Exception) { null } }
+        if (warm != null) {
+            sky = warm
+            galaxy = withContext(Dispatchers.Default) { try { Galaxy.build(warm) } catch (e: Exception) { null } }
+            loaded = true
+        }
+        val fresh = withContext(Dispatchers.IO) { try { Field.load(ctx) } catch (e: Exception) { null } }
+        if (fresh != null && (warm == null || fresh.size != warm.size)) {
+            val g = withContext(Dispatchers.Default) { try { Galaxy.build(fresh) } catch (e: Exception) { null } }
+            sky = fresh; galaxy = g
         }
         loaded = true
+
+        // The other galaxies. Last, because it is a network call and the field must never wait on
+        // one — your own people are on this phone and owe nobody a round trip.
+        peers = withContext(Dispatchers.IO) {
+            try { NetworkProfile.others(ctx) } catch (e: Exception) { emptyList() }
+        }
     }
 
-    // The whole field turns once every few minutes — slow enough that nothing crawls out from under
-    // a thumb, present enough that the screen is never quite still.
+    // One turn every four minutes. Slow enough that nothing crawls out from under a thumb, present
+    // enough that the screen is never quite still.
     val drift by rememberInfiniteTransition(label = "d").animateFloat(
         0f, (2 * Math.PI).toFloat(),
         infiniteRepeatable(tween(240_000, easing = LinearEasing)), label = "dv")
+    // The travelling pulse along a connection. Four seconds is the speed at which it reads as
+    // something moving between two people rather than as a blinking line.
+    val pulse by rememberInfiniteTransition(label = "p").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "pv")
+    // Fast, only used while loading.
+    val spin by rememberInfiniteTransition(label = "s").animateFloat(
+        0f, (2 * Math.PI).toFloat(),
+        infiniteRepeatable(tween(1500, easing = LinearEasing)), label = "sv")
     val breath by rememberInfiniteTransition(label = "b").animateFloat(
         0.85f, 1f, infiniteRepeatable(tween(3200, easing = LinearEasing),
             androidx.compose.animation.core.RepeatMode.Reverse), label = "bv")
 
     /**
-     * Where somebody sits.
+     * Where somebody you talk to sits, in world units, before the field turns.
      *
-     * Ring by how much you actually talk — the people you speak to daily are close, the ones you
-     * spoke to once are far out. Angle from a golden-angle spiral so the field is evenly filled with
-     * no clumping and, crucially, is the SAME every time it opens: a field that rearranges itself
-     * between visits destroys the only spatial memory anybody builds of it.
+     * Ring by how much you actually say to each other — daily is close, once is far out. Angle from
+     * a golden-angle spiral, so the ring fills evenly with no clumping and, crucially, is the SAME
+     * every time it opens. A field that rearranges itself between visits destroys the only spatial
+     * memory anybody ever builds of it.
      */
-    fun place(i: Int, p: Crm.Person, w: Float, h: Float): Offset {
-        val closeness = Math.log10((p.totalMessages + 10).toDouble()).toFloat()   // 1..~4
-        val ring = (1f - (closeness / 4.2f).coerceIn(0.12f, 0.95f))
-        val radius = (52f + ring * (minOf(w, h) * 0.62f))
-        val angle = i * 2.39996323f + drift * (0.4f + ring)      // outer rings turn slower
-        val c = Offset(w / 2f, h / 2f)
-        return (Offset(c.x + radius * Math.cos(angle.toDouble()).toFloat(),
-                       c.y + radius * Math.sin(angle.toDouble()).toFloat()) - c) * scale + c + pan
+    fun innerRing(p: Crm.Person): Float {
+        val closeness = log10((p.totalMessages + 10).toDouble()).toFloat()      // 1 .. ~4
+        return 1f - (closeness / 4.2f).coerceIn(0.12f, 0.95f)                   // 0 = closest
     }
+    fun innerAt(i: Int, p: Crm.Person): Offset {
+        val ring = innerRing(p)
+        val r = 62f + ring * (Galaxy.INNER - 95f)
+        val a = i * 2.39996323f + drift * (1.55f - 0.55f * ring)
+        return Offset(r * cos(a), r * sin(a))
+    }
+
+    /**
+     * Where somebody else's galaxy sits.
+     *
+     * Outside yours, on a slow ring of their own, spaced by the golden angle so two peers never sit
+     * on top of each other. The radius of THEIR disc comes from the one number they published, so a
+     * person with twenty thousand people looks like it — and none of their names are here, because
+     * none of their names ever left their phone.
+     */
+    fun peerAt(i: Int, outer: Float): Offset {
+        val ring = outer * (1.55f + 0.42f * (i % 3))
+        val a = i * 2.39996323f + drift * 0.22f
+        return Offset(ring * cos(a), ring * sin(a))
+    }
+    fun peerRadius(p: NetworkProfile.Peer): Float =
+        (Galaxy.outerFor(p.networkSize) - Galaxy.INNER) * 0.42f + 40f
 
     Box(modifier.fillMaxSize().background(T.bg)) {
         Canvas(
             Modifier.fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTransformGestures { _, panChange, zoom, _ ->
-                        scale = (scale * zoom).coerceIn(0.5f, 4f); pan += panChange
+                    detectTransformGestures { _, panChange, z, _ ->
+                        zoom = (zoom * z).coerceIn(0.22f, 6f); pan += panChange
                     }
                 }
-                .pointerInput(people) {
+                .pointerInput(people, galaxy) {
                     detectTapGestures { tap ->
+                        val g = galaxy
                         val w = size.width.toFloat(); val h = size.height.toFloat()
-                        var best = -1; var bestD = Float.MAX_VALUE
-                        people.forEachIndexed { i, p ->
-                            val d = (place(i, p, w, h) - tap).getDistance()
-                            if (d < bestD) { bestD = d; best = i }
+                        val unit = (minOf(w, h) / 2f) / 620f
+                        val s = unit * zoom
+                        val centre = Offset(w / 2f, h / 2f)
+                        // Into world space once, then everything is compared there.
+                        val world = (tap - centre - pan) / s
+                        // Tight. At this density a generous radius means the nearest dot is always
+                        // "hit" and nothing can ever be deselected.
+                        val near = 13f / s
+
+                        var hitPeer = -1
+                        if (g != null) peers.forEachIndexed { i, _ ->
+                            if ((peerAt(i, g.outer) - world).getDistance() < 26f / s) hitPeer = i
                         }
-                        picked = if (bestD < 60f && picked != best) best else -1
+                        if (hitPeer >= 0) {
+                            pickedPeer = if (pickedPeer == hitPeer) -1 else hitPeer
+                            picked = -1; pickedDust = -1
+                            return@detectTapGestures
+                        }
+                        pickedPeer = -1
+
+                        var bestP = -1; var bestPd = Float.MAX_VALUE
+                        people.forEachIndexed { i, p ->
+                            val d = (innerAt(i, p) - world).getDistance()
+                            if (d < bestPd) { bestPd = d; bestP = i }
+                        }
+                        if (bestPd < near * 1.6f) {
+                            picked = if (picked == bestP) -1 else bestP; pickedDust = -1
+                            return@detectTapGestures
+                        }
+
+                        // Twenty thousand distance tests on a tap is under a millisecond, and it
+                        // only happens on a tap. Each band is un-turned first rather than turning
+                        // every point.
+                        var bestD = -1; var bestDd = Float.MAX_VALUE
+                        if (g != null) for (b in 0 until Galaxy.BANDS) {
+                            val a = -drift * g.omega(b)
+                            val ca = cos(a); val sa = sin(a)
+                            val wx = world.x * ca - world.y * sa
+                            val wy = world.x * sa + world.y * ca
+                            fun scan(pts: FloatArray, idx: IntArray) {
+                                for (k in idx.indices) {
+                                    val dx = pts[k * 2] - wx; val dy = pts[k * 2 + 1] - wy
+                                    val d = dx * dx + dy * dy
+                                    if (d < bestDd) { bestDd = d; bestD = idx[k] }
+                                }
+                            }
+                            scan(g.cold[b], g.coldIdx[b]); scan(g.warm[b], g.warmIdx[b])
+                        }
+                        if (bestD >= 0 && sqrt(bestDd) < near) {
+                            pickedDust = if (pickedDust == bestD) -1 else bestD; picked = -1
+                        } else { picked = -1; pickedDust = -1 }
                     }
                 }
         ) {
             val w = size.width; val h = size.height
             val centre = Offset(w / 2f, h / 2f)
+            val unit = (minOf(w, h) / 2f) / 620f
+            val s = unit * zoom
+            val g = galaxy
 
+            // ── The disc ──
+            // Ten rotate + twenty drawPoints calls, and that is the entire cost whether there are
+            // two hundred people out here or sixty thousand.
+            if (g != null && g.count > 0) {
+                val nc = drawContext.canvas.nativeCanvas
+                // Point size is set in world units and the canvas is scaled, so dividing by the
+                // scale keeps a dot the same size on screen at every zoom level.
+                val dot = 2.7f / s.coerceAtLeast(0.0001f)
+                val cold = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeWidth = dot
+                    color = android.graphics.Color.argb(78, 214, 218, 232)
+                }
+                // The ones you have actually written to are lit. It is the only difference the disc
+                // draws, and it is the difference that matters: contact made, or not yet.
+                val warm = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    // Same size as everyone else. Bigger AND brighter turned every cluster you
+                    // have talked to into a solid orange mass; only the colour should differ.
+                    strokeWidth = dot
+                    color = android.graphics.Color.argb(150, 255, 150, 66)
+                }
+                nc.save()
+                nc.translate(centre.x + pan.x, centre.y + pan.y)
+                nc.scale(s, s)
+                for (b in 0 until Galaxy.BANDS) {
+                    val deg = Math.toDegrees((drift * g.omega(b)).toDouble()).toFloat()
+                    // Outer bands are dimmer. Two things a flat field cannot do — say which way is
+                    // far, and stop the edge from ending in a hard line.
+                    val fade = 1f - 0.55f * (b.toFloat() / Galaxy.BANDS)
+                    cold.alpha = (86 * fade).toInt()
+                    warm.alpha = (155 * fade).toInt()
+                    nc.save(); nc.rotate(deg)
+                    if (g.cold[b].isNotEmpty()) nc.drawPoints(g.cold[b], cold)
+                    if (g.warm[b].isNotEmpty()) nc.drawPoints(g.warm[b], warm)
+                    nc.restore()
+                }
+                nc.restore()
+
+                // The tapped one, drawn once in screen space so it is never lost in the haze.
+                if (pickedDust >= 0) {
+                    var at: Offset? = null
+                    for (b in 0 until Galaxy.BANDS) {
+                        val a = drift * g.omega(b)
+                        val ca = cos(a); val sa = sin(a)
+                        fun look(pts: FloatArray, idx: IntArray) {
+                            val k = idx.indexOf(pickedDust)
+                            if (k >= 0) {
+                                val x = pts[k * 2]; val y = pts[k * 2 + 1]
+                                at = Offset(x * ca - y * sa, x * sa + y * ca) * s + centre + pan
+                            }
+                        }
+                        look(g.cold[b], g.coldIdx[b]); look(g.warm[b], g.warmIdx[b])
+                        if (at != null) break
+                    }
+                    at?.let {
+                        drawCircle(T.accent.copy(alpha = 0.20f), 26f, it)
+                        drawCircle(T.accent, 5.5f, it)
+                    }
+                }
+            }
+
+            // ── The other galaxies ──
+            //
+            // Somebody else running SlyOS, drawn as a glow rather than as dots. Dots would be a lie:
+            // it would look like their contacts, and their contacts are not in this database and
+            // never will be. What IS known is how many there are, so that is exactly what the size
+            // says and nothing else does.
+            if (g != null) peers.forEachIndexed { i, pr ->
+                val at = peerAt(i, g.outer) * s + centre + pan
+                val rad = peerRadius(pr) * s
+                val on = pickedPeer == i
+
+                // The line home. This is the thing the whole network is for — your dot reaching
+                // another one — so it travels: a bright segment runs along it rather than a static
+                // rule, and it only exists between two people who have both published.
+                val t = ((pulse + i * 0.37f) % 1f)
+                val from = centre + pan
+                drawLine(T.accent.copy(alpha = if (on) 0.30f else 0.11f), from, at, strokeWidth = 1.1f)
+                val head = from + (at - from) * t
+                val tail = from + (at - from) * (t - 0.11f).coerceAtLeast(0f)
+                drawLine(T.accent.copy(alpha = if (on) 0.95f else 0.5f), tail, head, strokeWidth = 2f)
+
+                drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(
+                    listOf(T.accent.copy(alpha = if (on) 0.30f else 0.17f), T.accent.copy(alpha = 0f)),
+                    center = at, radius = rad.coerceAtLeast(1f)), rad.coerceAtLeast(1f), at)
+                drawCircle(T.accent.copy(alpha = 0.18f * breath), 22f * breath, at)
+                drawCircle(T.accent, if (on) 12f else 9f, at)
+
+                drawContext.canvas.nativeCanvas.drawText(
+                    pr.name.split(' ').first().take(14), at.x, at.y - rad.coerceAtMost(90f) - 14f,
+                    android.graphics.Paint().apply {
+                        color = android.graphics.Color.argb(if (on) 235 else 150, 255, 190, 150)
+                        textSize = 24f; isAntiAlias = true
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    })
+            }
+
+            // Labels are laid out after the dots, greedily, skipping any that would collide.
+            // Thirty overlapping first names is less readable than eight clear ones.
+            val labelled = ArrayList<Offset>(24)
+
+            // ── The people you talk to ──
             people.forEachIndexed { i, p ->
-                val at = place(i, p, w, h)
-                // Alive = spoken to recently. This is the one thing the field says at a glance, and
-                // it is a fact the CRM already holds and nothing has ever displayed.
+                val at = innerAt(i, p) * s + centre + pan
                 val alive = when {
                     p.silentDays <= 2 -> 1f
                     p.silentDays <= 14 -> 0.62f
@@ -146,59 +365,107 @@ fun OrbitScreen(
                     else -> 0.16f
                 }
                 val on = picked == i
-                // A faint thread home. Every one of these is a real relationship, so the field
-                // should look connected rather than scattered.
-                drawLine(
-                    color = T.inkSoft.copy(alpha = 0.05f + 0.10f * alive),
-                    start = centre, end = at, strokeWidth = 0.9f)
-                val r = (4.5f + Math.sqrt(p.totalMessages.toDouble()).toFloat() * 0.55f)
-                    .coerceAtMost(17f) * scale.coerceIn(0.7f, 1.5f)
+                // A faint thread home. Every one of these is a real two-way relationship, which is
+                // exactly what the twenty thousand in the disc are not.
+                drawLine(T.inkSoft.copy(alpha = 0.05f + 0.11f * alive),
+                    centre + pan, at, strokeWidth = 0.9f)
+                val r = ((4.5f + sqrt(p.totalMessages.toFloat()) * 0.55f).coerceAtMost(17f)) *
+                    zoom.coerceIn(0.7f, 1.5f)
                 if (on) drawCircle(T.accent.copy(alpha = 0.18f), r * 2.6f, at)
-                drawCircle(
-                    color = (if (on) T.accent else T.inkSoft).copy(alpha = if (on) 1f else alive),
-                    radius = r, center = at)
+                drawCircle((if (on) T.accent else T.inkSoft).copy(alpha = if (on) 1f else alive), r, at)
 
-                // Names only for the close ones, or when zoomed in — a field with 120 labels is a
-                // wall of text, and a field with none is abstract art.
-                if (on || (alive > 0.6f && scale > 1.15f)) {
-                    drawContext.canvas.nativeCanvas.apply {
-                        val paint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.argb(
-                                if (on) 240 else 130, 235, 235, 240)
+                // Names only when close, or when zoomed in. A field with 139 labels is a wall of
+                // text; a field with none is abstract art.
+                val wantsLabel = on || (alive > 0.6f && zoom > 1.7f)
+                val clear = labelled.none {
+                    Math.abs(it.x - at.x) < 88f && Math.abs(it.y - (at.y - r - 12f)) < 26f
+                }
+                if (wantsLabel && (on || clear)) {
+                    labelled.add(Offset(at.x, at.y - r - 12f))
+                    drawContext.canvas.nativeCanvas.drawText(
+                        p.name.split(' ').first().take(12), at.x, at.y - r - 12f,
+                        android.graphics.Paint().apply {
+                            color = android.graphics.Color.argb(if (on) 240 else 130, 235, 235, 240)
                             textSize = 22f; isAntiAlias = true
                             textAlign = android.graphics.Paint.Align.CENTER
-                        }
-                        drawText(p.name.split(' ').first().take(12), at.x, at.y - r - 12f, paint)
-                    }
+                        })
                 }
             }
 
             // You, last, so nothing is drawn over you.
-            drawCircle(T.accent.copy(alpha = 0.13f * breath), 46f * breath, centre + pan * 0f + pan)
+            drawCircle(T.accent.copy(alpha = 0.13f * breath), 46f * breath, centre + pan)
             drawCircle(T.accent, 15f, centre + pan)
+
+            // ── While it reads ──
+            //
+            // A screen with one dot on it and no explanation is a screen somebody backs out of. Two
+            // arcs sweeping around you, in the same language as the field they are about to become,
+            // so the wait looks like the thing loading rather than like nothing happening.
+            if (!loaded) {
+                val rr = 118f
+                for (k in 0 until 2) {
+                    val start = Math.toDegrees((spin + k * Math.PI).toFloat().toDouble()).toFloat()
+                    drawArc(
+                        color = T.accent.copy(alpha = if (k == 0) 0.55f else 0.22f),
+                        startAngle = start, sweepAngle = 46f, useCenter = false,
+                        topLeft = centre + pan - Offset(rr, rr),
+                        size = androidx.compose.ui.geometry.Size(rr * 2, rr * 2),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2f))
+                }
+                drawCircle(T.inkSoft.copy(alpha = 0.06f), rr, centre + pan,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f))
+            }
         }
 
-        // ── The record ──
-        Column(Modifier.align(Alignment.TopStart).padding(20.dp)) {
-            Spacer(Modifier.height(6.dp))
+        // The top bar, and the standing link lives HERE rather than in the card below.
+        //
+        // In a field of twenty thousand dots there is no empty space: every tap lands within reach
+        // of somebody, so the detail card is up almost permanently — and while it was up it covered
+        // the only way into the three lines the whole network runs on. A link you can only reach by
+        // not touching anything is a link nobody reaches.
+        Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
             Text("◀", fontSize = 18.sp, color = T.inkSoft,
                 modifier = Modifier.clickable { onBack() }.padding(6.dp))
+            Text("where you stand →", fontSize = 10.sp, color = T.accent,
+                fontWeight = FontWeight.Medium, maxLines = 1,
+                modifier = Modifier.clickable { onStanding() }.padding(6.dp))
         }
 
+        val peer = pickedPeer.takeIf { it >= 0 && it < peers.size }?.let { peers[it] }
         val sel = picked.takeIf { it >= 0 && it < people.size }?.let { people[it] }
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(14.dp)
-        ) {
-            if (sel != null) {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                    .background(T.bgElevated).padding(16.dp)) {
+        val dust = sky?.takeIf { pickedDust in 0 until it.size }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(14.dp)) {
+            when {
+                peer != null -> Card {
+                    Text(peer.name, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(4.dp))
+                    Text("%,d people  ·  on SlyOS".format(peer.networkSize),
+                        fontSize = 10.sp, color = T.inkFaint)
+                    if (peer.offer.isNotBlank()) {
+                        Spacer(Modifier.height(9.dp))
+                        Text("OFFERS", fontSize = 8.sp, color = T.inkFaint)
+                        Text(peer.offer, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                    }
+                    if (peer.lookingFor.isNotBlank()) {
+                        Spacer(Modifier.height(7.dp))
+                        Text("LOOKING FOR", fontSize = 8.sp, color = T.inkFaint)
+                        Text(peer.lookingFor, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    // Said once, plainly. The size of their galaxy is a count and nothing else, and
+                    // a screen that draws somebody's network should say what it does not know.
+                    Text("who they know stays on their phone",
+                        fontSize = 9.sp, color = T.inkFaint)
+                }
+                sel != null -> Card {
                     Text(sel.name, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
                     Text(buildString {
                             if (sel.role.isNotBlank()) append(sel.role).append("  ·  ")
                             if (sel.company.isNotBlank()) append(sel.company).append("  ·  ")
-                            append(sel.mainChannel)
-                            append("  ·  ")
+                            append(sel.mainChannel).append("  ·  ")
                             append(if (sel.silentDays == 0) "today" else "${sel.silentDays}d ago")
                         }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
                     Spacer(Modifier.height(11.dp))
@@ -206,29 +473,41 @@ fun OrbitScreen(
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.clickable { onPerson(sel.key) })
                 }
-            } else {
-                // The count that grows. Not vanity — the visible proof that the network is working,
-                // and the only number here worth wanting to move.
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                    .background(T.bgElevated).padding(16.dp)
-                    .clickable { sheet = !sheet }) {
-                    Text(if (!loaded) "reading your network…"
-                         else "${people.size} in your orbit",
-                        fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
+                dust != null -> Card {
+                    Text(dust.names[pickedDust], fontSize = T.small, color = T.ink,
+                        fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
-                    Text(if (people.isEmpty() && loaded)
-                            "Open People once and your network appears here."
-                         else "closer means you talk more · brighter means recently",
-                        fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
-                    if (sheet) {
-                        Spacer(Modifier.height(12.dp))
-                        val alive = people.count { it.silentDays <= 14 }
-                        val quiet = people.count { it.silentDays > 60 }
-                        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                            Stat("$alive", "active")
-                            Stat("$quiet", "gone quiet")
-                            Stat("${people.sumOf { it.platforms.size }}", "channels")
-                        }
+                    Text(buildString {
+                            val c = dust.companies[pickedDust]
+                            if (c.isNotBlank()) append(c)
+                            // Said plainly, because the alternative is a screen implying you have a
+                            // relationship with twenty thousand people.
+                            if (isNotEmpty()) append("  ·  ")
+                            append(if (dust.touched[pickedDust]) "you have spoken"
+                                   else "never spoken")
+                        }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                }
+                else -> {
+                    // No card. The count is one faint line, because the field is the screen and a
+                    // panel sitting on top of it was chrome explaining a picture that explains itself.
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when {
+                                !loaded && sky == null -> "reading your network…"
+                                !loaded -> "%,d people  ·  looking for new ones…".format(
+                                    sky?.total ?: 0)
+                                galaxy == null || galaxy!!.total == 0 ->
+                                    "Import your connections and the field fills in."
+                                galaxy!!.count < galaxy!!.total ->
+                                    // Never a silent cap.
+                                    "%,d of %,d".format(galaxy!!.count, galaxy!!.total)
+                                peers.isEmpty() -> "%,d people  ·  %d you talk to".format(
+                                    galaxy!!.total, people.size)
+                                else -> "%,d people  ·  %d on SlyOS".format(
+                                    galaxy!!.total, peers.size)
+                            },
+                            fontSize = 10.sp, color = T.inkFaint, maxLines = 1)
                     }
                 }
             }
@@ -237,9 +516,7 @@ fun OrbitScreen(
 }
 
 @Composable
-private fun Stat(value: String, label: String) {
-    Column {
-        Text(value, fontSize = 18.sp, color = T.accent, fontWeight = FontWeight.Bold)
-        Text(label, fontSize = 9.sp, color = T.inkFaint)
-    }
+private fun Card(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+        .background(T.bgElevated).padding(16.dp)) { content() }
 }

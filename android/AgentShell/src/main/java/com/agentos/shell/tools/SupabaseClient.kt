@@ -105,6 +105,14 @@ object SupabaseClient {
         if (code in 200..299) txt else "[]"
     } catch (e: Exception) { "[]" }
 
+    /** The same read, as a signed-in member. Policies that require `authenticated` — the network
+     *  profiles are the ones that matter — return nothing at all without this. */
+    fun get(table: String, query: String, accessToken: String): String = try {
+        val c = open("/rest/v1/$table?$query", "GET", accessToken)
+        val (code, txt) = send(c, null)
+        if (code in 200..299) txt else "[]"
+    } catch (e: Exception) { "[]" }
+
     /** Call a Postgres function — the install counter is one, and it is deliberately anonymous. */
     fun rpc(name: String, args: JSONObject, accessToken: String? = null): Boolean = try {
         val c = open("/rest/v1/rpc/$name", "POST", accessToken)

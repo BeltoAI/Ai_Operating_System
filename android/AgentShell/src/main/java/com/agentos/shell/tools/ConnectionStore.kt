@@ -410,4 +410,52 @@ object ConnectionStore {
         if (sb.isNotEmpty() || row.isNotEmpty()) { row.add(sb.toString()); if (row.any { it.isNotBlank() }) rows.add(row) }
         return rows
     }
+
+    /**
+     * Just enough of a very large address book to place it on a screen.
+     *
+     * `load()` builds one six-field object per person, which is several megabytes of strings the
+     * field never reads. This reads a name to show when you tap a dot, an employer to cluster by,
+     * and one bit for whether you have ever written to them. Employer strings are shared rather
+     * than copied, because five thousand of these say the same word.
+     *
+     * **The cap is the important part.** Twenty thousand dots is nothing — 320KB of floats and ten
+     * draw calls. A million is not: a million names is over a hundred megabytes of Java strings
+     * before anything is drawn, and a million points per frame is past what the GPU will do at
+     * sixty hertz. So above `cap` this samples every n-th row in SQL — the rows are never
+     * materialised at all — and reports both numbers, because a screen that silently drops nine
+     * tenths of your network while looking complete is worse than one that says so.
+     *
+     * The galaxy still grows past the cap: its RADIUS comes from `total`, not from what is drawn.
+     */
+    class Sky(
+        val names: Array<String>, val companies: Array<String>, val touched: BooleanArray,
+        /** Everyone. */ val total: Int
+    ) {
+        val size: Int get() = names.size
+        val sampled: Boolean get() = size < total
+    }
+
+    fun sky(ctx: Context, cap: Int = 60_000): Sky = try {
+        val total = count(ctx)
+        val stride = if (total <= cap) 1 else (total + cap - 1) / cap
+        val where = if (stride > 1) "WHERE rowid % $stride = 0 " else ""
+        db(ctx).rawQuery("SELECT name,company,reachedOut FROM conns ${where}LIMIT $cap", null).use { c ->
+            val n = c.count
+            val names = arrayOfNulls<String>(n)
+            val comps = arrayOfNulls<String>(n)
+            val touched = BooleanArray(n)
+            val intern = HashMap<String, String>(2048)
+            var i = 0
+            while (c.moveToNext() && i < n) {
+                names[i] = c.getString(0) ?: ""
+                val co = (c.getString(1) ?: "").trim()
+                comps[i] = intern.getOrPut(co) { co }
+                touched[i] = c.getInt(2) == 1
+                i++
+            }
+            @Suppress("UNCHECKED_CAST")
+            Sky(names as Array<String>, comps as Array<String>, touched, maxOf(total, n))
+        }
+    } catch (e: Exception) { Sky(emptyArray(), emptyArray(), BooleanArray(0), 0) }
 }

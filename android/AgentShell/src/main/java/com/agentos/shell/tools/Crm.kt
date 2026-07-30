@@ -337,6 +337,35 @@ object Crm {
         return fresh.take(max)
     }
 
+    /**
+     * Everyone you have ever exchanged a message with, as three fields.
+     *
+     * `people()` clusters identities, matches leads, computes reply latencies and stages — real work
+     * that is worth doing for the four hundred people you deal with, and far too much to do for four
+     * and a half thousand just to place a dot. This does one pass over the message table with the
+     * same allowlist and the same key, so it never invents a person and never lists one twice, and
+     * it returns nothing that costs anything to build.
+     *
+     * It exists so the field grows on its own. A new WhatsApp thread, a new email correspondent, a
+     * new number — each is a new dot the next time the screen opens, with nothing to import.
+     */
+    data class RosterEntry(val name: String, val channel: String, val messages: Int)
+
+    fun roster(ctx: Context): List<RosterEntry> = try {
+        val self = selfNames(ctx)
+        val byKey = HashMap<String, RosterEntry>(4096)
+        MessageStore.forEachRowFull(ctx) { contact, platform, _, _, _ ->
+            if (contact.isBlank() || isMachine(contact)) return@forEachRowFull
+            if (platform !in CHANNELS) return@forEachRowFull
+            val key = fullKey(contact)
+            if (key.isBlank() || key in self) return@forEachRowFull
+            val cur = byKey[key]
+            byKey[key] = if (cur == null) RosterEntry(contact, platform, 1)
+                         else cur.copy(messages = cur.messages + 1)
+        }
+        byKey.values.toList()
+    } catch (e: Exception) { emptyList() }
+
     private fun resolve(ctx: Context, max: Int): List<Person> = try {
         val self = selfNames(ctx)
         // platform+handle → (count, last, lastIn, lastOut)
