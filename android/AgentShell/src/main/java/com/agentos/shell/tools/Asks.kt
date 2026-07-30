@@ -99,7 +99,8 @@ object Asks {
                 val o = cands.optJSONObject(i) ?: return@mapNotNull null
                 val who = o.optString("candidate_user")
                 val b = byHolder[who]
-                Answer(askId, who, o.optString("state"), o.optString("verdict"),
+                Answer(askId, who, o.optString("state"),
+                    if (o.isNull("verdict")) "" else o.optString("verdict"),
                     b?.optDouble("strength", 0.0)?.toFloat() ?: 0f,
                     b?.optString("note").orEmpty(), b?.optString("person"))
             }.sortedByDescending { it.strength }
@@ -281,7 +282,8 @@ object Asks {
                 "select=person,note,strength,holder,asker&order=created_at.desc&limit=60", token))
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                Bridge(o.optString("person"), o.optString("note"),
+                Bridge(o.optString("person"),
+                    if (o.isNull("note")) "" else o.optString("note"),
                     o.optDouble("strength", 0.0).toFloat(),
                     o.optString("holder"), o.optString("asker"),
                     o.optString("asker") == uid)

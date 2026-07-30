@@ -409,7 +409,7 @@ class ShellActivity : ComponentActivity() {
                             },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
-                        Screen.Now    -> NowScreen(m, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
+                        Screen.Now    -> NowScreen(m, onOpenAsks = { screen = Screen.Asks }, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
                         Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
                         Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { missionGoal = ""; screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })

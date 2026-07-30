@@ -40,17 +40,21 @@ begin
        array['health','regulatory','africa','distribution','founder'], 2650)
     ) as t(email, name, offer, looking_for, open_to, tags, network_size)
   loop
+    -- `where not exists`, not `on conflict (email)`. GoTrue's uniqueness on auth.users is not a
+    -- plain constraint on `email` — it is scoped, so ON CONFLICT has nothing to match and Postgres
+    -- refuses with 42P10 "no unique or exclusion constraint matching the ON CONFLICT
+    -- specification". This is the form that is actually safe to re-run.
     insert into auth.users (
       instance_id, id, aud, role, email, encrypted_password,
       email_confirmed_at, created_at, updated_at,
       raw_app_meta_data, raw_user_meta_data
-    ) values (
+    )
+    select
       '00000000-0000-0000-0000-000000000000', gen_random_uuid(),
       'authenticated', 'authenticated', u.email, crypt('testpass123', gen_salt('bf')),
       now(), now(), now(),
       '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
-    )
-    on conflict (email) do nothing;
+    where not exists (select 1 from auth.users a where a.email = u.email);
 
     insert into public.profiles (id, email, display_name, offer, looking_for, open_to,
                                  tags, reachability, network_size, asks_left)

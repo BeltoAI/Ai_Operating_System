@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlyOS Orbit — your whole network, and everyone else's</title>
+<meta name="description" content="Every person you know as one living field, and a way to reach the ones you don't. Your agent asks other people's agents. Nobody's contacts ever leave their phone.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SlyOS Orbit — your whole network, and everyone else's">
+<meta property="og:description" content="Twenty thousand people as one galaxy. Ask the network for an introduction; the answer comes from a phone that never uploaded a single contact.">
+<meta property="og:url" content="https://slyos.world/orbit.html">
+<meta property="og:image" content="https://slyos.world/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#15120E">
+<script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches) document.documentElement.classList.add('anim');</script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .ob-hero{ display:grid; grid-template-columns:1fr 1fr; gap:34px; align-items:center; margin:26px 0 44px; }
+  @media (max-width:820px){ .ob-hero{ grid-template-columns:1fr; gap:22px; } }
+
+  /* The field itself. Same maths as the phone — positions computed once, the whole thing turns. */
+  .ob-stage{ position:relative; width:100%; aspect-ratio:1/1; max-width:520px; margin:0 auto;
+    border-radius:20px; overflow:hidden; background:#100D0A; border:1px solid var(--line); }
+  .ob-stage canvas{ display:block; width:100%; height:100%; }
+  .ob-cap{ position:absolute; left:14px; right:14px; bottom:12px; display:flex; justify-content:space-between;
+    font-size:10px; color:var(--faint); pointer-events:none; }
+  .ob-cap b{ color:var(--accent); font-weight:600; }
+
+  .ob-legend{ display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:14px; font-size:11px; color:var(--faint); }
+  .ob-legend i{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;
+    vertical-align:middle; font-style:normal; }
+
+  /* The four steps, drawn as a thing that runs rather than a list that is read. */
+  .ob-flow{ margin:52px 0; }
+  .ob-track{ position:relative; border:1px solid var(--line); border-radius:18px; background:var(--card);
+    padding:22px 20px 18px; overflow:hidden; }
+  .ob-track canvas{ display:block; width:100%; height:190px; }
+  .ob-steps{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:16px; }
+  @media (max-width:760px){ .ob-steps{ grid-template-columns:1fr 1fr; } }
+  .ob-step{ border-top:2px solid var(--line); padding-top:10px; transition:border-color .35s ease, opacity .35s ease;
+    opacity:.45; }
+  .ob-step.on{ border-top-color:var(--accent); opacity:1; }
+  .ob-step h4{ margin:0 0 4px; font-size:12px; letter-spacing:.02em; }
+  .ob-step p{ margin:0; font-size:11px; line-height:1.55; color:var(--faint); }
+
+  .ob-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:40px 0; }
+  @media (max-width:760px){ .ob-grid{ grid-template-columns:1fr; } }
+  .ob-card{ background:var(--card); border:1px solid var(--line); border-radius:15px; padding:18px; }
+  .ob-card h3{ margin:0 0 7px; font-size:13px; }
+  .ob-card p{ margin:0; font-size:12px; line-height:1.65; color:var(--soft); }
+
+  .ob-quiet{ border-left:2px solid var(--accent); padding:4px 0 4px 16px; margin:34px 0; }
+  .ob-quiet p{ margin:0; font-size:13px; line-height:1.75; color:var(--soft); }
+  .ob-quiet strong{ color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><a href="/" style="color:inherit;text-decoration:none">Sly<b>OS</b></a></div>
+    <button class="navtoggle" aria-label="Menu" onclick="this.parentNode.querySelector('.navlinks').classList.toggle('open')">☰</button>
+    <div class="navlinks" onclick="this.classList.remove('open')">
+      <a href="/">Home</a>
+      <a href="/value.html">Why SlyOS</a>
+      <a href="/features.html">Features</a>
+      <a href="/orbit.html">Orbit</a>
+      <a href="/#team">Team</a>
+      <a href="/setup.html">Setup</a>
+      <a href="/docs.html">Docs</a>
+      <a href="/vision.html">Vision</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="/#get" class="navdl">Download</a>
+    </div>
+  </nav>
+
+  <div class="ob-hero">
+    <div>
+      <h1 style="margin:0 0 14px">Everyone you<br>know, at once.</h1>
+      <p class="lede" style="margin:0 0 16px">Your phone already holds twenty thousand people — every LinkedIn
+        connection, every WhatsApp thread, every email you've ever answered. Orbit draws all of them. You're the
+        light in the middle; the ones you actually talk to are the ring around you; the arms further out are the
+        companies you're deep inside.</p>
+      <p class="lede" style="margin:0">Then it does the thing a contact list never could: it goes and asks
+        <em>other people's</em> networks for the person you can't reach — without anybody's address book ever
+        leaving their phone.</p>
+      <div class="ob-legend">
+        <span><i style="background:#F0703A"></i>you</span>
+        <span><i style="background:#DADEE8"></i>a person</span>
+        <span><i style="background:#FF9642"></i>you've spoken</span>
+        <span><i style="background:#7FE3A6"></i>shared with someone else</span>
+      </div>
+    </div>
+    <div>
+      <div class="ob-stage">
+        <canvas id="field" width="1040" height="1040"></canvas>
+        <div class="ob-cap"><span id="fieldCount">21,116 people</span><span><b>139</b> you talk to</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ob-quiet">
+    <p><strong>Nothing here is uploaded.</strong> The field is drawn from the phone's own memory. What the network
+      ever sees about you is three sentences you wrote on purpose, a handful of routing words, and one integer —
+      how many people you know. Not who.</p>
+  </div>
+
+  <section class="ob-flow">
+    <h2 style="margin:0 0 6px">How an introduction actually happens</h2>
+    <p class="muted" style="margin:0 0 18px; font-size:12px">Ten people might know the person you're after. The
+      server can't know that — it has never seen one contact. So the overlap gets discovered, not stored.</p>
+
+    <div class="ob-track"><canvas id="flow" width="1600" height="380"></canvas></div>
+
+    <div class="ob-steps">
+      <div class="ob-step" data-step="0">
+        <h4>1 · You ask</h4>
+        <p>One line, and it's public — what you want, never why. The routing words come from the profile you
+          already wrote.</p>
+      </div>
+      <div class="ob-step" data-step="1">
+        <h4>2 · It fans out</h4>
+        <p>The server narrows on those words alone and hands the question to a couple of hundred phones. That's
+          the whole of its job.</p>
+      </div>
+      <div class="ob-step" data-step="2">
+        <h4>3 · Each phone decides alone</h4>
+        <p>It searches its own memory. Almost all find nothing, say nothing, and never tell their owner they were
+          asked — which is why being in the pool costs nothing.</p>
+      </div>
+      <div class="ob-step" data-step="3">
+        <h4>4 · One name crosses</h4>
+        <p>The ones who do know them answer with how close they actually are. The closest person decides — and
+          only then does a name move.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="ob-grid">
+    <div class="ob-card">
+      <h3>Agents talk, you don't</h3>
+      <p>Your agent puts the question. Two hundred other agents answer it or quietly don't. You hear about it
+        exactly once: when somebody real can introduce you to somebody real.</p>
+    </div>
+    <div class="ob-card">
+      <h3>It can't loop forever</h3>
+      <p>Six turns, then the database refuses the next message. Seventy-two hours, then the ask closes on its own.
+        Those are triggers in Postgres, not instructions in a prompt — a model asked politely to stop eventually
+        won't.</p>
+    </div>
+    <div class="ob-card">
+      <h3>Three asks a week</h3>
+      <p>Scarcity is the spam defence, not a pricing tier. Somebody with three asks writes a good one, and an
+        inbox nobody has to defend is an inbox people still answer.</p>
+    </div>
+  </div>
+
+  <div style="text-align:center; margin:52px 0 20px">
+    <a class="btn" href="https://github.com/BeltoAI/Ai_Operating_System/releases/latest/download/SlyOS.apk">↓ Download SlyOS.apk</a>
+    <p class="muted" style="font-size:11px; margin:10px 0 0">Android · free · your own API key · nothing leaves the phone but the three lines you write</p>
+  </div>
+
+  <footer>
+    <div style="margin-bottom:12px">
+      <a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a>
+      <a href="https://github.com/BeltoAI/Ai_Operating_System">GitHub</a>
+      <a href="mailto:support@belto.world">Contact</a>
+    </div>
+    <strong>SlyOS</strong> by Belto · Android today · iPhone in build · macOS, Linux &amp; Windows coming soon · uses notification &amp; accessibility permissions to
+    read and reply to your messages — your memory stays on your device; it runs on your own key (Gmail, Drive backup &amp; AI go to those services). Reversible anytime via
+    Settings → Default apps → Home. © 2026 Belto.
+  </footer>
+
+</div>
+<script src="/app.js"></script>
+<script>
+(function(){
+  var reduced = !document.documentElement.classList.contains('anim');
+
+  /* ───────────────────────────────────────────────────────────────────────
+     The field.
+     Same construction as the phone: every position is computed ONCE into flat
+     arrays, and the animation is a rotation per band. Twenty thousand points
+     and two hundred cost the same per frame, which is the only reason a page
+     can draw a whole address book at all.
+     ─────────────────────────────────────────────────────────────────────── */
+  var cv = document.getElementById('field');
+  if (cv && cv.getContext) {
+    var g = cv.getContext('2d'), W = cv.width, H = cv.height, CX = W/2, CY = H/2;
+    var BANDS = 10, INNER = 175, OUTER = 500, SPAN = OUTER - INNER;
+    var N = reduced ? 2600 : 9000;               // enough to read as a galaxy at this size
+    var bx = new Float32Array(N), by = new Float32Array(N);
+    var band = new Uint8Array(N), warm = new Uint8Array(N);
+
+    // Employer clumps: a handful of big ones near the middle, a long tail further out.
+    var GROUPS = 260, gi = 0;
+    for (var k = 0; k < GROUPS && gi < N; k++) {
+      var depth = Math.pow(k/(GROUPS-1), 0.55);
+      var rC = INNER + SPAN * (0.05 + 0.92*depth);
+      var size = Math.max(2, Math.round((N/GROUPS) * (2.2 - 1.9*depth)));
+      var w = Math.min(1, Math.sqrt(size/ (N/GROUPS*2.2)));
+      var blobR = SPAN*(0.012 + 0.075*w), blobA = Math.min(0.62, 0.05 + 0.34*w);
+      var a0 = k*2.39996323 + 0.85*Math.log(rC/INNER);
+      for (var j = 0; j < size && gi < N; j++, gi++) {
+        var u1 = (fr(gi*0.6180339887 + k*0.31) + fr(gi*0.3247179 + k*0.61))*0.5 - 0.5;
+        var u2 = (fr(gi*0.7548776 + k*0.77 + j*0.113) + fr(gi*0.5698402 + k*0.19))*0.5 - 0.5;
+        var r = Math.max(INNER, Math.min(OUTER, rC + u1*2*blobR));
+        var th = a0 + u2*2*blobA;
+        bx[gi] = r*Math.cos(th); by[gi] = r*Math.sin(th);
+        band[gi] = Math.max(0, Math.min(BANDS-1, ((r-INNER)/SPAN*BANDS)|0));
+        warm[gi] = fr(gi*0.919) < 0.17 ? 1 : 0;   // people you've actually written to
+      }
+    }
+    function fr(x){ return x - Math.floor(x); }
+
+    // The inner ring: the people you actually talk to.
+    var RING = 46, ring = [];
+    for (var i = 0; i < RING; i++) {
+      var t = fr(i*0.6180339887);
+      ring.push({ a: i*2.39996323, r: 42 + t*118, s: 3 + (1-t)*7, alive: 0.25 + fr(i*0.377)*0.75 });
+    }
+    // A peer, and one person the two networks turned out to share.
+    var peer = { a: -0.75, r: 690, rad: 150 };
+
+    var t0 = null;
+    function frame(ts){
+      if (t0 === null) t0 = ts;
+      var e = (ts - t0)/1000, drift = e*0.026;
+      g.clearRect(0,0,W,H);
+
+      // scale so the whole disc plus the peer fits
+      var s = (Math.min(W,H)/2) / 880;
+      g.save(); g.translate(CX, CY); g.scale(s, s);
+
+      // the disc, one path per band
+      for (var b = 0; b < BANDS; b++) {
+        var om = 1/(0.55 + 2.2*(b+0.5)/BANDS);
+        var fade = 1 - 0.55*(b/BANDS);
+        g.save(); g.rotate(drift*om);
+        g.fillStyle = 'rgba(214,218,232,'+(0.34*fade).toFixed(3)+')';
+        g.beginPath();
+        for (var i2 = 0; i2 < N; i2++) if (band[i2] === b && !warm[i2]) {
+          g.rect(bx[i2], by[i2], 2.1, 2.1);
+        }
+        g.fill();
+        g.fillStyle = 'rgba(255,150,66,'+(0.62*fade).toFixed(3)+')';
+        g.beginPath();
+        for (var i3 = 0; i3 < N; i3++) if (band[i3] === b && warm[i3]) {
+          g.rect(bx[i3], by[i3], 2.4, 2.4);
+        }
+        g.fill();
+        g.restore();
+      }
+
+      // the peer galaxy — a glow, never dots. Their contacts are not ours to draw.
+      var pa = peer.a + drift*0.22, px = peer.r*Math.cos(pa), py = peer.r*Math.sin(pa);
+      var gr = g.createRadialGradient(px,py,0,px,py,peer.rad);
+      gr.addColorStop(0,'rgba(240,112,58,.20)'); gr.addColorStop(1,'rgba(240,112,58,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(px,py,peer.rad,0,6.2832); g.fill();
+
+      // the connection, with something travelling along it
+      g.strokeStyle = 'rgba(240,112,58,.20)'; g.lineWidth = 1.6;
+      g.beginPath(); g.moveTo(0,0); g.lineTo(px,py); g.stroke();
+      var tp = (e/4.2) % 1;
+      g.strokeStyle = 'rgba(240,112,58,.85)'; g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(px*Math.max(0,tp-0.11), py*Math.max(0,tp-0.11));
+      g.lineTo(px*tp, py*tp); g.stroke();
+
+      // the shared person, sitting on the line between the two of you
+      var sx = px*0.55, sy = py*0.55;
+      g.fillStyle = 'rgba(127,227,166,.18)'; g.beginPath(); g.arc(sx,sy,26,0,6.2832); g.fill();
+      g.fillStyle = '#7FE3A6'; g.beginPath(); g.arc(sx,sy,7,0,6.2832); g.fill();
+
+      // peer core
+      g.fillStyle = 'rgba(240,112,58,.20)'; g.beginPath(); g.arc(px,py,30,0,6.2832); g.fill();
+      g.fillStyle = '#F0703A'; g.beginPath(); g.arc(px,py,12,0,6.2832); g.fill();
+
+      // your ring
+      for (var q = 0; q < RING; q++) {
+        var rr = ring[q], aa = rr.a + drift*(1.55 - 0.55*(1-rr.r/160));
+        var x = rr.r*Math.cos(aa), y = rr.r*Math.sin(aa);
+        g.strokeStyle = 'rgba(199,190,176,'+(0.05 + 0.10*rr.alive).toFixed(3)+')';
+        g.lineWidth = 1; g.beginPath(); g.moveTo(0,0); g.lineTo(x,y); g.stroke();
+        g.fillStyle = 'rgba(226,222,214,'+rr.alive.toFixed(3)+')';
+        g.beginPath(); g.arc(x,y,rr.s,0,6.2832); g.fill();
+      }
+
+      // you
+      var br = 0.86 + 0.14*Math.sin(e*1.9);
+      g.fillStyle = 'rgba(240,112,58,'+(0.13*br).toFixed(3)+')';
+      g.beginPath(); g.arc(0,0,54*br,0,6.2832); g.fill();
+      g.fillStyle = '#F0703A'; g.beginPath(); g.arc(0,0,17,0,6.2832); g.fill();
+
+      g.restore();
+      if (!reduced) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ───────────────────────────────────────────────────────────────────────
+     The flow. Four beats, on a loop, with the step captions lighting in time.
+     ─────────────────────────────────────────────────────────────────────── */
+  var fc = document.getElementById('flow');
+  if (fc && fc.getContext) {
+    var f = fc.getContext('2d'), FW = fc.width, FH = fc.height;
+    var steps = [].slice.call(document.querySelectorAll('.ob-step'));
+    var COUNT = 22, phones = [];
+    for (var i = 0; i < COUNT; i++) {
+      phones.push({
+        x: FW*0.42 + (i%11)*(FW*0.052),
+        y: FH*0.30 + Math.floor(i/11)*(FH*0.34),
+        // Two of twenty-two know them. That ratio is the honest one, and it is the reason
+        // receiving an ask costs nobody anything.
+        knows: (i === 7 || i === 15)
+      });
+    }
+    var YOU = { x: FW*0.07, y: FH*0.5 };
+    var start = null, DUR = 12000;
+
+    function flowFrame(ts){
+      if (start === null) start = ts;
+      var e = ((ts - start) % DUR)/DUR;
+      var stage = e < 0.20 ? 0 : e < 0.45 ? 1 : e < 0.72 ? 2 : 3;
+      steps.forEach(function(el){ el.classList.toggle('on', +el.dataset.step === stage); });
+
+      f.clearRect(0,0,FW,FH);
+
+      // you
+      f.fillStyle = 'rgba(240,112,58,.16)'; f.beginPath(); f.arc(YOU.x,YOU.y,34,0,6.2832); f.fill();
+      f.fillStyle = '#F0703A'; f.beginPath(); f.arc(YOU.x,YOU.y,13,0,6.2832); f.fill();
+      f.font = '600 15px system-ui,sans-serif'; f.fillStyle = '#8C8275'; f.textAlign = 'center';
+      f.fillText('you', YOU.x, YOU.y + 54);
+
+      phones.forEach(function(p, idx){
+        // stage 1: the question travels out
+        if (stage >= 1) {
+          var reach = stage === 1 ? Math.min(1, (e-0.20)/0.22) : 1;
+          f.strokeStyle = 'rgba(199,190,176,.13)'; f.lineWidth = 1;
+          f.beginPath(); f.moveTo(YOU.x, YOU.y);
+          f.lineTo(YOU.x + (p.x-YOU.x)*reach, YOU.y + (p.y-YOU.y)*reach); f.stroke();
+        }
+        var lit = stage >= 2 && p.knows;
+        var dim = stage >= 2 && !p.knows;
+        f.fillStyle = lit ? '#FF9642' : dim ? 'rgba(199,190,176,.20)' : 'rgba(199,190,176,.55)';
+        f.beginPath(); f.arc(p.x, p.y, lit ? 9 : 6, 0, 6.2832); f.fill();
+        if (lit) {
+          f.fillStyle = 'rgba(255,150,66,.16)';
+          f.beginPath(); f.arc(p.x, p.y, 22, 0, 6.2832); f.fill();
+        }
+      });
+
+      if (stage === 2) {
+        f.font = '13px system-ui,sans-serif'; f.fillStyle = '#8C8275'; f.textAlign = 'right';
+        f.fillText('20 found nothing, and said nothing', FW - 20, FH - 18);
+      }
+
+      // stage 3: the closest one answers, and a name comes back
+      if (stage === 3) {
+        var back = Math.min(1, (e-0.72)/0.20);
+        var win = phones[7];
+        f.strokeStyle = 'rgba(240,112,58,.75)'; f.lineWidth = 2.4;
+        f.beginPath(); f.moveTo(win.x, win.y);
+        f.lineTo(win.x + (YOU.x-win.x)*back, win.y + (YOU.y-win.y)*back); f.stroke();
+        f.font = '600 14px system-ui,sans-serif'; f.fillStyle = '#F4EFE6'; f.textAlign = 'center';
+        f.fillText('closeness 84%', win.x, win.y - 26);
+        if (back > 0.9) {
+          f.fillStyle = 'rgba(127,227,166,.20)';
+          f.beginPath(); f.arc(YOU.x + 74, YOU.y, 24, 0, 6.2832); f.fill();
+          f.fillStyle = '#7FE3A6'; f.beginPath(); f.arc(YOU.x + 74, YOU.y, 8, 0, 6.2832); f.fill();
+          f.fillStyle = '#8C8275'; f.font = '13px system-ui,sans-serif';
+          f.fillText('introduced', YOU.x + 74, YOU.y + 46);
+        }
+      }
+      if (!reduced) requestAnimationFrame(flowFrame);
+    }
+    requestAnimationFrame(flowFrame);
+  }
+})();
+</script>
+</body>
+</html>

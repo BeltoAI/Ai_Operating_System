@@ -187,6 +187,10 @@ object NetworkProfile {
         val reachability: String
     )
 
+    /** A text column that may be SQL NULL. */
+    private fun str(o: JSONObject, k: String): String =
+        if (o.isNull(k)) "" else o.optString(k).trim()
+
     fun others(ctx: Context, limit: Int = 200): List<Peer> {
         if (!AccountStore.signedIn(ctx)) return emptyList()
         val token = AccountStore.freshAccessToken(ctx)
@@ -203,12 +207,14 @@ object NetworkProfile {
                 val t = o.optJSONArray("tags")
                 Peer(
                     id,
-                    o.optString("display_name").ifBlank { "Someone" },
-                    o.optString("offer"), o.optString("looking_for"), o.optString("open_to"),
+                    // `optString` on a JSON null returns the four characters "null", not "" — so a
+                    // profile with no display name rendered a dot labelled null on the map.
+                    str(o, "display_name").ifBlank { "Someone" },
+                    str(o, "offer"), str(o, "looking_for"), str(o, "open_to"),
                     if (t == null) emptyList() else (0 until t.length()).map { t.optString(it) }
                         .filter { it.isNotBlank() },
                     o.optInt("network_size"),
-                    o.optString("reachability").ifBlank { "vouched" })
+                    str(o, "reachability").ifBlank { "vouched" })
             }
         } catch (e: Exception) { emptyList() }
     }

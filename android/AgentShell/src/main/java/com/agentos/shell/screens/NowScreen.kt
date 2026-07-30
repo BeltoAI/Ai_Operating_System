@@ -39,7 +39,7 @@ import kotlin.math.roundToInt
 /** Everything happening now — an auto "what you missed" briefing, then people who need you as
  *  swipeable cards grouped per person: tap to open, swipe left to dismiss, ✦ to reply. */
 @Composable
-fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOutbox: () -> Unit = {}, onBack: () -> Unit) {
+fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOutbox: () -> Unit = {}, onOpenAsks: () -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val notes = NotificationStore.notes
@@ -344,6 +344,51 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                             Text("Dismiss", fontSize = T.small, color = T.inkSoft,
                                 modifier = Modifier.clickable { com.agentos.shell.tools.ProposalStore.remove(ctx, p.id) }.padding(6.dp))
                         }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            // ── The network came back ──
+            //
+            // The one moment the network is allowed to interrupt. Two hundred agents may have looked
+            // at an ask and said nothing; that silence never reaches this page. A name does — because
+            // somebody real decided to hand one over, and that is worth a card.
+            var netIntros by remember { mutableStateOf<List<com.agentos.shell.tools.Asks.Bridge>>(emptyList()) }
+            var netAsked by remember { mutableStateOf(0) }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    netIntros = try {
+                        com.agentos.shell.tools.Asks.bridges(ctx).filter { it.mine }
+                    } catch (e: Exception) { emptyList() }
+                    netAsked = try {
+                        // Only the ones this phone can actually answer. An ask about somebody nobody
+                        // here knows is not news, and surfacing it would undo the entire point.
+                        com.agentos.shell.tools.Asks.inbox(ctx)
+                            .count { com.agentos.shell.tools.Asks.bestMatch(ctx, it.criteria) != null }
+                    } catch (e: Exception) { 0 }
+                }
+            }
+            if (netIntros.isNotEmpty() || netAsked > 0) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .background(T.bgElevated).padding(18.dp)) {
+                    Text("FROM THE NETWORK", fontSize = 11.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    netIntros.take(3).forEach { b ->
+                        Spacer(Modifier.height(11.dp))
+                        Text(b.person, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
+                        Text("introduced to you  ·  they're ${(b.strength * 100).toInt()}% close to them",
+                            fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                    }
+                    if (netAsked > 0) {
+                        Spacer(Modifier.height(11.dp))
+                        Text(if (netAsked == 1) "Someone is looking for a person you know."
+                             else "$netAsked people are looking for someone you know.",
+                            fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                        Spacer(Modifier.height(7.dp))
+                        Text("Open Asks →", fontSize = T.caption, color = T.accent,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable { onOpenAsks() })
                     }
                 }
                 Spacer(Modifier.height(14.dp))
