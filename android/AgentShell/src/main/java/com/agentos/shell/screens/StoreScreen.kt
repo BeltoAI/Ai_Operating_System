@@ -382,6 +382,7 @@ private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (installed) Color(0x33FFFFFF) else Color.White).padding(horizontal = 18.dp, vertical = 7.dp))
                 }
             }
+
         }
     }
 }
@@ -485,6 +486,18 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                         fontSize = T.caption, color = if (onPhoneNow(p)) T.accent else T.inkFaint)
                     if (installed) { Spacer(Modifier.height(4.dp)); Text("added", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold) }
                 }
+            }
+            // STATUS AT THE TOP, WHERE IT CANNOT SCROLL AWAY.
+            //
+            // It was rendered after the entire action block — so on a long sheet, tapping
+            // "set it up" set a status the owner could not see. Termux visibly launched and
+            // SlyOS appeared to do nothing, which is indistinguishable from a dead button.
+            // A message about what is happening belongs above the thing that caused it.
+            if (status.isNotBlank()) {
+                Spacer(Modifier.height(14.dp))
+                Text(status, fontSize = T.caption, color = T.ink, lineHeight = 18.sp,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(T.accentSoft.copy(alpha = 0.30f)).padding(13.dp))
             }
             Spacer(Modifier.height(16.dp))
             Text("power to ${p.tagline}", fontSize = 18.sp, color = T.ink, fontWeight = FontWeight.Medium, lineHeight = 23.sp)
@@ -669,23 +682,13 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                                     }.padding(horizontal = 16.dp, vertical = 11.dp))
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Text("Advanced: build it on this phone (needs Termux)", fontSize = 11.sp, color = T.inkFaint, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.hairline).clickable {
-                                status = "building in Termux… this can take a minute"
-                                scope.launch {
-                                    val (ok, log) = withContext(Dispatchers.IO) { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
-                                    status = log
-                                    if (ok) onInstall(com.agentos.shell.tools.PowerRegistry.endpointOf(ctx, p.id))
-                                }
-                            }.padding(vertical = 11.dp))
+                        // The 11sp "Advanced: build it on this phone" link that used to sit here is
+                        // gone. It was the same PowerBuilder call, buried three taps deep behind
+                        // "I run it on a computer" and labelled Advanced — which is why this looked
+                        // like a missing feature rather than a hidden one. It is the primary button
+                        // for a phone-capable power now.
                     }
                 }
-            }
-            if (status.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                Text(status, fontSize = T.caption, color = T.inkSoft, lineHeight = 17.sp,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated).padding(12.dp))
             }
             Spacer(Modifier.height(24.dp))
         }
