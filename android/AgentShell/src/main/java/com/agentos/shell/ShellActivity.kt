@@ -416,7 +416,10 @@ class ShellActivity : ComponentActivity() {
                         Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
-                        Screen.Store  -> AgentsScreen(m,
+                        Screen.Store  -> OrbitScreen(m,
+                            onPerson = { screen = Screen.Crm },
+                            onBack = { screen = Screen.Home })
+                        Screen.MadeDocs -> com.agentos.shell.screens.AgentsScreen(m,
                             onOpen = { id -> currentAppId = id; screen = Screen.AppView },
                             onBack = { screen = Screen.Home })
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
@@ -460,8 +463,7 @@ class ShellActivity : ComponentActivity() {
                             m,
                             onEmail = { addr -> emailTo = addr; screen = Screen.EmailCompose },
                             onBack = { screen = Screen.Home })
-                        Screen.MadeDocs -> com.agentos.shell.screens.SlideEditor(
-                            m, onDone = { screen = Screen.Home }, onBack = { screen = Screen.Home })
+
                         Screen.Shop -> ShopScreen(m, shopQuery) { shopQuery = ""; screen = Screen.Home }
                         Screen.Trade -> TradeScreen(m, tradePrompt) { tradePrompt = ""; screen = Screen.Home }
                         Screen.Converse -> ConverseScreen(m) { screen = Screen.Home }

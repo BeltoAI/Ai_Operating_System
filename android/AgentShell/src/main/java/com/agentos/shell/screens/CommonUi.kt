@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Icon
@@ -238,7 +239,13 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
         }
 
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
-        NavTab(Icons.Filled.Storefront, "Powers", current == Screen.Store) { onNav(Screen.Store) }
+        // A SHOPFRONT WAS THE WRONG METAPHOR, AND IT SHAPED THE SCREEN BEHIND IT.
+        //
+        // "Powers" with a storefront said: browse a catalogue, acquire a thing. What this actually
+        // is now is a network of small agents that live on the phone and talk to each other and to
+        // other people's — so the icon is a graph of connected nodes, which is both what it looks
+        // like and what it does.
+        NavTab(Icons.Filled.Share, "Orbit", current == Screen.Store) { onNav(Screen.Store) }
     }
 
 /**
