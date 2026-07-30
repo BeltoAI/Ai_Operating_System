@@ -58,6 +58,14 @@
   .ob-quiet{ border-left:2px solid var(--accent); padding:4px 0 4px 16px; margin:34px 0; }
   .ob-quiet p{ margin:0; font-size:13px; line-height:1.75; color:var(--soft); }
   .ob-quiet strong{ color:var(--ink); }
+
+  .ob-nums{ display:flex; gap:34px; margin:0 0 20px; }
+  .ob-nums b{ display:block; font-size:30px; line-height:1; color:var(--accent); font-weight:600; }
+  .ob-nums span{ font-size:11px; color:var(--faint); }
+  .ob-card b{ display:block; font-family:var(--script); font-style:italic; font-size:38px;
+    line-height:1; color:var(--accent); margin-bottom:4px; }
+  .ob-card h3{ margin:0 0 5px; font-size:12px; color:var(--soft); font-weight:500; }
+  .ob-card p{ font-size:12px; }
 </style>
 </head>
 <body>
@@ -82,19 +90,17 @@
 
   <div class="ob-hero">
     <div>
-      <h1 style="margin:0 0 14px">Everyone you<br>know, at once.</h1>
-      <p class="lede" style="margin:0 0 16px">Your phone already holds twenty thousand people — every LinkedIn
-        connection, every WhatsApp thread, every email you've ever answered. Orbit draws all of them. You're the
-        light in the middle; the ones you actually talk to are the ring around you; the arms further out are the
-        companies you're deep inside.</p>
-      <p class="lede" style="margin:0">Then it does the thing a contact list never could: it goes and asks
-        <em>other people's</em> networks for the person you can't reach — without anybody's address book ever
-        leaving their phone.</p>
+      <h1 style="margin:0 0 16px">Everyone you<br>know, at once.</h1>
+      <p class="lede" style="margin:0 0 22px">Then it finds the people you don't.</p>
+      <div class="ob-nums">
+        <div><b>21,116</b><span>people on one phone</span></div>
+        <div><b>0</b><span>contacts uploaded</span></div>
+      </div>
       <div class="ob-legend">
         <span><i style="background:#F0703A"></i>you</span>
-        <span><i style="background:#DADEE8"></i>a person</span>
+        <span><i style="background:#DADEE8"></i>someone you know</span>
         <span><i style="background:#FF9642"></i>you've spoken</span>
-        <span><i style="background:#7FE3A6"></i>shared with someone else</span>
+        <span><i style="background:#7FE3A6"></i>shared</span>
       </div>
     </div>
     <div>
@@ -106,59 +112,27 @@
   </div>
 
   <div class="ob-quiet">
-    <p><strong>Nothing here is uploaded.</strong> The field is drawn from the phone's own memory. What the network
-      ever sees about you is three sentences you wrote on purpose, a handful of routing words, and one integer —
-      how many people you know. Not who.</p>
+    <p><strong>Nobody sees your contacts. Ever.</strong> The network gets three sentences you wrote, a few tags,
+      and one number: <em>how many</em> people you know. Never who.</p>
   </div>
 
   <section class="ob-flow">
-    <h2 style="margin:0 0 6px">How an introduction actually happens</h2>
-    <p class="muted" style="margin:0 0 18px; font-size:12px">Ten people might know the person you're after. The
-      server can't know that — it has never seen one contact. So the overlap gets discovered, not stored.</p>
+    <h2 style="margin:0 0 18px">How you get introduced</h2>
 
     <div class="ob-track"><canvas id="flow" width="1600" height="380"></canvas></div>
 
     <div class="ob-steps">
-      <div class="ob-step" data-step="0">
-        <h4>1 · You ask</h4>
-        <p>One line, and it's public — what you want, never why. The routing words come from the profile you
-          already wrote.</p>
-      </div>
-      <div class="ob-step" data-step="1">
-        <h4>2 · It fans out</h4>
-        <p>The server narrows on those words alone and hands the question to a couple of hundred phones. That's
-          the whole of its job.</p>
-      </div>
-      <div class="ob-step" data-step="2">
-        <h4>3 · Each phone decides alone</h4>
-        <p>It searches its own memory. Almost all find nothing, say nothing, and never tell their owner they were
-          asked — which is why being in the pool costs nothing.</p>
-      </div>
-      <div class="ob-step" data-step="3">
-        <h4>4 · One name crosses</h4>
-        <p>The ones who do know them answer with how close they actually are. The closest person decides — and
-          only then does a name move.</p>
-      </div>
+      <div class="ob-step" data-step="0"><h4>You ask</h4><p>One line.</p></div>
+      <div class="ob-step" data-step="1"><h4>200 agents hear it</h4><p>Nobody is told.</p></div>
+      <div class="ob-step" data-step="2"><h4>2 know someone</h4><p>198 stay silent.</p></div>
+      <div class="ob-step" data-step="3"><h4>The closest one answers</h4><p>You're introduced.</p></div>
     </div>
   </section>
 
   <div class="ob-grid">
-    <div class="ob-card">
-      <h3>Agents talk, you don't</h3>
-      <p>Your agent puts the question. Two hundred other agents answer it or quietly don't. You hear about it
-        exactly once: when somebody real can introduce you to somebody real.</p>
-    </div>
-    <div class="ob-card">
-      <h3>It can't loop forever</h3>
-      <p>Six turns, then the database refuses the next message. Seventy-two hours, then the ask closes on its own.
-        Those are triggers in Postgres, not instructions in a prompt — a model asked politely to stop eventually
-        won't.</p>
-    </div>
-    <div class="ob-card">
-      <h3>Three asks a week</h3>
-      <p>Scarcity is the spam defence, not a pricing tier. Somebody with three asks writes a good one, and an
-        inbox nobody has to defend is an inbox people still answer.</p>
-    </div>
+    <div class="ob-card"><b>1</b><h3>notification</h3><p>Only when somebody real can introduce you.</p></div>
+    <div class="ob-card"><b>72h</b><h3>then it stops</h3><p>No agent talks forever.</p></div>
+    <div class="ob-card"><b>3</b><h3>asks a week</h3><p>So people still answer them.</p></div>
   </div>
 
   <div style="text-align:center; margin:52px 0 20px">
