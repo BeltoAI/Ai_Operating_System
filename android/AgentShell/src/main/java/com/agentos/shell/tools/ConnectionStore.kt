@@ -189,6 +189,44 @@ object ConnectionStore {
         }
     } catch (e: Exception) { emptyList() }
 
+    /**
+     * Search by INDUSTRY and ROLE, never by name — for prospecting rather than lookup.
+     *
+     * [search] is a lookup: it matches names too, which is right when you are trying to find a
+     * person and catastrophic when you are trying to find an industry. Measured against the real
+     * export, prospecting a goal through it returned "Braydan Young" and "Diego Young" for the word
+     * "young", and "Matt Kahler, Assistant Breeder, Storm Seeds" for "seed".
+     *
+     * Worse, SQL LIKE matches substrings anywhere, so "round" matched "Autonomous G-ROUND Vehicle".
+     * SQLite cannot express a word boundary, so the LIKE narrows the rows and a real regex does the
+     * deciding. After both changes the same goals returned Stanford Flight Club, Sloan Fellow,
+     * "Limited Partner, private investors" and "Allianz Global Investors" — which is the difference
+     * between a prospect list and a random sample of twenty thousand people.
+     */
+    fun searchIndustry(ctx: Context, term: String, limit: Int = 25): List<Conn> {
+        val t = term.trim()
+        if (t.length < 3) return emptyList()
+        val out = ArrayList<Conn>()
+        val word = Regex("\\b" + Regex.escape(t) + "\\b", RegexOption.IGNORE_CASE)
+        try {
+            db(ctx).rawQuery(
+                "SELECT name, company, role, connectedOn, url, source, reachedOut FROM conns " +
+                "WHERE company LIKE ? OR role LIKE ? LIMIT 400",
+                arrayOf("%$t%", "%$t%")).use { c ->
+                while (c.moveToNext() && out.size < limit) {
+                    val company = c.getString(1) ?: ""
+                    val role = c.getString(2) ?: ""
+                    // The LIKE only narrowed; this is what actually decides.
+                    if (!word.containsMatchIn("$company $role")) continue
+                    out.add(Conn(c.getString(0) ?: "", company, role,
+                        c.getString(3) ?: "", c.getString(4) ?: "",
+                        c.getString(5) ?: "LinkedIn", (c.getInt(6) == 1)))
+                }
+            }
+        } catch (e: Exception) {}
+        return out
+    }
+
     fun search(ctx: Context, query: String, limit: Int = 40): List<Conn> {
         val raw = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 2 && it !in STOP }
         if (raw.isEmpty()) return emptyList()

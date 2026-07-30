@@ -91,7 +91,7 @@ object MissionNetwork {
         val pool = LinkedHashMap<String, ConnectionStore.Conn>()
         terms.take(6).forEach { t ->
             try {
-                ConnectionStore.search(ctx, t, 25)
+                ConnectionStore.searchIndustry(ctx, t, 25)
                     .filterNot { it.name.lowercase() in known }
                     .forEach { pool.putIfAbsent(it.name.lowercase(), it) }
             } catch (e: Exception) {}
