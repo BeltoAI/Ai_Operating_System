@@ -10,6 +10,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +101,9 @@ fun GraphScreen(
     var answer by remember { mutableStateOf<com.agentos.shell.tools.Intro.Answer?>(null) }
     var asking by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
+    /** Swipe-left dismissal, the same gesture and the same −110f threshold as every other card. */
+    var cardDragX by remember { mutableStateOf(0f) }
+    var cardHidden by remember { mutableStateOf(false) }
 
     val reveal = remember { Animatable(0f) }
 
@@ -121,6 +126,9 @@ fun GraphScreen(
         answer = withContext(Dispatchers.IO) {
             try { com.agentos.shell.tools.Intro.pathsTo(ctx, filter) } catch (e: Exception) { null }
         }
+        // A new question is a new card. Without this, one swipe would silence every later answer and
+        // the box would look broken rather than dismissed.
+        cardHidden = false; cardDragX = 0f
     }
 
     // A slow breath on whatever is live, so it reads as alive rather than printed.
@@ -147,6 +155,39 @@ fun GraphScreen(
 
         Box(Modifier.fillMaxWidth().weight(1f)) {
             val counts = remember(nodes) { (0..3).associateWith { l -> nodes.count { it.layer == l } } }
+
+            // THE ANSWER, DRAWN — not a second, disagreeing answer.
+            //
+            // The filter used to light nodes whose LABEL contained the query, so asking about
+            // Stanford lit the Stanford node and left Shobhika Mathur dark — while the card
+            // underneath named her as the way in. Two answers to one question, and the picture
+            // contradicting the words. The route itself is what lights now: the person, the channel
+            // you reach them on, and the target, so the path is visibly a path.
+            val lit = remember(answer, nodes, filter, links) {
+                val a = answer
+                if (filter.isBlank()) emptySet()
+                else {
+                    val out = HashSet<Int>()
+                    nodes.forEachIndexed { i, n -> if (n.label.contains(filter.trim(), true)) out.add(i) }
+                    a?.routes?.forEach { r ->
+                        nodes.forEachIndexed { i, n ->
+                            if (n.key.isNotBlank() && n.key == r.viaKey) out.add(i)
+                            else if (n.layer == 2 && n.label.equals(r.via, true)) out.add(i)
+                            else if (n.layer == 3 && n.label.contains(r.reaches, true)) out.add(i)
+                        }
+                    }
+                    // The channels those people are actually on, and you — so it reads as a route
+                    // from you to them rather than a scatter of highlights.
+                    val people = out.toList()
+                    links.forEach { l ->
+                        if (l.to in people && nodes.getOrNull(l.from)?.layer == 1) out.add(l.from)
+                        if (l.from in people && nodes.getOrNull(l.to)?.layer == 1) out.add(l.to)
+                    }
+                    if (out.isNotEmpty()) nodes.indexOfFirst { it.layer == 0 }
+                        .takeIf { it >= 0 }?.let { out.add(it) }
+                    out
+                }
+            }
             val maxW = remember(links) { (links.maxOfOrNull { it.w } ?: 1).coerceAtLeast(1) }
 
             Canvas(
@@ -180,14 +221,14 @@ fun GraphScreen(
                     val b = nodes.getOrNull(l.to) ?: return@forEach
                     val gate = ((reveal.value * 4.2f) - minOf(a.layer, b.layer)).coerceIn(0f, 1f)
                     if (gate <= 0f) return@forEach
-                    val fa = matches(a, filter); val fb = matches(b, filter)
+                    val fa = l.from in lit; val fb = l.to in lit
                     val touched = picked == l.from || picked == l.to ||
-                        (filter.isNotBlank() && fa && fb)
+                        (lit.isNotEmpty() && fa && fb)
                     val s = Math.sqrt((l.w.toFloat() / maxW).coerceIn(0f, 1f).toDouble()).toFloat()
                     val alpha = when {
                         touched -> 0.95f * pulse
                         picked >= 0 -> 0.05f
-                        filter.isNotBlank() -> if (fa || fb) 0.30f else 0.03f
+                        lit.isNotEmpty() -> if (fa || fb) 0.34f else 0.025f
                         else -> 0.16f + 0.72f * s
                     }
                     val p0 = at(l.from); val p1 = at(l.to)
@@ -211,7 +252,7 @@ fun GraphScreen(
                     val gate = ((reveal.value * 4.2f) - n.layer).coerceIn(0f, 1f)
                     if (gate < 0.9f) return@forEachIndexed
                     // A filter is itself a request for names: whatever matches gets labelled at any zoom.
-                    val hit = filter.isNotBlank() && matches(n, filter)
+                    val hit = i in lit
                     if (n.layer == 2 && !showPeople && picked != i && !hit) return@forEachIndexed
                     val c = at(i)
                     val text = if (n.layer == 2) n.label.split(' ').first().take(11)
@@ -242,7 +283,7 @@ fun GraphScreen(
                     val on = picked == i
                     val dim = (picked >= 0 && !on && links.none {
                         (it.from == picked && it.to == i) || (it.to == picked && it.from == i)
-                    }) || (filter.isNotBlank() && !matches(n, filter))
+                    }) || (lit.isNotEmpty() && i !in lit)
                     if (n.layer == 0 || on) drawCircle(
                         color = T.accent.copy(alpha = 0.15f * pulse), radius = r * 2.2f, center = c)
                     drawCircle(
@@ -272,10 +313,19 @@ fun GraphScreen(
             // thumb already is, and matched on names, channels and companies at once so it never
             // matters which of the three you happen to have in mind.
             val ans = answer
-            if (sel == null && ans != null && ans.routes.isNotEmpty()) {
+            if (sel == null && ans != null && ans.routes.isNotEmpty() && !cardHidden) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp)
                     .padding(bottom = 74.dp).align(Alignment.BottomCenter)) {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    Column(Modifier.fillMaxWidth()
+                        .offset { androidx.compose.ui.unit.IntOffset(
+                            cardDragX.toInt(), 0) }
+                        .pointerInput(ans.target) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = { if (cardDragX < -110f) cardHidden = true; cardDragX = 0f },
+                                onDragCancel = { cardDragX = 0f }
+                            ) { _, dx -> cardDragX = (cardDragX + dx).coerceAtMost(0f) }
+                        }
+                        .clip(RoundedCornerShape(16.dp))
                         .background(T.bgElevated).padding(16.dp)) {
                         Text("WAYS IN TO “${ans.target.uppercase()}”", fontSize = 9.sp,
                             color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
@@ -375,13 +425,6 @@ fun GraphScreen(
             }
         }
     }
-}
-
-/** Does this node answer the typed filter? Name, channel and company all at once. */
-private fun matches(n: GNode, q: String): Boolean {
-    val t = q.trim()
-    if (t.isEmpty()) return true
-    return n.label.contains(t, true)
 }
 
 /**
