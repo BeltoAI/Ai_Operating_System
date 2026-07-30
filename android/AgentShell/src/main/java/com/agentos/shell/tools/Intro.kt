@@ -88,7 +88,31 @@ object Intro {
         //
         // The 20,005. Searched rather than loaded, and matched on company as well as name so
         // "who do I know at Stripe" works — which is the question, not "find me a Stripe".
-        val known = book.map { it.name.lowercase() }.toSet()
+        /**
+         * ALREADY-KNOWN, MATCHED ON THE PERSON RATHER THAN THE STRING.
+         *
+         * The Stanford result listed "Dan Goncharov" under people you talk to AND "Daniel Goncharov"
+         * under connected-never-messaged — the same man, in two buckets, because this compared
+         * lowercase names for exact equality. Dan is not the string Daniel.
+         *
+         * Same surname plus one first name being a prefix of the other is the shape of every
+         * Dan/Daniel, Mike/Michael and Kate/Katherine. Deliberately narrow: both parts must agree, so
+         * "Dan Goncharov" and "Dan Meyer" stay separate, which matters far more than tidiness.
+         */
+        fun parts(n: String): Pair<String, String> {
+            val t = n.lowercase().trim().replace(Regex("[^a-z ]"), " ")
+                .split(Regex("\\s+")).filter { it.length > 1 }
+            return (t.firstOrNull().orEmpty()) to (t.lastOrNull().orEmpty())
+        }
+        val knownParts = book.map { parts(it.name) }
+        fun alreadyKnown(name: String): Boolean {
+            val (f, l) = parts(name)
+            if (f.isEmpty()) return false
+            return knownParts.any { (kf, kl) ->
+                kl == l && kl.isNotEmpty() &&
+                    (kf == f || kf.startsWith(f) || f.startsWith(kf))
+            }
+        }
         // PRECISION, BECAUSE A LOOSE MATCH IS WORSE THAN NO MATCH.
         //
         // Asking for "Patrick Collison" returned Patrick Shannon, Patrick Nogacz, Patrick Bangert,
@@ -98,7 +122,7 @@ object Intro {
         // multi-word query has to match every word.
         val words = q.split(Regex("\\s+")).filter { it.length >= 2 }
         val connected = try { ConnectionStore.search(ctx, q, 60) } catch (e: Exception) { emptyList() }
-            .filterNot { it.name.lowercase() in known }
+            .filterNot { alreadyKnown(it.name) }
             .filter { c ->
                 if (words.size < 2) true
                 else {
