@@ -45,6 +45,11 @@ object Places {
         // Replaces a contact list, which answers "what is their number" — a question that mattered
         // when you had to dial it, and not the two people actually have: who is this again, and do
         // I owe them something.
+        // Bills, invoices, contracts and tickets that were emailed to you — the third kind of
+        // document, which had nowhere to live until now.
+        Place("papers", "Papers", "bills, invoices, contracts you were sent",
+            listOf("bill", "bills", "invoice", "invoices", "receipt", "receipts", "contract",
+                   "insurance", "statement", "tax", "paperwork", "attachments", "documents")),
         Place("graph", "Network map", "who knows whom, and how",
             listOf("graph", "map", "web", "who knows", "introductions")),
         Place("crm", "People", "everyone you know, and where you stand",
