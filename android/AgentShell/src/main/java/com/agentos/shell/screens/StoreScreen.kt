@@ -424,6 +424,13 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
     var endpoint by remember(p.id) { mutableStateOf("") }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    var building by remember(p.id) { mutableStateOf(false) }
+    var buildLog by remember(p.id) { mutableStateOf("") }
+    // Re-checked per power rather than once, because somebody can install Termux and come straight
+    // back — and finding the same "get Termux" screen would be the app not noticing.
+    val termuxReady = remember(p.id, building) {
+        try { com.agentos.shell.tools.TermuxBridge.isInstalled(ctx) } catch (e: Exception) { false }
+    }
     var status by remember(p.id) { mutableStateOf("") }
     var askQ by remember(p.id) { mutableStateOf("") }
     var askA by remember(p.id) { mutableStateOf("") }
@@ -561,6 +568,80 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                 // a broken app rather than a missing setting. The reason belongs on the button.
                 p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
                 p.onPhone -> ActionCard("Add to your phone", "Runs right on your phone — no setup, no computer, nothing to install.", "Add") { onInstall("") }
+                // ── RUN IT ON THE PHONE ──
+                //
+                // PowerBuilder can clone a repo into Termux, install its deps, start it on
+                // 127.0.0.1 and wire that endpoint into the Power — and it even feeds a failed
+                // build back to the AI to repair the recipe and retry. All of it was unreachable:
+                // the store said "too big for a phone" and offered only "I run it on a computer".
+                // Working code sitting behind no button is the same as no code.
+                !termuxReady -> {
+                    Text("This one is a program, so it needs somewhere to run. Your phone can do " +
+                         "it — Termux is a free Linux shell for Android, installed once.",
+                        fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("Get Termux  →", fontSize = T.small, color = Color.White,
+                        fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(T.accent).clickable {
+                                // F-DROID, NOT PLAY. The Play build is frozen at an old version and
+                                // its package repositories no longer resolve — following the obvious
+                                // link is the single most common way this goes wrong.
+                                try {
+                                    ctx.startActivity(android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://f-droid.org/packages/com.termux/"))
+                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                } catch (e: Exception) {}
+                            }.padding(vertical = 13.dp))
+                    Spacer(Modifier.height(6.dp))
+                    Text("Install from F-Droid, not the Play Store — the Play version is frozen and " +
+                         "can't install packages.", fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(if (showConnect) "Hide" else "Or connect a computer  →", fontSize = T.caption,
+                        color = T.inkSoft,
+                        modifier = Modifier.clickable { showConnect = !showConnect }.padding(vertical = 6.dp))
+                }
+                termuxReady && buildLog.isNotBlank() -> {
+                    // Real progress. This takes minutes — pkg install, clone, pip — and a spinner
+                    // for that long is indistinguishable from a hang.
+                    Text("Setting up on your phone", fontSize = T.small, color = T.ink,
+                        fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(buildLog, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                }
+                termuxReady -> {
+                    Text("Runs right on your phone through Termux. SlyOS installs it, starts it, " +
+                         "and wires it into your AI — nothing to configure.",
+                        fontSize = T.small, color = T.inkSoft, lineHeight = 21.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(if (building) "Working…" else "Set it up on my phone",
+                        fontSize = T.small, color = Color.White, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(if (building) T.hairline else T.accent)
+                            .clickable(enabled = !building) {
+                                building = true
+                                buildLog = "Preparing Termux…"
+                                scope.launch {
+                                    val (ok, msg) = withContext(Dispatchers.IO) {
+                                        try { com.agentos.shell.tools.PowerBuilder.build(ctx, p) }
+                                        catch (e: Exception) { false to (e.message ?: "couldn't build it") }
+                                    }
+                                    building = false
+                                    buildLog = ""
+                                    // Says which step and why. PowerBuilder is honest about the
+                                    // limits — GPU stacks and some Python wheels simply will not
+                                    // run — and that belongs on screen, not swallowed.
+                                    status = msg
+                                    if (ok) onInstall("http://127.0.0.1")
+                                }
+                            }.padding(vertical = 14.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text(if (showConnect) "Hide" else "Or connect a computer  →", fontSize = T.caption,
+                        color = T.inkSoft,
+                        modifier = Modifier.clickable { showConnect = !showConnect }.padding(vertical = 6.dp))
+                }
                 else -> {
                     Text("This one runs on a computer or home server — it's too big for a phone.", fontSize = T.small, color = T.inkSoft, lineHeight = 20.sp)
                     Spacer(Modifier.height(10.dp))
