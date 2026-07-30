@@ -8,11 +8,14 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
@@ -109,6 +113,17 @@ fun GraphScreen(
     /** A live plan toward somebody outside the network. */
     var quest by remember { mutableStateOf<com.agentos.shell.tools.IntroQuest.Quest?>(null) }
     var working by remember { mutableStateOf("") }
+    /**
+     * A draft PER PERSON.
+     *
+     * There was one `draft` for the whole screen, so writing an ask for Nissar rendered that same
+     * text under Anna and Mandy too — three people apparently being sent an identical message, which
+     * is both wrong and exactly the thing this feature must never look like.
+     */
+    val drafts = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
+    /** Which person each draft goes to, and how — resolved once, when the draft is written. */
+    val sendVia = remember { androidx.compose.runtime.mutableStateMapOf<Long, Pair<String, String>>() }
+    var sentNote by remember { mutableStateOf("") }
     var replyFor by remember { mutableStateOf(0L) }
     var replyText by remember { mutableStateOf("") }
 
@@ -348,7 +363,13 @@ fun GraphScreen(
                                 onDragCancel = { cardDragX = 0f }
                             ) { _, dx -> cardDragX = (cardDragX + dx).coerceAtMost(0f) }
                         }
-                        .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                        .clip(RoundedCornerShape(16.dp)).background(T.bgElevated)
+                        // A PLAN LONGER THAN THE SCREEN. Four people, each with reasoning, a draft
+                        // and two actions, does not fit on a phone — and the card had no scroll, so
+                        // everything past the third person was simply unreachable.
+                        .heightIn(max = 460.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)) {
 
                         if (q == null) {
                             Text("NOBODY IN YOUR NETWORK MATCHES “${filter.trim().uppercase()}”",
@@ -439,9 +460,9 @@ fun GraphScreen(
                                         Text(if (asking) "writing…" else "Write the ask →",
                                             fontSize = 10.sp, color = T.accent,
                                             modifier = Modifier.clickable(enabled = !asking) {
-                                                asking = true; draft = ""
+                                                asking = true
                                                 scope.launch {
-                                                    draft = withContext(Dispatchers.IO) {
+                                                    drafts[hop.id] = withContext(Dispatchers.IO) {
                                                         try {
                                                             AgentClient.complete(
                                                                 "You write short messages in the owner's voice. Message only.",
@@ -454,6 +475,17 @@ fun GraphScreen(
                                                                     q.brief.take(200)), 400)
                                                         } catch (e: Exception) { "" }
                                                     }.ifBlank { "Couldn't write that one." }
+                                                    // WHERE IT GOES. Resolved from the CRM, so the
+                                                    // button names the channel you actually use with
+                                                    // them instead of a generic "send".
+                                                    withContext(Dispatchers.IO) {
+                                                        try {
+                                                            com.agentos.shell.tools.Crm.find(ctx, hop.viaName)?.let { pp ->
+                                                                val id = pp.identities.maxByOrNull { it.messages }
+                                                                if (id != null) sendVia[hop.id] = id.platform to id.handle
+                                                            }
+                                                        } catch (e: Exception) {}
+                                                    }
                                                     asking = false
                                                     com.agentos.shell.tools.IntroQuest
                                                         .markAsked(ctx, q.id, hop.id)
@@ -469,11 +501,46 @@ fun GraphScreen(
                                             fontSize = 10.sp, color = T.inkFaint)
                                     }
                                 }
+                                // ── The message, and a way to actually send it ──
+                                drafts[hop.id]?.let { d ->
+                                    Spacer(Modifier.height(9.dp))
+                                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                        .background(T.bgElevated).padding(11.dp)) {
+                                        androidx.compose.foundation.text.BasicTextField(
+                                            d, { drafts[hop.id] = it },
+                                            textStyle = androidx.compose.ui.text.TextStyle(
+                                                color = T.ink, fontSize = 10.sp, lineHeight = 15.sp),
+                                            modifier = Modifier.fillMaxWidth())
+                                    }
+                                    val via = sendVia[hop.id]
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                        // Straight to the thread with that person, message on the
+                                        // clipboard. Writing an ask and leaving it on a graph screen
+                                        // with no way out is where this stopped being useful.
+                                        Text(if (via != null) "Open ${via.first} →" else "Copy",
+                                            fontSize = 10.sp, color = T.accent,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.clickable {
+                                                sentNote = com.agentos.shell.tools.Crm.openChannel(
+                                                    ctx, via?.first.orEmpty(), via?.second ?: hop.viaName, d)
+                                            })
+                                        Text("Copy only", fontSize = 10.sp, color = T.inkFaint,
+                                            modifier = Modifier.clickable {
+                                                try {
+                                                    (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                                        as? android.content.ClipboardManager)?.setPrimaryClip(
+                                                        android.content.ClipData.newPlainText("ask", d))
+                                                    sentNote = "Copied"
+                                                } catch (e: Exception) {}
+                                            })
+                                    }
+                                    if (sentNote.isNotEmpty()) {
+                                        Spacer(Modifier.height(5.dp))
+                                        Text(sentNote, fontSize = 9.sp, color = T.good)
+                                    }
+                                }
                               }
-                            }
-                            if (draft.isNotEmpty()) {
-                                Spacer(Modifier.height(12.dp))
-                                Text(draft, fontSize = 10.sp, color = T.ink, lineHeight = 15.sp)
                             }
                         }
                     }
