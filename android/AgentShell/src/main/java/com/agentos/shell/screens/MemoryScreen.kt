@@ -2311,6 +2311,56 @@ fun MemoryScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         run {
+            // ── The network, measured ──
+            //
+            // Four numbers, and the one that matters is the third. A network like this fails
+            // quietly: asks go out, nothing comes back, and every individual screen still looks
+            // fine. So "no reply" is reported as loudly as "worked", and the cost line says the
+            // true thing rather than the flattering one — answering somebody's ask costs no model
+            // tokens at all, because the matching happens locally against your own CRM. The only
+            // AI spend the network incurs is writing your three lines, once.
+            var health by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+            var askCount by remember { mutableStateOf(0) }
+            var loadedNet by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    health = try { com.agentos.shell.tools.Asks.outcomes(ctx) } catch (e: Exception) { emptyMap() }
+                    askCount = try { com.agentos.shell.tools.Asks.myAsks(ctx).size } catch (e: Exception) { 0 }
+                    loadedNet = true
+                }
+            }
+            val intros = health.values.sum()
+            val worked = health["connected"] ?: 0
+            val silent = health["no_reply"] ?: 0
+            val judged = worked + silent
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(T.bgElevated).padding(14.dp)) {
+                Text("NETWORK", fontSize = 10.sp, color = T.inkFaint,
+                    fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                Spacer(Modifier.height(11.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    NetStat("$askCount", "asks sent")
+                    NetStat("$intros", "introductions")
+                    NetStat(if (judged == 0) "—" else "${worked * 100 / judged}%", "led somewhere")
+                    NetStat("$silent", "no reply")
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(if (!loadedNet) "reading…" else if (intros == 0)
+                        "No introductions yet. Ask the network from Orbit."
+                     else "Answering someone else's ask costs you nothing — the matching runs on " +
+                          "this phone against your own people, with no model call at all.",
+                    fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                if (intros > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("$" + String.format("%.2f", com.agentos.shell.tools.CostStore.monthCostUsd(ctx)) +
+                         " of AI this month, across everything SlyOS does — not just this.",
+                        fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        run {
             val cost = com.agentos.shell.tools.CostStore.monthCostUsd(ctx)
             val proj = com.agentos.shell.tools.CostStore.projectedMonthUsd(ctx)
             val calls = com.agentos.shell.tools.CostStore.monthCalls(ctx)
@@ -2737,5 +2787,13 @@ private fun HourStepper(label: String, hour: Int, onChange: (Int) -> Unit) {
             modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(T.accent)
                 .clickable { onChange((hour + 1) % 24) }
                 .padding(horizontal = 12.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+private fun NetStat(value: String, label: String) {
+    Column {
+        Text(value, fontSize = 20.sp, color = T.accent, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 9.sp, color = T.inkFaint)
     }
 }

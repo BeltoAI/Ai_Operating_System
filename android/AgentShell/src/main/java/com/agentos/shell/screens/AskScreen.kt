@@ -65,6 +65,8 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var note by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var mine by remember { mutableStateOf<List<Pair<Asks.Ask, List<Asks.Answer>>>>(emptyList()) }
+    var funnels by remember { mutableStateOf<Map<String, Asks.Funnel>>(emptyMap()) }
+    var reopened by remember { mutableStateOf(-1) }
     var incoming by remember { mutableStateOf<List<Asks.Incoming>>(emptyList()) }
     var bridges by remember { mutableStateOf<List<Asks.Bridge>>(emptyList()) }
     var busy by remember { mutableStateOf("") }
@@ -74,8 +76,14 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         withContext(Dispatchers.IO) {
             incoming = try { Asks.inbox(ctx) } catch (e: Exception) { emptyList() }
             bridges = try { Asks.bridgesByPerson(ctx) } catch (e: Exception) { emptyList() }
+            // An open ask keeps working: every visit re-offers it to anybody who has joined or
+            // published tags since. Idempotent, so nobody is reached twice.
+            reopened = try { Asks.refresh(ctx) } catch (e: Exception) { 0 }
             mine = try { Asks.myAsks(ctx).map { it to Asks.answers(ctx, it.id) } }
                    catch (e: Exception) { emptyList() }
+            funnels = try {
+                mine.mapNotNull { (a, _) -> Asks.funnel(ctx, a.id)?.let { a.id to it } }.toMap()
+            } catch (e: Exception) { emptyMap() }
         }
     }
 
@@ -120,6 +128,11 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         if (id != null) { text = ""; round++ }
                     }
                 }.padding(vertical = 14.dp))
+        if (note.isEmpty() && reopened > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text("Reached $reopened new ${if (reopened == 1) "person" else "people"} since last time.",
+                fontSize = 10.sp, color = T.good)
+        }
         if (note.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(note, fontSize = 10.sp,
@@ -199,6 +212,20 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(15.dp)).background(T.bg).padding(16.dp)) {
                     Text(ask.criteria, fontSize = T.caption, color = T.ink, lineHeight = 19.sp)
+                    Spacer(Modifier.height(6.dp))
+                    // Proof of life. "Your agent is working on it" with no numbers and no clock is
+                    // how every abandoned assistant feature read on the day it stopped working.
+                    val f = funnels[ask.id]
+                    Text(buildString {
+                            if (f != null) {
+                                append("reached ${f.reached}")
+                                if (f.stillThinking > 0) append("  ·  ${f.stillThinking} still looking")
+                                if (f.foundNothing > 0) append("  ·  ${f.foundNothing} found nobody")
+                            }
+                            if (isNotEmpty()) append("  ·  ")
+                            append(ask.closesIn)
+                        }, fontSize = 9.sp,
+                        color = if (ask.live) T.inkSoft else T.inkFaint, lineHeight = 14.sp)
                     Spacer(Modifier.height(7.dp))
                     // Group by person first. Three offers of the same person is ONE introduction
                     // with three routes, and reporting it as three would flatter the numbers.

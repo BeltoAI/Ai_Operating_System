@@ -37,7 +37,34 @@ object Asks {
     data class Ask(
         val id: String, val kind: String, val criteria: String,
         val tags: List<String>, val state: String, val expiresAt: String
-    )
+    ) {
+        /**
+         * Hours left before the server closes it.
+         *
+         * Shown, always. "Your agent is working on it" with no clock is the sentence every
+         * abandoned assistant feature was built on — somebody should be able to tell at a glance
+         * whether this is still running or quietly died three days ago.
+         */
+        val hoursLeft: Long get() = try {
+            val t = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                .parse(expiresAt.take(19))?.time ?: 0L
+            ((t - System.currentTimeMillis()) / 3_600_000L).coerceAtLeast(0)
+        } catch (e: Exception) { 0 }
+
+        val live: Boolean get() = state == "open" && hoursLeft > 0
+
+        val closesIn: String get() = when {
+            !live -> "closed"
+            hoursLeft >= 24 -> "closes in ${hoursLeft / 24}d"
+            hoursLeft >= 1  -> "closes in ${hoursLeft}h"
+            else -> "closing"
+        }
+    }
+
+    /** What an ask has actually done. Counts only — never who. */
+    data class Funnel(val reached: Int, val foundNothing: Int, val knewSomeone: Int,
+                      val stillThinking: Int, val introductions: Int, val people: Int)
 
     /** A candidacy as the receiving phone sees it: an ask sent to me, and what I did about it. */
     data class Incoming(val askId: String, val state: String, val criteria: String, val kind: String)
@@ -77,8 +104,14 @@ object Asks {
             if (id.isBlank()) return null to
                 ("Couldn't send — " + SupabaseClient.lastError.take(140).ifBlank { "try again" })
             val reached = SupabaseClient.rpcInt("fan_out", JSONObject().put("p_ask", id), token) ?: 0
-            id to if (reached == 0) "Sent. Nobody matches those tags yet."
-                  else "Sent to $reached ${if (reached == 1) "person" else "people"}."
+            // Into the brain, so "what am I waiting on" is answerable by every assistant in the
+            // app rather than only by the screen that happened to send it.
+            try {
+                Brain.remember(ctx, "note", "Asked the network",
+                    "Asked $reached people: ${criteria.trim()}. Open for 72 hours.", role = "system")
+            } catch (e: Exception) {}
+            id to if (reached == 0) "Sent. Nobody matches those tags yet — add tags in Where you stand."
+                  else "Sent to $reached ${if (reached == 1) "person" else "people"}. Working for 3 days."
         } catch (e: Exception) { null to (e.message ?: "couldn't send") }
     }
 
@@ -148,6 +181,57 @@ object Asks {
                 "select=from_user&id=eq.$askId&limit=1", token))
             arr.optJSONObject(0)?.optString("from_user").orEmpty()
         } catch (e: Exception) { "" }
+    }
+
+    /**
+     * Keep the open asks working.
+     *
+     * `fan_out` is idempotent, so calling it again on a live ask reaches anybody who has joined,
+     * published tags, or opened up since — and reaches nobody twice. Without this an ask is a
+     * single broadcast at one instant, which is not what "my agent is looking for this" means to
+     * anybody who reads it.
+     *
+     * Returns how many NEW people it reached, so the screen can say so.
+     */
+    fun refresh(ctx: Context): Int {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return 0
+        var added = 0
+        try {
+            myAsks(ctx).filter { it.live }.forEach { a ->
+                val before = funnel(ctx, a.id)?.reached ?: 0
+                SupabaseClient.rpcInt("fan_out", JSONObject().put("p_ask", a.id), token)
+                val after = funnel(ctx, a.id)?.reached ?: before
+                added += (after - before).coerceAtLeast(0)
+            }
+        } catch (e: Exception) {}
+        return added
+    }
+
+    /** The counts for one of your asks. A definer function, because RLS hides the silent ones. */
+    fun funnel(ctx: Context, askId: String): Funnel? {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return null
+        return try {
+            val txt = SupabaseClient.rpcJson("ask_funnel",
+                JSONObject().put("p_ask", askId), token) ?: return null
+            val o = JSONArray(txt).optJSONObject(0) ?: return null
+            Funnel(o.optInt("reached"), o.optInt("found_nothing"), o.optInt("knew_someone"),
+                o.optInt("still_thinking"), o.optInt("introductions"), o.optInt("distinct_people"))
+        } catch (e: Exception) { null }
+    }
+
+    /** Every introduction you have asked for, by what came of it. */
+    fun outcomes(ctx: Context): Map<String, Int> {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return emptyMap()
+        return try {
+            val txt = SupabaseClient.rpcJson("intro_outcomes", JSONObject(), token) ?: return emptyMap()
+            val arr = JSONArray(txt)
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { it.optString("outcome") to it.optInt("n") }
+            }.toMap()
+        } catch (e: Exception) { emptyMap() }
     }
 
     // MARK: - Answering, on the receiving phone
@@ -271,7 +355,15 @@ object Asks {
                 .put("strength", closeness(person).toDouble())
             val ok = SupabaseClient.upsert("bridges", token, JSONArray().put(row),
                 onConflict = "ask_id,holder")
-            if (ok) { mark(token, askId, uid, "accepted", "qualified"); true to "Introduced ✓" }
+            if (ok) {
+                mark(token, askId, uid, "accepted", "qualified")
+                try {
+                    Brain.remember(ctx, "note", "Introduced ${person.name}",
+                        "Someone in the network asked for a person like ${person.name}; " +
+                        "I offered the introduction. ${note.trim()}", role = "system")
+                } catch (e: Exception) {}
+                true to "Introduced ✓"
+            }
             else false to ("Couldn't send — " + SupabaseClient.lastError.take(120))
         } catch (e: Exception) { false to (e.message ?: "failed") }
     }
@@ -342,12 +434,26 @@ object Asks {
     }
 
     /** Record what actually came of it. `no_reply` matters more than `connected`. */
-    fun setOutcome(ctx: Context, askId: String, holder: String, outcome: String): Boolean {
+    fun setOutcome(ctx: Context, askId: String, holder: String, outcome: String,
+                   person: String = ""): Boolean {
         val token = AccountStore.freshAccessToken(ctx)
         if (token.isBlank()) return false
         return try {
-            SupabaseClient.patch("bridges", "ask_id=eq.$askId&holder=eq.$holder", token,
+            val ok = SupabaseClient.patch("bridges", "ask_id=eq.$askId&holder=eq.$holder", token,
                 JSONObject().put("outcome", outcome))
+            // The result of an introduction is a fact about a relationship, which is exactly the
+            // kind of thing the brain should hold — and the reason it can later say "you were
+            // introduced to Priya in July and never heard back".
+            if (ok && person.isNotBlank()) try {
+                Brain.remember(ctx, "note", "Introduction: $person",
+                    when (outcome) {
+                        "connected"   -> "Introduced to $person through the network — it worked."
+                        "no_reply"    -> "Introduced to $person through the network — no reply."
+                        "not_useful"  -> "Introduced to $person through the network — not useful."
+                        else          -> "Reaching out to $person through the network."
+                    }, actors = listOf(person), role = "system")
+            } catch (e: Exception) {}
+            ok
         } catch (e: Exception) { false }
     }
 

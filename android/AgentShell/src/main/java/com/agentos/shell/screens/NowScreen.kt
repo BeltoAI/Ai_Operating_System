@@ -785,7 +785,7 @@ private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.A
                     com.agentos.shell.tools.SupabaseClient.lastError.take(90)
                         .ifBlank { "they haven't shared a way to reach them yet" }
                 if (outcome == "pending") {
-                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "reaching_out")
+                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "reaching_out", b.person)
                     outcome = "reaching_out"
                 }
             }
@@ -802,7 +802,7 @@ private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.A
                     if (dragX > 120f) take() else if (dragX < -120f) {
                         gone = true
                         scope.launch { withContext(Dispatchers.IO) {
-                            com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "not_useful")
+                            com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, "not_useful", b.person)
                         } }
                     }
                     dragX = 0f
@@ -862,7 +862,7 @@ private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.A
                             modifier = Modifier.clickable {
                                 outcome = k
                                 scope.launch { withContext(Dispatchers.IO) {
-                                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, k)
+                                    com.agentos.shell.tools.Asks.setOutcome(ctx, b.askId, b.holder, k, b.person)
                                 } }
                             })
                     }
