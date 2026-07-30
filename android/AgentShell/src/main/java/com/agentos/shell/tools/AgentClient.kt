@@ -346,7 +346,42 @@ object AgentClient {
         // either way.
         val first = complete(sys, user, 320)
         if (first.isNotBlank()) return first
-        return try { complete(sys, user, 320) } catch (e: Exception) { "" }
+        val second = try { complete(sys, user, 320) } catch (e: Exception) { "" }
+        if (second.isNotBlank()) return second
+        // NOTHING IS UNAVAILABLE. THE DOCS ARE ALREADY THE KNOWLEDGE.
+        //
+        // Distillation makes a skill tighter; it was never what makes it work. So when there is no
+        // key at all — a fresh install — or the model is simply down, the README goes in as the
+        // skill instead of the install failing. The assistant learns the same thing, phrased by the
+        // project's own authors rather than summarised, which is a slightly longer prompt and not a
+        // worse one.
+        //
+        // This is the difference between a store that needs setting up before it does anything and
+        // one that works the moment it is opened.
+        return rawSkill(docs)
+    }
+
+    /**
+     * The project's own docs, trimmed into something usable as guidance.
+     *
+     * Badges, install commands, licence blocks and code fences are stripped — none of them tell an
+     * assistant how to BEHAVE, and they would crowd out the part that does.
+     */
+    fun rawSkill(docs: String): String {
+        if (docs.isBlank()) return ""
+        val cleaned = docs
+            .replace(Regex("(?s)```.*?```"), " ")                       // code blocks
+            .replace(Regex("(?m)^\\s*[-*]?\\s*!\\[[^\\]]*\\]\\([^)]*\\)\\s*$"), "")   // badge rows
+            .replace(Regex("!\\[[^\\]]*\\]\\([^)]*\\)"), " ")                       // images
+            .replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1")                      // links → their text
+            .replace(Regex("(?m)^#{1,6}\\s*"), "")                        // heading marks
+            .replace(Regex("(?im)^\\s*(npm|pip|yarn|brew|apt|git|docker|curl|cd|export)\\s.*$"), "")
+            .replace(Regex("[*_`>|]"), " ")
+            .replace(Regex("\\n{2,}"), "\n")
+            .replace(Regex("[ \\t]{2,}"), " ")
+            .trim()
+        return if (cleaned.length < 40) "" else
+            "Use what this project does when it is relevant:\n" + cleaned.take(1400)
     }
 
     /** 3 short, first-person example requests that show a just-added skill in action (for the "Try it" chips). */

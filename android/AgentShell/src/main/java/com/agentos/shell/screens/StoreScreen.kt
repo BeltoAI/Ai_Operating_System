@@ -142,7 +142,7 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
         Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)
             .clip(RoundedCornerShape(16.dp)).background(T.accentSoft.copy(alpha = 0.30f))
             .padding(16.dp)) {
-            Text("POWERS NEED A BRAIN", fontSize = 10.sp, color = T.accent,
+            Text("SHARPER WITH A KEY", fontSize = 10.sp, color = T.accent,
                 fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
             Spacer(Modifier.height(6.dp))
             // Groq, not Claude. Distilling a README is a small summarising job that a free
@@ -259,10 +259,11 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
                         // assistant learned something, asks it to do that thing, and gets a confused
                         // answer with no way to connect the two. So it fails out loud and stays
                         // uninstalled — there is nothing to uninstall later and nothing to un-believe.
+                        // Only a repo with NO readable docs can fail now: distillSkill falls back
+                        // to the docs themselves when there is no key or the model is down, so an
+                        // install no longer depends on having set anything up.
                         if (instr.isBlank()) {
-                            flash = if (docs.isBlank())
-                                "Couldn't read ${power.name}'s docs — nothing to learn from. Try again."
-                            else "Couldn't distil ${power.name} into a skill. Try again."
+                            flash = "Couldn't read ${power.name}'s docs — there's nothing to learn from."
                             tick++
                             return@launch
                         }
@@ -558,11 +559,6 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                 //
                 // Without a key this tapped, spun, and came back "couldn't distil" — which reads as
                 // a broken app rather than a missing setting. The reason belongs on the button.
-                noKey && p.type == PowerType.SKILL ->
-                    ActionCard("Add to your AI",
-                        "Skills are built by reading the project's docs, which needs an AI key. " +
-                        "A free Groq key takes a minute and covers every Power here.",
-                        "Add a key first") { onNeedKey() }
                 p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
                 p.onPhone -> ActionCard("Add to your phone", "Runs right on your phone — no setup, no computer, nothing to install.", "Add") { onInstall("") }
                 else -> {
