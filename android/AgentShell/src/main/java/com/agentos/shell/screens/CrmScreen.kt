@@ -391,6 +391,59 @@ private fun PersonPage(
                 lineHeight = 18.sp)
         }
 
+        // ── WHAT YOU KNOW ABOUT THEM ──
+        //
+        // The residue of a relationship: the birthday they mentioned, the daughter starting school,
+        // the move to Lisbon. All of it was said to you in writing and none of it was retrievable.
+        // Every fact carries the words it came from, so it can be checked rather than trusted —
+        // repeating a wrong "fact" to somebody's face is worse than not having it.
+        var facts by remember { mutableStateOf(com.agentos.shell.tools.PersonFacts.facts(ctx, p.key)) }
+        var learning by remember { mutableStateOf(false) }
+        var showEvidence by remember { mutableStateOf(-1) }
+        Spacer(Modifier.height(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("WHAT YOU KNOW")
+            Spacer(Modifier.width(10.dp))
+            Chip(if (learning) "reading…" else if (facts.isEmpty()) "Find out" else "Look again",
+                enabled = !learning) {
+                learning = true
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                scope.launch {
+                    facts = withContext(Dispatchers.IO) {
+                        try { com.agentos.shell.tools.PersonFacts.learn(ctx, p) }
+                        catch (e: Exception) { facts }
+                    }
+                    learning = false
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (facts.isEmpty() && !learning) {
+            Text("Nothing noted yet — read the history and I'll write down what it says.",
+                fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+        }
+        facts.forEachIndexed { i, f ->
+            Column(Modifier.fillMaxWidth()
+                .clickable { showEvidence = if (showEvidence == i) -1 else i }
+                .padding(vertical = 9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(com.agentos.shell.tools.PersonFacts.label(f.kind),
+                        fontSize = 9.sp, color = T.accent, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(66.dp))
+                    Text(f.value, fontSize = T.caption, color = T.ink,
+                        modifier = Modifier.weight(1f), lineHeight = 18.sp)
+                }
+                // The words it came from, on tap. A fact you cannot check is a rumour.
+                if (showEvidence == i && f.evidence.isNotBlank()) {
+                    Spacer(Modifier.height(5.dp))
+                    Text("“${f.evidence}”", fontSize = 10.sp, color = T.inkFaint,
+                        lineHeight = 15.sp, modifier = Modifier.padding(start = 66.dp))
+                }
+            }
+            Hairline()
+        }
+
         // ── ASK, AND WRITE ──
         Spacer(Modifier.height(24.dp))
         SectionLabel("ASK OR WRITE")

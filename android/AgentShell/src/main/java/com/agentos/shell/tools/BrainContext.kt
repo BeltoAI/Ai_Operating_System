@@ -163,7 +163,7 @@ object BrainContext {
         // in the same database. Gated on the question, exactly like the vitals block, so an ordinary
         // question pays nothing for it.
         val crm = try {
-            if (Crm.isPeopleQuestion(q)) Crm.contextFor(ctx, q) else ""
+            if (Crm.isPeopleQuestion(ctx, q)) Crm.contextFor(ctx, q) else ""
         } catch (e: Exception) { "" }
         val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()

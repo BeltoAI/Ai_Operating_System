@@ -45,12 +45,19 @@ object Places {
         // Replaces a contact list, which answers "what is their number" — a question that mattered
         // when you had to dial it, and not the two people actually have: who is this again, and do
         // I owe them something.
-        Place("crm", "People", "who you know, and where you stand",
-            listOf("contacts", "crm", "person", "who", "company", "companies", "relationship", "owed")),
+        Place("crm", "People", "everyone you know, and where you stand",
+            listOf("contacts", "crm", "person", "who", "company", "companies", "relationship",
+                   "owed", "network", "connections", "linkedin", "intros", "reconnect")),
         Place("invest", "Portfolio", "holdings and performance", listOf("stocks", "shares", "trading", "money", "investments")),
         Place("expenses", "Expenses", "what you've spent", listOf("spending", "receipts", "budget")),
         Place("find_job", "Job hunt", "roles, CV, outreach", listOf("jobs", "career", "cv", "resume")),
-        Place("network_search", "Network", "who you know", listOf("contacts", "people", "intros")),
+        // THE OLD NETWORK SHORTCUT IS GONE.
+        //
+        // It searched the same 20,005 LinkedIn connections the People page now holds, so typing
+        // "network" offered two entries to one dataset — and I sent myself to the wrong one twice
+        // while testing this, which is the clearest evidence it was a coin toss rather than a
+        // choice. Its search words moved onto People above; the screen itself still exists for the
+        // network_search ACTION, which does a different job (find and message strangers).
         Place("write_paper", "Research", "papers and sources", listOf("paper", "writing", "study")),
         Place("cowork", "Cowork", "build something with it", listOf("workspace", "code", "project")),
         Place("shop", "Shopping", "find and compare", listOf("buy", "price", "deals")),

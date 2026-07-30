@@ -195,6 +195,39 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                 Spacer(Modifier.height(14.dp))
             }
 
+            // ── BIRTHDAYS, WHICH ARE ONLY USEFUL ON THE DAY ──
+            //
+            // A birthday noted on a person's page and never surfaced is a fact you still forget. It
+            // is read from facts already extracted rather than by sweeping the book, so it costs
+            // nothing here — and it only appears within a week, because that is the window in which
+            // you could still do something about it.
+            run {
+                var bdays by remember { mutableStateOf(listOf<com.agentos.shell.tools.PersonFacts.Upcoming>()) }
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    bdays = withContext(Dispatchers.IO) {
+                        try {
+                            val ppl = com.agentos.shell.tools.Crm.people(ctx, 200)
+                            com.agentos.shell.tools.PersonFacts.upcoming(ctx, ppl, 7)
+                        } catch (e: Exception) { emptyList() }
+                    }
+                }
+                if (bdays.isNotEmpty()) {
+                    Text("BIRTHDAYS", fontSize = 11.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    bdays.take(3).forEach { b ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+                            .background(T.bgElevated).padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(com.agentos.shell.tools.PersonFacts.birthdayLine(b),
+                                fontSize = T.small, color = T.ink, modifier = Modifier.weight(1f),
+                                lineHeight = 19.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+
             // ── Team approvals: a teammate wants to send an email or change your calendar — you decide.
             //    Swipe LEFT to decline, swipe RIGHT to open the full details and approve. Nothing leaves the
             //    phone in your name until you say so.

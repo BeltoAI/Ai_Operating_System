@@ -365,21 +365,56 @@ object MemoryStore {
         prefs(ctx).edit().putString("style_$platformKey", value.trim()).apply()
 
     /** Accumulated samples of YOUR own messages across imports, for learning your voice. */
+    /**
+     * THE 527-KILOBYTE PREFERENCE.
+     *
+     * These samples lived in the main `slyos` preferences file alongside the profile, the API keys
+     * and every setting in the app. Five thousand of them, 527 KB of a 562 KB file — 94% of it.
+     *
+     * SharedPreferences loads its ENTIRE xml synchronously on first touch and keeps it in memory, so
+     * every component that read any single setting paid to parse all five thousand samples first.
+     * Measured on the device: `profile 8219ms` inside a 8990ms context build — 8.2 seconds of a
+     * 9-second wait, on the path taken by every question asked anywhere in this app, to read a
+     * handful of short strings that sit in the same file as a write-heavy corpus nothing else needs.
+     *
+     * Their own file now, so the profile is cheap and the corpus is only paid for by the one thing
+     * that wants it. Migrated on first access and deleted from the old file.
+     */
+    private const val VOICE_PREF = "slyos_voice"
+    private fun voicePrefs(ctx: Context) =
+        ctx.getSharedPreferences(VOICE_PREF, Context.MODE_PRIVATE)
+
+    @Volatile private var voiceMigrated = false
+    private fun migrateVoice(ctx: Context) {
+        if (voiceMigrated) return
+        voiceMigrated = true
+        try {
+            val old = prefs(ctx).getString("voice_samples", null) ?: return
+            if (voicePrefs(ctx).getString("voice_samples", null) == null)
+                voicePrefs(ctx).edit().putString("voice_samples", old).apply()
+            prefs(ctx).edit().remove("voice_samples").apply()
+        } catch (e: Exception) {}
+    }
+
     fun addVoiceSamples(ctx: Context, samples: List<String>) {
         if (samples.isEmpty()) return
+        migrateVoice(ctx)
         val cur = voiceSamples(ctx).toMutableList()
         cur.addAll(samples.map { it.replace("\n", " ").trim() }.filter { it.length in 2..400 })
-        // P1.5: keep a large rolling window of your own writing so old samples aren't dropped as you use
-        // the app (the style-learner samples from this pool; the raw messages also live in the brain DB).
         val capped = cur.distinct().takeLast(5000)
         val arr = org.json.JSONArray(); capped.forEach { arr.put(it) }
-        prefs(ctx).edit().putString("voice_samples", arr.toString()).apply()
+        voicePrefs(ctx).edit().putString("voice_samples", arr.toString()).apply()
     }
     fun voiceSamples(ctx: Context): List<String> = try {
-        val arr = org.json.JSONArray(prefs(ctx).getString("voice_samples", "[]"))
+        migrateVoice(ctx)
+        val arr = org.json.JSONArray(voicePrefs(ctx).getString("voice_samples", "[]"))
         (0 until arr.length()).map { arr.getString(it) }
     } catch (e: Exception) { emptyList() }
-    fun clearVoice(ctx: Context) = prefs(ctx).edit().remove("voice_samples").remove("style_profile").apply()
+
+    fun clearVoice(ctx: Context) {
+        try { voicePrefs(ctx).edit().remove("voice_samples").apply() } catch (e: Exception) {}
+        prefs(ctx).edit().remove("voice_samples").remove("style_profile").apply()
+    }
 
     /** A learned "this is how I write" profile, distilled from your real past messages. */
     fun styleProfile(ctx: Context): String = prefs(ctx).getString("style_profile", "") ?: ""

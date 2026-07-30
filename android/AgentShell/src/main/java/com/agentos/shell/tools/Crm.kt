@@ -2,6 +2,8 @@ package com.agentos.shell.tools
 
 import android.content.Context
 import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * One person, all their names, every channel — and where the relationship actually stands.
@@ -213,7 +215,93 @@ object Crm {
      * per person — 365 leads across 68,000 messages is a query storm that would take the main thread
      * down, and this is called from a screen.
      */
-    fun people(ctx: Context, max: Int = 400): List<Person> = try {
+    // A RESOLVED BOOK IS EXPENSIVE AND DOES NOT CHANGE BY THE SECOND.
+    //
+    // Measured on the device: BrainContext.build took 9.4s and 10.4s on two consecutive questions
+    // about a person, because resolution walks all 68,000 message rows and every people-question
+    // asked for it again from scratch. Ten seconds before the model is even called, on the path that
+    // is supposed to make the assistant feel like it knows you.
+    //
+    // Held for five minutes. Messages arriving inside that window are missed by the book and caught
+    // by the next one, which is the right trade: nobody's relationship graph changes meaningfully in
+    // five minutes, and every screen that opens in that window is instant.
+    @Volatile private var cache: List<Person>? = null
+    @Volatile private var cacheAt = 0L
+    private const val CACHE_MS = 5 * 60_000L
+
+    fun invalidate() { cache = null }
+
+    /**
+     * THE BOOK, ON DISK — because a cold process must not re-resolve it.
+     *
+     * Measured: 14 seconds inside a 15-second context build, on a question as ordinary as "who is
+     * carlos". The in-memory cache was useless against it because every process start is a cold
+     * cache, and a phone kills this process constantly. Worse, I read that cost as belonging to the
+     * profile block for two rounds of measurement, because the existing timer happens to span the
+     * lines I had added — a reminder that a number is only as good as knowing what it covers.
+     *
+     * So the resolved book is written to disk and read back in milliseconds. And the answer path
+     * NEVER resolves: it reads the snapshot or it goes without. Six seconds of "who is carlos" is
+     * not worth a fresher relationship graph, and the snapshot is rebuilt whenever the page opens.
+     */
+    private fun snapshotFile(ctx: Context) = java.io.File(ctx.filesDir, "crm_book.json")
+
+    private fun writeSnapshot(ctx: Context, people: List<Person>) {
+        try {
+            val arr = JSONArray()
+            people.take(400).forEach { p ->
+                val ids = JSONArray()
+                p.identities.forEach {
+                    ids.put(JSONObject().put("p", it.platform).put("h", it.handle)
+                        .put("m", it.messages).put("t", it.lastTs))
+                }
+                arr.put(JSONObject()
+                    .put("k", p.key).put("n", p.name).put("ids", ids)
+                    .put("e", JSONArray(p.emails)).put("c", p.company).put("r", p.role)
+                    .put("in", p.lastIn).put("out", p.lastOut).put("tm", p.totalMessages))
+            }
+            snapshotFile(ctx).writeText(JSONObject().put("at", System.currentTimeMillis())
+                .put("people", arr).toString())
+        } catch (e: Exception) {}
+    }
+
+    /** The snapshot, or empty. Never resolves — that is the entire point of it. */
+    fun peopleCached(ctx: Context, max: Int = 300): List<Person> {
+        cache?.let { if (System.currentTimeMillis() - cacheAt < CACHE_MS) return it.take(max) }
+        return try {
+            val f = snapshotFile(ctx)
+            if (!f.exists()) return emptyList()
+            val o = JSONObject(f.readText())
+            val arr = o.optJSONArray("people") ?: return emptyList()
+            val out = ArrayList<Person>(arr.length())
+            for (i in 0 until arr.length()) {
+                val j = arr.optJSONObject(i) ?: continue
+                val idsArr = j.optJSONArray("ids")
+                val ids = ArrayList<Identity>()
+                if (idsArr != null) for (k in 0 until idsArr.length()) idsArr.optJSONObject(k)?.let {
+                    ids.add(Identity(it.optString("p"), it.optString("h"), it.optInt("m"), it.optLong("t")))
+                }
+                val em = j.optJSONArray("e")
+                val emails = ArrayList<String>()
+                if (em != null) for (k in 0 until em.length()) emails.add(em.optString(k))
+                val base = Person(j.optString("k"), j.optString("n"), ids, emails,
+                    j.optString("c"), j.optString("r"), j.optLong("in"), j.optLong("out"),
+                    j.optInt("tm"), null, Stage.NEW)
+                out.add(base.copy(stage = stageOf(base)))
+            }
+            out.take(max)
+        } catch (e: Exception) { emptyList() }
+    }
+
+    fun people(ctx: Context, max: Int = 400): List<Person> {
+        val c = cache
+        if (c != null && System.currentTimeMillis() - cacheAt < CACHE_MS) return c.take(max)
+        val fresh = resolve(ctx, maxOf(max, 400))
+        if (fresh.isNotEmpty()) { cache = fresh; cacheAt = System.currentTimeMillis() }
+        return fresh.take(max)
+    }
+
+    private fun resolve(ctx: Context, max: Int): List<Person> = try {
         val self = selfNames(ctx)
         // platform+handle → (count, last, lastIn, lastOut)
         data class Acc(
@@ -357,6 +445,7 @@ object Crm {
             .filter { looksHuman(it) }
             .sortedByDescending { it.lastAny }
             .take(max)
+            .also { cacheNames(ctx, it); writeSnapshot(ctx, it) }
     } catch (e: Exception) {
         Log.w(TAG, "people: ${e.message}"); emptyList()
     }
@@ -447,6 +536,46 @@ object Crm {
         people(ctx, limit).joinToString("\n") { "· " + brainLine(it) }
     } catch (e: Exception) { "" }
 
+    private const val PREFS = "slyos_crm"
+    private const val KEY_NAMES = "names"
+
+    /**
+     * Every first name in the book, cached for the gate below.
+     *
+     * Written whenever the book is rebuilt, so it costs nothing extra, and read as a set — the gate
+     * runs on every question asked anywhere in the app and cannot afford to resolve 68,000 message
+     * rows to find out whether the question is about a person.
+     */
+    private fun cacheNames(ctx: Context, people: List<Person>) {
+        try {
+            val names = people.flatMap { p ->
+                p.name.split(' ', ',').map { it.trim().lowercase() }.filter { it.length >= 3 }
+            }.distinct().take(1200)
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putStringSet(KEY_NAMES, names.toSet()).apply()
+        } catch (e: Exception) {}
+    }
+
+    private fun knownNames(ctx: Context): Set<String> = try {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_NAMES, emptySet()) ?: emptySet()
+    } catch (e: Exception) { emptySet() }
+
+    /**
+     * Does this question name somebody you know?
+     *
+     * This is the gate that matters, and the keyword list below is only its backstop. Measured
+     * against sixteen realistic questions, the keyword version missed eleven — including "what do I
+     * know about Joslyn", which is the plainest way anyone would ever ask. No list of phrasings can
+     * anticipate how people talk; the presence of a name they know can.
+     */
+    fun namesSomeone(ctx: Context, q: String): Boolean {
+        val known = knownNames(ctx)
+        if (known.isEmpty()) return false
+        return q.lowercase().split(Regex("[^\\p{L}]+"))
+            .any { it.length >= 3 && it in known }
+    }
+
     /**
      * Is this question about a person, a channel, or a debt?
      *
@@ -454,13 +583,21 @@ object Crm {
      * BrainContext, and an unconditional book of 400 people would eat a context window that is
      * already contested. Free on every question that is not about people.
      */
+    fun isPeopleQuestion(ctx: Context, q: String): Boolean =
+        namesSomeone(ctx, q) || isPeopleQuestion(q)
+
     fun isPeopleQuestion(q: String): Boolean = Regex(
         "(?i)\\b(who is|who's|whos|how do i (reach|contact|message)|what'?s? (his|her|their) " +
         "(instagram|insta|handle|linkedin|number|email|telegram|whatsapp|snap)|handle|instagram|" +
         "linkedin|whatsapp|telegram|snapchat|contact details?|reach (him|her|them)|" +
         "owe|owes|owed|haven'?t (heard|replied|spoken)|never replied|no reply|ghosted|" +
         "gone quiet|last (spoke|talked|contact)|catch up with|reconnect|" +
-        "which channel|where do i (know|talk)|my contacts|crm)\\b").containsMatchIn(q)
+        "which channel|where do i (know|talk)|my contacts|crm|" +
+        // The phrasings the first version missed, every one of them ordinary.
+        "what do i know about|tell me about|brief me on|remind me about|what.{0,12}birthday|" +
+        "birthday|details for|details on|relationship with|spoken (to|with)|talked (to|with)|" +
+        "works at|work at|who.{0,20}(at|from) [A-Z]|last (talk|spoke|email|message)|" +
+        "catch up|follow up with|introduce me|who do i know)\\b").containsMatchIn(q)
 
     /**
      * The people block for a question, sized to what was asked.
@@ -469,8 +606,10 @@ object Crm {
      * literal answer to "what's her Instagram". A general question gets the debts, because that is
      * what a general question about people is nearly always driving at.
      */
-    fun contextFor(ctx: Context, q: String): String = try {
-        val all = people(ctx, 300)
+    fun contextFor(ctx: Context, q: String): String {
+      return try {
+        val all = peopleCached(ctx, 300)
+        if (all.isEmpty()) return ""
         // Does the question name one of them? Longest names first, so "Joslyn Barragán" is tried
         // before "Joslyn" and the more specific match wins.
         val named = all.sortedByDescending { it.name.length }.firstOrNull { p ->
@@ -481,6 +620,14 @@ object Crm {
             if (named != null) {
                 append("WHO THIS IS, from every channel on the device:\n")
                 append(brainLine(named)).append("\n")
+                // What has been noted about them, so "what do I know about Joslyn" answers with the
+                // substance rather than only the metadata.
+                val f = try { PersonFacts.facts(ctx, named.key) } catch (e: Exception) { emptyList() }
+                if (f.isNotEmpty()) {
+                    append("What you have noted about them:\n")
+                    f.forEach { append("· ").append(PersonFacts.label(it.kind)).append(": ")
+                        .append(it.value).append("\n") }
+                }
             } else {
                 val owedMe = all.filter { it.owedByMe }.take(8)
                 val owedThem = all.filter { it.owedByThem && it.silentDays in 3..120 }.take(8)
@@ -497,7 +644,8 @@ object Crm {
                 if (isEmpty()) append(brainBlock(ctx, 25))
             }
         }.take(2200)
-    } catch (e: Exception) { "" }
+      } catch (e: Exception) { "" }
+    }
 
     /**
      * The rest of the network — connections that are not conversations.
