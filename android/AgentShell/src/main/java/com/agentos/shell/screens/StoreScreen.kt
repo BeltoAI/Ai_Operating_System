@@ -286,11 +286,27 @@ private fun Crest(p: Power, size: Int) {
 /** Works with one tap on the phone? (native capability, or a Skill that upgrades the AI directly.) */
 private fun onPhoneNow(p: Power) = p.onPhone || p.type == PowerType.SKILL
 
+/**
+ * Real numbers, or none.
+ *
+ * This showed "★ 4.8" on every power. The field behind it is a hardcoded editorial score — not a
+ * user rating, not a review count, not anything a buyer could verify — and a star glyph in a store
+ * means exactly one thing to everybody who has ever used one. Harmless in a private build and
+ * indefensible in something being sold: it is the first detail a sceptical person checks, and
+ * finding it invented poisons everything else on the screen.
+ *
+ * GitHub stars replace it, because those are real, checkable and already fetched for discovered
+ * repos. Where there is no star count — the curated entries carry none — it simply says what the
+ * power runs on, which was always the more useful half of the line anyway.
+ */
 @Composable
 private fun RatingRow(p: Power) {
     val phone = onPhoneNow(p)
-    Text("★ ${"%.1f".format(p.rating)}   ·   ${if (phone) "works on your phone" else "needs a computer"}",
-        fontSize = T.caption, color = if (phone) T.accent else T.inkFaint, fontWeight = if (phone) FontWeight.Medium else FontWeight.Normal)
+    val where = if (phone) "works on your phone" else "needs a computer"
+    val stars = p.stars.trim()
+    Text(if (stars.isNotBlank()) "$stars★ on GitHub   ·   $where" else where,
+        fontSize = T.caption, color = if (phone) T.accent else T.inkFaint,
+        fontWeight = if (phone) FontWeight.Medium else FontWeight.Normal)
 }
 
 @Composable
@@ -316,7 +332,9 @@ private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
                 Text("power to ${p.tagline}", fontSize = 21.sp, color = Color.White, fontWeight = FontWeight.Bold, lineHeight = 25.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("★ ${"%.1f".format(p.rating)}  ·  ${if (onPhoneNow(p)) "works on your phone" else "needs a computer"}", fontSize = T.caption, color = Color(0xDDFFFFFF))
+                    Text((if (p.stars.isNotBlank()) "${p.stars.trim()}★ on GitHub  ·  " else "") +
+                            (if (onPhoneNow(p)) "works on your phone" else "needs a computer"),
+                        fontSize = T.caption, color = Color(0xDDFFFFFF))
                     Spacer(Modifier.weight(1f))
                     Text(if (installed) "ADDED" else "GET", fontSize = T.caption, color = if (installed) Color.White else a, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(if (installed) Color(0x33FFFFFF) else Color.White).padding(horizontal = 18.dp, vertical = 7.dp))
@@ -413,7 +431,8 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                 Column(Modifier.weight(1f)) {
                     Text(p.name, fontSize = 24.sp, color = T.ink, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(3.dp))
-                    Text("★ ${"%.1f".format(p.rating)}    ·    ${if (onPhoneNow(p)) "works on your phone" else "needs a computer"}",
+                    Text((if (p.stars.isNotBlank()) "${p.stars.trim()}★ on GitHub    ·    " else "") +
+                            (if (onPhoneNow(p)) "works on your phone" else "needs a computer"),
                         fontSize = T.caption, color = if (onPhoneNow(p)) T.accent else T.inkFaint)
                     if (installed) { Spacer(Modifier.height(4.dp)); Text("added", fontSize = 10.sp, color = T.accent, fontWeight = FontWeight.Bold) }
                 }
