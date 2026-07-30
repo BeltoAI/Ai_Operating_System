@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.RelationGraph
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** One unit in a column. [key] is a person key for people, blank for channels and companies. */
@@ -86,6 +87,7 @@ fun GraphScreen(
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var nodes by remember { mutableStateOf(listOf<GNode>()) }
     var links by remember { mutableStateOf(listOf<GLink>()) }
     var picked by remember { mutableStateOf(-1) }
@@ -93,6 +95,10 @@ fun GraphScreen(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var loaded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
+    /** Routes in to whatever was typed — the reason to have a graph at all. */
+    var answer by remember { mutableStateOf<com.agentos.shell.tools.Intro.Answer?>(null) }
+    var asking by remember { mutableStateOf(false) }
+    var draft by remember { mutableStateOf("") }
 
     val reveal = remember { Animatable(0f) }
 
@@ -102,6 +108,18 @@ fun GraphScreen(
         if (built != null) {
             nodes = built.first; links = built.second
             reveal.animateTo(1f, tween(1600, easing = EaseOutCubic))
+        }
+    }
+
+    // THE QUESTION, ASKED OF WHATEVER WAS TYPED.
+    //
+    // The same box that dims the graph also answers "who could introduce me to this" — one input,
+    // because making someone choose a mode before they can ask is the tax that stops them asking.
+    LaunchedEffect(filter) {
+        if (filter.trim().length < 3) { answer = null; return@LaunchedEffect }
+        kotlinx.coroutines.delay(320)
+        answer = withContext(Dispatchers.IO) {
+            try { com.agentos.shell.tools.Intro.pathsTo(ctx, filter) } catch (e: Exception) { null }
         }
     }
 
@@ -253,13 +271,70 @@ fun GraphScreen(
             // left is the shape of that one question. Typed at the bottom because that is where a
             // thumb already is, and matched on names, channels and companies at once so it never
             // matters which of the three you happen to have in mind.
+            val ans = answer
+            if (sel == null && ans != null && ans.routes.isNotEmpty()) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp)
+                    .padding(bottom = 74.dp).align(Alignment.BottomCenter)) {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(T.bgElevated).padding(16.dp)) {
+                        Text("WAYS IN TO “${ans.target.uppercase()}”", fontSize = 9.sp,
+                            color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                        if (ans.connectedCount > 0) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("${ans.connectedCount} already connected on LinkedIn, never messaged",
+                                fontSize = 10.sp, color = T.inkFaint)
+                        }
+                        var lastKind: com.agentos.shell.tools.Intro.Kind? = null
+                        ans.routes.take(5).forEach { r ->
+                            if (r.kind != lastKind) {
+                                lastKind = r.kind
+                                Spacer(Modifier.height(10.dp))
+                                Text(com.agentos.shell.tools.Intro.kindLabel(r.kind),
+                                    fontSize = 8.sp, color = T.inkFaint,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Column(Modifier.fillMaxWidth().clickable {
+                                    if (r.viaKey.isNotBlank()) onPerson(r.viaKey)
+                                }) {
+                                Text(r.via + (if (r.viaRole.isNotBlank()) " · ${r.viaRole.take(26)}" else ""),
+                                    fontSize = T.caption, color = T.ink, maxLines = 1)
+                                Text(r.why, fontSize = 10.sp, color = T.inkFaint, lineHeight = 14.sp)
+                            }
+                            // Only a real introduction needs asking for; the other two you just do.
+                            if (r.kind == com.agentos.shell.tools.Intro.Kind.TWO_HOP) {
+                                Spacer(Modifier.height(5.dp))
+                                Text(if (asking) "writing…" else "Ask ${r.via.split(' ').first()} →",
+                                    fontSize = 10.sp, color = T.accent,
+                                    modifier = Modifier.clickable(enabled = !asking) {
+                                        asking = true; draft = ""
+                                        scope.launch {
+                                            draft = withContext(Dispatchers.IO) {
+                                                try {
+                                                    com.agentos.shell.tools.AgentClient.complete(
+                                                        "You write short messages in the owner's voice. Message only.",
+                                                        com.agentos.shell.tools.Intro.askPrompt(ctx, r, filter), 400)
+                                                } catch (e: Exception) { "" }
+                                            }.ifBlank { "Couldn't write that one." }
+                                            asking = false
+                                        }
+                                    })
+                            }
+                        }
+                        if (draft.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(draft, fontSize = 10.sp, color = T.ink, lineHeight = 15.sp)
+                        }
+                    }
+                }
+            }
             if (sel == null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)
                     .align(Alignment.BottomCenter)) {
                     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
                         .background(T.bgElevated).padding(horizontal = 18.dp, vertical = 13.dp)) {
                         if (filter.isEmpty())
-                            Text("filter — a name, a channel, a company",
+                            Text("who could introduce me to… a company, a name",
                                 fontSize = T.caption, color = T.inkFaint)
                         androidx.compose.foundation.text.BasicTextField(
                             filter, { filter = it },
