@@ -102,6 +102,35 @@ object CostStore {
             .filterValues { it > 0.0 }
 
     /** Project the full-month total by scaling what's spent so far by how much of the month has elapsed. */
+    /**
+     * How far through the month's budget you are, and whether that is worth saying.
+     *
+     * The cap already stops the spending — over the limit, only free brains are used. But a limit
+     * that gives no warning turns into a surprise: everything is normal until suddenly the good
+     * models are gone and nothing said why. The thresholds are the ones people actually want to
+     * hear about, and each fires ONCE per month, because a warning that repeats is one that gets
+     * ignored before it matters.
+     */
+    fun budgetAlert(ctx: Context): String? {
+        val cap = try { MemoryStore.monthlyBudget(ctx) } catch (e: Exception) { 0.0 }
+        if (cap <= 0.0) return null
+        val spent = monthCostUsd(ctx)
+        val pct = ((spent / cap) * 100).toInt()
+        val step = listOf(95, 75, 50, 25).firstOrNull { pct >= it } ?: return null
+        val month = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
+            .format(java.util.Date())
+        val prefs = ctx.getSharedPreferences("slyos_cost_alerts", Context.MODE_PRIVATE)
+        val key = "seen_" + month + "_" + step
+        if (prefs.getBoolean(key, false)) return null
+        prefs.edit().putBoolean(key, true).apply()
+        return when {
+            step >= 95 -> "You've used $pct% of your \$${"%.0f".format(cap)} monthly budget " +
+                "(\$${"%.2f".format(spent)}). At 100% SlyOS switches to free models only."
+            else -> "You've used $pct% of your \$${"%.0f".format(cap)} monthly budget " +
+                "(\$${"%.2f".format(spent)})."
+        }
+    }
+
     fun projectedMonthUsd(ctx: Context): Double {
         val c = Calendar.getInstance()
         val day = c.get(Calendar.DAY_OF_MONTH); val dim = c.getActualMaximum(Calendar.DAY_OF_MONTH)

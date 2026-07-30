@@ -765,6 +765,27 @@ object Crm {
     }
 
     /** The action and argument that sends on a given channel, or null when SlyOS cannot. */
+    /**
+     * A name the phone's address book can actually match.
+     *
+     * Reported: drafting to "Joslyn 💞" and sending came back "contact couldn't be found". The name
+     * SlyOS shows is whatever the person is saved as — hearts, kaomoji, a job title, a nickname in
+     * brackets — and ContactsTool matches against the address book, which has none of that. So the
+     * display name is the wrong thing to hand a resolver, and it was being handed straight over.
+     *
+     * Stripped to letters, spaces and hyphens, then trimmed to the first two words: "Joslyn 💞"
+     * becomes "Joslyn", and "Anna (work)" becomes "Anna". Two words rather than one because
+     * "Joslyn Barragán" must survive — a first name alone is ambiguous in a real address book.
+     */
+    fun contactName(raw: String): String {
+        val cleaned = raw
+            .replace(Regex("\\([^)]*\\)"), " ")                 // "(work)", "(mobile)"
+            .replace(Regex("[^\\p{L} \\-']"), " ")               // emoji, symbols, digits
+            .replace(Regex("\\s+"), " ").trim()
+        val words = cleaned.split(' ').filter { it.length > 1 }
+        return words.take(2).joinToString(" ").ifBlank { raw.trim() }
+    }
+
     fun sendAction(p: Person, platform: String, body: String): Pair<String, org.json.JSONObject>? {
         val handle = p.identities.filter { it.platform == platform }
             .maxByOrNull { it.messages }?.handle.orEmpty()
@@ -776,9 +797,12 @@ object Crm {
                     .put("to", to).put("subject", "").put("body", body)
             }
             platform.equals("SMS", true) || platform.equals("Calls", true) ->
-                "send_sms" to o.put("name", p.name)
+                "send_sms" to o.put("name", contactName(p.name))
             platform.equals("WhatsApp", true) || platform.equals("Telegram", true) ->
-                "message" to o.put("name", handle.ifBlank { p.name }).put("app", platform.lowercase())
+                // The HANDLE is a chat display name and just as decorated as the person's; both go
+                // through the same cleaner before anything tries to match an address book entry.
+                "message" to o.put("name", contactName(handle.ifBlank { p.name }))
+                    .put("app", platform.lowercase())
             else -> null      // Instagram, X, Snapchat: drafted here, sent in their own app
         }
     }

@@ -63,7 +63,36 @@ object ContactsTool {
      */
     fun resolve(ctx: Context, query: String): Resolution {
         if (!canRead(ctx)) return Resolution.None
-        val cands = findCandidates(ctx, query)
+        var cands = findCandidates(ctx, query)
+        // THE CLOSEST PERSON, RATHER THAN NOBODY.
+        //
+        // Reported: a message drafted to "Joslyn 💞" failed to send with "contact couldn't be
+        // found". Stripping the emoji fixes that particular name, and it does not fix the general
+        // case — the address book spells people differently from the way a chat app does, so
+        // "Joslyn Barragán" here can be "Joslyn B" there, and an exact search returns nothing.
+        //
+        // Failing outright when the answer is one obvious person away is the wrong trade. Two looser
+        // passes run only where this used to give up: the first name alone, then a token-overlap
+        // scan for anyone sharing a whole word. Anything genuinely ambiguous still comes back
+        // Ambiguous and gets asked about — a wrong recipient is far worse than a question.
+        if (cands.isEmpty()) {
+            val first = query.trim().split(Regex("\\s+")).firstOrNull { it.length > 1 }.orEmpty()
+            if (first.isNotBlank() && !first.equals(query.trim(), true))
+                cands = findCandidates(ctx, first)
+        }
+        if (cands.isEmpty()) {
+            val words = query.lowercase().split(Regex("[^\\p{L}]+")).filter { it.length > 2 }.toSet()
+            // A blank query returns nothing from findCandidates, so the net is cast with the first
+            // two letters — broad enough to catch a differently-spelled surname, narrow enough that
+            // the provider does the work rather than this loop.
+            val seed = words.firstOrNull()?.take(2).orEmpty()
+            if (words.isNotEmpty() && seed.length == 2) cands = try {
+                findCandidates(ctx, seed, limit = 200).filter { c ->
+                    val cw = c.name.lowercase().split(Regex("[^\\p{L}]+")).filter { it.length > 2 }
+                    cw.any { it in words } || words.any { w -> cw.any { it.startsWith(w) || w.startsWith(it) } }
+                }.take(5)
+            } catch (e: Exception) { emptyList() }
+        }
         if (cands.isEmpty()) return Resolution.None
         val q = query.trim().lowercase()
         cands.firstOrNull { it.name.lowercase() == q }?.let { return Resolution.Found(it) }

@@ -195,6 +195,30 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                 Spacer(Modifier.height(14.dp))
             }
 
+            // ── THE BUDGET, BEFORE IT RUNS OUT ──
+            //
+            // The cap works — over the limit only free brains are used — but silently. Everything is
+            // normal until the good models are suddenly gone and nothing said why. Once per
+            // threshold per month, so it is a warning rather than a nag.
+            run {
+                var alert by remember { mutableStateOf<String?>(null) }
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    alert = withContext(Dispatchers.IO) {
+                        try { com.agentos.shell.tools.CostStore.budgetAlert(ctx) } catch (e: Exception) { null }
+                    }
+                }
+                alert?.let { a ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(T.bgElevated).padding(16.dp)) {
+                        Text("SPENDING", fontSize = 9.sp, color = T.accent,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                        Spacer(Modifier.height(5.dp))
+                        Text(a, fontSize = T.caption, color = T.ink, lineHeight = 18.sp)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+
             // ── WHAT YOU DID TODAY ──
             //
             // A workout finished at three o'clock was invisible until somebody opened the Health page,
