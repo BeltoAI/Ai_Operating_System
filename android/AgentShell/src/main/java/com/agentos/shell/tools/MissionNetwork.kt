@@ -64,7 +64,24 @@ object MissionNetwork {
         val out = ArrayList<Warm>()
 
         // ── 1. People you talk to ──
-        val talking = book.filter { it.reciprocal && it.totalMessages >= 5 }
+        //
+        // VOLUME IS NOT RELEVANCE. Ranking by message count put Instagram friends at the top of a
+        // list of investor prospects — the model then invented a reason for each ("can aid in
+        // hardware decisions due to his AI interest" about somebody with no known job), which is
+        // exactly the weak suggestion the picker is told to refuse. It could not refuse it, because
+        // every candidate it was shown was equally unqualified.
+        //
+        // So a candidate needs a KNOWN role or employer. That is the whole difference between a
+        // person you chat to and a person who can help with a goal, and the CRM already has it from
+        // the LinkedIn enrichment. Volume still orders them; it no longer selects them.
+        val qualified = book.filter {
+            it.reciprocal && it.totalMessages >= 5 &&
+                (it.role.isNotBlank() || it.company.isNotBlank())
+        }
+        // Fall back to everyone only when nothing in the book has a role at all, so a new install
+        // still gets suggestions rather than an empty screen.
+        val talking = (if (qualified.isNotEmpty()) qualified
+                       else book.filter { it.reciprocal && it.totalMessages >= 5 })
             .sortedByDescending { it.totalMessages }.take(80)
         pickFrom(goal, talking.map { p ->
             "${p.name}${if (p.role.isNotBlank()) " — ${p.role.take(46)}" else ""}" +

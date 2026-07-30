@@ -157,7 +157,11 @@ object Crm {
      * people know each other. It was sitting in the book as a contact, which is both a fake person
      * and a wasted fact. [RelationGraph] reads these; the book drops them.
      */
-    private val GROUP_SHAPE = Regex("(?i)\\band\\s+(\\d+\\s+)?others?$|^[^,]{2,30},[^,]{2,30},")
+    private val GROUP_SHAPE = Regex("(?i)\\band\\s+(\\d+\\s+)?others?$|" +
+        "^[^,]{2,30},[^,]{2,30},|" +
+        // "Isaiah Walker, ₱∆BL∅ and 張益晟" — one comma plus an "and" is still three people in a
+        // group chat, and it was being offered as a single person to write to.
+        "^[^,]{2,34},.{2,40}\\band\\b.{2,34}$")
 
     private val NEVER_A_PERSON = Regex("(?i)^(linkedin|instagram|whatsapp|telegram|facebook|" +
         "messenger|reddit|tiktok|snapchat|twitter|x|gmail|email|sms|imessage|signal|discord|" +
