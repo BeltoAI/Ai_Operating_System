@@ -87,8 +87,18 @@ object Asks {
         val token = AccountStore.freshAccessToken(ctx)
         if (token.isBlank()) return emptyList()
         return try {
-            val cands = JSONArray(SupabaseClient.get("ask_candidates",
-                "select=ask_id,candidate_user,state,verdict,strength&ask_id=eq.$askId", token))
+            // Ask for the strength, but survive without it.
+            //
+            // The client ships before the migration does, and for a while `strength` is a column
+            // that does not exist yet — PostgREST answers the whole select with a 400, so ONE
+            // missing column turned a page with three real introductions against it into "nothing
+            // back yet". A screen that reports zero because of a schema skew is worse than one that
+            // reports slightly less.
+            val cands = JSONArray(
+                SupabaseClient.getOrNull("ask_candidates",
+                    "select=ask_id,candidate_user,state,verdict,strength&ask_id=eq.$askId", token)
+                ?: SupabaseClient.get("ask_candidates",
+                    "select=ask_id,candidate_user,state,verdict&ask_id=eq.$askId", token))
             val bridges = JSONArray(SupabaseClient.get("bridges",
                 "select=holder,person,note,strength&ask_id=eq.$askId", token))
             val byHolder = HashMap<String, JSONObject>()
@@ -274,10 +284,13 @@ object Asks {
 
     private fun markStrength(token: String, askId: String, uid: String, strength: Float) {
         try {
-            SupabaseClient.patch("ask_candidates",
+            val ok = SupabaseClient.patch("ask_candidates",
                 "ask_id=eq.$askId&candidate_user=eq.$uid", token,
                 JSONObject().put("state", "interested").put("verdict", "need_human")
                     .put("strength", strength.toDouble()))
+            // Same skew, other direction: still register interest even if the number has nowhere
+            // to go yet.
+            if (!ok) mark(token, askId, uid, "interested", "need_human")
         } catch (e: Exception) {}
     }
 

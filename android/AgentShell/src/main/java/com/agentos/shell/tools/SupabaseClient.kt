@@ -107,11 +107,22 @@ object SupabaseClient {
 
     /** The same read, as a signed-in member. Policies that require `authenticated` — the network
      *  profiles are the ones that matter — return nothing at all without this. */
-    fun get(table: String, query: String, accessToken: String): String = try {
+    fun get(table: String, query: String, accessToken: String): String =
+        getOrNull(table, query, accessToken) ?: "[]"
+
+    /**
+     * The same read, but null means it FAILED rather than "there is nothing".
+     *
+     * `get` maps every error to "[]", which is indistinguishable from an empty result — so a select
+     * naming one column the database does not have yet reads as "nothing came back", and a page
+     * with three real introductions against it says "nothing back yet". Callers that can fall back
+     * to a narrower query need to be able to tell the difference.
+     */
+    fun getOrNull(table: String, query: String, accessToken: String): String? = try {
         val c = open("/rest/v1/$table?$query", "GET", accessToken)
         val (code, txt) = send(c, null)
-        if (code in 200..299) txt else "[]"
-    } catch (e: Exception) { "[]" }
+        if (code in 200..299) txt else { lastError = "HTTP $code ${txt.take(160)}"; null }
+    } catch (e: Exception) { lastError = e.message ?: "read failed"; null }
 
     /** Insert and get the row back — needed when the server generates the id. */
     fun insertReturning(table: String, accessToken: String, rows: JSONArray): JSONArray? = try {
