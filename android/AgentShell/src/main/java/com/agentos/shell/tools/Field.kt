@@ -51,6 +51,15 @@ object Field {
 
     @Volatile private var memo: Sky? = null
 
+    /** How long a snapshot is trusted before the phone goes and looks again. */
+    private const val FRESH_MS = 12L * 60 * 60 * 1000
+
+    /** Old enough to be worth rebuilding? Nothing here changes minute to minute. */
+    fun stale(ctx: Context): Boolean = try {
+        val f = file(ctx)
+        !f.exists() || System.currentTimeMillis() - f.lastModified() > FRESH_MS
+    } catch (e: Exception) { true }
+
     private fun file(ctx: Context) = java.io.File(ctx.filesDir, "field_sky.tsv")
 
     /** Whatever can be shown instantly. Null only on the very first open. */

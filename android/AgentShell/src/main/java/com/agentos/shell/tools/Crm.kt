@@ -354,14 +354,14 @@ object Crm {
     fun roster(ctx: Context): List<RosterEntry> = try {
         val self = selfNames(ctx)
         val byKey = HashMap<String, RosterEntry>(4096)
-        MessageStore.forEachRowFull(ctx) { contact, platform, _, _, _ ->
-            if (contact.isBlank() || isMachine(contact)) return@forEachRowFull
-            if (platform !in CHANNELS) return@forEachRowFull
+        MessageStore.forEachContact(ctx) { contact, platform, n ->
+            if (contact.isBlank() || isMachine(contact)) return@forEachContact
+            if (platform !in CHANNELS) return@forEachContact
             val key = fullKey(contact)
-            if (key.isBlank() || key in self) return@forEachRowFull
+            if (key.isBlank() || key in self) return@forEachContact
             val cur = byKey[key]
-            byKey[key] = if (cur == null) RosterEntry(contact, platform, 1)
-                         else cur.copy(messages = cur.messages + 1)
+            byKey[key] = if (cur == null) RosterEntry(contact, platform, n)
+                         else cur.copy(messages = cur.messages + n)
         }
         byKey.values.toList()
     } catch (e: Exception) { emptyList() }

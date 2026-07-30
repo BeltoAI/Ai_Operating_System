@@ -114,7 +114,11 @@ fun OrbitScreen(
             galaxy = withContext(Dispatchers.Default) { try { Galaxy.build(warm) } catch (e: Exception) { null } }
             loaded = true
         }
-        val fresh = withContext(Dispatchers.IO) { try { Field.load(ctx) } catch (e: Exception) { null } }
+        // Rebuild only when the snapshot has actually aged. Doing it on every open meant a full
+        // scan of the message table and the connections table each time the screen was touched —
+        // the memory spike that was killing the process, and a phone warm enough to notice.
+        val fresh = if (warm != null && !Field.stale(ctx)) null
+                    else withContext(Dispatchers.IO) { try { Field.load(ctx) } catch (e: Exception) { null } }
         if (fresh != null && (warm == null || fresh.size != warm.size)) {
             val g = withContext(Dispatchers.Default) { try { Galaxy.build(fresh) } catch (e: Exception) { null } }
             sky = fresh; galaxy = g
@@ -146,6 +150,49 @@ fun OrbitScreen(
     val drift by rememberInfiniteTransition(label = "d").animateFloat(
         0f, (2 * Math.PI).toFloat(),
         infiniteRepeatable(tween(240_000, easing = LinearEasing)), label = "dv")
+    /**
+     * The disc, recorded once.
+     *
+     * Handing twenty-one thousand points to the canvas on every frame means Compose re-records that
+     * many display-list operations sixty times a second, and the native heap it churns is what was
+     * killing the process — the app already sits near three hundred megabytes of native memory
+     * before this screen opens, and the spike tipped it over. Nothing about those points ever
+     * changes; only the angle does. So they are recorded into one Picture per band at load, and a
+     * frame becomes ten rotations and ten replays.
+     */
+    val discs = remember(galaxy) {
+        val g = galaxy ?: return@remember null
+        if (g.count == 0) return@remember null
+        val half = (g.outer + 40f).toInt()
+        Array(Galaxy.BANDS) { b ->
+            android.graphics.Picture().also { pic ->
+                val c = pic.beginRecording(half * 2, half * 2)
+                c.translate(half.toFloat(), half.toFloat())
+                val cold = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeWidth = 2.7f
+                    // Outer bands are dimmer: it is the only thing that says which way is far, and
+                    // it stops the edge of the disc ending in a hard line.
+                    val fade = 1f - 0.55f * (b.toFloat() / Galaxy.BANDS)
+                    color = android.graphics.Color.argb((86 * fade).toInt(), 214, 218, 232)
+                }
+                val warm = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeWidth = 2.7f
+                    val fade = 1f - 0.55f * (b.toFloat() / Galaxy.BANDS)
+                    color = android.graphics.Color.argb((155 * fade).toInt(), 255, 150, 66)
+                }
+                if (g.cold[b].isNotEmpty()) c.drawPoints(g.cold[b], cold)
+                if (g.warm[b].isNotEmpty()) c.drawPoints(g.warm[b], warm)
+                pic.endRecording()
+            }
+        } to half
+    }
+
     // The travelling pulse along a connection. Four seconds is the speed at which it reads as
     // something moving between two people rather than as a blinking line.
     val pulse by rememberInfiniteTransition(label = "p").animateFloat(
@@ -294,46 +341,23 @@ fun OrbitScreen(
             // ── The disc ──
             // Ten rotate + twenty drawPoints calls, and that is the entire cost whether there are
             // two hundred people out here or sixty thousand.
-            if (g != null && g.count > 0) {
+            if (g != null && discs != null) {
+                val (pics, half) = discs
                 val nc = drawContext.canvas.nativeCanvas
-                // Point size is set in world units and the canvas is scaled, so dividing by the
-                // scale keeps a dot the same size on screen at every zoom level.
-                val dot = 2.7f / s.coerceAtLeast(0.0001f)
-                val cold = android.graphics.Paint().apply {
-                    isAntiAlias = true
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeCap = android.graphics.Paint.Cap.ROUND
-                    strokeWidth = dot
-                    color = android.graphics.Color.argb(78, 214, 218, 232)
-                }
-                // The ones you have actually written to are lit. It is the only difference the disc
-                // draws, and it is the difference that matters: contact made, or not yet.
-                val warm = android.graphics.Paint().apply {
-                    isAntiAlias = true
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeCap = android.graphics.Paint.Cap.ROUND
-                    // Same size as everyone else. Bigger AND brighter turned every cluster you
-                    // have talked to into a solid orange mass; only the colour should differ.
-                    strokeWidth = dot
-                    color = android.graphics.Color.argb(150, 255, 150, 66)
-                }
                 nc.save()
                 nc.translate(centre.x + pan.x, centre.y + pan.y)
                 nc.scale(s, s)
                 for (b in 0 until Galaxy.BANDS) {
                     val deg = Math.toDegrees((drift * g.omega(b)).toDouble()).toFloat()
-                    // Outer bands are dimmer. Two things a flat field cannot do — say which way is
-                    // far, and stop the edge from ending in a hard line.
-                    val fade = 1f - 0.55f * (b.toFloat() / Galaxy.BANDS)
-                    cold.alpha = (86 * fade).toInt()
-                    warm.alpha = (155 * fade).toInt()
-                    nc.save(); nc.rotate(deg)
-                    if (g.cold[b].isNotEmpty()) nc.drawPoints(g.cold[b], cold)
-                    if (g.warm[b].isNotEmpty()) nc.drawPoints(g.warm[b], warm)
+                    nc.save()
+                    nc.rotate(deg)
+                    nc.translate(-half.toFloat(), -half.toFloat())
+                    nc.drawPicture(pics[b])
                     nc.restore()
                 }
                 nc.restore()
-
+            }
+            if (g != null) {
                 // The tapped one, drawn once in screen space so it is never lost in the haze.
                 if (pickedDust >= 0) {
                     var at: Offset? = null
