@@ -333,7 +333,20 @@ object AgentClient {
             "skill is relevant (the approach, method, tone, steps). NO install instructions, NO setup, NO code, " +
             "NO markdown, NO headings, NO mention of servers/repos/GitHub. Just the behavioural guidance."
         val user = "Project: $name\n\nDocs:\n${docs.take(8000)}\n\nWrite the skill instructions:"
-        return complete(sys, user, 320)
+        // ONE RETRY, BECAUSE A DROPPED CALL SHOULD NOT COST THE WHOLE INSTALL.
+        //
+        // Measured on a real device: of three installed skills, two held zero instructions. The
+        // fetch was fine — those repos return a README — so the blank came from this single model
+        // call failing transiently, and the install then saved a skill that taught the assistant
+        // nothing while reporting success.
+        //
+        // The install is honest about failure now, which turns a silent no-op into a visible one.
+        // This makes the failure rarer as well: a rate limit or a dropped connection is exactly the
+        // kind of thing that succeeds on a second attempt, and the user is standing there waiting
+        // either way.
+        val first = complete(sys, user, 320)
+        if (first.isNotBlank()) return first
+        return try { complete(sys, user, 320) } catch (e: Exception) { "" }
     }
 
     /** 3 short, first-person example requests that show a just-added skill in action (for the "Try it" chips). */
