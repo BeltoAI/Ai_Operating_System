@@ -185,6 +185,24 @@ object VitalsStore {
     // MARK: - Read
 
     /** Daily values for a metric, oldest first, over the last [days] days. */
+    /**
+     * The individual samples, not the daily roll-up.
+     *
+     * [series] reads the `days` table — one number per day — which is right for a chart and useless
+     * for "62 min + 20 min", because two workouts have already been summed into 82 by the time it is
+     * asked. Anything that needs the events rather than the total has to come here.
+     */
+    fun samplesSince(ctx: Context, metric: String, sinceMs: Long): List<Sample> = try {
+        db(ctx).readableDatabase.rawQuery(
+            "SELECT metric, value, start, end, source FROM samples WHERE metric=? AND start>=? " +
+            "ORDER BY start ASC", arrayOf(metric, sinceMs.toString())).use { c ->
+            val out = ArrayList<Sample>()
+            while (c.moveToNext()) out.add(Sample(
+                c.getString(0), c.getDouble(1), c.getLong(2), c.getLong(3), c.getString(4) ?: ""))
+            out
+        }
+    } catch (e: Exception) { emptyList() }
+
     fun series(ctx: Context, metric: String, days: Int = 90): List<Day> = try {
         val since = System.currentTimeMillis() - days * 86_400_000L
         db(ctx).readableDatabase.rawQuery(

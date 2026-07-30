@@ -18,6 +18,28 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         // nothing, so a silently-unscheduled worker was indistinguishable from a working one.
         com.agentos.shell.tools.WorkerHealth.started(applicationContext, "EmployeeWorker")
         val ctx = applicationContext
+
+        // HEALTH DATA WAS ONLY EVER PULLED BY A SCREEN.
+        //
+        // VitalsSource.sync ran from exactly one place: opening the Health page. So the numbers every
+        // other surface answered from — Home, the brain, the Telegram bot, every agent — were as old
+        // as the last time the owner happened to visit that tab.
+        //
+        // Measured on the device: it had last read at 08:44, and by 20:20 two completed workouts
+        // (62 min and 20 min) were sitting in Health Connect, invisible to the whole app. "How did I
+        // train today?" would have answered with nothing, all afternoon, while the answer was on the
+        // phone. That is worse than a missing feature — it is a confident wrong answer.
+        //
+        // A screen is the wrong owner for a sync. This worker already runs every ~15 minutes.
+        try {
+            if (com.agentos.shell.tools.VitalsSource.grantedAny(ctx)) {
+                // A short window: this runs four times an hour and only needs what is new. The 90-day
+                // backfill stays where it belongs, on the Health page's own explicit refresh.
+                com.agentos.shell.tools.VitalsSource.sync(ctx, 3)
+                com.agentos.shell.tools.VitalsStore.recomputeAll(ctx)
+            }
+        } catch (e: Exception) {}
+
         // Self-heal the Telegram poller: if Android froze/killed the foreground service in the background, revive
         // it every worker cycle so incoming @mentions get answered instead of silently dropped.
         try {

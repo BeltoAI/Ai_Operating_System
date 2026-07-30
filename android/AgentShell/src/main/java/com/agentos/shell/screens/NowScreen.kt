@@ -195,6 +195,59 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                 Spacer(Modifier.height(14.dp))
             }
 
+            // ── WHAT YOU DID TODAY ──
+            //
+            // A workout finished at three o'clock was invisible until somebody opened the Health page,
+            // which is the opposite of what a home screen is for. Swipe RIGHT opens Whoop; swipe LEFT
+            // dismisses the card for today — and only the card. Ending a workout from here is not
+            // possible (Whoop exposes nothing for it) and a gesture that appeared to would be lying
+            // about the one thing on this card that matters.
+            run {
+                var day by remember { mutableStateOf<com.agentos.shell.tools.TrainingToday.Day?>(null) }
+                var gone by remember { mutableStateOf(false) }
+                var dragX by remember { mutableStateOf(0f) }
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    if (!com.agentos.shell.tools.TrainingToday.dismissedToday(ctx))
+                        day = withContext(Dispatchers.IO) {
+                            try { com.agentos.shell.tools.TrainingToday.today(ctx) } catch (e: Exception) { null }
+                        }
+                }
+                val d = day
+                if (d != null && !gone && com.agentos.shell.tools.TrainingToday.line(d).isNotEmpty()) {
+                    Column(Modifier.fillMaxWidth()
+                        .offset { IntOffset(dragX.roundToInt(), 0) }
+                        .pointerInput(d) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when {
+                                        dragX < -110f -> {
+                                            com.agentos.shell.tools.TrainingToday.dismissToday(ctx)
+                                            gone = true
+                                        }
+                                        dragX > 110f -> com.agentos.shell.tools.TrainingToday.openWhoop(ctx)
+                                    }
+                                    dragX = 0f
+                                },
+                                onDragCancel = { dragX = 0f }
+                            ) { _, dx -> dragX += dx }
+                        }
+                        .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                        Text(com.agentos.shell.tools.TrainingToday.line(d),
+                            fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
+                        val detail = com.agentos.shell.tools.TrainingToday.detail(d)
+                        if (detail.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(detail, fontSize = 10.sp, color = T.inkFaint)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // The gestures, named honestly. "End activity" is absent because it cannot be done.
+                        Text("swipe right for Whoop  ·  left to dismiss",
+                            fontSize = 9.sp, color = T.inkFaint)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+            }
+
             // ── BIRTHDAYS, WHICH ARE ONLY USEFUL ON THE DAY ──
             //
             // A birthday noted on a person's page and never surfaced is a fact you still forget. It
