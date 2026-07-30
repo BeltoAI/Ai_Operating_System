@@ -5,6 +5,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -153,19 +154,42 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
         // Gestures nobody is told about are gestures nobody uses.
-        Text("swipe right to open  ·  left to file away", fontSize = 9.sp, color = T.inkFaint)
+        Text("tap for options  ·  swipe right to open  ·  left to file away",
+            fontSize = 9.sp, color = T.inkFaint)
         Spacer(Modifier.height(10.dp))
         LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(shown, key = { it.source.name + it.name + it.ts }) { d ->
                 val on = picked === d
                 val lift by animateFloatAsState(if (on) 1f else 0.994f,
                     spring(dampingRatio = 0.8f, stiffness = 400f), label = "c")
-                // SWIPE, THE WAY EVERY OTHER CARD IN THIS APP BEHAVES.
+                // SWIPE, WITH THE CARD TELLING YOU WHAT IT WILL DO.
                 //
-                // Right opens it, left files it away. Buttons made every card carry its own controls
-                // whether or not you wanted them; a gesture costs no pixels and is already the
-                // vocabulary here — the brain-question card and the training card both use −110f.
+                // Two faults in the first version. The drag detector SWALLOWED the tap, so tapping a
+                // card no longer revealed Send — a gesture added for convenience quietly removed the
+                // one that already worked. Tap and drag now live in the same pointerInput, which is
+                // the only way the two reliably coexist.
+                //
+                // And a swipe with no feedback is a guess. Nobody should have to commit to a gesture
+                // to find out whether it deletes something. The intent appears behind the card as
+                // soon as it moves, and only turns solid past the point where releasing would act.
                 var dx by remember(d) { mutableStateOf(0f) }
+                val armed = kotlin.math.abs(dx) > 110f
+                Box(Modifier.fillMaxWidth()) {
+                    if (dx != 0f) {
+                        Box(
+                            Modifier.matchParentSize().clip(RoundedCornerShape(15.dp))
+                                .background(
+                                    (if (dx > 0) T.accent else T.danger)
+                                        .copy(alpha = if (armed) 0.9f else 0.35f)
+                                ),
+                            contentAlignment = if (dx > 0) Alignment.CenterStart else Alignment.CenterEnd
+                        ) {
+                            Text(if (dx > 0) "Open" else "File away",
+                                fontSize = T.caption, color = Color.White,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 26.dp))
+                        }
+                    }
                 Column(
                     Modifier.fillMaxWidth()
                         .graphicsLayer { scaleX = lift; scaleY = lift; translationX = dx }
@@ -190,11 +214,13 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                                     dx = 0f
                                 },
                                 onDragCancel = { dx = 0f }
-                            ) { _, d2 -> dx += d2 }
+                            ) { _, amount -> dx += amount }
                         }
-                        .clickable {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            picked = if (on) null else d; note = ""
+                        .pointerInput(d) {
+                            detectTapGestures {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                picked = if (on) null else d; note = ""
+                            }
                         }
                         .padding(horizontal = 16.dp, vertical = 15.dp)
                 ) {
@@ -228,7 +254,8 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                             Text(note, fontSize = 10.sp, color = T.danger)
                         }
                     }
-                }
+                }   // card Column
+                }   // swipe Box
             }
             if (shown.isEmpty() && !scanning) item {
                 Spacer(Modifier.height(30.dp))
