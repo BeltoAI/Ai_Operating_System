@@ -40,6 +40,10 @@ class EmployeeWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             }
         } catch (e: Exception) {}
 
+        // Index what has been emailed to you. Same lesson as the health sync: a screen is the wrong
+        // owner for something every other surface needs to be able to answer from.
+        try { com.agentos.shell.tools.ReceivedDocs.scan(ctx, 40) } catch (e: Exception) {}
+
         // Self-heal the Telegram poller: if Android froze/killed the foreground service in the background, revive
         // it every worker cycle so incoming @mentions get answered instead of silently dropped.
         try {

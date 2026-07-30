@@ -173,6 +173,15 @@ object BrainContext {
         // screens away. Ungated because it is short and a mission is, by definition, the thing the
         // owner is currently trying to do — it is relevant to more questions than not.
         val missionBlock = try { MissionNetwork.brainBlock(ctx) } catch (e: Exception) { "" }
+        // PAPERWORK, WHEREVER IT IS ASKED ABOUT.
+        //
+        // Every bill, invoice, policy and contract that arrives by email was passing through the app
+        // unindexed — the expense parser reads a receipt for its total and discards the PDF. So the
+        // most consequential documents anybody owns were the one category SlyOS could not answer a
+        // question about. Gated, because it is only relevant when the question is about documents.
+        val docsBlock = try {
+            if (ReceivedDocs.isDocQuestion(q)) ReceivedDocs.contextFor(ctx, q) else ""
+        } catch (e: Exception) { "" }
         val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
@@ -373,6 +382,7 @@ object BrainContext {
             if (vitals.isNotEmpty()) append("\n\n").append(vitals)
             if (crm.isNotEmpty()) append("\n\n").append(crm)
             if (missionBlock.isNotEmpty()) append("\n\n").append(missionBlock)
+            if (docsBlock.isNotEmpty()) append("\n\n").append(docsBlock)
             append("\nCurrent time: ").append(now)
         }
     }
