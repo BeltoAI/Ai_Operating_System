@@ -129,6 +129,36 @@ object Crm {
      * threads. A platform's own name and a notification headline are not people no matter what the
      * message counts say, so they are rejected before reciprocity is even consulted.
      */
+    /**
+     * The second sweep, found by drawing the graph.
+     *
+     * Plotting relationships was a magnifying glass held over this book, and it showed what a list
+     * of names never did: 206 of 219 edges joined things that are not people. "Post sent",
+     * "Mail Delivery Subsystem", "Ask Gmail", "Failed to send post", "Video for Emil Shirokikh",
+     * "Samsung account", "Adam Barela via DocuSign". Every one had survived because SlyOS has
+     * "replied" inside those threads, so reciprocity vouched for them.
+     *
+     * These are shapes, not a blocklist of names: a relay marker ("via X"), a mail-system component,
+     * a UI string that became a contact. Names, not people.
+     */
+    private val NOT_A_PERSON_SHAPE = Regex("(?i)" +
+        "\\bvia\\b|" +                                     // "Adam Barela via DocuSign"
+        "^(post|video|photo|story|reel|message|note|draft|failed|error|reminder|invite)\\b|" +
+        "\\b(post sent|sent post|delivery (status|subsystem)|mail delivery|mailer[- ]?daemon|" +
+        "subsystem|account|autoreply|auto[- ]reply|out of office|undeliverable|" +
+        "verification|verify|confirm your|password|receipt|invoice|statement|number)\\b|" +
+        "^ask\\s|^re:|^fwd?:|^\\[|" +
+        "\\b(bot|gpt|grok|assistant|chatbot|copilot)\\b")
+
+    /**
+     * A group chat is an EDGE, not a person.
+     *
+     * "Oliver, Carlos XOG and 2 others" is not somebody you know — it is a statement that three
+     * people know each other. It was sitting in the book as a contact, which is both a fake person
+     * and a wasted fact. [RelationGraph] reads these; the book drops them.
+     */
+    private val GROUP_SHAPE = Regex("(?i)\\band\\s+(\\d+\\s+)?others?$|^[^,]{2,30},[^,]{2,30},")
+
     private val NEVER_A_PERSON = Regex("(?i)^(linkedin|instagram|whatsapp|telegram|facebook|" +
         "messenger|reddit|tiktok|snapchat|twitter|x|gmail|email|sms|imessage|signal|discord|" +
         "slack|google|apple|samsung|meta)$|" +
@@ -137,9 +167,11 @@ object Crm {
         "wants to connect|endorsed|posted)\\b")
 
     private fun looksHuman(p: Person): Boolean {
-        if (NEVER_A_PERSON.containsMatchIn(p.name.trim())) return false
-        if (p.reciprocal) return true
         val n = p.name.trim()
+        if (NEVER_A_PERSON.containsMatchIn(n)) return false
+        if (NOT_A_PERSON_SHAPE.containsMatchIn(n)) return false
+        if (GROUP_SHAPE.containsMatchIn(n)) return false
+        if (p.reciprocal) return true
         if (n.isEmpty() || n.contains(':')) return false
         // An address is judged on its local part: a person is "jane.doe", a machine is "newsletter".
         val core = if (n.contains('@')) n.substringBefore('@').replace(Regex("[._\\-+]+"), " ") else n
@@ -745,6 +777,73 @@ object Crm {
                 "message" to o.put("name", handle.ifBlank { p.name }).put("app", platform.lowercase())
             else -> null      // Instagram, X, Snapchat: drafted here, sent in their own app
         }
+    }
+
+    /**
+     * Take the draft to the channel, even where SlyOS cannot send for you.
+     *
+     * Instagram, X and Snapchat have no send API here, and the honest answer to that was a line of
+     * text saying so — which leaves the useful thing, the written message, stranded on a screen the
+     * owner then has to retype from. So: the message goes to the clipboard and the channel opens on
+     * that person's thread, which is every step that can be automated followed by the one that
+     * cannot. Paste and send.
+     *
+     * The deep links are the documented per-platform ones, and each falls back one level at a time —
+     * the thread, then the profile, then the app itself — because a link that opens the wrong screen
+     * is still better than a button that does nothing, and being dropped in the app beats being left
+     * on this one.
+     */
+    fun openChannel(ctx: Context, platform: String, handle: String, body: String): String {
+        try {
+            val clip = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                as? android.content.ClipboardManager
+            clip?.setPrimaryClip(android.content.ClipData.newPlainText("message", body))
+        } catch (e: Exception) {}
+
+        // A handle, not a display name: "joslyn.barragan" is addressable, "Joslyn Barragán, M.A." is not.
+        val h = handle.trim().removePrefix("@").substringBefore(' ').substringBefore(',')
+        val urls = when {
+            platform.equals("Instagram", true) ->
+                listOf("https://ig.me/m/$h", "https://instagram.com/$h")
+            platform.equals("X", true) || platform.equals("Twitter", true) ->
+                listOf("https://x.com/messages/compose?recipient_id=$h", "https://x.com/$h")
+            platform.equals("Snapchat", true) -> listOf("https://snapchat.com/add/$h")
+            platform.equals("Telegram", true) -> listOf("https://t.me/$h")
+            platform.equals("WhatsApp", true) ->
+                listOf("https://wa.me/?text=" + java.net.URLEncoder.encode(body.take(900), "UTF-8"))
+            platform.equals("LinkedIn", true) -> listOf("https://www.linkedin.com/search/results/all/?keywords=" +
+                java.net.URLEncoder.encode(handle.take(60), "UTF-8"))
+            platform.equals("Facebook", true) -> listOf("https://m.me/$h")
+            platform.equals("Reddit", true) ->
+                listOf("https://www.reddit.com/message/compose/?to=$h")
+            else -> emptyList()
+        }
+        urls.forEach { u ->
+            try {
+                ctx.startActivity(android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                return "Copied — opening $platform"
+            } catch (e: Exception) {}
+        }
+        // Nothing resolved the link: launch the app itself, which is still closer than staying here.
+        val pkg = when {
+            platform.equals("Instagram", true) -> "com.instagram.android"
+            platform.equals("X", true) -> "com.twitter.android"
+            platform.equals("Snapchat", true) -> "com.snapchat.android"
+            platform.equals("Telegram", true) -> "org.telegram.messenger"
+            platform.equals("WhatsApp", true) -> "com.whatsapp"
+            platform.equals("LinkedIn", true) -> "com.linkedin.android"
+            platform.equals("Facebook", true) -> "com.facebook.orca"
+            else -> ""
+        }
+        if (pkg.isNotBlank()) try {
+            ctx.packageManager.getLaunchIntentForPackage(pkg)?.let {
+                ctx.startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                return "Copied — opening $platform, paste it in"
+            }
+        } catch (e: Exception) {}
+        return "Copied to your clipboard — $platform isn't installed"
     }
 
     /** One person, resolved from a loose name — for "message Joslyn about the lease". */

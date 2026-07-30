@@ -45,6 +45,8 @@ object Places {
         // Replaces a contact list, which answers "what is their number" — a question that mattered
         // when you had to dial it, and not the two people actually have: who is this again, and do
         // I owe them something.
+        Place("graph", "Network map", "who knows whom, and how",
+            listOf("graph", "map", "web", "who knows", "introductions")),
         Place("crm", "People", "everyone you know, and where you stand",
             listOf("contacts", "crm", "person", "who", "company", "companies", "relationship",
                    "owed", "network", "connections", "linkedin", "intros", "reconnect")),

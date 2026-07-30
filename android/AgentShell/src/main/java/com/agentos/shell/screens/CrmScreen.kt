@@ -585,10 +585,17 @@ private fun PersonPage(
                         }
                     }
                 } else {
-                    // Said plainly rather than offering a button that cannot work. Instagram and X
-                    // have no send API here; the draft is still the useful part.
-                    Text("$channel has no send from here — copy it across.",
-                        fontSize = 10.sp, color = T.inkFaint)
+                    // NOT A DEAD END. SlyOS cannot send on Instagram, X or Snapchat — so it does
+                    // every step it can and hands over at the one it cannot: the message goes to the
+                    // clipboard and the channel opens on that person's thread. Paste and send. A
+                    // sentence explaining the limitation left the written message stranded on a
+                    // screen the owner then had to retype it from.
+                    Chip("Copy & open $channel") {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val handle = p.identities.filter { it.platform == channel }
+                            .maxByOrNull { it.messages }?.handle.orEmpty()
+                        sent = Crm.openChannel(ctx, channel, handle, draft)
+                    }
                 }
             }
             if (sent.isNotEmpty()) {
