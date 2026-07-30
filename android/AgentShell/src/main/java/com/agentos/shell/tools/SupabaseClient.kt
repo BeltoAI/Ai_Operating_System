@@ -92,6 +92,26 @@ object SupabaseClient {
      * Upsert rows (last-write-wins). [onConflict] names the UNIQUE columns to merge on — required, because
      * PostgREST otherwise targets the primary key (`id`) and a repeat push hits the unique constraint (23505).
      */
+    /**
+     * Read a public table with no session.
+     *
+     * The agent catalogue's RLS already permits reading approved rows anonymously, and a store you
+     * must sign up to look at is one nobody looks at. The anon key is a public identifier, not a
+     * secret — it grants exactly what the policies allow and nothing more.
+     */
+    fun getAnon(table: String, query: String): String = try {
+        val c = open("/rest/v1/$table?$query", "GET", null)
+        val (code, txt) = send(c, null)
+        if (code in 200..299) txt else "[]"
+    } catch (e: Exception) { "[]" }
+
+    /** Call a Postgres function — the install counter is one, and it is deliberately anonymous. */
+    fun rpc(name: String, args: JSONObject, accessToken: String? = null): Boolean = try {
+        val c = open("/rest/v1/rpc/$name", "POST", accessToken)
+        val (code, _) = send(c, args.toString())
+        code in 200..299
+    } catch (e: Exception) { false }
+
     fun upsert(table: String, accessToken: String, rows: JSONArray, onConflict: String? = null): Boolean {
         if (!configured() || rows.length() == 0) return false
         val path = "/rest/v1/$table" + (if (onConflict != null) "?on_conflict=$onConflict" else "")

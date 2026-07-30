@@ -416,9 +416,9 @@ class ShellActivity : ComponentActivity() {
                         Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }
-                        Screen.Store  -> StoreScreen(m, onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }, onArchitect = { screen = Screen.Architect },
-                            onTry = { prompt -> pendingHomePrompt = prompt; screen = Screen.Home },
-                            onNeedKey = { screen = Screen.MemorySettings }) { screen = Screen.Home }
+                        Screen.Store  -> AgentsScreen(m,
+                            onOpen = { id -> currentAppId = id; screen = Screen.AppView },
+                            onBack = { screen = Screen.Home })
                         Screen.Checklist -> ChecklistScreen(m) { screen = Screen.Home }
                         Screen.Outreach -> OutreachScreen(m) { screen = Screen.Manual }
                         Screen.Research -> ResearchScreen(m, researchTopic, onWorkspace = { screen = Screen.Cowork }, onChat = { screen = Screen.Chat }) { researchTopic = ""; screen = Screen.Home }
