@@ -208,7 +208,26 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
                     scope.launch {
                         val docs = withContext(Dispatchers.IO) { GitHubSearch.fetchDocs(power.repo) }
                         val instr = withContext(Dispatchers.IO) { com.agentos.shell.tools.AgentClient.distillSkill(power.name, docs) }
-                        val toInstall = if (instr.isNotBlank()) power.copy(instructions = instr) else power
+                        // A SKILL WITH NO INSTRUCTIONS TEACHES NOTHING.
+                        //
+                        // This installed the power anyway when distillation came back empty — `else
+                        // power`, instructions blank — and still flashed "Added ✓". Found in the
+                        // registry, never on screen: of three installed skills, TWO held zero
+                        // characters. career-ops and awesome-claude-skills both reported success and
+                        // both upgraded the AI by nothing at all.
+                        //
+                        // A silent empty install is worse than a failed one. The owner believes their
+                        // assistant learned something, asks it to do that thing, and gets a confused
+                        // answer with no way to connect the two. So it fails out loud and stays
+                        // uninstalled — there is nothing to uninstall later and nothing to un-believe.
+                        if (instr.isBlank()) {
+                            flash = if (docs.isBlank())
+                                "Couldn't read ${power.name}'s docs — nothing to learn from. Try again."
+                            else "Couldn't distil ${power.name} into a skill. Try again."
+                            tick++
+                            return@launch
+                        }
+                        val toInstall = power.copy(instructions = instr)
                         withContext(Dispatchers.IO) { PowerRegistry.install(ctx, toInstall, ep) }
                         selected = toInstall   // refresh the open sheet with the enriched, installed power
                         tick++

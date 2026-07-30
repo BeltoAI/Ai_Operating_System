@@ -25,9 +25,26 @@ object PowerRegistry {
 
     private fun load(ctx: Context): MutableList<JSONObject> {
         val raw = prefs(ctx).getString("installed", "[]") ?: "[]"
-        return try {
+        val list = try {
             val a = JSONArray(raw); MutableList(a.length()) { a.getJSONObject(it) }
         } catch (e: Exception) { mutableListOf() }
+        // REPAIR THE ONES ALREADY BROKEN.
+        //
+        // The install path used to save a SKILL even when distillation returned nothing, so devices
+        // carry entries that claim to be installed and hold zero instructions. On this one, two of
+        // three. They upgrade the AI by nothing while occupying a slot that says otherwise, and
+        // nobody can see it — the screen shows "It's live" either way.
+        //
+        // Dropped on read, so they report as not installed and can be added again properly. A skill
+        // with no instructions is not a skill, and pretending is what caused this.
+        val cleaned = list.filterNot {
+            it.optString("type").equals("SKILL", true) && it.optString("instructions").isBlank()
+        }
+        if (cleaned.size != list.size) {
+            save(ctx, cleaned)
+            return cleaned.toMutableList()
+        }
+        return list
     }
 
     private fun save(ctx: Context, list: List<JSONObject>) {

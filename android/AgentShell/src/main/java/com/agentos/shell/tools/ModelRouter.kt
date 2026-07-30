@@ -149,7 +149,17 @@ object ModelRouter {
         // FREE Gemini unless you explicitly set that tier to something else — so everyday use is $0.
         val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
         val order0 = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
-        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) }.ifEmpty { order0 } else order0
+        // A CAP THAT FALLS BACK TO PAID IS NOT A CAP.
+        //
+        // `.ifEmpty { order0 }` meant: over budget, keep only free providers — and if you have no
+        // free provider keyed, use the paid ones after all. So on a device with only paid keys the
+        // monthly limit did nothing whatsoever. It read as enforcement and behaved as a suggestion,
+        // which is the worst combination for a number the owner set to control a bill.
+        //
+        // Over the cap with no free brain now yields NOTHING, so the caller falls through to the
+        // on-device model or reports the cap. Refusing is the entire point of a limit; a limit that
+        // spends your money when it cannot find a cheaper option is just a label.
+        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) } else order0
         // First pass: respect capability constraints.
         for (p in order) {
             val k = keyFor(ctx, p); if (k.isBlank()) continue
@@ -177,7 +187,17 @@ object ModelRouter {
         if (ctx == null) return emptyList()
         // Pinned means pinned: no fallback list, or the bench would score one provider's answer
         // against another provider's name.
-        pinned?.let { return listOfNotNull(choose(ctx, tier, needVision, needWeb)) }
+        //
+        // Except against the cap. A pin is a preference about QUALITY; the cap is an instruction
+        // about MONEY, and this returned before the budget was ever consulted — so pinning a paid
+        // provider disabled the limit silently and permanently.
+        pinned?.let { p ->
+            val cap = MemoryStore.monthlyBudget(ctx)
+            val over = cap > 0.0 && CostStore.monthCostUsd(ctx) >= cap
+            if (!(over && !PROVIDER_FREE.contains(p)))
+                return listOfNotNull(choose(ctx, tier, needVision, needWeb))
+            // Pinned to something paid, over the cap: fall through to the normal free-only path.
+        }
         val geminiKey = MemoryStore.geminiKey(ctx)
         val budget = MemoryStore.monthlyBudget(ctx)
         val overBudget = budget > 0.0 && CostStore.monthCostUsd(ctx) >= budget
@@ -185,8 +205,8 @@ object ModelRouter {
         val preferred = MemoryStore.preferredProvider(ctx)
         val cheapFree = if (tier == Tier.CHEAP && tierPref.isBlank() && geminiKey.isNotBlank()) "gemini" else ""
         val order0 = (listOf(cheapFree, tierPref, preferred) + PROVIDERS).filter { it.isNotBlank() }.distinct()
-        // Budget enforcement: over the cap → free brains only (any), overriding pins; paid only if no free key.
-        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) }.ifEmpty { order0 } else order0
+        // Budget enforcement: over the cap → free brains only. No paid fallback — see above.
+        val order = if (overBudget) order0.filter { PROVIDER_FREE.contains(it) } else order0
         val out = ArrayList<Choice>()
         fun modelFor(p: String): String? = modelFor(ctx, p, tier)
         // Capability-respecting choices first (best quality for the task)…
