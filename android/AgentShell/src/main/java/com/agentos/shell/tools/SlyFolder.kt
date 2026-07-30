@@ -62,6 +62,23 @@ object SlyFolder {
         writeIndex(ctx, listOf(doc) + all)
     }
 
+    /**
+     * Forget one document.
+     *
+     * Only the index entry goes. The FILE stays in the SlyOS folder, because it is in the phone's
+     * shared storage where the owner can see it in Files and Downloads — quietly deleting somebody's
+     * PDF because they tidied a list in another app is not a trade anyone agreed to. This removes it
+     * from SlyOS's view of the world, which is what "delete" means on a screen that is an index.
+     */
+    fun forget(ctx: Context, name: String, uri: String) {
+        try {
+            val kept = index(ctx).filterNot {
+                (uri.isNotBlank() && it.uri == uri) || (uri.isBlank() && it.name == name)
+            }
+            writeIndex(ctx, kept)
+        } catch (e: Exception) {}
+    }
+
     fun clear(ctx: Context) = prefs(ctx).edit().remove("index").apply()
 
     // ── Filing ────────────────────────────────────────────────────────────────────────────────────

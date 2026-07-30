@@ -203,6 +203,33 @@ object ReceivedDocs {
         val uri: String = ""
     )
 
+    /**
+     * Remove a document from SlyOS's view.
+     *
+     * Deliberately NOT from Gmail. An emailed attachment lives in the owner's mailbox and deleting
+     * mail on their behalf, from a list they were tidying, is a far larger action than the one they
+     * asked for — and an irreversible one. Same reasoning for generated files, which stay in the
+     * SlyOS folder where Files and Downloads can still see them.
+     *
+     * So this un-files rather than destroys, and the screen says so.
+     */
+    fun forget(ctx: Context, d: AnyDoc) {
+        try {
+            when (d.source) {
+                Source.RECEIVED -> d.received?.let { r ->
+                    save(ctx, all(ctx).filterNot { it.msgId == r.msgId && it.name == r.name })
+                }
+                Source.MADE -> SlyFolder.forget(ctx, d.name, d.uri)
+                Source.SCANNED -> {
+                    // DocStore keys on a row id this view does not carry; matched on title instead.
+                    DocStore.byCategory(ctx).values.flatten()
+                        .filter { it.title == d.name && it.ts == d.ts }
+                        .forEach { DocStore.remove(ctx, it.id) }
+                }
+            }
+        } catch (e: Exception) {}
+    }
+
     fun sourceLabel(s: Source): String = when (s) {
         Source.RECEIVED -> "Sent to you"; Source.MADE -> "Made here"; Source.SCANNED -> "Scanned"
     }

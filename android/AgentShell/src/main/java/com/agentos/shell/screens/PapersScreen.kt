@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -78,6 +80,8 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var picked by remember { mutableStateOf<ReceivedDocs.AnyDoc?>(null) }
     var working by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
+    /** Confirm before removing — a one-tap delete in a list is a mis-tap waiting to happen. */
+    var confirmDelete by remember { mutableStateOf<ReceivedDocs.AnyDoc?>(null) }
 
     fun reload() { docs = ReceivedDocs.everything(ctx) }
 
@@ -147,17 +151,47 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(8.dp))
+        // Gestures nobody is told about are gestures nobody uses.
+        Text("swipe right to open  ·  left to file away", fontSize = 9.sp, color = T.inkFaint)
+        Spacer(Modifier.height(10.dp))
         LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(shown, key = { it.source.name + it.name + it.ts }) { d ->
                 val on = picked === d
                 val lift by animateFloatAsState(if (on) 1f else 0.994f,
                     spring(dampingRatio = 0.8f, stiffness = 400f), label = "c")
+                // SWIPE, THE WAY EVERY OTHER CARD IN THIS APP BEHAVES.
+                //
+                // Right opens it, left files it away. Buttons made every card carry its own controls
+                // whether or not you wanted them; a gesture costs no pixels and is already the
+                // vocabulary here — the brain-question card and the training card both use −110f.
+                var dx by remember(d) { mutableStateOf(0f) }
                 Column(
                     Modifier.fillMaxWidth()
-                        .graphicsLayer { scaleX = lift; scaleY = lift }
+                        .graphicsLayer { scaleX = lift; scaleY = lift; translationX = dx }
                         .clip(RoundedCornerShape(15.dp))
                         .background(if (on) T.bgElevated else T.bg)
+                        .pointerInput(d) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when {
+                                        dx < -110f -> {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            ReceivedDocs.forget(ctx, d); picked = null; reload()
+                                        }
+                                        dx > 110f -> {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            scope.launch {
+                                                val ok = withContext(Dispatchers.IO) { openDoc(ctx, d) }
+                                                if (!ok) { picked = d; note = "Couldn't open this one." }
+                                            }
+                                        }
+                                    }
+                                    dx = 0f
+                                },
+                                onDragCancel = { dx = 0f }
+                            ) { _, d2 -> dx += d2 }
+                        }
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             picked = if (on) null else d; note = ""
@@ -177,25 +211,16 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     }
 
                     if (on) {
-                        Spacer(Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Action("Open", primary = true, busy = working,
-                                modifier = Modifier.weight(1f)) {
-                                working = true; note = ""
-                                scope.launch {
-                                    val ok = withContext(Dispatchers.IO) { openDoc(ctx, d) }
-                                    working = false
-                                    if (!ok) note = "Couldn't open this one."
-                                }
-                            }
-                            Action("Send", primary = false, busy = working,
-                                modifier = Modifier.weight(1f)) {
-                                working = true; note = ""
-                                scope.launch {
-                                    val ok = withContext(Dispatchers.IO) { shareDoc(ctx, d) }
-                                    working = false
-                                    if (!ok) note = "Couldn't share this one."
-                                }
+                        Spacer(Modifier.height(11.dp))
+                        // Tap still reveals Send, because sharing has no natural direction and a
+                        // third gesture would be one to remember rather than one to guess.
+                        Action("Send it somewhere", primary = false, busy = working,
+                            modifier = Modifier.fillMaxWidth()) {
+                            working = true; note = ""
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { shareDoc(ctx, d) }
+                                working = false
+                                if (!ok) note = "Couldn't share this one."
                             }
                         }
                         if (note.isNotEmpty()) {
