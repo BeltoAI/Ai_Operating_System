@@ -359,7 +359,10 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
             LaunchedEffect(Unit) {
                 withContext(Dispatchers.IO) {
                     netIntros = try {
-                        com.agentos.shell.tools.Asks.bridges(ctx).filter { it.mine }
+                        // Per PERSON. Two people offering the same person is one introduction with
+                        // two routes; listing it twice tells the owner they got two things when
+                        // they got one, and sorts by nothing useful.
+                        com.agentos.shell.tools.Asks.bridgesByPerson(ctx).filter { it.mine }
                     } catch (e: Exception) { emptyList() }
                     netAsked = try {
                         // Only the ones this phone can actually answer. An ask about somebody nobody
@@ -377,7 +380,8 @@ fun NowScreen(modifier: Modifier = Modifier, onReconnect: () -> Unit = {}, onOut
                     netIntros.take(3).forEach { b ->
                         Spacer(Modifier.height(11.dp))
                         Text(b.person, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
-                        Text("introduced to you  ·  they're ${(b.strength * 100).toInt()}% close to them",
+                        Text("introduced to you  ·  they're ${(b.strength * 100).toInt()}% close" +
+                             (if (b.routes > 1) "  ·  ${b.routes} people know them" else ""),
                             fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
                     }
                     if (netAsked > 0) {

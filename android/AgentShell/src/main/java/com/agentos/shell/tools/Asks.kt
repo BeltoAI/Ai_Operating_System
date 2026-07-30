@@ -88,7 +88,7 @@ object Asks {
         if (token.isBlank()) return emptyList()
         return try {
             val cands = JSONArray(SupabaseClient.get("ask_candidates",
-                "select=ask_id,candidate_user,state,verdict&ask_id=eq.$askId", token))
+                "select=ask_id,candidate_user,state,verdict,strength&ask_id=eq.$askId", token))
             val bridges = JSONArray(SupabaseClient.get("bridges",
                 "select=holder,person,note,strength&ask_id=eq.$askId", token))
             val byHolder = HashMap<String, JSONObject>()
@@ -101,7 +101,10 @@ object Asks {
                 val b = byHolder[who]
                 Answer(askId, who, o.optString("state"),
                     if (o.isNull("verdict")) "" else o.optString("verdict"),
-                    b?.optDouble("strength", 0.0)?.toFloat() ?: 0f,
+                    // The bridge's number if it exists, otherwise the one the candidacy carries —
+                    // so leads can be ranked before a single name has crossed.
+                    (b?.optDouble("strength", 0.0)
+                        ?: o.optDouble("strength", 0.0)).toFloat(),
                     b?.optString("note").orEmpty(), b?.optString("person"))
             }.sortedByDescending { it.strength }
         } catch (e: Exception) { emptyList() }
@@ -139,23 +142,34 @@ object Asks {
 
     // MARK: - Answering, on the receiving phone
 
-    /** Asks sent to me that I have not dealt with yet. */
+    /**
+     * Asks sent to me that still want a human.
+     *
+     * `sent` AND `interested`, and the second one is not optional. `handle()` runs by itself when the
+     * field opens and flips anything this phone can answer to `interested` — so a query for `sent`
+     * alone returns every ask about somebody I do NOT know and none of the ones I do. The section
+     * would have been permanently empty in exactly the case it exists for.
+     */
     fun inbox(ctx: Context): List<Incoming> {
         val token = AccountStore.freshAccessToken(ctx)
         val uid = AccountStore.userId(ctx)
         if (token.isBlank() || uid.isBlank()) return emptyList()
         return try {
             val cands = JSONArray(SupabaseClient.get("ask_candidates",
-                "select=ask_id,state&candidate_user=eq.$uid&state=eq.sent", token))
-            val ids = (0 until cands.length()).mapNotNull { cands.optJSONObject(it)?.optString("ask_id") }
-                .filter { it.isNotBlank() }
+                "select=ask_id,state&candidate_user=eq.$uid&state=in.(sent,interested)", token))
+            val byId = HashMap<String, String>()
+            for (i in 0 until cands.length()) cands.optJSONObject(i)?.let {
+                byId[it.optString("ask_id")] = it.optString("state")
+            }
+            val ids = byId.keys.filter { it.isNotBlank() }
             if (ids.isEmpty()) return emptyList()
             val list = ids.joinToString(",")
             val asks = JSONArray(SupabaseClient.get("asks",
                 "select=id,kind,criteria,state&id=in.($list)&state=eq.open", token))
             (0 until asks.length()).mapNotNull { i ->
                 val o = asks.optJSONObject(i) ?: return@mapNotNull null
-                Incoming(o.optString("id"), "sent", o.optString("criteria"), o.optString("kind"))
+                Incoming(o.optString("id"), byId[o.optString("id")] ?: "sent",
+                    o.optString("criteria"), o.optString("kind"))
             }
         } catch (e: Exception) { emptyList() }
     }
@@ -198,7 +212,10 @@ object Asks {
             mark(token, inc.askId, uid, "ignored", "not_qualified")
             return "ignored"
         }
-        mark(token, inc.askId, uid, "interested", "need_human")
+        // Send the NUMBER but not the name. This is what makes "ten people know them, route to the
+        // closest" a real behaviour rather than a claim: the asker can rank offers before anybody
+        // has revealed who they know.
+        markStrength(token, inc.askId, uid, hit.second)
         // Surfaced for a human decision. The NAME does not move yet — `accept` is what moves it,
         // and only my owner can call it.
         return "knows:${hit.first.name}"
@@ -242,7 +259,8 @@ object Asks {
                 .put("ask_id", askId).put("asker", asker).put("holder", uid)
                 .put("person", person.name).put("note", note)
                 .put("strength", closeness(person).toDouble())
-            val ok = SupabaseClient.upsert("bridges", token, JSONArray().put(row))
+            val ok = SupabaseClient.upsert("bridges", token, JSONArray().put(row),
+                onConflict = "ask_id,holder")
             if (ok) { mark(token, askId, uid, "accepted", "qualified"); true to "Introduced ✓" }
             else false to ("Couldn't send — " + SupabaseClient.lastError.take(120))
         } catch (e: Exception) { false to (e.message ?: "failed") }
@@ -252,6 +270,15 @@ object Asks {
         val token = AccountStore.freshAccessToken(ctx)
         val uid = AccountStore.userId(ctx)
         if (token.isNotBlank() && uid.isNotBlank()) mark(token, askId, uid, "declined", "not_qualified")
+    }
+
+    private fun markStrength(token: String, askId: String, uid: String, strength: Float) {
+        try {
+            SupabaseClient.patch("ask_candidates",
+                "ask_id=eq.$askId&candidate_user=eq.$uid", token,
+                JSONObject().put("state", "interested").put("verdict", "need_human")
+                    .put("strength", strength.toDouble()))
+        } catch (e: Exception) {}
     }
 
     private fun mark(token: String, askId: String, uid: String, state: String, verdict: String) {
@@ -271,7 +298,27 @@ object Asks {
      * here: somebody chose to put it there.
      */
     data class Bridge(val person: String, val note: String, val strength: Float,
-                      val holder: String, val asker: String, val mine: Boolean)
+                      val holder: String, val asker: String, val mine: Boolean,
+                      /** How many different people offered this same person. */
+                      val routes: Int = 1)
+
+    /**
+     * One node per PERSON, not per route.
+     *
+     * When ten people know the same person, ten bridge rows come back — and drawing ten nodes with
+     * the same name on them would say something false about the shape of the network. There is one
+     * person; there are several ways to reach them. The strongest route wins the node and the rest
+     * become a count.
+     */
+    fun bridgesByPerson(ctx: Context): List<Bridge> {
+        val all = bridges(ctx)
+        return all.groupBy { it.person.lowercase().trim() }
+            .map { (_, rows) ->
+                val best = rows.maxByOrNull { it.strength }!!
+                best.copy(routes = rows.size)
+            }
+            .sortedByDescending { it.strength }
+    }
 
     fun bridges(ctx: Context): List<Bridge> {
         val token = AccountStore.freshAccessToken(ctx)

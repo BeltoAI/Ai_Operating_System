@@ -89,6 +89,7 @@ fun OrbitScreen(
     var loaded by remember { mutableStateOf(false) }
 
     var zoom by remember { mutableStateOf(1f) }
+    var framed by remember { mutableStateOf(false) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var picked by remember { mutableStateOf(-1) }       // index into `people`
     var pickedDust by remember { mutableStateOf(-1) }   // index into `sky`
@@ -131,7 +132,10 @@ fun OrbitScreen(
             try { NetworkProfile.others(ctx) } catch (e: Exception) { emptyList() }
         }
         bridges = withContext(Dispatchers.IO) {
-            try { com.agentos.shell.tools.Asks.bridges(ctx) } catch (e: Exception) { emptyList() }
+            // One node per person, not one per route — several people knowing the same person is
+            // several ways to reach ONE person, and drawing it as several would be a lie about the
+            // shape of the network.
+            try { com.agentos.shell.tools.Asks.bridgesByPerson(ctx) } catch (e: Exception) { emptyList() }
         }
         // Deal with anything asked of us while nobody was looking. Most of these terminate silently
         // — the whole point is that being asked costs nothing — so this is the right place for it:
@@ -233,7 +237,10 @@ fun OrbitScreen(
      * none of their names ever left their phone.
      */
     fun peerAt(i: Int, outer: Float): Offset {
-        val ring = outer * (1.55f + 0.42f * (i % 3))
+        // Just outside your own disc. At 1.55x they sat two thousand pixels off a thousand-pixel
+        // screen — rendering perfectly, drawing a line to themselves, and invisible unless you
+        // happened to pinch all the way out. A person you cannot find is a person who is not there.
+        val ring = outer * (1.12f + 0.09f * (i % 3))
         val a = i * 2.39996323f + drift * 0.22f
         return Offset(ring * cos(a), ring * sin(a))
     }
@@ -247,7 +254,13 @@ fun OrbitScreen(
     fun bridgeAt(b: com.agentos.shell.tools.Asks.Bridge, outer: Float): Offset {
         val other = if (b.mine) b.holder else b.asker
         val i = peers.indexOfFirst { it.userId == other }
-        val far = if (i >= 0) peerAt(i, outer) else Offset(outer * 1.4f, 0f)
+        // Somebody not in the visible peer list still needs a place of their own, or every such
+        // bridge stacks on the same pixel.
+        val far = if (i >= 0) peerAt(i, outer) else {
+            val k = bridges.indexOfFirst { it.person == b.person }.coerceAtLeast(0)
+            val a = 1.1f + k * 2.39996323f + drift * 0.22f
+            Offset(outer * 1.2f * cos(a), outer * 1.2f * sin(a))
+        }
         // Nearer the end that actually holds the relationship.
         val t = if (b.mine) 0.62f else 0.38f
         return far * t
@@ -335,8 +348,18 @@ fun OrbitScreen(
             val w = size.width; val h = size.height
             val centre = Offset(w / 2f, h / 2f)
             val unit = (minOf(w, h) / 2f) / 620f
-            val s = unit * zoom
             val g = galaxy
+
+            // Open framed on everything there is — your disc, and anybody else's beside it. The
+            // world is deliberately bigger than the screen (a network ten times the size should
+            // LOOK ten times the size), so the one thing that must not happen is opening on a view
+            // that cuts off the part you came to see.
+            if (!framed && g != null && g.count > 0) {
+                val reach = g.outer * (if (peers.isEmpty()) 1.04f else 1.34f)
+                zoom = (0.92f * 620f / reach).coerceIn(0.22f, 1.6f)
+                framed = true
+            }
+            val s = unit * zoom
 
             // ── The disc ──
             // Ten rotate + twenty drawPoints calls, and that is the entire cost whether there are
@@ -524,9 +547,13 @@ fun OrbitScreen(
                     Text(bridge.person, fontSize = T.small, color = T.ink,
                         fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
-                    Text((if (bridge.mine) "introduced to you" else "you introduced them") +
-                         "  ·  closeness ${(bridge.strength * 100).toInt()}%",
-                        fontSize = 10.sp, color = T.inkFaint)
+                    Text(buildString {
+                            append(if (bridge.mine) "introduced to you" else "you introduced them")
+                            append("  ·  closeness ${(bridge.strength * 100).toInt()}%")
+                            // The overlap, said out loud. It is the most interesting fact the
+                            // network can produce and it would otherwise be invisible.
+                            if (bridge.routes > 1) append("  ·  ${bridge.routes} people know them")
+                        }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
                     if (bridge.note.isNotBlank()) {
                         Spacer(Modifier.height(7.dp))
                         Text(bridge.note, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
@@ -535,8 +562,11 @@ fun OrbitScreen(
                 peer != null -> Card {
                     Text(peer.name, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
-                    Text("%,d people  ·  on SlyOS".format(peer.networkSize),
-                        fontSize = 10.sp, color = T.inkFaint)
+                    Text("%,d people  ·  %s".format(peer.networkSize, when (peer.reachability) {
+                            "open"   -> "open to anyone"
+                            "closed" -> "not taking requests"
+                            else     -> "only through someone they know"
+                        }), fontSize = 10.sp, color = T.inkFaint)
                     if (peer.offer.isNotBlank()) {
                         Spacer(Modifier.height(9.dp))
                         Text("OFFERS", fontSize = 8.sp, color = T.inkFaint)

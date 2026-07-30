@@ -297,26 +297,50 @@ $$ language sql security definer;
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace function public.fan_out(p_ask uuid, p_limit int default 200)
 returns int language plpgsql security definer set search_path = public as $$
-declare n int; t text[];
+declare n int; m int; t text[]; floor_n int := 25;
 begin
   if not exists (select 1 from asks a where a.id = p_ask and a.from_user = auth.uid()) then
     raise exception 'not your ask';
   end if;
   select tags into t from asks where id = p_ask;
 
+  -- Pass one: people whose routing words overlap. An untagged ask reaches everyone rather than
+  -- nobody, because an ask that silently matches zero people is indistinguishable from a broken
+  -- feature.
   insert into ask_candidates (ask_id, candidate_user)
   select p_ask, p.id
     from profiles p
    where p.id <> auth.uid()
      and coalesce(p.reachability, 'vouched') <> 'closed'
-     -- An untagged ask reaches everyone; a tagged one reaches the overlap. Never the other way
-     -- round, or a careless ask silently reaches nobody and looks like a broken feature.
      and (t is null or cardinality(t) = 0 or p.tags && t)
    order by p.network_size desc nulls last
    limit p_limit
   on conflict do nothing;
-
   get diagnostics n = row_count;
+
+  -- Pass two: people who have published NO routing words at all.
+  --
+  -- Tag overlap can only exclude somebody on evidence, and a profile with an empty tag array is
+  -- evidence of nothing — it is somebody who has not filled the form in yet. Excluding them made
+  -- an ask reach one person out of four in a network where three had simply never published, which
+  -- reads as a broken feature and is really an empty column. Being a candidate is anonymous and
+  -- costs them nothing, so the safe direction is to include, not to drop.
+  --
+  -- Only used to top a thin pass one up to a floor, so a well-tagged network never pays for it.
+  if n < floor_n then
+    insert into ask_candidates (ask_id, candidate_user)
+    select p_ask, p.id
+      from profiles p
+     where p.id <> auth.uid()
+       and coalesce(p.reachability, 'vouched') <> 'closed'
+       and (p.tags is null or cardinality(p.tags) = 0)
+     order by p.network_size desc nulls last
+     limit greatest(0, floor_n - n)
+    on conflict do nothing;
+    get diagnostics m = row_count;
+    n := n + coalesce(m, 0);
+  end if;
+
   return n;
 end $$;
 
@@ -355,3 +379,85 @@ create policy "holder writes bridge"
   on public.bridges for insert with check (auth.uid() = holder);
 
 create index if not exists idx_bridges_asker on public.bridges (asker, created_at desc);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- strength — how close the answering phone actually is, sent BEFORE any name
+--
+-- The claim "ten people know them, and it routes to the closest" is only true if the asker can
+-- rank offers before anybody has revealed who they know. So the number crosses early and the name
+-- crosses late. A number between 0 and 1 says nothing about who the person is.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.ask_candidates add column if not exists strength real default 0;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Reachability, said plainly.
+--
+-- It governs whether somebody can be REACHED — introduced to, written to — and deliberately NOT
+-- whether their agent is asked "do you know X". Being in a candidate pool is anonymous and costs
+-- nothing: the phone answers privately and, in the overwhelming majority of cases, tells its owner
+-- nothing at all. Gating the pool on reachability would mean a brand-new network where nobody has
+-- a bridge yet reaches nobody, and it would buy no privacy that the pool does not already have.
+--
+--   open     — anyone whose ask matches may be introduced to them
+--   vouched  — only through somebody they already share a bridge with
+--   closed   — not routed at all, in either direction
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.can_reach(p_target uuid) returns boolean
+  language sql security definer stable set search_path = public as $$
+    select case (select coalesce(reachability,'vouched') from profiles where id = p_target)
+      when 'open'   then true
+      when 'closed' then false
+      else exists (select 1 from bridges b
+                   where (b.asker = auth.uid() and b.holder = p_target)
+                      or (b.holder = auth.uid() and b.asker = p_target))
+    end;
+  $$;
+
+grant execute on function public.can_reach(uuid) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Does it work? — the numbers that say so, and the ones that say it does not
+--
+-- A network like this fails quietly. Asks go out, nothing comes back, and every individual screen
+-- still looks fine. These views are what make that visible, and the second one is the important
+-- one: the share of asks that died with nobody answering.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace view public.slyos_ask_funnel as
+select
+  a.id,
+  a.criteria,
+  a.state,
+  a.created_at,
+  count(c.*)                                              as reached,
+  count(*) filter (where c.state = 'ignored')             as found_nothing,
+  count(*) filter (where c.state in ('interested','accepted')) as knew_someone,
+  count(*) filter (where c.state = 'declined')            as declined,
+  count(distinct b.id)                                    as introductions,
+  count(distinct lower(btrim(b.person)))                  as distinct_people,
+  max(c.strength)                                         as best_strength,
+  min(c.updated_at) - a.created_at                        as time_to_first_answer
+from asks a
+left join ask_candidates c on c.ask_id = a.id
+left join bridges b        on b.ask_id = a.id
+group by a.id, a.criteria, a.state, a.created_at;
+
+create or replace view public.slyos_network_health as
+select
+  (select count(*) from profiles where coalesce(offer,'') <> ''
+                                     or coalesce(looking_for,'') <> '')       as published_profiles,
+  (select count(*) from asks)                                                 as asks_total,
+  (select count(*) from asks where state = 'open')                            as asks_open,
+  (select count(*) from bridges)                                              as introductions,
+  -- THE headline. An ask that reached people and got nothing back is the failure this design has
+  -- to be measured against, not the one that worked.
+  round(100.0 * (select count(*) from slyos_ask_funnel where introductions > 0)
+              / nullif((select count(*) from asks), 0), 1)                    as pct_asks_introduced,
+  round(100.0 * (select count(*) from ask_candidates where state <> 'sent')
+              / nullif((select count(*) from ask_candidates), 0), 1)          as pct_candidates_answered,
+  round(100.0 * (select count(*) from ask_candidates where state in ('interested','accepted'))
+              / nullif((select count(*) from ask_candidates), 0), 1)          as pct_who_knew_someone,
+  (select round(avg(reached), 1) from slyos_ask_funnel)                       as avg_reach_per_ask,
+  (select avg(time_to_first_answer) from slyos_ask_funnel
+    where time_to_first_answer is not null)                                   as avg_time_to_answer;
+
+grant select on public.slyos_ask_funnel, public.slyos_network_health to authenticated;

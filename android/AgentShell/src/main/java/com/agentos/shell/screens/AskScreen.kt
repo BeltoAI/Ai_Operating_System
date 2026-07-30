@@ -73,7 +73,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     LaunchedEffect(round) {
         withContext(Dispatchers.IO) {
             incoming = try { Asks.inbox(ctx) } catch (e: Exception) { emptyList() }
-            bridges = try { Asks.bridges(ctx) } catch (e: Exception) { emptyList() }
+            bridges = try { Asks.bridgesByPerson(ctx) } catch (e: Exception) { emptyList() }
             mine = try { Asks.myAsks(ctx).map { it to Asks.answers(ctx, it.id) } }
                    catch (e: Exception) { emptyList() }
         }
@@ -200,19 +200,34 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     .clip(RoundedCornerShape(15.dp)).background(T.bg).padding(16.dp)) {
                     Text(ask.criteria, fontSize = T.caption, color = T.ink, lineHeight = 19.sp)
                     Spacer(Modifier.height(7.dp))
+                    // Group by person first. Three offers of the same person is ONE introduction
+                    // with three routes, and reporting it as three would flatter the numbers.
                     val named = ans.filter { it.person != null }
+                        .groupBy { it.person!!.lowercase().trim() }
+                        .map { (_, r) -> r.maxByOrNull { it.strength }!! to r.size }
+                        .sortedByDescending { it.first.strength }
+                    val waiting = ans.filter { it.person == null && it.state == "interested" }
                     Text(when {
                             named.isNotEmpty() -> named.size.toString() +
                                 (if (named.size == 1) " introduction" else " introductions")
-                            ans.any { it.state == "interested" } ->
-                                "${ans.count { it.state == "interested" }} agents say they know someone"
+                            waiting.isNotEmpty() ->
+                                "${waiting.size} agents know someone · waiting on their owner"
                             else -> "nothing back yet"
                         }, fontSize = 10.sp, color = if (named.isNotEmpty()) T.good else T.inkFaint)
-                    named.forEach { a ->
+                    named.forEachIndexed { n, (a, routes) ->
                         Spacer(Modifier.height(8.dp))
-                        Text(a.person.orEmpty(), fontSize = T.caption, color = T.accent,
-                            fontWeight = FontWeight.Medium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(a.person.orEmpty(), fontSize = T.caption, color = T.accent,
+                                fontWeight = FontWeight.Medium)
+                            // The strongest route, named as such. This is the whole answer to
+                            // "ten people know them" — you are shown the closest one first.
+                            if (n == 0 && named.size > 1) {
+                                Spacer(Modifier.height(0.dp))
+                                Text("  closest", fontSize = 9.sp, color = T.good)
+                            }
+                        }
                         Text("closeness ${(a.strength * 100).toInt()}%" +
+                             (if (routes > 1) " · $routes people know them" else "") +
                              (if (a.note.isNotBlank()) " · ${a.note}" else ""),
                             fontSize = 9.sp, color = T.inkFaint)
                     }
