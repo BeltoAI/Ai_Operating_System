@@ -70,7 +70,7 @@ private fun monogram(name: String) = name.trim().firstOrNull()?.uppercaseChar()?
  * crest, a ★ rating and star-count. Switch the view to facet by Skill / Connect / Tool. No emoji, no clutter.
  */
 @Composable
-fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, onArchitect: () -> Unit = {}, onTry: (String) -> Unit = {}, onBack: () -> Unit = {}) {
+fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, onArchitect: () -> Unit = {}, onTry: (String) -> Unit = {}, onNeedKey: () -> Unit = {}, onBack: () -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
@@ -83,6 +83,24 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
     var flash by remember { mutableStateOf("") }
     // A live, ranked feed of popular phone-native skills pulled from GitHub — so the store feels vast, not thin.
     var discover by remember { mutableStateOf<List<Power>>(emptyList()) }
+    /**
+     * NO KEY, NO STORE — and until now, no explanation either.
+     *
+     * Installing a Skill is a model call: the repo's docs are distilled into instructions. A fresh
+     * install has no provider key, so hasKey() is false and EVERY install fails with "couldn't
+     * distil", which tells a new owner nothing about why or what to do. Someone downloads SlyOS,
+     * opens the store, taps Add, and the shop is broken.
+     *
+     * Checked on LOAD rather than on install, so the reason arrives before the failure does. It is a
+     * banner and not a dialog because browsing is still worth doing without a key — you just cannot
+     * install yet, and the Add buttons say that themselves.
+     */
+    var needsKey by remember { mutableStateOf(false) }
+    LaunchedEffect(tick) {
+        needsKey = withContext(Dispatchers.IO) {
+            try { !com.agentos.shell.tools.MemoryStore.anyProviderKey(ctx) } catch (e: Exception) { false }
+        }
+    }
     LaunchedEffect(Unit) { discover = withContext(Dispatchers.IO) { GitHubSearch.discover(30) } }
 
     var shown by remember { mutableStateOf(false) }
@@ -120,6 +138,27 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
 
         // ── Intent bar — the hero ────────────────────────────────────────────────────
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+    if (needsKey) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            .clip(RoundedCornerShape(16.dp)).background(T.accentSoft.copy(alpha = 0.30f))
+            .padding(16.dp)) {
+            Text("POWERS NEED A BRAIN", fontSize = 10.sp, color = T.accent,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+            Spacer(Modifier.height(6.dp))
+            // Groq, not Claude. Distilling a README is a small summarising job that a free
+            // model does perfectly well, and recommending a paid key on day one is what turns a
+            // curious download into a deleted app. Claude earns its place on Shop and Mission,
+            // which genuinely need live web search; Powers do not.
+            Text("SlyOS runs on your own AI key, so nothing goes through us. A free Groq key " +
+                 "takes about a minute and is enough for every Power here.",
+                fontSize = T.small, color = T.ink, lineHeight = 21.sp)
+            Spacer(Modifier.height(12.dp))
+            Text("Add a key  →", fontSize = T.small, color = Color.White,
+                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                    .background(T.accent).clickable { onNeedKey() }.padding(vertical = 13.dp))
+        }
+    }
             Text("give your phone the power to —", fontSize = T.caption, color = T.accent, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -240,6 +279,8 @@ fun StoreScreen(modifier: Modifier = Modifier, onOpenApp: (Long) -> Unit = {}, o
             },
             onTry = onTry,
             onRemove = { PowerRegistry.remove(ctx, p.id); tick++; selected = null },
+            noKey = needsKey,
+            onNeedKey = onNeedKey,
             onRepo = { openRepo(p) }) { selected = null }
     }
 
@@ -378,7 +419,7 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
 }
 
 @Composable
-private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit, onTry: (String) -> Unit, onRemove: () -> Unit, onRepo: () -> Unit, onClose: () -> Unit) {
+private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit, onTry: (String) -> Unit, onRemove: () -> Unit, onRepo: () -> Unit, noKey: Boolean = false, onNeedKey: () -> Unit = {}, onClose: () -> Unit) {
     var endpoint by remember(p.id) { mutableStateOf("") }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -513,6 +554,15 @@ private fun PowerSheet(p: Power, installed: Boolean, onInstall: (String) -> Unit
                     Text("Remove this power", fontSize = T.small, color = T.danger, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.hairline).clickable { onRemove() }.padding(vertical = 13.dp))
                 }
+                // A BUTTON THAT CANNOT WORK SHOULD SAY SO, NOT FAIL.
+                //
+                // Without a key this tapped, spun, and came back "couldn't distil" — which reads as
+                // a broken app rather than a missing setting. The reason belongs on the button.
+                noKey && p.type == PowerType.SKILL ->
+                    ActionCard("Add to your AI",
+                        "Skills are built by reading the project's docs, which needs an AI key. " +
+                        "A free Groq key takes a minute and covers every Power here.",
+                        "Add a key first") { onNeedKey() }
                 p.type == PowerType.SKILL -> ActionCard("Add to your AI", "It's a skill — upgrades the AI directly, instantly. Nothing to run or connect.", "Add skill") { onInstall("") }
                 p.onPhone -> ActionCard("Add to your phone", "Runs right on your phone — no setup, no computer, nothing to install.", "Add") { onInstall("") }
                 else -> {
