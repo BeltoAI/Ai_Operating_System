@@ -140,7 +140,10 @@ object NetworkProfile {
                 // `id`, not `user_id`. profiles is the ACCOUNT table from ACCOUNT_AND_SYNC.md and it
                 // has been keyed on `id` since the first signup — posting user_id is a 400 every time.
                 .put("id", uid)
-                .put("name", try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" })
+                // `display_name`. The account table has never had a `name` column, and PostgREST
+                // answers an unknown column with a 400 that the UI was reporting as "check your
+                // connection" — a network message for a schema mistake.
+                .put("display_name", try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" })
                 .put("offer", prof.offer)
                 .put("looking_for", prof.lookingFor)
                 .put("open_to", prof.openTo)
@@ -153,7 +156,10 @@ object NetworkProfile {
             val ok = SupabaseClient.upsert(
                 "profiles", token, JSONArray().put(row), onConflict = "id")
             if (ok) true to "Published ✓"
-            else false to "Couldn't publish — check your connection and try again."
+            // The real reason, always. A generic failure string cost an hour of looking at the
+            // wrong thing.
+            else false to ("Couldn't publish — " +
+                SupabaseClient.lastError.take(140).ifBlank { "check your connection" })
         } catch (e: Exception) { false to (e.message ?: "couldn't publish") }
     }
 

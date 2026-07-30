@@ -131,6 +131,30 @@ create table if not exists public.ask_candidates (
 
 alter table public.ask_candidates enable row level security;
 
+-- ── Breaking the RLS cycle ────────────────────────────────────────────────────
+--
+-- `asks` needs to be readable by its candidates, and `ask_candidates` needs to be readable by the
+-- owner of the ask. Written as plain policies those two are mutually recursive, and Postgres says
+-- so at query time: "42P17 infinite recursion detected in policy for relation asks". Both tables
+-- become unreadable — which is exactly what happened on the first run.
+--
+-- The fix is two SECURITY DEFINER functions. They run as the owner, so the lookup inside them does
+-- not re-enter RLS, and the cycle is cut. They leak nothing: each answers one boolean about the
+-- caller's OWN relationship to one ask.
+create or replace function public.is_ask_candidate(a uuid) returns boolean
+  language sql security definer stable set search_path = public as $$
+    select exists (select 1 from public.ask_candidates c
+                   where c.ask_id = a and c.candidate_user = auth.uid());
+  $$;
+
+create or replace function public.owns_ask(a uuid) returns boolean
+  language sql security definer stable set search_path = public as $$
+    select exists (select 1 from public.asks x where x.id = a and x.from_user = auth.uid());
+  $$;
+
+grant execute on function public.is_ask_candidate(uuid) to authenticated;
+grant execute on function public.owns_ask(uuid) to authenticated;
+
 -- THE IMPORTANT ONE. You can only ever see your own candidacy — so nobody, including the asker,
 -- can enumerate who was approached.
 drop policy if exists "only my own candidacy" on public.ask_candidates;
@@ -141,18 +165,13 @@ create policy "only my own candidacy"
 drop policy if exists "asker sees engaged candidates" on public.ask_candidates;
 create policy "asker sees engaged candidates"
   on public.ask_candidates for select using (
-    exists (select 1 from public.asks a where a.id = ask_id and a.from_user = auth.uid())
-    and state in ('interested','surfaced','accepted','declined')
+    public.owns_ask(ask_id) and state in ('interested','surfaced','accepted','declined')
   );
 
--- A candidate may read the ask they were actually sent, and nothing else. Declared here because it
--- references ask_candidates, which does not exist until now.
+-- A candidate may read the ask they were actually sent, and nothing else.
 drop policy if exists "asks visible to their candidates" on public.asks;
 create policy "asks visible to their candidates"
-  on public.asks for select using (
-    exists (select 1 from public.ask_candidates c
-            where c.ask_id = asks.id and c.candidate_user = auth.uid())
-  );
+  on public.asks for select using (public.is_ask_candidate(id));
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ask_messages — the agent-to-agent thread
@@ -237,8 +256,18 @@ $$ language sql security definer;
 create or replace function spend_ask() returns trigger as $$
 declare left_now int;
 begin
+  -- Somebody who has never opened Where you stand has no profile row, and without this they would
+  -- hit "no asks left this week" on their first ever ask — a quota error for a row that does not
+  -- exist. Give them the row and their three asks.
+  insert into public.profiles (id) values (new.from_user)
+    on conflict (id) do nothing;
+
   select asks_left into left_now from public.profiles where id = new.from_user for update;
-  if left_now is null or left_now <= 0 then
+  if left_now is null then
+    update public.profiles set asks_left = 3 where id = new.from_user;
+    left_now := 3;
+  end if;
+  if left_now <= 0 then
     raise exception 'no asks left this week';
   end if;
   update public.profiles set asks_left = asks_left - 1 where id = new.from_user;
@@ -254,3 +283,75 @@ create or replace function reset_weekly_asks() returns void as $$
   update public.profiles set asks_left =
     case tier when 'business' then 100 when 'plus' then 20 else 3 end;
 $$ language sql security definer;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- fan_out — the only matching the server does
+--
+-- Narrowing by tag overlap is a set operation on words anybody would print on a business card, and
+-- it is the whole of the server's contribution. Every actual decision happens afterwards, on two
+-- hundred separate phones, against brains this database has never seen.
+--
+-- It has to be a function rather than a plain insert, because `ask_candidates` is locked to
+-- `auth.uid() = candidate_user` — the asker cannot and must not write rows naming other people.
+-- SECURITY DEFINER does the write; the guard on the first line is what keeps it honest.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.fan_out(p_ask uuid, p_limit int default 200)
+returns int language plpgsql security definer set search_path = public as $$
+declare n int; t text[];
+begin
+  if not exists (select 1 from asks a where a.id = p_ask and a.from_user = auth.uid()) then
+    raise exception 'not your ask';
+  end if;
+  select tags into t from asks where id = p_ask;
+
+  insert into ask_candidates (ask_id, candidate_user)
+  select p_ask, p.id
+    from profiles p
+   where p.id <> auth.uid()
+     and coalesce(p.reachability, 'vouched') <> 'closed'
+     -- An untagged ask reaches everyone; a tagged one reaches the overlap. Never the other way
+     -- round, or a careless ask silently reaches nobody and looks like a broken feature.
+     and (t is null or cardinality(t) = 0 or p.tags && t)
+   order by p.network_size desc nulls last
+   limit p_limit
+  on conflict do nothing;
+
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+grant execute on function public.fan_out(uuid, int) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- bridges — the moment somebody says "I know them, and yes"
+--
+-- This is the only place a real person's name crosses between two users, and it is written by the
+-- one who holds the relationship, at the moment they decide to. Nothing infers it, nothing
+-- precomputes it, and no overlap between two address books is visible to anyone until this row
+-- exists. It is the shared node on the map.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.bridges (
+  id          uuid primary key default gen_random_uuid(),
+  ask_id      uuid references public.asks(id) on delete cascade,
+  asker       uuid not null references auth.users(id) on delete cascade,
+  holder      uuid not null references auth.users(id) on delete cascade,
+  person      text not null,              -- revealed by the holder, on acceptance, deliberately
+  note        text default '',
+  -- How close the HOLDER actually is to them, computed on the holder's phone from their own
+  -- message history. When ten people know the same person this is what decides who routes it.
+  strength    real default 0,
+  created_at  timestamptz default now(),
+  unique (ask_id, holder)
+);
+
+alter table public.bridges enable row level security;
+
+drop policy if exists "bridge parties" on public.bridges;
+create policy "bridge parties"
+  on public.bridges for select using (auth.uid() in (asker, holder));
+
+drop policy if exists "holder writes bridge" on public.bridges;
+create policy "holder writes bridge"
+  on public.bridges for insert with check (auth.uid() = holder);
+
+create index if not exists idx_bridges_asker on public.bridges (asker, created_at desc);

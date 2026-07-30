@@ -113,6 +113,30 @@ object SupabaseClient {
         if (code in 200..299) txt else "[]"
     } catch (e: Exception) { "[]" }
 
+    /** Insert and get the row back — needed when the server generates the id. */
+    fun insertReturning(table: String, accessToken: String, rows: JSONArray): JSONArray? = try {
+        val c = open("/rest/v1/$table", "POST", accessToken)
+        c.setRequestProperty("Prefer", "return=representation")
+        val (code, txt) = send(c, rows.toString())
+        if (code in 200..299) JSONArray(txt) else { lastError = "HTTP $code ${txt.take(160)}"; null }
+    } catch (e: Exception) { lastError = e.message ?: "insert failed"; null }
+
+    /** Partial update by filter. */
+    fun patch(table: String, filter: String, accessToken: String, row: JSONObject): Boolean = try {
+        val c = open("/rest/v1/$table?$filter", "PATCH", accessToken)
+        c.setRequestProperty("Prefer", "return=minimal")
+        val (code, txt) = send(c, row.toString())
+        if (code !in 200..299) lastError = "HTTP $code ${txt.take(160)}"
+        code in 200..299
+    } catch (e: Exception) { false }
+
+    /** An RPC that returns a scalar — the fan-out count is the one that matters. */
+    fun rpcInt(name: String, args: JSONObject, accessToken: String? = null): Int? = try {
+        val c = open("/rest/v1/rpc/$name", "POST", accessToken)
+        val (code, txt) = send(c, args.toString())
+        if (code in 200..299) txt.trim().toIntOrNull() else { lastError = "HTTP $code ${txt.take(160)}"; null }
+    } catch (e: Exception) { null }
+
     /** Call a Postgres function — the install counter is one, and it is deliberately anonymous. */
     fun rpc(name: String, args: JSONObject, accessToken: String? = null): Boolean = try {
         val c = open("/rest/v1/rpc/$name", "POST", accessToken)

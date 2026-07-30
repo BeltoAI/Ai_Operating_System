@@ -79,6 +79,7 @@ fun OrbitScreen(
     modifier: Modifier = Modifier,
     onPerson: (String) -> Unit,
     onStanding: () -> Unit = {},
+    onAsk: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -93,6 +94,8 @@ fun OrbitScreen(
     var pickedDust by remember { mutableStateOf(-1) }   // index into `sky`
     var peers by remember { mutableStateOf<List<NetworkProfile.Peer>>(emptyList()) }
     var pickedPeer by remember { mutableStateOf(-1) }
+    var bridges by remember { mutableStateOf<List<com.agentos.shell.tools.Asks.Bridge>>(emptyList()) }
+    var pickedBridge by remember { mutableStateOf(-1) }
 
     LaunchedEffect(Unit) {
         // Everything off the main thread, and the layout is built exactly once — twenty thousand
@@ -122,6 +125,19 @@ fun OrbitScreen(
         // one — your own people are on this phone and owe nobody a round trip.
         peers = withContext(Dispatchers.IO) {
             try { NetworkProfile.others(ctx) } catch (e: Exception) { emptyList() }
+        }
+        bridges = withContext(Dispatchers.IO) {
+            try { com.agentos.shell.tools.Asks.bridges(ctx) } catch (e: Exception) { emptyList() }
+        }
+        // Deal with anything asked of us while nobody was looking. Most of these terminate silently
+        // — the whole point is that being asked costs nothing — so this is the right place for it:
+        // no notification, no badge, no interruption unless there is genuinely somebody we know.
+        withContext(Dispatchers.IO) {
+            try {
+                com.agentos.shell.tools.Asks.inbox(ctx).take(20).forEach {
+                    com.agentos.shell.tools.Asks.handle(ctx, it)
+                }
+            } catch (e: Exception) {}
         }
     }
 
@@ -174,6 +190,21 @@ fun OrbitScreen(
         val a = i * 2.39996323f + drift * 0.22f
         return Offset(ring * cos(a), ring * sin(a))
     }
+    /**
+     * A shared person sits ON the line between the two people who share them.
+     *
+     * That position is the whole claim: this is not in your galaxy or in theirs, it is the single
+     * node two networks turned out to have in common. It exists only because somebody chose to put
+     * it there, so it is drawn as one bright point and never as a crowd.
+     */
+    fun bridgeAt(b: com.agentos.shell.tools.Asks.Bridge, outer: Float): Offset {
+        val other = if (b.mine) b.holder else b.asker
+        val i = peers.indexOfFirst { it.userId == other }
+        val far = if (i >= 0) peerAt(i, outer) else Offset(outer * 1.4f, 0f)
+        // Nearer the end that actually holds the relationship.
+        val t = if (b.mine) 0.62f else 0.38f
+        return far * t
+    }
     fun peerRadius(p: NetworkProfile.Peer): Float =
         (Galaxy.outerFor(p.networkSize) - Galaxy.INNER) * 0.42f + 40f
 
@@ -197,6 +228,17 @@ fun OrbitScreen(
                         // Tight. At this density a generous radius means the nearest dot is always
                         // "hit" and nothing can ever be deselected.
                         val near = 13f / s
+
+                        var hitBridge = -1
+                        if (g != null) bridges.forEachIndexed { i, b ->
+                            if ((bridgeAt(b, g.outer) - world).getDistance() < 24f / s) hitBridge = i
+                        }
+                        if (hitBridge >= 0) {
+                            pickedBridge = if (pickedBridge == hitBridge) -1 else hitBridge
+                            picked = -1; pickedDust = -1; pickedPeer = -1
+                            return@detectTapGestures
+                        }
+                        pickedBridge = -1
 
                         var hitPeer = -1
                         if (g != null) peers.forEachIndexed { i, _ ->
@@ -355,6 +397,21 @@ fun OrbitScreen(
             // Thirty overlapping first names is less readable than eight clear ones.
             val labelled = ArrayList<Offset>(24)
 
+            // ── The shared ones ──
+            if (g != null) bridges.forEachIndexed { i, b ->
+                val at = bridgeAt(b, g.outer) * s + centre + pan
+                val on = pickedBridge == i
+                drawCircle(T.good.copy(alpha = if (on) 0.30f else 0.16f), if (on) 30f else 20f, at)
+                drawCircle(T.good, if (on) 8f else 6f, at)
+                drawContext.canvas.nativeCanvas.drawText(
+                    b.person.split(' ').first().take(14), at.x, at.y - 18f,
+                    android.graphics.Paint().apply {
+                        color = android.graphics.Color.argb(if (on) 235 else 165, 150, 235, 180)
+                        textSize = 21f; isAntiAlias = true
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    })
+            }
+
             // ── The people you talk to ──
             people.forEachIndexed { i, p ->
                 val at = innerAt(i, p) * s + centre + pan
@@ -433,11 +490,24 @@ fun OrbitScreen(
                 modifier = Modifier.clickable { onStanding() }.padding(6.dp))
         }
 
+        val bridge = pickedBridge.takeIf { it >= 0 && it < bridges.size }?.let { bridges[it] }
         val peer = pickedPeer.takeIf { it >= 0 && it < peers.size }?.let { peers[it] }
         val sel = picked.takeIf { it >= 0 && it < people.size }?.let { people[it] }
         val dust = sky?.takeIf { pickedDust in 0 until it.size }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(14.dp)) {
             when {
+                bridge != null -> Card {
+                    Text(bridge.person, fontSize = T.small, color = T.ink,
+                        fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(4.dp))
+                    Text((if (bridge.mine) "introduced to you" else "you introduced them") +
+                         "  ·  closeness ${(bridge.strength * 100).toInt()}%",
+                        fontSize = 10.sp, color = T.inkFaint)
+                    if (bridge.note.isNotBlank()) {
+                        Spacer(Modifier.height(7.dp))
+                        Text(bridge.note, fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                    }
+                }
                 peer != null -> Card {
                     Text(peer.name, fontSize = T.small, color = T.ink, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
@@ -491,6 +561,7 @@ fun OrbitScreen(
                     // No card. The count is one faint line, because the field is the screen and a
                     // panel sitting on top of it was chrome explaining a picture that explains itself.
                     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             when {
@@ -508,6 +579,9 @@ fun OrbitScreen(
                                     galaxy!!.total, peers.size)
                             },
                             fontSize = 10.sp, color = T.inkFaint, maxLines = 1)
+                        Text("ask the network →", fontSize = 10.sp, color = T.accent,
+                            fontWeight = FontWeight.Medium, maxLines = 1,
+                            modifier = Modifier.clickable { onAsk() })
                     }
                 }
             }

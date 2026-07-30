@@ -36,7 +36,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, MadeDocs, Meeting, Health, Translate, Google, Crm, Graph, Papers, Standing }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, MadeDocs, Meeting, Health, Translate, Google, Crm, Graph, Papers, Standing, Asks }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -419,8 +419,10 @@ class ShellActivity : ComponentActivity() {
                         Screen.Store  -> OrbitScreen(m,
                             onPerson = { screen = Screen.Crm },
                             onStanding = { screen = Screen.Standing },
+                            onAsk = { screen = Screen.Asks },
                             onBack = { screen = Screen.Home })
                         Screen.Standing -> com.agentos.shell.screens.StandingScreen(m) { screen = Screen.Store }
+                        Screen.Asks -> com.agentos.shell.screens.AskScreen(m) { screen = Screen.Store }
                         Screen.MadeDocs -> com.agentos.shell.screens.AgentsScreen(m,
                             onOpen = { id -> currentAppId = id; screen = Screen.AppView },
                             onBack = { screen = Screen.Home })

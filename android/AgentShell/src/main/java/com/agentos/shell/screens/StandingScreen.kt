@@ -179,7 +179,7 @@ private fun Field(title: String, hint: String, value: String, onChange: (String)
     Spacer(Modifier.height(3.dp))
     Text(hint, fontSize = 10.sp, color = T.inkFaint)
     Spacer(Modifier.height(8.dp))
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bg)
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
         .padding(horizontal = 15.dp, vertical = 14.dp)) {
         if (value.isEmpty())
             Text("…", fontSize = T.caption, color = T.inkFaint)
