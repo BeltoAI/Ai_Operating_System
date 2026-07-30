@@ -89,8 +89,23 @@ object Intro {
         // The 20,005. Searched rather than loaded, and matched on company as well as name so
         // "who do I know at Stripe" works — which is the question, not "find me a Stripe".
         val known = book.map { it.name.lowercase() }.toSet()
-        val connected = try { ConnectionStore.search(ctx, q, 40) } catch (e: Exception) { emptyList() }
+        // PRECISION, BECAUSE A LOOSE MATCH IS WORSE THAN NO MATCH.
+        //
+        // Asking for "Patrick Collison" returned Patrick Shannon, Patrick Nogacz, Patrick Bangert,
+        // Patrick Granzow and Patrick Tejada — every Patrick in a 20,005-row export, because the
+        // underlying search matches any token. Five confident wrong answers, and worse: they counted
+        // as routes, so the whole find-a-path plan for a genuine stranger never appeared. A
+        // multi-word query has to match every word.
+        val words = q.split(Regex("\\s+")).filter { it.length >= 2 }
+        val connected = try { ConnectionStore.search(ctx, q, 60) } catch (e: Exception) { emptyList() }
             .filterNot { it.name.lowercase() in known }
+            .filter { c ->
+                if (words.size < 2) true
+                else {
+                    val hay = (c.name + " " + c.company + " " + c.role)
+                    words.all { hay.contains(it, true) }
+                }
+            }
         connected.take(8).forEach { c ->
             routes.add(Route(
                 kind = Kind.CONNECTED,

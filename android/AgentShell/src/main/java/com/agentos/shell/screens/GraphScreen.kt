@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
+import com.agentos.shell.tools.AgentClient
 import com.agentos.shell.tools.RelationGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -104,6 +106,11 @@ fun GraphScreen(
     /** Swipe-left dismissal, the same gesture and the same −110f threshold as every other card. */
     var cardDragX by remember { mutableStateOf(0f) }
     var cardHidden by remember { mutableStateOf(false) }
+    /** A live plan toward somebody outside the network. */
+    var quest by remember { mutableStateOf<com.agentos.shell.tools.IntroQuest.Quest?>(null) }
+    var working by remember { mutableStateOf("") }
+    var replyFor by remember { mutableStateOf(0L) }
+    var replyText by remember { mutableStateOf("") }
 
     val reveal = remember { Animatable(0f) }
 
@@ -129,6 +136,15 @@ fun GraphScreen(
         // A new question is a new card. Without this, one swipe would silence every later answer and
         // the box would look broken rather than dismissed.
         cardHidden = false; cardDragX = 0f
+        quest = withContext(Dispatchers.IO) {
+            try {
+                val existing = com.agentos.shell.tools.IntroQuest.forTarget(ctx, filter)
+                // Look for answers every time the plan is opened, so progress appears on its own.
+                if (existing != null)
+                    com.agentos.shell.tools.IntroQuest.checkReplies(ctx, existing.id) ?: existing
+                else null
+            } catch (e: Exception) { null }
+        }
     }
 
     // A slow breath on whatever is live, so it reads as alive rather than printed.
@@ -313,6 +329,147 @@ fun GraphScreen(
             // thumb already is, and matched on names, channels and companies at once so it never
             // matters which of the three you happen to have in mind.
             val ans = answer
+            val q = quest
+            // ── A PLAN, WHEN THE TARGET IS OUTSIDE YOUR NETWORK ──
+            //
+            // This is the case the feature simply did not have: ask about anyone not already in your
+            // own data and it returned nothing at all, which is the entire reason introductions
+            // exist. Not a computed route — nobody can compute a path into a stranger's network from
+            // a phone — but a plan that gets discovered, one confirmed step at a time.
+            if (sel == null && !cardHidden && (q != null ||
+                    (filter.trim().length >= 3 && ans != null && ans.routes.isEmpty()))) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp)
+                    .padding(bottom = 74.dp).align(Alignment.BottomCenter)) {
+                    Column(Modifier.fillMaxWidth()
+                        .offset { androidx.compose.ui.unit.IntOffset(cardDragX.toInt(), 0) }
+                        .pointerInput(filter) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = { if (cardDragX < -110f) cardHidden = true; cardDragX = 0f },
+                                onDragCancel = { cardDragX = 0f }
+                            ) { _, dx -> cardDragX = (cardDragX + dx).coerceAtMost(0f) }
+                        }
+                        .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+
+                        if (q == null) {
+                            Text("NOBODY IN YOUR NETWORK MATCHES “${filter.trim().uppercase()}”",
+                                fontSize = 9.sp, color = T.inkFaint,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text(if (working.isNotBlank()) working else
+                                    "I can look them up and work out who of your people is most " +
+                                    "likely to get you there.",
+                                fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                            if (working.isBlank()) {
+                                Spacer(Modifier.height(12.dp))
+                                Text("Find a path →", fontSize = T.caption, color = T.accent,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.clickable {
+                                        val t = filter.trim()
+                                        scope.launch {
+                                            working = "Looking them up…"
+                                            val brief = withContext(Dispatchers.IO) {
+                                                com.agentos.shell.tools.IntroQuest.resolveTarget(t)
+                                            }
+                                            working = "Working out who of yours is closest…"
+                                            val hops = withContext(Dispatchers.IO) {
+                                                com.agentos.shell.tools.IntroQuest
+                                                    .suggestBridges(ctx, t, brief)
+                                            }
+                                            val nq = com.agentos.shell.tools.IntroQuest.Quest(
+                                                System.currentTimeMillis(), t, brief, hops,
+                                                System.currentTimeMillis())
+                                            withContext(Dispatchers.IO) {
+                                                com.agentos.shell.tools.IntroQuest.put(ctx, nq)
+                                            }
+                                            quest = nq; working = ""
+                                        }
+                                    })
+                            }
+                        } else {
+                            Text("PATH TO “${q.target.uppercase()}”", fontSize = 9.sp,
+                                color = T.accent, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                            if (q.brief.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(q.brief.take(230), fontSize = 10.sp, color = T.inkFaint,
+                                    lineHeight = 14.sp)
+                            }
+                            if (q.hops.isEmpty()) {
+                                Spacer(Modifier.height(10.dp))
+                                // Said plainly. A padded list of implausible names would cost real
+                                // favours and real credibility.
+                                Text("Nobody in your network looks like a plausible route to them. " +
+                                     "That is an honest answer, not a failure to search.",
+                                    fontSize = T.caption, color = T.inkSoft, lineHeight = 18.sp)
+                            }
+                            // Ordered so the newest discoveries (deeper hops) sit at the bottom, the
+                            // way a path is read.
+                            q.hops.sortedWith(compareBy({ it.depth }, { it.id })).forEach { hop ->
+                                Spacer(Modifier.height(12.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (hop.depth == 0) "①" else "②", fontSize = 11.sp,
+                                        color = T.accent)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(hop.viaName, fontSize = T.caption, color = T.ink,
+                                        modifier = Modifier.weight(1f), maxLines = 1)
+                                    Text(com.agentos.shell.tools.IntroQuest.stateLabel(hop.state),
+                                        fontSize = 8.sp,
+                                        color = when (hop.state) {
+                                            com.agentos.shell.tools.IntroQuest.HopState.HELPED -> T.good
+                                            com.agentos.shell.tools.IntroQuest.HopState.DEAD -> T.inkFaint
+                                            else -> T.accent
+                                        })
+                                }
+                                Text(hop.why, fontSize = 10.sp, color = T.inkFaint, lineHeight = 14.sp,
+                                    modifier = Modifier.padding(start = 18.dp))
+                                if (hop.reply.isNotBlank())
+                                    Text("“${hop.reply.take(120)}”", fontSize = 10.sp,
+                                        color = T.inkSoft, lineHeight = 14.sp,
+                                        modifier = Modifier.padding(start = 18.dp, top = 3.dp))
+                                // ONE TAP PER STEP. Nothing is sent, and nothing advances, without it.
+                                Row(Modifier.padding(start = 18.dp, top = 5.dp)) {
+                                    if (hop.state == com.agentos.shell.tools.IntroQuest.HopState.SUGGESTED) {
+                                        Text(if (asking) "writing…" else "Write the ask →",
+                                            fontSize = 10.sp, color = T.accent,
+                                            modifier = Modifier.clickable(enabled = !asking) {
+                                                asking = true; draft = ""
+                                                scope.launch {
+                                                    draft = withContext(Dispatchers.IO) {
+                                                        try {
+                                                            AgentClient.complete(
+                                                                "You write short messages in the owner's voice. Message only.",
+                                                                com.agentos.shell.tools.Intro.askPrompt(
+                                                                    ctx,
+                                                                    com.agentos.shell.tools.Intro.Route(
+                                                                        com.agentos.shell.tools.Intro.Kind.TWO_HOP,
+                                                                        hop.viaName, hop.viaKey, "",
+                                                                        q.target, hop.why, 0),
+                                                                    q.brief.take(200)), 400)
+                                                        } catch (e: Exception) { "" }
+                                                    }.ifBlank { "Couldn't write that one." }
+                                                    asking = false
+                                                    com.agentos.shell.tools.IntroQuest
+                                                        .markAsked(ctx, q.id, hop.id)
+                                                    quest = com.agentos.shell.tools.IntroQuest
+                                                        .forTarget(ctx, q.target)
+                                                }
+                                            })
+                                    } else if (hop.state == com.agentos.shell.tools.IntroQuest.HopState.ASKED) {
+                                        // NO PASTE BOX. The app reads every message on this device;
+                                        // asking the owner to copy a WhatsApp reply into a graph
+                                        // screen was asking them to do the app's own job.
+                                        Text("waiting on their reply — I'll spot it",
+                                            fontSize = 10.sp, color = T.inkFaint)
+                                    }
+                                }
+                            }
+                            if (draft.isNotEmpty()) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(draft, fontSize = 10.sp, color = T.ink, lineHeight = 15.sp)
+                            }
+                        }
+                    }
+                }
+            }
             if (sel == null && ans != null && ans.routes.isNotEmpty() && !cardHidden) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp)
                     .padding(bottom = 74.dp).align(Alignment.BottomCenter)) {
