@@ -84,6 +84,15 @@ fun GoogleHome(
     val scope = rememberCoroutineScope()
 
     var dayOffset by remember { mutableStateOf(0) }
+    /**
+     * The first day of the strip, as an offset from today.
+     *
+     * The strip was hardcoded to (0..6) — today plus six days — with no way to move it. So a meeting
+     * created five weeks out, which the form now allows, could never be LOOKED at: the furthest
+     * viewable day was next Tuesday. Creating and viewing have to reach the same distance or one of
+     * them is decoration.
+     */
+    var weekStart by remember { mutableStateOf(0) }
     var typed by remember { mutableStateOf("") }
     var appear by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(40); appear = true }
@@ -116,11 +125,56 @@ fun GoogleHome(
             //
             // Seven days is the unit people plan in, and a strip costs one line where a month grid
             // costs a screen. The dot says "something is here" without needing to read anything.
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
+            // ── Which week, and a way to leave it ──
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("‹", fontSize = 20.sp, color = T.inkSoft,
+                    modifier = Modifier.clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        weekStart -= 7
+                    }.padding(horizontal = 10.dp, vertical = 2.dp))
+                // The month, and a tap to jump anywhere — because paging seven days at a time to
+                // reach December is not navigation, it is a punishment.
+                Text(
+                    Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, weekStart) }
+                        .let { java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault())
+                            .format(it.time) },
+                    fontSize = T.caption, color = T.inkSoft, fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f).clickable {
+                        val c = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, weekStart) }
+                        android.app.DatePickerDialog(ctx, { _, y, mo, dy ->
+                            val picked = Calendar.getInstance().apply {
+                                set(Calendar.YEAR, y); set(Calendar.MONTH, mo)
+                                set(Calendar.DAY_OF_MONTH, dy)
+                                set(Calendar.HOUR_OF_DAY, 12); set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                            }
+                            val today = Calendar.getInstance().apply {
+                                set(Calendar.HOUR_OF_DAY, 12); set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                            }
+                            val off = Math.round(
+                                (picked.timeInMillis - today.timeInMillis) / 86_400_000.0).toInt()
+                            // Land the chosen day IN the strip and selected, not merely nearby.
+                            weekStart = off; dayOffset = off
+                        }, c.get(Calendar.YEAR), c.get(Calendar.MONTH),
+                           c.get(Calendar.DAY_OF_MONTH)).show()
+                    })
+                if (weekStart != 0) Text("Today", fontSize = 10.sp, color = T.accent,
+                    modifier = Modifier.clickable { weekStart = 0; dayOffset = 0 }
+                        .padding(horizontal = 8.dp))
+                Text("›", fontSize = 20.sp, color = T.inkSoft,
+                    modifier = Modifier.clickable {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        weekStart += 7
+                    }.padding(horizontal = 10.dp, vertical = 2.dp))
+            }
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                (0..6).forEach { i ->
+                (weekStart..weekStart + 6).forEach { i ->
                     val d = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, i) }
-                    val busy = remember(i) {
+                    val busy = remember(i, weekStart) {
                         val s = Calendar.getInstance().apply {
                             add(Calendar.DAY_OF_YEAR, i)
                             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)

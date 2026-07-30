@@ -63,13 +63,15 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
-    var docs by remember { mutableStateOf(listOf<ReceivedDocs.Doc>()) }
+    var docs by remember { mutableStateOf(listOf<ReceivedDocs.AnyDoc>()) }
+    var source by remember { mutableStateOf<ReceivedDocs.Source?>(null) }
     var kind by remember { mutableStateOf<ReceivedDocs.Kind?>(null) }
     var query by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
 
-    fun reload() { docs = ReceivedDocs.all(ctx) }
+    // EVERYTHING, not just the emailed ones. Three stores, one list — see ReceivedDocs.everything.
+    fun reload() { docs = ReceivedDocs.everything(ctx) }
 
     LaunchedEffect(Unit) {
         reload()
@@ -81,9 +83,14 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         if (n > 0) { reload(); note = "$n new" }
     }
 
-    val shown = remember(docs, kind, query) {
-        var list = if (query.isBlank()) docs else ReceivedDocs.search(ctx, query)
+    val shown = remember(docs, kind, query, source) {
+        var list = docs
+        if (query.isNotBlank()) list = list.filter {
+            it.name.contains(query, true) || it.subtitle.contains(query, true) ||
+                ReceivedDocs.label(it.kind).contains(query, true)
+        }
         if (kind != null) list = list.filter { it.kind == kind }
+        if (source != null) list = list.filter { it.source == source }
         list
     }
     val counts = remember(docs) { docs.groupingBy { it.kind }.eachCount() }
@@ -96,12 +103,28 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Text(when {
                 scanning -> "checking your mail…"
                 docs.isEmpty() -> "nothing filed yet"
-                else -> "${docs.size} documents you've been sent" +
+                else -> "${docs.size} documents" +
                     (if (note.isNotBlank()) " · $note" else "")
             }, fontSize = 10.sp, color = T.inkFaint)
 
         // ── Categories, because that is how paperwork is remembered ──
-        Spacer(Modifier.height(12.dp))
+        // Where it came from — a filter, not an address. Only shown when there is more than one
+        // source to choose between, because a single-option filter is furniture.
+        val srcCounts = docs.groupingBy { it.source }.eachCount()
+        if (srcCounts.size > 1) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Chip("Everything", source == null) { source = null }
+                ReceivedDocs.Source.values().filter { (srcCounts[it] ?: 0) > 0 }.forEach { sc ->
+                    Chip("${ReceivedDocs.sourceLabel(sc)} ${srcCounts[sc]}", source == sc) {
+                        source = if (source == sc) null else sc
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Chip("All", kind == null) { kind = null }
@@ -128,31 +151,35 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         LazyColumn(Modifier.fillMaxWidth()) {
-            items(shown, key = { it.msgId + it.name }) { d ->
+            items(shown, key = { it.source.name + it.name + it.ts }) { d ->
                 Column(Modifier.fillMaxWidth().clickable {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         note = "opening ${d.name}…"
                         scope.launch {
                             val ok = withContext(Dispatchers.IO) {
-                                try { ReceivedDocs.open(ctx, d) } catch (e: Exception) { false }
+                                try {
+                                    when {
+                                        d.received != null -> ReceivedDocs.open(ctx, d.received)
+                                        d.uri.isNotBlank() ->
+                                            com.agentos.shell.tools.DocForge.open(ctx, d.uri, d.name)
+                                        else -> false
+                                    }
+                                } catch (e: Exception) { false }
                             }
                             // Said plainly. A tap that silently does nothing is worse than an error.
-                            note = if (ok) "" else "Couldn't open ${d.name} — it may have been deleted in Gmail"
+                            note = if (ok) "" else "Couldn't open ${d.name}"
                         }
                     }.padding(vertical = 11.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(ReceivedDocs.label(d.kind).uppercase(), fontSize = 8.sp,
                             color = T.accent, fontWeight = FontWeight.Bold)
-                        if (d.amount.isNotBlank()) {
-                            Spacer(Modifier.height(0.dp))
-                            Text("  ·  ${d.amount}", fontSize = 8.sp, color = T.good,
-                                fontWeight = FontWeight.Bold)
-                        }
+                        Text("  ·  " + ReceivedDocs.sourceLabel(d.source).lowercase(),
+                            fontSize = 8.sp, color = T.inkFaint)
                     }
                     Spacer(Modifier.height(3.dp))
                     Text(d.name, fontSize = T.caption, color = T.ink, maxLines = 1)
                     Spacer(Modifier.height(2.dp))
-                    Text(d.sender + " · " + java.text.SimpleDateFormat(
+                    Text(d.subtitle + " · " + java.text.SimpleDateFormat(
                             "d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(d.ts)),
                         fontSize = 10.sp, color = T.inkFaint, maxLines = 1)
                 }
@@ -161,7 +188,7 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             if (shown.isEmpty() && !scanning) item {
                 Spacer(Modifier.height(30.dp))
                 Text(if (docs.isEmpty())
-                        "Nothing yet. Bills, invoices, contracts and tickets emailed to you get filed here automatically."
+                        "Nothing yet. Anything emailed to you, made here, or scanned gets filed here automatically."
                      else "Nothing matches.",
                     fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
             }

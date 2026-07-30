@@ -176,6 +176,59 @@ object ReceivedDocs {
 
     fun byKind(ctx: Context, kind: Kind): List<Doc> = all(ctx).filter { it.kind == kind }
 
+    // MARK: - Every document, not just the emailed ones
+
+    /** Where a document came from. The three used to be three separate screens. */
+    enum class Source { RECEIVED, MADE, SCANNED }
+
+    /**
+     * One document, whatever produced it.
+     *
+     * SlyOS kept three silos and showed them on three screens: SlyFolder for what it GENERATED,
+     * DocsScreen for what was SCANNED, and this for what was EMAILED. Nobody thinks in those
+     * categories. Somebody looking for a document wants the document — the fact that one arrived as
+     * an attachment and another was written here is a detail about its history, not a place to go
+     * looking.
+     *
+     * So Papers shows all three, and the source becomes a filter rather than an address.
+     */
+    data class AnyDoc(
+        val name: String,
+        val subtitle: String,
+        val ts: Long,
+        val kind: Kind,
+        val source: Source,
+        /** Set for received; the others open by uri. */
+        val received: Doc? = null,
+        val uri: String = ""
+    )
+
+    fun sourceLabel(s: Source): String = when (s) {
+        Source.RECEIVED -> "Sent to you"; Source.MADE -> "Made here"; Source.SCANNED -> "Scanned"
+    }
+
+    fun everything(ctx: Context): List<AnyDoc> {
+        val out = ArrayList<AnyDoc>()
+        all(ctx).forEach { d ->
+            out.add(AnyDoc(d.name, d.sender, d.ts, d.kind, Source.RECEIVED, received = d))
+        }
+        // What SlyOS generated — decks, one-pagers, anything DocForge built.
+        try {
+            SlyFolder.index(ctx).forEach { d ->
+                out.add(AnyDoc(d.name, d.summary.take(60).ifBlank { d.category }, d.ts,
+                    classify(d.name, d.summary, ""), Source.MADE, uri = d.uri))
+            }
+        } catch (e: Exception) {}
+        // What was photographed — receipts, letters, forms.
+        try {
+            DocStore.byCategory(ctx).values.flatten().forEach { d ->
+                out.add(AnyDoc(d.title.ifBlank { d.category }, d.summary.take(60), d.ts,
+                    classify(d.title, d.summary, ""), Source.SCANNED))
+            }
+        } catch (e: Exception) {}
+        return out.sortedByDescending { it.ts }
+    }
+
     /** Free-text over sender, subject, filename and category — the four things people remember. */
     fun search(ctx: Context, q: String): List<Doc> {
         val t = q.trim()
