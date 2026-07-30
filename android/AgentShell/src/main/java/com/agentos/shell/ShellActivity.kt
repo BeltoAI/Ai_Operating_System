@@ -282,6 +282,7 @@ class ShellActivity : ComponentActivity() {
             /** The sentence a Google plan was parsed from — the page re-parses it, deterministically. */
             var googlePrompt by remember { mutableStateOf("") }
             var googleVerb by remember { mutableStateOf<com.agentos.shell.screens.Verb?>(null) }
+            var googleDay by remember { mutableStateOf(1) }
             var googleEvent by remember {
                 mutableStateOf<com.agentos.shell.tools.CalendarTool.Event?>(null)
             }
@@ -434,14 +435,13 @@ class ShellActivity : ComponentActivity() {
                                     googlePrompt = ""
                                 }
                             googleVerb != null ->
-                                com.agentos.shell.screens.GoogleCompose(
-                                    googleVerb!!, googleEvent, m, onDone = { googleVerb = null }) {
+                                com.agentos.shell.screens.GoogleCompose(googleVerb!!, googleEvent, googleDay, m, onDone = { googleVerb = null }) {
                                     googleVerb = null; googleEvent = null
                                 }
                             else -> com.agentos.shell.screens.GoogleHome(
                                 m,
                                 onAsk = { q -> googlePrompt = q },
-                                onCompose = { v, ev -> googleVerb = v; googleEvent = ev }) {
+                                onCompose = { v, ev, day -> googleVerb = v; googleEvent = ev; googleDay = day }) {
                                 screen = Screen.Home
                             }
                         }

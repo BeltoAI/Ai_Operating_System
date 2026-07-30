@@ -73,6 +73,14 @@ import java.util.Calendar
 fun GoogleCompose(
     verb: Verb,
     event: CalendarTool.Event?,
+    /**
+     * The day the week strip was showing when this opened.
+     *
+     * Selecting Thursday and tapping "Book" created the event on TOMORROW, because the strip only
+     * ever changed which day was being viewed and the form always started from its own default. The
+     * day you are looking at is the day you mean; anything else makes the strip a decoration.
+     */
+    initialDay: Int = 1,
     modifier: Modifier = Modifier,
     onDone: (String) -> Unit,
     onBack: () -> Unit
@@ -85,7 +93,10 @@ fun GoogleCompose(
     var mode by remember { mutableStateOf(if (verb == Verb.ACT_ON) Verb.ACT_ON else verb) }
 
     var title by remember { mutableStateOf(event?.title.orEmpty()) }
-    var dayOffset by remember { mutableStateOf(if (event != null) 0 else 1) }
+    var dayOffset by remember {
+        // An existing event keeps its own date; a new one starts on the day being viewed.
+        mutableStateOf(if (event != null) 0 else initialDay)
+    }
     var hour by remember {
         mutableStateOf(event?.let {
             Calendar.getInstance().apply { timeInMillis = it.begin }.get(Calendar.HOUR_OF_DAY)
@@ -328,16 +339,50 @@ fun GoogleCompose(
         if (mode in setOf(Verb.BOOK, Verb.INVITE, Verb.MOVE)) {
             SectionLabel(if (mode == Verb.MOVE) "MOVE IT TO" else "WHEN")
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-                // Short labels so four fit a narrow phone without scrolling or wrapping.
+            // ANY DATE, NOT FOUR OF THEM.
+            //
+            // This was Today / Tomorrow / +2d / +1w — so a meeting in three weeks could not be
+            // booked at all, and MOVING an event could only shift it within the same week. A
+            // calendar whose furthest reachable date is next Tuesday is not a calendar.
+            //
+            // The quick chips stay, because most bookings really are today or tomorrow and a chip
+            // beats a dialog for those. The picker is for everything else, and it is the platform's
+            // own — a familiar calendar grid rather than a bespoke one nobody has used before.
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(bottom = 6.dp)) {
                 listOf("Today" to 0, "Tomorrow" to 1, "+2d" to 2, "+1w" to 7)
                     .forEach { (l, d) -> Chip(l, dayOffset == d) { dayOffset = d } }
+                Chip("Pick a date", dayOffset !in setOf(0, 1, 2, 7)) {
+                    val now = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, dayOffset) }
+                    android.app.DatePickerDialog(ctx, { _, y, m, d ->
+                        // Kept as an offset in whole days from today so startMs, the clash check and
+                        // every downstream caller keep working exactly as they did.
+                        val picked = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, y); set(Calendar.MONTH, m); set(Calendar.DAY_OF_MONTH, d)
+                            set(Calendar.HOUR_OF_DAY, 12); set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                        }
+                        val today = Calendar.getInstance().apply {
+                            set(Calendar.HOUR_OF_DAY, 12); set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                        }
+                        dayOffset = Math.round(
+                            (picked.timeInMillis - today.timeInMillis) / 86_400_000.0).toInt()
+                    }, now.get(Calendar.YEAR), now.get(Calendar.MONTH),
+                       now.get(Calendar.DAY_OF_MONTH)).show()
+                }
             }
             // Hours as chips: nine taps covers the working day, and a wheel picker for a thing
             // people say out loud is a worse trade than a row of numbers.
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                 (7..20).forEach { h ->
                     Chip("$h:00", hour == h && minute == 0) { hour = h; minute = 0 }
+                }
+                // The chips cover 7am to 8pm, which is most of them and not all of them. A 6am
+                // flight and a 9pm call are real and were unbookable.
+                Chip("Any time", hour !in 7..20 || minute !in setOf(0, 15, 30, 45)) {
+                    android.app.TimePickerDialog(ctx, { _, h, m -> hour = h; minute = m },
+                        hour, minute, true).show()
                 }
             }
             Spacer(Modifier.height(6.dp))

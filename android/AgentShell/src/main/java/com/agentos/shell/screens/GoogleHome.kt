@@ -76,7 +76,7 @@ import java.util.Calendar
 fun GoogleHome(
     modifier: Modifier = Modifier,
     onAsk: (String) -> Unit,
-    onCompose: (Verb, CalendarTool.Event?) -> Unit,
+    onCompose: (Verb, CalendarTool.Event?, Int) -> Unit,
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -247,7 +247,7 @@ fun GoogleHome(
                             // which one, because you pointed at it.
                             .clickable {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onCompose(Verb.ACT_ON, ev)
+                                onCompose(Verb.ACT_ON, ev, dayOffset)
                             }
                             .padding(vertical = 11.dp),
                         verticalAlignment = Alignment.Top
@@ -275,7 +275,7 @@ fun GoogleHome(
                     Modifier.fillMaxWidth().graphicsLayer { alpha = fade }
                         .clickable {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCompose(v, null)
+                            onCompose(v, null, dayOffset)
                         }
                         .padding(vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
