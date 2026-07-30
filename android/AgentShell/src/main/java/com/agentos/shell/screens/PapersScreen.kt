@@ -69,6 +69,9 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
+    /** The tapped document. A tap opens choices, not one guessed action. */
+    var picked by remember { mutableStateOf<ReceivedDocs.AnyDoc?>(null) }
+    var working by remember { mutableStateOf(false) }
 
     // EVERYTHING, not just the emailed ones. Three stores, one list — see ReceivedDocs.everything.
     fun reload() { docs = ReceivedDocs.everything(ctx) }
@@ -154,21 +157,8 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             items(shown, key = { it.source.name + it.name + it.ts }) { d ->
                 Column(Modifier.fillMaxWidth().clickable {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        note = "opening ${d.name}…"
-                        scope.launch {
-                            val ok = withContext(Dispatchers.IO) {
-                                try {
-                                    when {
-                                        d.received != null -> ReceivedDocs.open(ctx, d.received)
-                                        d.uri.isNotBlank() ->
-                                            com.agentos.shell.tools.DocForge.open(ctx, d.uri, d.name)
-                                        else -> false
-                                    }
-                                } catch (e: Exception) { false }
-                            }
-                            // Said plainly. A tap that silently does nothing is worse than an error.
-                            note = if (ok) "" else "Couldn't open ${d.name}"
-                        }
+                        picked = if (picked === d) null else d
+                        note = ""
                     }.padding(vertical = 11.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(ReceivedDocs.label(d.kind).uppercase(), fontSize = 8.sp,
@@ -182,6 +172,45 @@ fun PapersScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Text(d.subtitle + " · " + java.text.SimpleDateFormat(
                             "d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(d.ts)),
                         fontSize = 10.sp, color = T.inkFaint, maxLines = 1)
+
+                    // WHAT YOU CAN ACTUALLY DO WITH IT.
+                    //
+                    // Tapping a document tried to open it and, when that failed, set an error string
+                    // that was never rendered anywhere — so the tap did nothing, visibly and
+                    // silently, which is the exact failure I had just finished removing from the
+                    // Power store. A list you can only look at is a filing cabinet that does not open.
+                    if (picked === d) {
+                        Spacer(Modifier.height(9.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            Text(if (working) "…" else "Open", fontSize = T.caption, color = T.accent,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable(enabled = !working) {
+                                    working = true; note = ""
+                                    scope.launch {
+                                        val ok = withContext(Dispatchers.IO) { openDoc(ctx, d) }
+                                        working = false
+                                        if (!ok) note = "Couldn't open ${d.name}"
+                                    }
+                                })
+                            // Share reaches every app on the phone — mail, WhatsApp, Drive — which is
+                            // more useful than a Send that only knows how to do email.
+                            Text(if (working) "…" else "Send", fontSize = T.caption, color = T.accent,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable(enabled = !working) {
+                                    working = true; note = ""
+                                    scope.launch {
+                                        val ok = withContext(Dispatchers.IO) { shareDoc(ctx, d) }
+                                        working = false
+                                        if (!ok) note = "Couldn't share ${d.name}"
+                                    }
+                                })
+                        }
+                        if (note.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            // Visible. An error nobody can see is the same as no error and a broken app.
+                            Text(note, fontSize = 10.sp, color = T.danger, lineHeight = 14.sp)
+                        }
+                    }
                 }
                 Hairline()
             }
@@ -209,3 +238,31 @@ private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
             maxLines = 1, softWrap = false)
     }
 }
+
+/**
+ * Open a document whatever produced it.
+ *
+ * A received one has to be fetched from Gmail first; everything else already has a uri on the
+ * device. Returns false rather than throwing, so the caller can say so on screen.
+ */
+private fun openDoc(ctx: android.content.Context, d: ReceivedDocs.AnyDoc): Boolean = try {
+    when {
+        d.received != null -> ReceivedDocs.open(ctx, d.received)
+        d.uri.isNotBlank() -> com.agentos.shell.tools.DocForge.open(ctx, d.uri, d.name)
+        else -> false
+    }
+} catch (e: Exception) { false }
+
+/** Hand it to any app on the phone — mail, WhatsApp, Drive — rather than only knowing about email. */
+private fun shareDoc(ctx: android.content.Context, d: ReceivedDocs.AnyDoc): Boolean = try {
+    val uri = when {
+        d.uri.isNotBlank() -> d.uri
+        d.received != null -> com.agentos.shell.tools.GmailClient.downloadAttachment(
+            ctx, com.agentos.shell.tools.GmailClient.MailAttachment(
+                d.received.msgId, d.received.attId, d.received.name, d.received.mime,
+                d.received.from, d.received.subject, d.received.ts))?.toString().orEmpty()
+        else -> ""
+    }
+    if (uri.isBlank()) false
+    else com.agentos.shell.tools.DocForge.share(ctx, uri, d.name)
+} catch (e: Exception) { false }
