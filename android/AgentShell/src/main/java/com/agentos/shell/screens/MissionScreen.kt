@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -49,6 +51,8 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
     var custom by remember { mutableStateOf("") }
     var goal by remember { mutableStateOf(MissionStore.mission(ctx)) }
     var prospects by remember { mutableStateOf<List<AgentClient.Prospect>>(emptyList()) }
+    /** Warm routes from the owner's own network — worked before any stranger is contacted. */
+    var warm by remember { mutableStateOf<List<com.agentos.shell.tools.MissionNetwork.Warm>>(emptyList()) }
     var contacted by remember { mutableStateOf(MissionStore.contacted(ctx)) }
     var replied by remember { mutableStateOf(MissionStore.replied(ctx)) }
     var busy by remember { mutableStateOf(false) }
@@ -116,13 +120,34 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         MissionStore.startCampaign(ctx, g, "", 10)
         goal = g; contacted = emptySet(); replied = emptySet()
         scope.launch {
+            // YOUR OWN NETWORK FIRST.
+            //
+            // This went straight to the web and cold-emailed strangers, while the CRM held 143 people
+            // the owner talks to and 20,005 LinkedIn connections that Mission had never once looked
+            // at. So it would cold-email the front door of a company where the owner already has a
+            // colleague — the most expensive mistake outreach can make, since a warm route converts
+            // far better and costs nothing to try first.
+            //
+            // Warm routes are AgentClient.Prospect like any other, so they flow through the same
+            // review, draft, send and contacted/replied tracking that already works.
+            warm = withContext(Dispatchers.IO) {
+                try { com.agentos.shell.tools.MissionNetwork.prospects(ctx, g, 12) }
+                catch (e: Exception) { emptyList() }
+            }
             val ps = withContext(Dispatchers.IO) { AgentClient.findProspects(g, MemoryStore.fullProfile(ctx)) }
-            prospects = ps
-            if (ps.isEmpty()) error = "No results. Web search needs Claude — set replies/Heavy to Claude in Settings, then retry."
+            // Never propose a stranger at a company the owner already has a person inside of — the
+            // warm route supersedes the cold one rather than sitting beside it.
+            val warmCos = warm.map { it.prospect.company.lowercase().trim() }.filter { it.isNotEmpty() }
+            val warmNames = warm.map { it.prospect.name.lowercase() }.toSet()
+            prospects = ps.filterNot { p ->
+                p.name.lowercase() in warmNames ||
+                    warmCos.any { c -> c.isNotEmpty() && p.company.lowercase().contains(c) }
+            }
+            if (ps.isEmpty() && warm.isEmpty()) error = "No results. Web search needs Claude — set replies/Heavy to Claude in Settings, then retry."
             else {
                 // Progress is measured against the people we ACTUALLY found, not a fixed 10 — otherwise
                 // reaching everyone (when only, say, 6 turn up) would cap the bar well below 40%.
-                MissionStore.setTarget(ctx, ps.size)
+                MissionStore.setTarget(ctx, prospects.size + warm.size)
                 MessageStore.insertOne(ctx, "Mission", "Mission", "me", "me", "Mission: $g — ${ps.size} targets found")
                 storeProspects(g, ps); MetricsStore.record(ctx, 900)
             }
@@ -348,9 +373,60 @@ fun MissionScreen(modifier: Modifier = Modifier, initialGoal: String = "", onBac
         if (busy) { Spacer(Modifier.height(10.dp)); Text("Searching the web for the right targets…", fontSize = T.caption, color = ACC) }
         if (error.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(error, fontSize = T.caption, color = T.danger) }
 
+        // ── WARM FIRST ──
+        //
+        // Worked above the cold list and visually separated, because the difference between "someone
+        // you speak to weekly" and "a stranger at a company you found on the web" is the single
+        // biggest factor in whether outreach works — and Mission has been treating them identically
+        // by only ever having the second kind.
+        if (warm.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            Text("FROM YOUR OWN NETWORK · ${warm.size}", fontSize = 10.sp, color = ACC,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(3.dp))
+            Text("start here — these people already know you", fontSize = T.caption, color = T.inkFaint)
+            var lastTier: com.agentos.shell.tools.MissionNetwork.Warmth? = null
+            warm.forEach { w ->
+                val p = w.prospect
+                if (w.warmth != lastTier) {
+                    lastTier = w.warmth
+                    Spacer(Modifier.height(12.dp))
+                    Text(com.agentos.shell.tools.MissionNetwork.warmthLabel(w.warmth).uppercase(),
+                        fontSize = 9.sp, color = T.inkFaint, fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp)
+                }
+                val done = key(p) in contacted
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .background(T.bgElevated).padding(14.dp)) {
+                    Text(p.name + (if (p.role.isNotBlank()) " · ${p.role.take(34)}" else ""),
+                        fontSize = T.body, color = T.ink)
+                    if (p.company.isNotBlank())
+                        Text(p.company, fontSize = T.caption, color = T.inkFaint)
+                    Spacer(Modifier.height(4.dp))
+                    // How you know them — the evidence, so a warm claim can be checked.
+                    Text(w.how, fontSize = T.caption, color = ACC)
+                    if (w.why.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(w.why, fontSize = T.caption, color = T.inkSoft)
+                    }
+                    Spacer(Modifier.height(9.dp))
+                    Text(if (done) "✓ contacted" else "Write to them  →",
+                        fontSize = T.caption, color = if (done) T.good else ACC,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable(enabled = !done) { review = p })
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+
         if (prospects.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            Text("${prospects.size} targets found", fontSize = T.caption, color = T.inkFaint)
+            Text(if (warm.isNotEmpty()) "AND ${prospects.size} FROM THE WEB" else "${prospects.size} targets found",
+                fontSize = if (warm.isNotEmpty()) 10.sp else T.caption,
+                color = T.inkFaint,
+                fontWeight = if (warm.isNotEmpty()) FontWeight.Bold else FontWeight.Normal,
+                letterSpacing = if (warm.isNotEmpty()) 1.6.sp else 0.sp)
             prospects.forEach { p ->
                 val done = key(p) in contacted
                 Spacer(Modifier.height(8.dp))

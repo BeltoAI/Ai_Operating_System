@@ -165,6 +165,14 @@ object BrainContext {
         val crm = try {
             if (Crm.isPeopleQuestion(ctx, q)) Crm.contextFor(ctx, q) else ""
         } catch (e: Exception) { "" }
+        // THE MISSION, WHEREVER IT IS ASKED ABOUT.
+        //
+        // Mission had the same problem the CRM did: a goal, a target list and a contacted/replied
+        // count that only its own page could read. So "who should I talk to about the seed round"
+        // or "how's the outreach going" was unanswerable from Home while the answer sat two
+        // screens away. Ungated because it is short and a mission is, by definition, the thing the
+        // owner is currently trying to do — it is relevant to more questions than not.
+        val missionBlock = try { MissionNetwork.brainBlock(ctx) } catch (e: Exception) { "" }
         val mem = profileBlock(ctx).take(9000)
         val tProfile = System.currentTimeMillis()
         val cal = CalendarTool.upcoming(ctx)
@@ -364,6 +372,7 @@ object BrainContext {
             // box, which would leave the assistant knowing less than one of its own pages.
             if (vitals.isNotEmpty()) append("\n\n").append(vitals)
             if (crm.isNotEmpty()) append("\n\n").append(crm)
+            if (missionBlock.isNotEmpty()) append("\n\n").append(missionBlock)
             append("\nCurrent time: ").append(now)
         }
     }
