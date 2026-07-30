@@ -285,7 +285,16 @@ private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text("FEATURED", fontSize = 10.sp, color = Color(0xCCFFFFFF), fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Column {
-                Text("power to ${p.tagline}", fontSize = 23.sp, color = Color.White, fontWeight = FontWeight.Bold, lineHeight = 27.sp)
+                // THE NAME. It was nowhere on this screen.
+                //
+                // Every card showed a decorative monogram — one letter — and a tagline, and the name
+                // only appeared after you tapped through. So the store read "P · power to see the
+                // live web, with sources": you could not tell what any of it WAS without opening it
+                // one at a time. A shop where nothing is labelled.
+                Text(p.name, fontSize = 12.sp, color = Color(0xEEFFFFFF),
+                    fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+                Spacer(Modifier.height(3.dp))
+                Text("power to ${p.tagline}", fontSize = 21.sp, color = Color.White, fontWeight = FontWeight.Bold, lineHeight = 25.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("★ ${"%.1f".format(p.rating)}  ·  ${if (onPhoneNow(p)) "works on your phone" else "needs a computer"}", fontSize = T.caption, color = Color(0xDDFFFFFF))
@@ -302,8 +311,10 @@ private fun FeaturedCard(p: Power, installed: Boolean, onClick: () -> Unit) {
 private fun RailCard(p: Power, onClick: () -> Unit) {
     Column(Modifier.padding(end = 12.dp, top = 4.dp).width(150.dp).clip(RoundedCornerShape(16.dp)).background(T.bgElevated).clickable { onClick() }.padding(12.dp)) {
         Crest(p, 52)
-        Spacer(Modifier.height(10.dp))
-        Text(p.tagline, fontSize = T.small, color = T.ink, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp, maxLines = 3, modifier = Modifier.height(54.dp))
+        Spacer(Modifier.height(9.dp))
+        Text(p.name, fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, maxLines = 1)
+        Spacer(Modifier.height(3.dp))
+        Text(p.tagline, fontSize = T.caption, color = T.ink, fontWeight = FontWeight.Medium, lineHeight = 16.sp, maxLines = 3, modifier = Modifier.height(48.dp))
         Spacer(Modifier.height(6.dp))
         RatingRow(p)
     }
@@ -316,6 +327,8 @@ private fun RankRow(rank: Int, p: Power, installed: Boolean, onClick: () -> Unit
         Crest(p, 48)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
+            Text(p.name, fontSize = 11.sp, color = T.accent, fontWeight = FontWeight.Bold, maxLines = 1)
+            Spacer(Modifier.height(2.dp))
             Text(p.tagline, fontSize = 16.sp, color = T.ink, fontWeight = FontWeight.SemiBold, maxLines = 2, lineHeight = 20.sp)
             Spacer(Modifier.height(3.dp))
             RatingRow(p)

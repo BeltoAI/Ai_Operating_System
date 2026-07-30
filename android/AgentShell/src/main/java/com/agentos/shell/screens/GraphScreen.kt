@@ -403,8 +403,16 @@ fun GraphScreen(
                             }
                             // Ordered so the newest discoveries (deeper hops) sit at the bottom, the
                             // way a path is read.
+                            // ONE CARD PER PERSON.
+                            //
+                            // These were rows inside a single panel, which reads as a list to
+                            // consider rather than a stack of things to do. Each person now owns a
+                            // card with their own reasoning and their own single action, so the unit
+                            // of the screen is the unit of the decision.
                             q.hops.sortedWith(compareBy({ it.depth }, { it.id })).forEach { hop ->
-                                Spacer(Modifier.height(12.dp))
+                              Spacer(Modifier.height(9.dp))
+                              Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+                                  .background(T.bg).padding(horizontal = 13.dp, vertical = 12.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(if (hop.depth == 0) "①" else "②", fontSize = 11.sp,
                                         color = T.accent)
@@ -419,14 +427,14 @@ fun GraphScreen(
                                             else -> T.accent
                                         })
                                 }
-                                Text(hop.why, fontSize = 10.sp, color = T.inkFaint, lineHeight = 14.sp,
-                                    modifier = Modifier.padding(start = 18.dp))
+                                Spacer(Modifier.height(4.dp))
+                                Text(hop.why, fontSize = 10.sp, color = T.inkFaint, lineHeight = 14.sp)
                                 if (hop.reply.isNotBlank())
                                     Text("“${hop.reply.take(120)}”", fontSize = 10.sp,
                                         color = T.inkSoft, lineHeight = 14.sp,
-                                        modifier = Modifier.padding(start = 18.dp, top = 3.dp))
+                                        modifier = Modifier.padding(top = 5.dp))
                                 // ONE TAP PER STEP. Nothing is sent, and nothing advances, without it.
-                                Row(Modifier.padding(start = 18.dp, top = 5.dp)) {
+                                Row(Modifier.padding(top = 8.dp)) {
                                     if (hop.state == com.agentos.shell.tools.IntroQuest.HopState.SUGGESTED) {
                                         Text(if (asking) "writing…" else "Write the ask →",
                                             fontSize = 10.sp, color = T.accent,
@@ -461,6 +469,7 @@ fun GraphScreen(
                                             fontSize = 10.sp, color = T.inkFaint)
                                     }
                                 }
+                              }
                             }
                             if (draft.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
