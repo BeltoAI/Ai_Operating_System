@@ -53,9 +53,32 @@ object ExpenseStore {
     /** Insert; returns the new row id, or -1 if a row with the same hash already exists (deduped). */
     fun add(ctx: Context, e: Expense): Long {
         val d = db(ctx)
+        // A ZERO-TOTAL EXPENSE IS A FAILED PARSE, NOT AN EXPENSE.
+        //
+        // Found on the device: five rows, one of them "Mega Mart · 0.0". A receipt whose total could
+        // not be read was filed as a real purchase, where it sits in the list looking legitimate and
+        // silently drags every average down. Refusing it loses nothing — there was never an amount.
+        if (e.total <= 0.0) return -1L
         val h = if (e.hash.isNotBlank()) e.hash else hashOf(e.merchant, e.ts, e.total)
         try {
             d.rawQuery("SELECT id FROM expenses WHERE hash=? LIMIT 1", arrayOf(h)).use { if (it.moveToFirst()) return -1L }
+        } catch (ex: Exception) {}
+        // THE DATE IS THE LEAST RELIABLE FIELD, SO IT CANNOT BE PART OF IDENTITY.
+        //
+        // The hash was merchant + ts + total, which assumes the parsed date is trustworthy. It is
+        // not: the same Mega Mart receipt appears twice at £52.09, once dated 2026-07-08 and once
+        // 2024-01-01 — a "no date found" fallback — so the hashes differed and both were kept. An
+        // Instacart email receipt landed in 2023 for the same reason.
+        //
+        // Merchant and total, inside a fortnight, is what actually identifies a purchase. Two real
+        // identical charges at one shop within two weeks is rare; a receipt scanned twice is not.
+        try {
+            d.rawQuery(
+                "SELECT id FROM expenses WHERE merchant=? AND ABS(total-?)<0.01 " +
+                "AND ABS(ts-?) < ? LIMIT 1",
+                arrayOf(e.merchant, e.total.toString(), e.ts.toString(),
+                    (14L * 86_400_000L).toString())
+            ).use { if (it.moveToFirst()) return -1L }
         } catch (ex: Exception) {}
         val cv = android.content.ContentValues().apply {
             put("merchant", e.merchant); put("ts", e.ts); put("total", e.total); put("currency", e.currency.ifBlank { "USD" })
