@@ -422,42 +422,61 @@ grant execute on function public.can_reach(uuid) to authenticated;
 -- still looks fine. These views are what make that visible, and the second one is the important
 -- one: the share of asks that died with nobody answering.
 -- ─────────────────────────────────────────────────────────────────────────────
-create or replace view public.slyos_ask_funnel as
-select
-  a.id,
-  a.criteria,
-  a.state,
-  a.created_at,
-  count(c.*)                                              as reached,
-  count(*) filter (where c.state = 'ignored')             as found_nothing,
-  count(*) filter (where c.state in ('interested','accepted')) as knew_someone,
-  count(*) filter (where c.state = 'declined')            as declined,
-  count(distinct b.id)                                    as introductions,
-  count(distinct lower(btrim(b.person)))                  as distinct_people,
-  max(c.strength)                                         as best_strength,
-  min(c.updated_at) - a.created_at                        as time_to_first_answer
-from asks a
-left join ask_candidates c on c.ask_id = a.id
-left join bridges b        on b.ask_id = a.id
-group by a.id, a.criteria, a.state, a.created_at;
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Measurement, and the reason it is a function rather than a view.
+--
+-- A plain view runs under the caller's row-level security, and RLS deliberately hides `ignored`
+-- candidates from the asker — nobody, including the person who asked, may enumerate who was
+-- approached. So a view reports "reached 3" when the ask actually reached five, and the one number
+-- that matters most (how many found nothing) is structurally always zero.
+--
+-- COUNTS identify nobody. So they come back through a SECURITY DEFINER function that can see the
+-- whole picture, guarded so you only ever get the funnel for an ask you own. You learn how many
+-- people looked and said nothing; you never learn which.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.ask_funnel(p_ask uuid)
+returns table(
+  criteria text, reached bigint, found_nothing bigint, knew_someone bigint,
+  still_thinking bigint, declined bigint, introductions bigint, distinct_people bigint,
+  best_strength real, time_to_first_answer interval
+) language sql security definer stable set search_path = public as $$
+  select
+    a.criteria,
+    (select count(*) from ask_candidates x where x.ask_id = a.id),
+    (select count(*) from ask_candidates x where x.ask_id = a.id and x.state = 'ignored'),
+    (select count(*) from ask_candidates x where x.ask_id = a.id and x.state in ('interested','accepted')),
+    (select count(*) from ask_candidates x where x.ask_id = a.id and x.state = 'sent'),
+    (select count(*) from ask_candidates x where x.ask_id = a.id and x.state = 'declined'),
+    (select count(*) from bridges y where y.ask_id = a.id),
+    (select count(distinct lower(btrim(y.person))) from bridges y where y.ask_id = a.id),
+    (select max(x.strength) from ask_candidates x where x.ask_id = a.id),
+    (select min(x.updated_at) from ask_candidates x where x.ask_id = a.id) - a.created_at
+  from asks a
+  where a.id = p_ask and a.from_user = auth.uid();
+$$;
 
-create or replace view public.slyos_network_health as
-select
-  (select count(*) from profiles where coalesce(offer,'') <> ''
-                                     or coalesce(looking_for,'') <> '')       as published_profiles,
-  (select count(*) from asks)                                                 as asks_total,
-  (select count(*) from asks where state = 'open')                            as asks_open,
-  (select count(*) from bridges)                                              as introductions,
-  -- THE headline. An ask that reached people and got nothing back is the failure this design has
-  -- to be measured against, not the one that worked.
-  round(100.0 * (select count(*) from slyos_ask_funnel where introductions > 0)
-              / nullif((select count(*) from asks), 0), 1)                    as pct_asks_introduced,
-  round(100.0 * (select count(*) from ask_candidates where state <> 'sent')
-              / nullif((select count(*) from ask_candidates), 0), 1)          as pct_candidates_answered,
-  round(100.0 * (select count(*) from ask_candidates where state in ('interested','accepted'))
-              / nullif((select count(*) from ask_candidates), 0), 1)          as pct_who_knew_someone,
-  (select round(avg(reached), 1) from slyos_ask_funnel)                       as avg_reach_per_ask,
-  (select avg(time_to_first_answer) from slyos_ask_funnel
-    where time_to_first_answer is not null)                                   as avg_time_to_answer;
+grant execute on function public.ask_funnel(uuid) to authenticated;
 
-grant select on public.slyos_ask_funnel, public.slyos_network_health to authenticated;
+create or replace function public.network_health()
+returns table(
+  published_profiles bigint, asks_total bigint, asks_open bigint, introductions bigint,
+  pct_asks_introduced numeric, pct_candidates_answered numeric, pct_who_knew_someone numeric,
+  avg_reach_per_ask numeric
+) language sql security definer stable set search_path = public as $$
+  select
+    (select count(*) from profiles where coalesce(offer,'') <> '' or coalesce(looking_for,'') <> ''),
+    (select count(*) from asks),
+    (select count(*) from asks where state = 'open'),
+    (select count(*) from bridges),
+    -- THE headline, and deliberately the failure one: asks that reached people and got nothing.
+    round(100.0 * (select count(distinct ask_id) from bridges)
+                / nullif((select count(*) from asks), 0), 1),
+    round(100.0 * (select count(*) from ask_candidates where state <> 'sent')
+                / nullif((select count(*) from ask_candidates), 0), 1),
+    round(100.0 * (select count(*) from ask_candidates where state in ('interested','accepted'))
+                / nullif((select count(*) from ask_candidates), 0), 1),
+    round((select count(*) from ask_candidates)::numeric
+        / nullif((select count(*) from asks), 0), 1);
+$$;
+
+grant execute on function public.network_health() to authenticated;
