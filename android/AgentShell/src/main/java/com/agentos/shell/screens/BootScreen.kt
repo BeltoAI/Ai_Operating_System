@@ -24,6 +24,48 @@ import com.agentos.shell.theme.T
  * old static "waking up…". A soft accent glow pulses behind, a light sweeps across the script, the line
  * below gently breathes.
  */
+/**
+ * The brand mark, animated — the owner's own 11-second trace of the SlyOS S.
+ *
+ * Played through [android.graphics.drawable.AnimatedImageDrawable], which handles animated WebP
+ * natively from API 28, so this needs no Coil, no Glide and no Lottie — nothing added to the build
+ * for one asset.
+ *
+ * The source recording sat on a #090909 background and the app's is #12100C, a warm near-black, so
+ * dropping the clip in as-is would have put a subtly wrong black square in the middle of the screen.
+ * The background is keyed out to TRANSPARENT instead, which means the mark sits on whatever the theme
+ * is — and stays correct in light mode too, where a baked-in black would have been unmissable.
+ *
+ * Trimmed to six seconds at 24fps and 144px: the full 60fps original was 1.4MB for a splash nobody
+ * watches twice.
+ */
+@Composable
+private fun BrandMark(size: Int) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.ui.viewinterop.AndroidView(
+        modifier = Modifier.size(size.dp),
+        factory = { c ->
+            android.widget.ImageView(c).apply {
+                try {
+                    val src = android.graphics.ImageDecoder.createSource(
+                        c.resources, com.agentos.shell.R.raw.s_boot)
+                    val d = android.graphics.ImageDecoder.decodeDrawable(src)
+                    setImageDrawable(d)
+                    (d as? android.graphics.drawable.AnimatedImageDrawable)?.apply {
+                        // ONCE, ALL THE WAY THROUGH. A mark that loops has no ending, and one that
+                        // restarts halfway through reads as a stutter rather than a signature. The
+                        // boot delay below is set to the clip's length so it always completes —
+                        // at 2300ms against a six-second clip, only the first third was ever seen.
+                        repeatCount = 0
+                        start()
+                    }
+                } catch (e: Exception) {
+                    // A splash must never be the reason the app fails to open.
+                }
+            }
+        })
+}
+
 @Composable
 fun BootScreen(modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "boot")
@@ -49,9 +91,10 @@ fun BootScreen(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.alpha(appear.value).scale(0.94f + 0.06f * appear.value)
         ) {
-            // Small brand anchor above the hero word.
-            Text("SlyOS", fontFamily = T.scriptFamily, fontSize = 26.sp, color = T.inkFaint, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(10.dp))
+            // The animated mark, where the small text wordmark used to sit — the owner's own trace
+            // of the S, which says the same thing and moves.
+            BrandMark(size = 92)
+            Spacer(Modifier.height(4.dp))
             // The cursive hero, with a light sweeping across it.
             Text(
                 "welcome",

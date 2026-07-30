@@ -293,7 +293,11 @@ class ShellActivity : ComponentActivity() {
 
             // Boot -> Lock after a calm beat.
             // Boot animation → straight to Home (the glance/lock screen was removed per the owner's request).
-            LaunchedEffect(Unit) { delay(2300); if (screen == Screen.Boot) screen = Screen.Home }
+            // Long enough for the brand mark to finish. The clip is ~2.9s (the trace and the fill,
+            // played at 0.4x the recording's length), so this is that plus a beat to read "welcome"
+            // — and the whole point is that it starts and ends properly on every restart rather than
+            // being cut off mid-stroke.
+            LaunchedEffect(Unit) { delay(3400); if (screen == Screen.Boot) screen = Screen.Home }
 
             // Pressing Home from anywhere returns to Home (or Manual if paused).
             BackHandler(enabled = screen != Screen.Home && screen != Screen.Boot) {
