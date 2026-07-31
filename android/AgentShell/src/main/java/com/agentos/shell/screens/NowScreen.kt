@@ -770,6 +770,8 @@ private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.A
     var open by remember { mutableStateOf(false) }
     var who by remember { mutableStateOf<com.agentos.shell.tools.Asks.Handoff?>(null) }
     var reason by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf("") }
+    var drafting by remember { mutableStateOf(false) }
     var outcome by remember { mutableStateOf(b.outcome) }
     if (gone) return
 
@@ -852,6 +854,56 @@ private fun IntroCard(ctx: android.content.Context, b: com.agentos.shell.tools.A
                 if (h.email.isBlank() && h.calendly.isBlank() && h.phone.isBlank())
                     Text("${h.name} hasn't shared a way to reach them yet.",
                         fontSize = 10.sp, color = T.inkFaint)
+
+                // The blank message box is the actual hard part of a warm introduction. Written
+                // here, on this phone, from this owner's brain — nothing extra crosses between
+                // two people for it to exist, and it sounds like them rather than like a system.
+                Spacer(Modifier.height(12.dp))
+                if (draft.isBlank()) {
+                    Text(if (drafting) "writing…" else "Write the message for me →",
+                        fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable(enabled = !drafting) {
+                            drafting = true
+                            scope.launch {
+                                draft = withContext(Dispatchers.IO) {
+                                    try {
+                                        com.agentos.shell.tools.Asks.draftOutreach(
+                                            ctx, h.name, b.person, b.note)
+                                    } catch (e: Exception) { "" }
+                                }
+                                drafting = false
+                            }
+                        })
+                } else {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(T.bg).padding(13.dp)) {
+                        Text(draft, fontSize = T.caption, color = T.inkSoft, lineHeight = 19.sp)
+                    }
+                    Spacer(Modifier.height(9.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Text("Copy", fontSize = T.caption, color = T.accent,
+                            modifier = Modifier.clickable {
+                                try {
+                                    (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                        as android.content.ClipboardManager)
+                                        .setPrimaryClip(android.content.ClipData.newPlainText("intro", draft))
+                                } catch (e: Exception) {}
+                            })
+                        if (h.email.isNotBlank()) Text("Send it", fontSize = T.caption,
+                            color = T.accent, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable {
+                                try {
+                                    ctx.startActivity(android.content.Intent(
+                                        android.content.Intent.ACTION_SENDTO,
+                                        android.net.Uri.parse("mailto:" + h.email))
+                                        .putExtra(android.content.Intent.EXTRA_SUBJECT,
+                                            "Intro to " + b.person + "?")
+                                        .putExtra(android.content.Intent.EXTRA_TEXT, draft)
+                                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                } catch (e: Exception) {}
+                            })
+                    }
+                }
 
                 Spacer(Modifier.height(13.dp))
                 // The measurement, asked at the only moment anybody knows the answer.

@@ -43,9 +43,30 @@ object NetworkProfile {
         val tags: List<String> = emptyList(),
         /** open · vouched · closed — nobody is forced to be reachable. */
         val reachability: String = "vouched",
+        /**
+         * How somebody reaches you once you have agreed to be reached.
+         *
+         * Not optional in practice, though the schema lets it be. `share_on_intro` defaults to
+         * "email" while `contact_email` defaults to null — so a profile that has never filled this
+         * in agrees to an introduction and then hands the other person a card with nothing on it.
+         * Silent, and indistinguishable from the feature being broken.
+         */
+        val contactEmail: String = "",
+        val contactPhone: String = "",
+        val calendly: String = "",
+        /** email · calendly · both · none */
+        val shareOnIntro: String = "email",
         val updatedAt: Long = 0L
     ) {
         val isEmpty: Boolean get() = offer.isBlank() && lookingFor.isBlank() && openTo.isBlank()
+
+        /** Can anybody actually reach you if you say yes? */
+        val reachable: Boolean get() = when (shareOnIntro) {
+            "none"     -> true                      // deliberate, and honest
+            "calendly" -> calendly.isNotBlank()
+            "both"     -> contactEmail.isNotBlank() || calendly.isNotBlank()
+            else       -> contactEmail.isNotBlank()
+        }
     }
 
     private fun p(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -58,6 +79,10 @@ object NetworkProfile {
             s.getString("open", "").orEmpty(),
             (s.getStringSet("tags", emptySet()) ?: emptySet()).toList().sorted(),
             s.getString("reach", "vouched") ?: "vouched",
+            s.getString("c_email", "").orEmpty(),
+            s.getString("c_phone", "").orEmpty(),
+            s.getString("c_cal", "").orEmpty(),
+            s.getString("c_share", "email") ?: "email",
             s.getLong("at", 0L))
     } catch (e: Exception) { Profile() }
 
@@ -69,10 +94,20 @@ object NetworkProfile {
                 .putString("open", prof.openTo.trim())
                 .putStringSet("tags", prof.tags.toSet())
                 .putString("reach", prof.reachability)
+                .putString("c_email", prof.contactEmail.trim())
+                .putString("c_phone", prof.contactPhone.trim())
+                .putString("c_cal", prof.calendly.trim())
+                .putString("c_share", prof.shareOnIntro)
                 .putLong("at", System.currentTimeMillis())
                 .apply()
         } catch (e: Exception) {}
     }
+
+    val SHARING = listOf(
+        "email" to "My email address",
+        "calendly" to "A link to book time",
+        "both" to "Email, phone and booking link",
+        "none" to "Nothing — I'll reach out myself")
 
     val REACHABILITY = listOf(
         "open" to "Anyone can reach me",
@@ -149,6 +184,10 @@ object NetworkProfile {
                 .put("open_to", prof.openTo)
                 .put("tags", JSONArray(prof.tags))
                 .put("reachability", prof.reachability)
+                .put("contact_email", prof.contactEmail.trim())
+                .put("contact_phone", prof.contactPhone.trim())
+                .put("calendly", prof.calendly.trim())
+                .put("share_on_intro", prof.shareOnIntro)
                 // One integer, and deliberately nothing more. It is what lets somebody else's galaxy
                 // be the right size on your screen without a single one of their people leaving
                 // their phone.

@@ -132,6 +132,42 @@ fun StandingScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
         }
 
+        // ── How they reach you, once you have said yes ──
+        //
+        // Separate from WHO can reach you, and easy to skip, which is the problem: the default is
+        // "share my email" while the email itself starts empty. Somebody agrees to an introduction
+        // and the other person gets a card with no way to contact them — a failure that looks
+        // exactly like the feature not working.
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("HOW THEY REACH YOU")
+        Spacer(Modifier.height(3.dp))
+        Text("released only when you agree to an introduction — never before",
+            fontSize = 10.sp, color = T.inkFaint)
+        Spacer(Modifier.height(8.dp))
+        NetworkProfile.SHARING.forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().clickable { prof = prof.copy(shareOnIntro = key) }
+                .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (prof.shareOnIntro == key) "●" else "○", fontSize = 13.sp,
+                    color = if (prof.shareOnIntro == key) T.accent else T.inkFaint)
+                Text("  $label", fontSize = T.caption,
+                    color = if (prof.shareOnIntro == key) T.ink else T.inkSoft)
+            }
+        }
+        if (prof.shareOnIntro != "none") {
+            Spacer(Modifier.height(6.dp))
+            if (prof.shareOnIntro != "calendly")
+                Line("email", prof.contactEmail) { prof = prof.copy(contactEmail = it) }
+            if (prof.shareOnIntro != "email")
+                Line("cal.com / calendly link", prof.calendly) { prof = prof.copy(calendly = it) }
+            if (prof.shareOnIntro == "both")
+                Line("phone", prof.contactPhone) { prof = prof.copy(contactPhone = it) }
+            if (!prof.reachable) {
+                Spacer(Modifier.height(7.dp))
+                Text("Fill this in, or an introduction you accept arrives with no way to reach you.",
+                    fontSize = 10.sp, color = T.danger, lineHeight = 15.sp)
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
         SectionLabel("WHO CAN REACH ME")
         Spacer(Modifier.height(8.dp))
@@ -169,6 +205,19 @@ fun StandingScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                 color = if (note.contains("✓")) T.good else T.danger, lineHeight = 17.sp)
         }
         Spacer(Modifier.height(50.dp))
+    }
+}
+
+/** One short single-line input. Used for the contact details, which are values, not prose. */
+@Composable
+private fun Line(hint: String, value: String, onChange: (String) -> Unit) {
+    Spacer(Modifier.height(8.dp))
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(T.bgElevated)
+        .padding(horizontal = 14.dp, vertical = 12.dp)) {
+        if (value.isEmpty()) Text(hint, fontSize = T.caption, color = T.inkFaint)
+        BasicTextField(value, onChange, singleLine = true,
+            textStyle = TextStyle(color = T.ink, fontSize = T.caption),
+            modifier = Modifier.fillMaxWidth())
     }
 }
 

@@ -433,6 +433,39 @@ object Asks {
         } catch (e: Exception) { null }
     }
 
+    /**
+     * The message to send the person who offered.
+     *
+     * Written on the ASKER's phone, from the asker's own brain — not fetched, not sent by anybody
+     * else's agent. That matters twice over: it sounds like them rather than like a system, and it
+     * needs no extra fact to cross between two people to exist. All it uses is what they already
+     * know: their own voice, what they asked for, and the two names.
+     *
+     * The hardest part of a warm introduction has never been finding the route. It is the blank
+     * message box afterwards.
+     */
+    fun draftOutreach(ctx: Context, holderName: String, person: String, criteria: String): String {
+        val me = try { MemoryStore.ownerName(ctx) } catch (e: Exception) { "" }
+        val about = try { MemoryStore.fullProfile(ctx).take(700) } catch (e: Exception) { "" }
+        val body = try {
+            AgentClient.complete(
+                "Write a short note asking someone to make an introduction they have ALREADY " +
+                "offered to make. Four sentences at most. Warm, specific, no flattery, no " +
+                "subject line, no placeholders, no markdown. Thank them for offering, say in one " +
+                "clause what you would want from the conversation, and make it easy to say no. " +
+                "Sign off with the sender's first name only.",
+                "Sender: ${me.ifBlank { "the sender" }}\nAbout the sender:\n$about\n\n" +
+                "Recipient: $holderName, who offered to introduce the sender to $person.\n" +
+                "What the sender originally asked the network for: $criteria\n\nThe note only.",
+                320)
+        } catch (e: Exception) { "" }
+        // Strippers, not prompt rules. Asking a model not to emit markdown works until it doesn't.
+        return body.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+            .replace(Regex("(?m)^#{1,6}\\s*"), "")
+            .replace(Regex("(?m)^\\s*[-*]\\s+"), "")
+            .trim()
+    }
+
     /** Record what actually came of it. `no_reply` matters more than `connected`. */
     fun setOutcome(ctx: Context, askId: String, holder: String, outcome: String,
                    person: String = ""): Boolean {

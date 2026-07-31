@@ -108,6 +108,16 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         // matters: this line is read by strangers' agents.
         Text("this line is public — say what you want, never why",
             fontSize = 9.sp, color = T.inkFaint)
+        // An untagged ask reaches everybody rather than the right people. That is the correct
+        // fallback and a poor outcome, so it is worth one line of warning rather than silently
+        // spraying a good question at an unrelated audience.
+        val myTags = remember { try { NetworkProfile.get(ctx).tags } catch (e: Exception) { emptyList() } }
+        if (myTags.isEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text("You have no routing words yet, so this goes to everyone. " +
+                 "Add them in Where you stand and it goes to the right people.",
+                fontSize = 9.sp, color = T.danger, lineHeight = 14.sp)
+        }
 
         Spacer(Modifier.height(11.dp))
         Text(if (sending) "sending…" else "Ask the network", fontSize = T.caption,

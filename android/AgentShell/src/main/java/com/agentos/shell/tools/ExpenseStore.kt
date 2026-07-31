@@ -89,11 +89,57 @@ object ExpenseStore {
         return try { d.insert("expenses", null, cv) } catch (ex: Exception) { -1L }
     }
 
+    /**
+     * A receipt date, or now.
+     *
+     * Three things were wrong here and they compounded. `isLenient = true` means SimpleDateFormat
+     * accepts nonsense rather than throwing, so a bad parse became a silently wrong date instead of
+     * a fallback to today. There was no format for a receipt printed WITHOUT a year — which is most
+     * of them — so "Jul 22" either failed or, under lenient parsing, landed in year 22. And nothing
+     * sanity-checked the result, so a purchase made last week could be filed under 2023 and nobody
+     * would see it until they scrolled a long way down.
+     *
+     * Now: strict parsing, year-less dates resolved to the most recent one that has actually
+     * happened, and anything impossible thrown away rather than stored.
+     */
     private fun parseDate(iso: String): Long {
-        for (f in listOf("yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd", "MM/dd/yyyy", "yyyy/MM/dd")) {
-            try { java.text.SimpleDateFormat(f, java.util.Locale.US).apply { isLenient = true }.parse(iso.trim())?.let { return it.time } } catch (e: Exception) {}
+        val t = iso.trim()
+        if (t.isEmpty()) return System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+
+        // Dates that carry their own year.
+        for (f in listOf("yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd",
+                         "MM/dd/yyyy", "yyyy/MM/dd", "dd.MM.yyyy", "MMM d, yyyy", "d MMM yyyy")) {
+            try {
+                val d = java.text.SimpleDateFormat(f, java.util.Locale.US)
+                    .apply { isLenient = false }.parse(t) ?: continue
+                if (plausible(d.time, now)) return d.time
+            } catch (e: Exception) {}
         }
-        return System.currentTimeMillis()
+
+        // Printed without a year, which is the common case on a till receipt. The right year is
+        // the most recent one in which that day has already happened — never a future date.
+        for (f in listOf("MMM d", "d MMM", "MM/dd", "MM-dd")) {
+            try {
+                val d = java.text.SimpleDateFormat(f, java.util.Locale.US)
+                    .apply { isLenient = false }.parse(t) ?: continue
+                val cal = java.util.Calendar.getInstance().apply { time = d }
+                val nowCal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.YEAR, nowCal.get(java.util.Calendar.YEAR))
+                if (cal.timeInMillis > now + 2 * 86_400_000L)
+                    cal.add(java.util.Calendar.YEAR, -1)
+                if (plausible(cal.timeInMillis, now)) return cal.timeInMillis
+            } catch (e: Exception) {}
+        }
+        return now
+    }
+
+    /** No receipt is from the future, and almost none a phone scans is from before 2015. */
+    private fun plausible(ts: Long, now: Long): Boolean {
+        if (ts > now + 2 * 86_400_000L) return false
+        val y = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+            .get(java.util.Calendar.YEAR)
+        return y in 2015..2100
     }
 
     /**
