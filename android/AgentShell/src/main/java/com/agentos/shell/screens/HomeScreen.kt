@@ -1387,13 +1387,28 @@ fun HomeScreen(
     LaunchedEffect(initialPrompt) {
         if (initialPrompt.isNotBlank()) { text = initialPrompt; submit(initialPrompt, false); onPromptConsumed() }
     }
-    // Half a sentence and an open microphone. Nothing is sent until she has finished saying it.
+    // Half a sentence, and a plain instruction for finishing it.
+    //
+    // Opening the microphone automatically was the wrong call: the affordance underneath says
+    // "hold to talk", so a screen that is already listening while telling you to hold something is
+    // a screen nobody trusts. The sentence is started, and she is told — in the largest type on
+    // the page — exactly what to do next.
+    var sayTheRest by remember { mutableStateOf(false) }
+    // The prefix has to be kept, because `initialDraft` is consumed the moment it is read — so
+    // comparing against it afterwards compares against "", and the hint cancelled itself before it
+    // was ever drawn.
+    var draftPrefix by remember { mutableStateOf("") }
     LaunchedEffect(initialDraft) {
         if (initialDraft.isNotBlank()) {
             text = initialDraft
+            draftPrefix = initialDraft
+            sayTheRest = true
             onDraftConsumed()
-            try { startVoice() } catch (e: Exception) {}
         }
+    }
+    // It stops being an instruction the moment she has actually added something.
+    LaunchedEffect(text) {
+        if (sayTheRest && (text.isBlank() || text.trim() != draftPrefix.trim())) sayTheRest = false
     }
 
     // Live status bar: clock + battery, so Home reads like a real OS home screen (One UI hides these
@@ -2350,9 +2365,13 @@ fun HomeScreen(
                     when {
                         holding -> "let go to send"
                         speaking -> "tap to stop"
+                        sayTheRest -> "hold this and say the rest"
                         else -> "hold to talk"
                     },
-                    fontSize = T.small, color = T.inkSoft)
+                    fontSize = if (sayTheRest && !holding && !speaking) 20.sp else T.small,
+                    color = if (sayTheRest && !holding && !speaking) T.accent else T.inkSoft,
+                    fontWeight = if (sayTheRest && !holding && !speaking) FontWeight.Medium
+                                 else FontWeight.Normal)
 
                 // NO BUTTON HERE ANY MORE.
                 //
