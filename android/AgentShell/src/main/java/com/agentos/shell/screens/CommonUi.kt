@@ -217,8 +217,17 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, simple: Boolean = false,
         NavTab(Icons.Filled.Home, "Home", current == Screen.Home) { onNav(Screen.Home) }
         NavTab(Icons.Filled.Bolt, "Now", current == Screen.Now, badge = nowCount) { onNav(Screen.Now) }
 
-        // The brain — center, always emphasized.
         val memActive = current == Screen.Memory || current == Screen.MemorySettings
+        // In simple mode the brain is just another tab. A glowing orange circle in the middle of
+        // four large targets pulls both the eye and the thumb towards the panel that matters least
+        // to somebody who asked for a simpler phone.
+        if (simple) {
+            NavTab(Icons.Filled.Memory, "Memory", memActive) { onNav(Screen.Memory) }
+            NavTab(Icons.Filled.Apps, "Buttons", current == Screen.Tiles) { onNav(Screen.Tiles) }
+            return@Row
+        }
+
+        // The brain — center, always emphasized.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             // Tap → Brain. Press-and-hold ~3s → conversational voice mode.
@@ -242,10 +251,6 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, simple: Boolean = false,
         // In simple mode the phone is four places: ask it, what came in, what it remembers, and the
         // buttons. Research and Orbit are machinery somebody who wanted a simpler phone did not ask
         // for — and the buttons take their place, because that is the panel they will actually use.
-        if (simple) {
-            NavTab(Icons.Filled.Apps, "Buttons", current == Screen.Tiles) { onNav(Screen.Tiles) }
-            return@Row
-        }
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
         // A SHOPFRONT WAS THE WRONG METAPHOR, AND IT SHAPED THE SCREEN BEHIND IT.
         //

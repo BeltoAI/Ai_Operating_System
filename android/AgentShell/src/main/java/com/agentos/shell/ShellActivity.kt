@@ -436,10 +436,14 @@ class ShellActivity : ComponentActivity() {
                             },
                             onOpenApp = { id -> currentAppId = id; screen = Screen.AppView }
                         )
-                        Screen.Now    -> NowScreen(m, onOpenAsks = { screen = Screen.Asks }, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
+                        // Dumbed all the way down: one message, one reply, three buttons.
+                        Screen.Now    -> if (simple) com.agentos.shell.screens.SimpleNow(m)
+                        else NowScreen(m, onOpenAsks = { screen = Screen.Asks }, onReconnect = { screen = Screen.Reconnect }, onOutbox = { screen = Screen.Outbox }) { screen = Screen.Home }
                         Screen.Reconnect -> ReconnectScreen(m) { screen = Screen.Now }
                         Screen.People -> PeopleScreen(m) { screen = Screen.Home }
-                        Screen.Memory -> MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { missionGoal = ""; screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
+                        // One box, one answer. Not forty settings cards.
+                        Screen.Memory -> if (simple) com.agentos.shell.screens.SimpleBrain(m)
+                        else MemoryGraphScreen(m, onBack = { screen = Screen.Home }, onSettings = { screen = Screen.MemorySettings }, onMission = { missionGoal = ""; screen = Screen.Mission }, onNetwork = { networkQuery = ""; screen = Screen.Network })
                         Screen.Mission -> MissionScreen(m, missionGoal) { missionGoal = ""; screen = Screen.Home }
                         Screen.MemorySettings -> MemoryScreen(m) { screen = Screen.Memory }
                         Screen.Apps   -> AppsScreen(m, onManual = { agentPaused = true; screen = Screen.Manual }) { screen = Screen.Home }

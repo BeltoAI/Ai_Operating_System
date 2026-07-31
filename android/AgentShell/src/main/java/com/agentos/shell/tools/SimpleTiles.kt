@@ -88,35 +88,28 @@ object SimpleTiles {
     // MARK: - What it starts with
 
     /**
-     * First-run buttons, built from THIS phone.
+     * The starting set, and deliberately nobody in particular.
      *
-     * Nothing here is a guess about grandmothers in general: the people are the two this phone
-     * actually talks to most, and a ride or a shop button only appears if that app is installed.
-     * Whatever is wrong with it can be said away in a sentence.
+     * An earlier version seeded "Call Carlos" and "Call Joslyn" from whoever this phone talks to
+     * most, which was a guess dressed as personalisation — I decided who mattered to somebody I
+     * have never met and put their name on their grandmother's phone.
+     *
+     * So the seeds are person-agnostic: the kinds of thing anybody's phone should do — a ride, the
+     * shopping, a call, a reminder — and every one is a half-sentence she finishes. Whose ride,
+     * whose call, which shop: hers to say, or hers to add as a button of its own.
      */
     fun seedIfEmpty(ctx: Context) {
         if (list(ctx).isNotEmpty()) return
         val out = ArrayList<Tile>()
-        fun t(label: String, prompt: String, finish: Boolean = false, app: String = "") {
-            out.add(Tile(System.currentTimeMillis() + out.size, label, prompt, finish, app))
+        fun t(label: String, prompt: String, finish: Boolean = false) {
+            out.add(Tile(System.currentTimeMillis() + out.size, label, prompt, finish))
         }
-
-        try {
-            Crm.peopleCached(ctx, 400)
-                .filter { it.reciprocal && it.name.isNotBlank() && !it.name.contains("@") }
-                .sortedByDescending { it.totalMessages }.take(2)
-                .forEach { p -> t("Call ${p.name.split(' ').first().take(14)}", "Call ${p.name}") }
-        } catch (e: Exception) {}
-
-        // Half-sentences, because only she knows the rest of them.
         t("Call someone", "Call ", finish = true)
         t("Send a message", "Send a message to ", finish = true)
         t("Get me a ride", "I need a ride ", finish = true)
         t("Order shopping", "Order me ", finish = true)
         t("Remind me", "Remind me to ", finish = true)
-
         t("What's on today?", "What is on my calendar today? Answer in one or two short sentences.")
-        t("Read my messages", "Read me my new messages, briefly.")
         save(ctx, out)
     }
 
