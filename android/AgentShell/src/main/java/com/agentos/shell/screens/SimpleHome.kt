@@ -125,6 +125,19 @@ fun SimpleHome(
                 }
             }
 
+            // Creating a button had to be discovered: you needed to know to type "add a button
+            // for…" into HomeAI. Nobody setting up a phone for a parent knows that, so it says so.
+            Spacer(Modifier.height(4.dp))
+            Box(Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(20.dp))
+                .background(T.bg).clickable { onFinishAloud("Add a button for ") }
+                .padding(horizontal = 22.dp, vertical = 24.dp)) {
+                Text("+  Add a button", fontSize = 21.sp, color = T.accent,
+                    fontWeight = FontWeight.Medium)
+            }
+            Text("Say what it should do — \"a ride to the surgery\", \"open Instacart\", " +
+                 "\"remind me to take my pills every day at nine\". Hold a button to remove it.",
+                fontSize = 14.sp, color = T.inkFaint, lineHeight = 20.sp)
+
             // Set apart, in red, at the bottom — reachable in a hurry but never next to "Order the
             // shopping" where a thumb might land on it.
             Spacer(Modifier.height(16.dp))

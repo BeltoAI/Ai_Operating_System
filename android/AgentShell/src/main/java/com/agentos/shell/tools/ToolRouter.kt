@@ -645,12 +645,27 @@ object ToolRouter {
         val label = Regex("(?i)\\b(for|at|to)\\b").split(arg).lastOrNull()?.let {
             Regex("(?i)(alarm|am|pm|\\d|:|in|minutes?|mins?|hours?|hrs?|noon|midnight|half|quarter|past)").replace(it, "").trim()
         }.orEmpty().take(40)
+        // EVERY DAY, WHEN THEY SAID EVERY DAY.
+        //
+        // This only ever set a one-shot alarm — EXTRA_DAYS was never passed — so "remind me every
+        // day at 9am to take my pills" rang once and then never again, silently. For a wake-up
+        // that is an annoyance. For medication it is the kind of failure somebody comes to rely on
+        // and then gets hurt by, which is why it is worth handling here rather than in a prompt.
+        val daily = Regex("(?i)\\b(every ?day|each ?day|daily|every morning|every evening|every night)\\b")
+            .containsMatchIn(arg)
         // ACTION_SET_ALARM sets a REAL system alarm — it rings through Doze, silent mode, and reboots, which a
         // WorkManager/handler alarm can't guarantee. That's the "actually works" part.
         start(ctx, Intent(AlarmClock.ACTION_SET_ALARM)
             .putExtra(AlarmClock.EXTRA_HOUR, h)
             .putExtra(AlarmClock.EXTRA_MINUTES, m)
-            .apply { if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label) }
+            .apply {
+                if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label)
+                if (daily) putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS,
+                    arrayListOf(java.util.Calendar.MONDAY, java.util.Calendar.TUESDAY,
+                        java.util.Calendar.WEDNESDAY, java.util.Calendar.THURSDAY,
+                        java.util.Calendar.FRIDAY, java.util.Calendar.SATURDAY,
+                        java.util.Calendar.SUNDAY))
+            }
             .putExtra(AlarmClock.EXTRA_VIBRATE, true)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
         val pretty = prettyTime(h, m)
@@ -667,10 +682,14 @@ object ToolRouter {
             com.agentos.shell.ReminderScheduler.schedule(ctx, cal.timeInMillis,
                 label.ifBlank { "Alarm" } + " — $pretty")
         } catch (e: Exception) { Fail.log(ctx, "Reminder", "backup alarm for $pretty", e.message ?: "failed") }
-        val note = "Alarm set for $pretty" + (if (label.isNotBlank()) " — “$label”" else "")
+        val note = "Alarm set for $pretty" + (if (daily) ", every day" else "") +
+            (if (label.isNotBlank()) " — “$label”" else "")
         try { MessageStore.insertOne(ctx, "Alarms", "Alarm", "me", "me", note) } catch (e: Exception) {}
         try { MemoryLog.add(ctx, "action", "Alarm", note, "SlyOS") } catch (e: Exception) {}
-        return "$note. It'll ring even on silent or in Doze."
+        return "$note. It'll ring even on silent or in Doze." +
+            // Said out loud, because somebody setting a medication reminder should be told exactly
+            // what was set rather than trusting that "daily" was understood.
+            (if (daily) " It repeats every day." else "")
     }
 
     /** Parse an alarm time from natural language → 24h (hour, minute). Handles am/pm, bare hours (soonest

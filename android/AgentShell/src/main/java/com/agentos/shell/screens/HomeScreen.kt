@@ -532,7 +532,7 @@ fun HomeScreen(
             onSimpleMode(!turnOff)
             text = ""; lastQuery = q
             reply = if (turnOff) "Back to the full layout."
-                else "Simple mode is on — big buttons, and only the three screens that matter. " +
+                else "Simple mode is on — big buttons, and only the four screens that matter. " +
                      "Say \"simple mode off\" any time, or tap \"Show me everything again\"."
             if (doSpeak) speak(reply)
             return@submit

@@ -191,6 +191,8 @@ object SimpleTiles {
                 "  ride  — payload is JUST the destination address, when they named a place to go\n" +
                 "  app   — payload is one of these app names: " + known + "\n" +
                 "  call  — payload is a phone number, when they gave one\n" +
+                "  whatsapp — payload is a phone number, to open that WhatsApp chat (from which " +
+                "they can press call or video call)\n" +
                 "  run   — payload is a complete instruction the assistant can carry out with no " +
                 "further questions (e.g. \"Remind me every day at 9am to take my pills\")\n" +
                 "  speak — payload is the START of a sentence ending mid-air, ONLY when the missing " +
@@ -210,6 +212,14 @@ object SimpleTiles {
             when (kind) {
                 // Turned into a real link here rather than by the model, which would invent one.
                 "ride" -> { payload = rideLink(payload); kind = "url" }
+                // wa.me opens the chat with that person; the call and video buttons are one tap
+                // from there. There is no public deep link that dials a WhatsApp call directly,
+                // and inventing one would produce a button that silently does nothing.
+                "whatsapp" -> {
+                    val digits = payload.filter { it.isDigit() }
+                    if (digits.length < 7) return "I need their phone number for that."
+                    payload = "https://wa.me/$digits"; kind = "url"
+                }
                 "app"  -> {
                     payload = KNOWN_APPS[payload.lowercase()] ?: payload
                     if (!payload.contains(".")) return "I don't know that app."
@@ -220,6 +230,7 @@ object SimpleTiles {
             add(ctx, label, kind, payload)
             when (kind) {
                 "url"   -> "Added \"$label\". It goes straight there."
+
                 "app"   -> "Added \"$label\". It opens the app."
                 "call"  -> "Added \"$label\". It dials straight away."
                 "speak" -> "Added \"$label\". It will listen for the rest — where, when, who."

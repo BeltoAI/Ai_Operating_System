@@ -243,6 +243,29 @@
       <div class="apptile"><span class="ico" style="background:var(--card);border:1px solid var(--line);color:var(--faint)">+</span><span class="nm">more</span></div>
     </div>
   </section>
+  <!-- SIMPLE MODE -->
+  <section id="simple">
+    <p class="eyebrow">For someone who doesn't want a phone</p>
+    <h2>Say "grandparent".<br>The phone gets simple.</h2>
+    <p class="muted">Four screens, very large buttons, and nothing else. Say it again to put everything back.</p>
+
+    <div class="simple-grid">
+      <div class="simple-phone">
+        <div class="sbtn">Call someone</div>
+        <div class="sbtn">Get me a ride</div>
+        <div class="sbtn">Order shopping</div>
+        <div class="sbtn add">+  Add a button</div>
+        <div class="sbtn sos">Emergency</div>
+      </div>
+      <div>
+        <div class="simple-pt"><b>Buttons you make by talking.</b> "Add a button for a ride to the surgery." It opens Uber with the address already in it — not a question about where you want to go.</div>
+        <div class="simple-pt"><b>Messages, answered for you.</b> One message at a time, a reply already written, and three buttons: send it, change it, leave it.</div>
+        <div class="simple-pt"><b>It remembers.</b> "When is my next appointment?" — one box, one answer.</div>
+        <div class="simple-pt"><b>Emergency asks first.</b> Then it opens the dialer, so a stray thumb never calls an ambulance.</div>
+      </div>
+    </div>
+  </section>
+
   <!-- LOOK & SHOP -->
   <section id="world">
     <p class="eyebrow">Point it at the world</p>
@@ -294,7 +317,19 @@
       .lkrow .pr{color:var(--accent);font-size:15px;font-family:var(--script);font-style:italic}
       .lkrow .buy{font-size:11px;color:#fff;background:var(--accent);padding:6px 11px;border-radius:999px;margin-left:10px}
       .lkbadge{display:inline-block;margin-left:8px;font-size:9.5px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 6px;vertical-align:middle}
-    </style>
+    
+  .simple-grid{ display:grid; grid-template-columns:260px 1fr; gap:34px; align-items:start; margin-top:26px; }
+  @media (max-width:760px){ .simple-grid{ grid-template-columns:1fr; } }
+  .simple-phone{ background:#100D0A; border:1px solid var(--line); border-radius:22px; padding:16px; }
+  .sbtn{ background:var(--card); border-radius:14px; padding:18px 16px; margin-bottom:10px;
+    font-size:17px; color:var(--ink); }
+  .sbtn.add{ background:transparent; color:var(--accent); }
+  .sbtn.sos{ background:rgba(214,69,49,.16); color:#E86A4E; font-weight:700; text-align:center; margin-bottom:0; }
+  .simple-pt{ font-size:14px; line-height:1.7; color:var(--soft); padding:12px 0;
+    border-bottom:1px solid var(--line); }
+  .simple-pt:last-child{ border-bottom:0; }
+  .simple-pt b{ color:var(--ink); }
+</style>
 
     <div class="lkwrap">
       <!-- LIVE CAMERA -->
