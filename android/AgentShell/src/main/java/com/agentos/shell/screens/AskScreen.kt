@@ -68,6 +68,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var funnels by remember { mutableStateOf<Map<String, Asks.Funnel>>(emptyMap()) }
     var reopened by remember { mutableStateOf(-1) }
     var standing by remember { mutableStateOf<Asks.Standing?>(null) }
+    var eligible by remember { mutableStateOf(0) }
     var incoming by remember { mutableStateOf<List<Asks.Incoming>>(emptyList()) }
     var bridges by remember { mutableStateOf<List<Asks.Bridge>>(emptyList()) }
     var busy by remember { mutableStateOf("") }
@@ -81,6 +82,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             // published tags since. Idempotent, so nobody is reached twice.
             reopened = try { Asks.refresh(ctx) } catch (e: Exception) { 0 }
             standing = try { Asks.standing(ctx) } catch (e: Exception) { null }
+            eligible = try { Asks.eligible(ctx, NetworkProfile.get(ctx).tags) } catch (e: Exception) { 0 }
             mine = try { Asks.myAsks(ctx).map { it to Asks.answers(ctx, it.id) } }
                    catch (e: Exception) { emptyList() }
             funnels = try {
@@ -261,7 +263,9 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     val f = funnels[ask.id]
                     Text(buildString {
                             if (f != null) {
-                                append("asked ${f.reached} of 50")
+                                // Same denominator as the field. Two screens disagreeing about how
+                                // far an ask went is worse than either number on its own.
+                                append("asked ${f.reached} of ${Asks.denominator(ask.targetReach, eligible)}")
                                 if (f.stillThinking > 0) append("  ·  ${f.stillThinking} yet to answer")
                                 if (f.foundNothing > 0) append("  ·  ${f.foundNothing} found nobody")
                                 if (f.people > 0) append("  ·  ${f.people}/3 found")

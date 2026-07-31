@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -46,6 +48,7 @@ import com.agentos.shell.tools.Crm
 import com.agentos.shell.tools.Galaxy
 import com.agentos.shell.tools.NetworkProfile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.cos
 import kotlin.math.log10
@@ -89,6 +92,7 @@ fun OrbitScreen(
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var people by remember { mutableStateOf<List<Crm.Person>>(emptyList()) }
     var sky by remember { mutableStateOf<Field.Sky?>(null) }
     var galaxy by remember { mutableStateOf<Galaxy.Layout?>(null) }
@@ -676,8 +680,43 @@ fun OrbitScreen(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
                             .background(T.accent).clickable { onSetup() }.padding(vertical = 13.dp))
                 }
-                liveAsk != null -> Card {
+                liveAsk != null -> {
                     val a = liveAsk!!
+                    var dragX by remember(a.id) { mutableStateOf(0f) }
+                    var ending by remember(a.id) { mutableStateOf(false) }
+                    Column(Modifier.fillMaxWidth()
+                        .offset { androidx.compose.ui.unit.IntOffset(dragX.toInt(), 0) }
+                        // ONE pointerInput, and it is the only gesture handler on this card — a
+                        // separate drag detector eats the events a clickable needs and the tap
+                        // silently stops working.
+                        .pointerInput(a.id) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when {
+                                        dragX > 120f -> onAsk()
+                                        dragX < -120f -> {
+                                            ending = true
+                                            scope.launch {
+                                                withContext(Dispatchers.IO) {
+                                                    com.agentos.shell.tools.Asks.cancel(ctx, a.id)
+                                                }
+                                                liveAsk = null
+                                            }
+                                        }
+                                    }
+                                    dragX = 0f
+                                },
+                                onDragCancel = { dragX = 0f }
+                            ) { _, dx -> dragX += dx }
+                        }
+                        .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
+                    // What the gesture will do, while the thumb is still down.
+                    if (dragX > 30f || dragX < -30f) {
+                        Text(if (dragX > 30f) "see the progress" else "end it — the ask isn't refunded",
+                            fontSize = 9.sp,
+                            color = if (dragX > 30f) T.accent else T.danger)
+                        Spacer(Modifier.height(7.dp))
+                    }
                     Text(a.criteria, fontSize = T.caption, color = T.ink, lineHeight = 18.sp)
                     Spacer(Modifier.height(9.dp))
                     // A real bar against a real target, not a spinner: the ask asks up to fifty
@@ -692,12 +731,17 @@ fun OrbitScreen(
                             .clip(RoundedCornerShape(999.dp)).background(T.accent))
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(buildString {
+                    Text(if (ending) "ending…" else buildString {
                             append("asked $liveReach of $denom")
                             if (denom < a.targetReach) append(" on SlyOS so far")
                             append("  ·  ").append(a.closesIn)
                             append("  ·  stops early at 3 found")
                         }, fontSize = 9.sp, color = T.inkFaint, lineHeight = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    // Said once, because a gesture nobody knows about is a gesture nobody uses.
+                    Text("swipe right for progress  ·  left to end it",
+                        fontSize = 9.sp, color = T.inkFaint.copy(alpha = 0.7f))
+                    }
                 }
                 else -> {
                     // No card. The count is one faint line, because the field is the screen and a

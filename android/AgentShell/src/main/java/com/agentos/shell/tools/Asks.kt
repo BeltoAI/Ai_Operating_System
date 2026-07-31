@@ -184,6 +184,24 @@ object Asks {
         } catch (e: Exception) { emptyList() }
     }
 
+    /**
+     * Call it off.
+     *
+     * Closing rather than deleting: the candidacies and anything that came back stay readable, and
+     * the server's expiry trigger already refuses new messages on a closed ask. The credit is not
+     * refunded — it was spent the moment two hundred phones were asked — and the UI says so rather
+     * than quietly making it look free.
+     */
+    fun cancel(ctx: Context, askId: String): Boolean {
+        val token = AccountStore.freshAccessToken(ctx)
+        val uid = AccountStore.userId(ctx)
+        if (token.isBlank() || uid.isBlank()) return false
+        return try {
+            SupabaseClient.patch("asks", "id=eq.$askId&from_user=eq.$uid", token,
+                JSONObject().put("state", "closed"))
+        } catch (e: Exception) { false }
+    }
+
     /** The asks I have open. */
     fun myAsks(ctx: Context): List<Ask> {
         val token = AccountStore.freshAccessToken(ctx)
