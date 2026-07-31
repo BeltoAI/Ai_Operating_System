@@ -61,19 +61,32 @@ fun SimpleNow(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val notes = NotificationStore.notes
 
+    /**
+     * What "I have dealt with this one" means.
+     *
+     * Keyed on the message, not on `key`. Several notifications from the same app can carry the
+     * SAME key — so skipping added a key that was already in the set, the set compared equal, the
+     * remembered note never recomputed, and the button did nothing at all. It looked like a dead
+     * control and it was really a value-equality trap.
+     */
+    fun idOf(n: NotificationStore.Note) = n.key + "|" + n.title + "|" + n.text.take(80).hashCode()
+
     var skipped by remember { mutableStateOf(setOf<String>()) }
     val note = remember(notes.size, skipped) {
-        notes.firstOrNull { it.key !in skipped && !it.isLikelyBot }
+        notes.firstOrNull { idOf(it) !in skipped && !it.isLikelyBot }
     }
 
-    var draft by remember(note?.key) { mutableStateOf("") }
-    var busy by remember(note?.key) { mutableStateOf(false) }
-    var editing by remember(note?.key) { mutableStateOf(false) }
-    var said by remember(note?.key) { mutableStateOf("") }
+    // Same trap, one level down: keying the draft on `key` alone means two different messages that
+    // share a key keep each other's reply.
+    val noteId = note?.let { idOf(it) }
+    var draft by remember(noteId) { mutableStateOf("") }
+    var busy by remember(noteId) { mutableStateOf(false) }
+    var editing by remember(noteId) { mutableStateOf(false) }
+    var said by remember(noteId) { mutableStateOf("") }
 
     // The reply is written before she asks for it, because "press this to write something" is a
     // step, and every step is somewhere to stop.
-    LaunchedEffect(note?.key) {
+    LaunchedEffect(noteId) {
         val n = note ?: return@LaunchedEffect
         if (!n.canReply) return@LaunchedEffect
         busy = true
@@ -125,7 +138,7 @@ fun SimpleNow(modifier: Modifier = Modifier) {
             Spacer(Modifier.height(22.dp))
             Text("You can't answer this one from here.", fontSize = 18.sp, color = T.inkFaint)
             Spacer(Modifier.height(16.dp))
-            BigBtn("Next", T.bgElevated, T.ink) { skipped = skipped + note.key }
+            BigBtn("Next", T.bgElevated, T.ink) { skipped = skipped + idOf(note) }
             Spacer(Modifier.height(40.dp))
             return@Column
         }
@@ -153,7 +166,7 @@ fun SimpleNow(modifier: Modifier = Modifier) {
                 }
                 busy = false
                 said = if (ok) "Sent." else "That didn't send. Try again in a moment."
-                if (ok) skipped = skipped + note.key
+                if (ok) skipped = skipped + idOf(note)
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -161,7 +174,7 @@ fun SimpleNow(modifier: Modifier = Modifier) {
             editing = !editing
         }
         Spacer(Modifier.height(12.dp))
-        BigBtn("Leave it for now", T.bgElevated, T.inkFaint) { skipped = skipped + note.key }
+        BigBtn("Leave it for now", T.bgElevated, T.inkFaint) { skipped = skipped + idOf(note) }
         Spacer(Modifier.height(40.dp))
     }
 }
