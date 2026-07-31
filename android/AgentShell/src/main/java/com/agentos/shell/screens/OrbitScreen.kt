@@ -672,8 +672,8 @@ fun OrbitScreen(
                     Text("Your agent isn't set up yet.", fontSize = T.small, color = T.ink,
                         fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(5.dp))
-                    Text("Three questions, then it starts looking for the people you can't reach.",
-                        fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                    Text("Answer three questions and it starts looking for people you'd like to meet.",
+                        fontSize = 12.sp, color = T.inkFaint, lineHeight = 18.sp)
                     Spacer(Modifier.height(13.dp))
                     Text("Set it up →", fontSize = T.caption, color = Color.White,
                         fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
@@ -684,6 +684,10 @@ fun OrbitScreen(
                     val a = liveAsk!!
                     var dragX by remember(a.id) { mutableStateOf(0f) }
                     var ending by remember(a.id) { mutableStateOf(false) }
+                    // Stopping is irreversible and the credit is already spent, so it takes two
+                    // deliberate actions. A single swipe — the same motion as scrolling — killing
+                    // something you paid for is a trap, and I set it off myself while testing.
+                    var confirmEnd by remember(a.id) { mutableStateOf(false) }
                     Column(Modifier.fillMaxWidth()
                         .offset { androidx.compose.ui.unit.IntOffset(dragX.toInt(), 0) }
                         // ONE pointerInput, and it is the only gesture handler on this card — a
@@ -694,15 +698,7 @@ fun OrbitScreen(
                                 onDragEnd = {
                                     when {
                                         dragX > 120f -> onAsk()
-                                        dragX < -120f -> {
-                                            ending = true
-                                            scope.launch {
-                                                withContext(Dispatchers.IO) {
-                                                    com.agentos.shell.tools.Asks.cancel(ctx, a.id)
-                                                }
-                                                liveAsk = null
-                                            }
-                                        }
+                                        dragX < -160f -> confirmEnd = true
                                     }
                                     dragX = 0f
                                 },
@@ -712,8 +708,8 @@ fun OrbitScreen(
                         .clip(RoundedCornerShape(16.dp)).background(T.bgElevated).padding(16.dp)) {
                     // What the gesture will do, while the thumb is still down.
                     if (dragX > 30f || dragX < -30f) {
-                        Text(if (dragX > 30f) "see the progress" else "end it — the ask isn't refunded",
-                            fontSize = 9.sp,
+                        Text(if (dragX > 30f) "See more" else "Stop looking?",
+                            fontSize = 12.sp,
                             color = if (dragX > 30f) T.accent else T.danger)
                         Spacer(Modifier.height(7.dp))
                     }
@@ -731,16 +727,41 @@ fun OrbitScreen(
                             .clip(RoundedCornerShape(999.dp)).background(T.accent))
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(if (ending) "ending…" else buildString {
-                            append("asked $liveReach of $denom")
-                            if (denom < a.targetReach) append(" on SlyOS so far")
-                            append("  ·  ").append(a.closesIn)
-                            append("  ·  stops early at 3 found")
-                        }, fontSize = 9.sp, color = T.inkFaint, lineHeight = 13.sp)
-                    Spacer(Modifier.height(8.dp))
-                    // Said once, because a gesture nobody knows about is a gesture nobody uses.
-                    Text("swipe right for progress  ·  left to end it",
-                        fontSize = 9.sp, color = T.inkFaint.copy(alpha = 0.7f))
+                    // Sentences, not a chain of middots at nine points. Three facts crammed onto
+                    // one dense line is a line nobody reads — least of all somebody who did not
+                    // already know what it was going to say.
+                    Text(if (ending) "Stopping…" else buildString {
+                            append("Asked ")
+                            append(if (liveReach == 1) "1 person" else "$liveReach people")
+                            append(" so far. ")
+                            append(if (a.hoursLeft >= 24) "${a.hoursLeft / 24} days left."
+                                   else "${a.hoursLeft} hours left.")
+                        }, fontSize = T.caption, color = T.inkSoft, lineHeight = 19.sp)
+                    Spacer(Modifier.height(9.dp))
+                    if (confirmEnd) {
+                        Text("Stop looking for these people?",
+                            fontSize = T.caption, color = T.ink, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(9.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                            Text("Yes, stop", fontSize = T.caption, color = T.danger,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable {
+                                    ending = true
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            com.agentos.shell.tools.Asks.cancel(ctx, a.id)
+                                        }
+                                        liveAsk = null
+                                    }
+                                })
+                            Text("Keep going", fontSize = T.caption, color = T.accent,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable { confirmEnd = false })
+                        }
+                    } else {
+                        Text("Swipe right to see more, left to stop it.",
+                            fontSize = 11.sp, color = T.inkFaint)
+                    }
                     }
                 }
                 else -> {

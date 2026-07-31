@@ -110,7 +110,7 @@ fun NetworkSetup(
             when (step) {
                 0 -> {
                     Head("What do you offer,\nand what do you need?",
-                        "Two sentences. Every other agent reads them — nothing else about you.")
+                        "Two sentences. This is all anyone else ever sees about you.")
                     Spacer(Modifier.height(16.dp))
                     Text(if (drafting) "reading your brain…" else "Write these from my brain →",
                         fontSize = T.caption, color = T.accent, fontWeight = FontWeight.Medium,
@@ -133,8 +133,8 @@ fun NetworkSetup(
                     Box2("WHAT I'M LOOKING FOR", prof.lookingFor) { prof = prof.copy(lookingFor = it) }
                     if (prof.tags.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
-                        Text("Found by: " + prof.tags.joinToString(" · "),
-                            fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                        Text("People will find you under: " + prof.tags.joinToString(", "),
+                            fontSize = 12.sp, color = T.inkFaint, lineHeight = 18.sp)
                     }
                 }
                 1 -> {
@@ -166,12 +166,12 @@ fun NetworkSetup(
                         }
                     }
                     Head("Who do you want\nto reach?",
-                        "One line. Your agent puts it to everyone else's — they answer privately, or not at all.")
+                        "One line. Your agent asks around for you, quietly.")
                     Box2("WHO CAN INTRODUCE ME TO…", askText) { askText = it }
                     // How far it goes is a choice, not a constant — and it is the number that
                     // will one day be the difference between tiers.
                     Spacer(Modifier.height(18.dp))
-                    Text("HOW FAR SHOULD IT GO", fontSize = 9.sp, color = T.inkFaint,
+                    Text("HOW MANY PEOPLE SHOULD IT ASK", fontSize = 9.sp, color = T.inkFaint,
                         fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                     Spacer(Modifier.height(9.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -191,12 +191,13 @@ fun NetworkSetup(
                             // The truth about a young network, said out loud rather than hidden
                             // behind a bar that never moves.
                             if (eligible in 0 until target)
-                                append("$eligible ${if (eligible == 1) "person is" else "people are"} " +
-                                       "on SlyOS so far, so it will reach $eligible now and the rest " +
-                                       "as people join. ")
-                            append("It runs for 3 days and stops early once it has found 3 people. " +
-                                   "You'll only hear from it when somebody real can introduce you.")
-                        }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 16.sp)
+                                if (eligible == 1) append("Only 1 other person uses SlyOS so far, " +
+                                "so it will ask them now and the rest as more people join. ")
+                            else append("$eligible people use SlyOS so far, so it will ask them " +
+                                "now and more as people join. ")
+                            append("It looks for 3 days, and stops as soon as it finds 3 people. " +
+                                   "It will only interrupt you when somebody can actually help.")
+                        }, fontSize = 12.sp, color = T.inkFaint, lineHeight = 18.sp)
                 }
             }
             Spacer(Modifier.height(30.dp))
@@ -245,8 +246,8 @@ fun NetworkSetup(
                 Spacer(Modifier.height(7.dp))
                 // The step everybody wants to skip, and the one whose absence is invisible until
                 // it has already cost somebody an introduction.
-                Text("Without this, an introduction you accept arrives with no way to reach you.",
-                    fontSize = 9.sp, color = T.inkFaint, lineHeight = 14.sp)
+                Text("Without this, someone could agree to introduce you and have no way to reach you.",
+                    fontSize = 11.sp, color = T.inkFaint, lineHeight = 16.sp)
             }
             Spacer(Modifier.height(22.dp))
         }

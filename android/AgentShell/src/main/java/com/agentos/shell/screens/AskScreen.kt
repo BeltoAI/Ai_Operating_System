@@ -95,8 +95,8 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         ScreenHeader("Asks", onBack)
         Spacer(Modifier.height(4.dp))
-        Text("your agent asks everyone's agents · nobody is told they were asked",
-            fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+        Text("Your agent quietly asks other people's agents. Nobody is told they were asked.",
+            fontSize = 12.sp, color = T.inkFaint, lineHeight = 18.sp)
 
         Spacer(Modifier.height(14.dp))
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(T.bgElevated)
@@ -110,17 +110,17 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
         Spacer(Modifier.height(4.dp))
         // Said here, once, because it is the one thing somebody could get wrong in a way that
         // matters: this line is read by strangers' agents.
-        Text("this line is public — say what you want, never why",
-            fontSize = 9.sp, color = T.inkFaint)
+        Text("Other people read this line, so say what you want — not why.",
+            fontSize = 11.sp, color = T.inkFaint, lineHeight = 16.sp)
         // An untagged ask reaches everybody rather than the right people. That is the correct
         // fallback and a poor outcome, so it is worth one line of warning rather than silently
         // spraying a good question at an unrelated audience.
         val myTags = remember { try { NetworkProfile.get(ctx).tags } catch (e: Exception) { emptyList() } }
         if (myTags.isEmpty()) {
             Spacer(Modifier.height(6.dp))
-            Text("You have no routing words yet, so this goes to everyone. " +
-                 "Add them in Where you stand and it goes to the right people.",
-                fontSize = 9.sp, color = T.danger, lineHeight = 14.sp)
+            Text("Add a few words about what you do, in Where you stand — " +
+                 "otherwise this goes to everybody instead of the right people.",
+                fontSize = 11.sp, color = T.danger, lineHeight = 16.sp)
         }
 
         Spacer(Modifier.height(11.dp))
@@ -178,7 +178,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(5.dp))
             Text("Every introduction you make earns you another ask.",
-                fontSize = 9.sp, color = T.inkFaint)
+                fontSize = 11.sp, color = T.inkFaint)
         }
 
         LazyColumn(Modifier.fillMaxWidth()) {
@@ -263,25 +263,24 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     val f = funnels[ask.id]
                     Text(buildString {
                             if (f != null) {
-                                // Same denominator as the field. Two screens disagreeing about how
-                                // far an ask went is worse than either number on its own.
-                                append("asked ${f.reached} of ${Asks.denominator(ask.targetReach, eligible)}")
-                                if (f.stillThinking > 0) append("  ·  ${f.stillThinking} yet to answer")
-                                if (f.foundNothing > 0) append("  ·  ${f.foundNothing} found nobody")
-                                if (f.people > 0) append("  ·  ${f.people}/3 found")
+                                append("Asked ")
+                                append(if (f.reached == 1) "1 person" else "${f.reached} people")
+                                append(". ")
+                                if (f.stillThinking > 0) append("${f.stillThinking} still to answer. ")
+                                if (f.people > 0) append("Found ${f.people} of 3. ")
                             }
-                            if (isNotEmpty()) append("  ·  ")
                             append(when {
-                                ask.state == "matched" -> "done — found what you asked for"
-                                ask.live -> ask.closesIn
-                                else -> "closed"
+                                ask.state == "matched" -> "Done — it found what you asked for."
+                                ask.live && ask.hoursLeft >= 24 -> "${ask.hoursLeft / 24} days left."
+                                ask.live -> "${ask.hoursLeft} hours left."
+                                else -> "Finished."
                             })
-                        }, fontSize = 9.sp,
+                        }, fontSize = 11.sp, lineHeight = 16.sp,
                         color = when {
                             ask.state == "matched" -> T.good
                             ask.live -> T.inkSoft
                             else -> T.inkFaint
-                        }, lineHeight = 14.sp)
+                        })
                     Spacer(Modifier.height(7.dp))
                     // Group by person first. Three offers of the same person is ONE introduction
                     // with three routes, and reporting it as three would flatter the numbers.
@@ -312,7 +311,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                         Text("closeness ${(a.strength * 100).toInt()}%" +
                              (if (routes > 1) " · $routes people know them" else "") +
                              (if (a.note.isNotBlank()) " · ${a.note}" else ""),
-                            fontSize = 9.sp, color = T.inkFaint)
+                            fontSize = 11.sp, color = T.inkFaint, lineHeight = 16.sp)
                     }
                 }
             }
@@ -334,7 +333,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Column(Modifier.padding(start = 10.dp)) {
                         Text(b.person, fontSize = T.caption, color = T.ink)
                         Text(if (b.mine) "introduced to you" else "you introduced them",
-                            fontSize = 9.sp, color = T.inkFaint)
+                            fontSize = 11.sp, color = T.inkFaint, lineHeight = 16.sp)
                     }
                 }
             }
