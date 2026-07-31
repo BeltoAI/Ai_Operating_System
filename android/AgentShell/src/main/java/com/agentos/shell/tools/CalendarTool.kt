@@ -108,7 +108,31 @@ object CalendarTool {
         } catch (e: Exception) { emptyList() }
     }
 
-    data class Event(val title: String, val begin: Long, val end: Long, val location: String)
+    data class Event(val title: String, val begin: Long, val end: Long, val location: String,
+                     val allDay: Boolean = false)
+
+    /**
+     * Formatting a calendar instance, which is not the same job for every event.
+     *
+     * `Instances.BEGIN` for an ALL-DAY event is midnight **UTC**, not midnight local — that is how
+     * the provider stores a date that has no time. Render it with a local-timezone formatter and a
+     * holiday on the 30th comes out as "Jul 29, 5:00 PM" in California: the wrong day, and a time
+     * on something that never had one. Every agenda, brief and brain row read it that way.
+     *
+     * So an all-day event is formatted in UTC and without a clock, which is what it actually means.
+     */
+    private fun fmtInstance(begin: Long, allDay: Boolean, withYear: Boolean = false): String {
+        val pattern = when {
+            allDay && withYear -> "EEE MMM d yyyy"
+            allDay             -> "EEE MMM d"
+            withYear           -> "EEE MMM d yyyy, h:mm a"
+            else               -> "EEE MMM d, h:mm a"
+        }
+        return SimpleDateFormat(pattern, Locale.getDefault()).apply {
+            if (allDay) timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(begin)) + if (allDay) " (all day)" else ""
+    }
+
 
     /** Structured events within [startMs, endMs], time-ordered — powers the rich calendar view. */
     fun eventsBetween(ctx: Context, startMs: Long, endMs: Long, limit: Int = 60): List<Event> {
@@ -119,12 +143,14 @@ object CalendarTool {
             }
             val proj = arrayOf(
                 CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
-                CalendarContract.Instances.END, CalendarContract.Instances.EVENT_LOCATION
+                CalendarContract.Instances.END, CalendarContract.Instances.EVENT_LOCATION,
+                CalendarContract.Instances.ALL_DAY
             )
             val out = ArrayList<Event>()
             ctx.contentResolver.query(uri, proj, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
                 while (c.moveToNext() && out.size < limit)
-                    out.add(Event(c.getString(0) ?: "(busy)", c.getLong(1), c.getLong(2), c.getString(3) ?: ""))
+                    out.add(Event(c.getString(0) ?: "(busy)", c.getLong(1), c.getLong(2),
+                        c.getString(3) ?: "", c.getInt(4) == 1))
             }
             out
         } catch (e: Exception) { emptyList() }
@@ -193,14 +219,14 @@ object CalendarTool {
             val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().let {
                 ContentUris.appendId(it, now); ContentUris.appendId(it, end); it.build()
             }
-            val projection = arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN)
-            val fmt = SimpleDateFormat("EEE MMM d, h:mm a", Locale.getDefault())
+            val projection = arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                CalendarContract.Instances.ALL_DAY)
             val sb = StringBuilder()
             ctx.contentResolver.query(uri, projection, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
                 var n = 0
                 while (c.moveToNext() && n < 30) {
                     val title = c.getString(0) ?: "(busy)"; val begin = c.getLong(1)
-                    sb.append("- ${fmt.format(Date(begin))}: $title\n"); n++
+                    sb.append("- ${fmtInstance(begin, c.getInt(2) == 1)}: $title\n"); n++
                 }
             }
             sb.toString().trim()
@@ -223,9 +249,9 @@ object CalendarTool {
             }
             val proj = arrayOf(
                 CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE,
-                CalendarContract.Instances.BEGIN, CalendarContract.Instances.EVENT_LOCATION
+                CalendarContract.Instances.BEGIN, CalendarContract.Instances.EVENT_LOCATION,
+                CalendarContract.Instances.ALL_DAY
             )
-            val fmt = SimpleDateFormat("EEE MMM d yyyy, h:mm a", Locale.getDefault())
             val prefs = ctx.getSharedPreferences("slyos_cal_sync", Context.MODE_PRIVATE)
             val seen = HashSet(prefs.getStringSet("keys", emptySet()) ?: emptySet())
             val added = ArrayList<String>()
@@ -237,7 +263,8 @@ object CalendarTool {
                     val key = "$eid|$begin"
                     if (seen.contains(key)) continue
                     val rel = if (begin < now) "past" else "upcoming"
-                    val text = "[$rel] ${fmt.format(Date(begin))} — $title" + (if (!loc.isNullOrBlank()) " @ $loc" else "")
+                    val text = "[$rel] ${fmtInstance(begin, c.getInt(4) == 1, withYear = true)} — $title" +
+                        (if (!loc.isNullOrBlank()) " @ $loc" else "")
                     MessageStore.insertOne(ctx, "Calendar", "Calendar", "me", "me", text)
                     seen.add(key); added.add(key); n++
                 }
