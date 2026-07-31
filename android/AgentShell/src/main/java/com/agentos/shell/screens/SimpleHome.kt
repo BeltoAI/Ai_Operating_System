@@ -112,13 +112,15 @@ fun SimpleHome(
         run {
             tiles.forEach { t ->
                 Big(t.label, onLong = { removing = t }) {
-                    when {
-                        t.app.isNotBlank() ->
-                            try { com.agentos.shell.tools.ToolRouter.launchApp(ctx, t.app) }
-                            catch (e: Exception) {}
-                        // Only she knows where, and when, and to whom.
-                        t.finish -> onFinishAloud(t.prompt)
-                        else -> onAsk(t.prompt)
+                    // A shortcut that re-asks the question is a longer way of doing the thing, so
+                    // only the genuinely open-ended kind reaches for the microphone.
+                    when (t.resolvedKind) {
+                        "url" -> open(ctx, t.arg)
+                        "call" -> open(ctx, "tel:" + t.arg.filter { c -> c.isDigit() || c == '+' })
+                        "app" -> try { com.agentos.shell.tools.ToolRouter.launchApp(ctx, t.arg) }
+                                 catch (e: Exception) {}
+                        "speak" -> onFinishAloud(t.arg)
+                        else -> onAsk(t.arg)
                     }
                 }
             }
@@ -200,6 +202,13 @@ fun SimpleHome(
         }
         Spacer(Modifier.height(30.dp))
     }
+}
+
+private fun open(ctx: android.content.Context, uri: String) {
+    try {
+        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse(uri)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {}
 }
 
 @OptIn(ExperimentalFoundationApi::class)

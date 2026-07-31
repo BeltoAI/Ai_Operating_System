@@ -65,18 +65,13 @@ fun SimpleBrain(modifier: Modifier = Modifier) {
         if (text.isBlank() || busy) return
         busy = true; answer = ""
         scope.launch {
-            val a = withContext(Dispatchers.IO) {
-                try {
-                    val mem = com.agentos.shell.tools.BrainContext.build(ctx, text).take(4000)
-                    com.agentos.shell.tools.AgentClient.complete(
-                        "Answer from the person's own records below. Two or three short " +
-                        "sentences, plain words, no lists, no markdown. If the records do not say, " +
-                        "reply exactly: I don't have anything about that.",
-                        "Records:\n$mem\n\nQuestion: $text", 300)
-                } catch (e: Exception) { "" }
-            }
+            // BrainAnswer is the recall the rest of the app uses — a corpus assembled from people,
+            // the databases, semantic hits and connections. My own version reached for one helper
+            // and a hand-written prompt, and answered nothing useful to any question asked of it.
+            val a = try { com.agentos.shell.tools.BrainAnswer.answer(ctx, text) }
+                    catch (e: Exception) { "" }
             busy = false
-            answer = a.ifBlank { "I don't have anything about that." }
+            answer = a.ifBlank { "I don't have anything about that yet." }
         }
     }
 

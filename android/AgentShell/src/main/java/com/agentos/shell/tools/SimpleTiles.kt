@@ -30,16 +30,61 @@ import org.json.JSONObject
  */
 object SimpleTiles {
 
+    /**
+     * A button, and what pressing it actually does.
+     *
+     * The first version made every button open the microphone and ask her to explain herself again,
+     * which is the opposite of a shortcut. If she goes to the same surgery every month, the button
+     * should say "Ride to the surgery" and open Uber with the address already in it. A shortcut
+     * that re-asks the question is a longer way of doing the thing.
+     *
+     * So a tile carries a `kind`, and only the genuinely open-ended ones fall back to speaking:
+     *
+     *   `url`      open a link — an Uber deep link with a destination, a shop, a video call
+     *   `app`      open an app by package
+     *   `call`     dial a number, straight through
+     *   `run`      hand a complete sentence to the assistant and let it act
+     *   `speak`    half a sentence, then the microphone — only when the rest genuinely varies
+     */
     data class Tile(
         val id: Long,
         val label: String,
-        /** What gets handed to the assistant. The whole request, or the start of one. */
-        val prompt: String,
-        /** true = she says the rest out loud before it runs. */
+        val kind: String = "run",
+        /** URL, package name, phone number, or the sentence — whichever `kind` calls for. */
+        val payload: String = "",
+        /** Legacy: the sentence handed to the assistant. */
+        val prompt: String = "",
         val finish: Boolean = false,
-        /** Optional: open this app instead of asking the assistant. */
         val app: String = ""
-    )
+    ) {
+        /** Old rows had no `kind`; read them the way they were written. */
+        val resolvedKind: String get() = when {
+            kind.isNotBlank() && kind != "run" -> kind
+            app.isNotBlank() -> "app"
+            finish -> "speak"
+            else -> "run"
+        }
+        val arg: String get() = payload.ifBlank { if (app.isNotBlank()) app else prompt }
+    }
+
+    /**
+     * Deep links that actually exist.
+     *
+     * A lookup table of facts, not a guess about what anybody wants — and necessary because a model
+     * asked for "the Uber deep link" will invent a plausible one. Uber's universal link opens the
+     * app when installed and the web when not, which is the right behaviour either way.
+     */
+    fun rideLink(address: String): String =
+        "https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[formatted_address]=" +
+            java.net.URLEncoder.encode(address.trim(), "UTF-8")
+
+    val KNOWN_APPS = mapOf(
+        "uber" to "com.ubercab", "lyft" to "me.lyft.android",
+        "instacart" to "com.instacart.client", "whatsapp" to "com.whatsapp",
+        "facebook" to "com.facebook.katana", "youtube" to "com.google.android.youtube",
+        "photos" to "com.google.android.apps.photos", "maps" to "com.google.android.apps.maps",
+        "amazon" to "com.amazon.mShop.android.shopping", "doordash" to "com.dd.doordash",
+        "zoom" to "us.zoom.videomeetings", "spotify" to "com.spotify.music")
 
     private const val PREF = "slyos_simple_tiles"
     private const val KEY = "tiles"
@@ -49,7 +94,8 @@ object SimpleTiles {
         val arr = JSONArray(prefs(ctx).getString(KEY, "[]"))
         (0 until arr.length()).map {
             val o = arr.getJSONObject(it)
-            Tile(o.getLong("id"), o.getString("label"), o.getString("prompt"),
+            Tile(o.getLong("id"), o.getString("label"), o.optString("kind", "run"),
+                o.optString("payload"), o.optString("prompt"),
                 o.optBoolean("finish", false), o.optString("app"))
         }
     } catch (e: Exception) { emptyList() }
@@ -57,17 +103,18 @@ object SimpleTiles {
     private fun save(ctx: Context, items: List<Tile>) {
         val arr = JSONArray()
         items.forEach {
-            arr.put(JSONObject().put("id", it.id).put("label", it.label)
-                .put("prompt", it.prompt).put("finish", it.finish).put("app", it.app))
+            arr.put(JSONObject().put("id", it.id).put("label", it.label).put("kind", it.kind)
+                .put("payload", it.payload).put("prompt", it.prompt)
+                .put("finish", it.finish).put("app", it.app))
         }
         prefs(ctx).edit().putString(KEY, arr.toString()).apply()
     }
 
-    fun add(ctx: Context, label: String, prompt: String, finish: Boolean = false, app: String = "") {
+    fun add(ctx: Context, label: String, kind: String, payload: String) {
         val l = label.trim().take(28)
         if (l.isBlank()) return
         val cur = list(ctx).filterNot { it.label.equals(l, true) }
-        save(ctx, cur + Tile(System.currentTimeMillis(), l, prompt.trim(), finish, app.trim()))
+        save(ctx, cur + Tile(System.currentTimeMillis(), l, kind, payload.trim()))
     }
 
     fun remove(ctx: Context, id: Long) = save(ctx, list(ctx).filterNot { it.id == id })
@@ -101,15 +148,16 @@ object SimpleTiles {
     fun seedIfEmpty(ctx: Context) {
         if (list(ctx).isNotEmpty()) return
         val out = ArrayList<Tile>()
-        fun t(label: String, prompt: String, finish: Boolean = false) {
-            out.add(Tile(System.currentTimeMillis() + out.size, label, prompt, finish))
+        fun t(label: String, kind: String, payload: String) {
+            out.add(Tile(System.currentTimeMillis() + out.size, label, kind, payload))
         }
-        t("Call someone", "Call ", finish = true)
-        t("Send a message", "Send a message to ", finish = true)
-        t("Get me a ride", "I need a ride ", finish = true)
-        t("Order shopping", "Order me ", finish = true)
-        t("Remind me", "Remind me to ", finish = true)
-        t("What's on today?", "What is on my calendar today? Answer in one or two short sentences.")
+        // Genuinely open-ended, so these do ask — who, where, what.
+        t("Call someone", "speak", "Call ")
+        t("Send a message", "speak", "Send a message to ")
+        t("Get me a ride", "speak", "I need a ride ")
+        t("Remind me", "speak", "Remind me to ")
+        // Complete on their own, so these just run.
+        t("What's on today?", "run", "What is on my calendar today? Answer in one or two short sentences.")
         save(ctx, out)
     }
 
@@ -133,29 +181,50 @@ object SimpleTiles {
                    else "I couldn't find a button like that. Say \"what buttons do I have?\" to see them."
         }
 
+        val known = KNOWN_APPS.keys.joinToString(", ")
         val raw = try {
             AgentClient.complete(
                 "You add one big button to a very simple phone for an older person. Output ONLY " +
-                "compact JSON: {\"label\":\"…\",\"prompt\":\"…\",\"finish\":true|false}. " +
-                "label: at most 3 words, what the button says, plain and literal. " +
-                "prompt: the sentence handed to the assistant when it is pressed. " +
-                "finish: true when the request cannot be complete without details only the user " +
-                "knows — a destination, a time, a recipient — in which case `prompt` must END " +
-                "mid-sentence so they can say the rest out loud (e.g. \"I need a ride \"). " +
-                "false when the request is already complete (e.g. \"Read me my new messages\"). " +
-                "No markdown.",
-                request, 220)
+                "compact JSON: {\"label\":\"…\",\"kind\":\"…\",\"payload\":\"…\"}. " +
+                "label: at most 3 words, plain and literal, what the button says. " +
+                "kind is one of:\n" +
+                "  ride  — payload is JUST the destination address, when they named a place to go\n" +
+                "  app   — payload is one of these app names: " + known + "\n" +
+                "  call  — payload is a phone number, when they gave one\n" +
+                "  run   — payload is a complete instruction the assistant can carry out with no " +
+                "further questions (e.g. \"Remind me every day at 9am to take my pills\")\n" +
+                "  speak — payload is the START of a sentence ending mid-air, ONLY when the missing " +
+                "part changes every time (e.g. \"Call \")\n" +
+                "Prefer a kind that DOES the thing. Only use speak when the detail genuinely varies " +
+                "each time. No markdown.",
+                request, 260)
         } catch (e: Exception) { "" }
 
         return try {
             val o = JSONObject(raw.substring(raw.indexOf('{'), raw.lastIndexOf('}') + 1))
             val label = o.optString("label").trim()
-            val prompt = o.optString("prompt").trim()
-            if (label.isBlank() || prompt.isBlank()) return "I couldn't work out what that button should do."
-            add(ctx, label, prompt, o.optBoolean("finish", false))
-            if (o.optBoolean("finish", false))
-                "Added \"$label\". Pressing it will listen for the rest — where, when, who."
-            else "Added \"$label\"."
+            var kind = o.optString("kind").trim().lowercase()
+            var payload = o.optString("payload").trim()
+            if (label.isBlank() || payload.isBlank()) return "I couldn't work out what that button should do."
+
+            when (kind) {
+                // Turned into a real link here rather than by the model, which would invent one.
+                "ride" -> { payload = rideLink(payload); kind = "url" }
+                "app"  -> {
+                    payload = KNOWN_APPS[payload.lowercase()] ?: payload
+                    if (!payload.contains(".")) return "I don't know that app."
+                }
+                "call", "run", "speak", "url" -> {}
+                else -> kind = "run"
+            }
+            add(ctx, label, kind, payload)
+            when (kind) {
+                "url"   -> "Added \"$label\". It goes straight there."
+                "app"   -> "Added \"$label\". It opens the app."
+                "call"  -> "Added \"$label\". It dials straight away."
+                "speak" -> "Added \"$label\". It will listen for the rest — where, when, who."
+                else    -> "Added \"$label\"."
+            }
         } catch (e: Exception) { "I couldn't work out what that button should do." }
     }
 

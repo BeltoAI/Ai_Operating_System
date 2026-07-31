@@ -526,7 +526,10 @@ class ShellActivity : ComponentActivity() {
                     Surface(color = T.bg, modifier = Modifier.fillMaxWidth()) {
                         androidx.compose.foundation.layout.Box(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
                             SlyBottomNav(current = screen, simple = simple,
-                                nowCount = com.agentos.shell.tools.NotificationStore.notes.size,
+                                // In simple mode Now hides bot notifications, so counting all of
+                                // them puts a "1" on a screen that says "Nothing new".
+                                nowCount = com.agentos.shell.tools.NotificationStore.notes
+                                    .count { !simple || !it.isLikelyBot },
                                 onBrainHold = { screen = Screen.Converse }) { target -> screen = target }
                         }
                     }
