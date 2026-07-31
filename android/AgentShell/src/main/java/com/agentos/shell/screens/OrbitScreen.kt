@@ -107,6 +107,7 @@ fun OrbitScreen(
     val stand = remember(justLaunched) { NetworkProfile.get(ctx) }
     var liveAsk by remember { mutableStateOf<com.agentos.shell.tools.Asks.Ask?>(null) }
     var liveReach by remember { mutableStateOf(0) }
+    var liveEligible by remember { mutableStateOf(0) }
     var pickedBridge by remember { mutableStateOf(-1) }
 
     LaunchedEffect(Unit) {
@@ -146,7 +147,10 @@ fun OrbitScreen(
         withContext(Dispatchers.IO) {
             try {
                 liveAsk = com.agentos.shell.tools.Asks.myAsks(ctx).firstOrNull { it.live }
-                liveAsk?.let { liveReach = com.agentos.shell.tools.Asks.funnel(ctx, it.id)?.reached ?: 0 }
+                liveAsk?.let {
+                    liveReach = com.agentos.shell.tools.Asks.funnel(ctx, it.id)?.reached ?: 0
+                    liveEligible = com.agentos.shell.tools.Asks.eligible(ctx, it.tags)
+                }
             } catch (e: Exception) {}
         }
         bridges = withContext(Dispatchers.IO) {
@@ -678,15 +682,22 @@ fun OrbitScreen(
                     Spacer(Modifier.height(9.dp))
                     // A real bar against a real target, not a spinner: the ask asks up to fifty
                     // people and you can watch it get there.
-                    val frac = (liveReach / 50f).coerceIn(0.02f, 1f)
+                    // Against what exists, not against an ambition. "1 of 1" is a true statement
+                    // about a young network; "1 of 50" is a false one about a broken feature.
+                    val denom = com.agentos.shell.tools.Asks.denominator(a.targetReach, liveEligible)
+                    val frac = (liveReach.toFloat() / denom).coerceIn(0.02f, 1f)
                     Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(999.dp))
                         .background(T.hairline)) {
                         Box(Modifier.fillMaxWidth(frac).height(3.dp)
                             .clip(RoundedCornerShape(999.dp)).background(T.accent))
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text("asked $liveReach of 50  ·  ${a.closesIn}  ·  stops early at 3 found",
-                        fontSize = 9.sp, color = T.inkFaint)
+                    Text(buildString {
+                            append("asked $liveReach of $denom")
+                            if (denom < a.targetReach) append(" on SlyOS so far")
+                            append("  ·  ").append(a.closesIn)
+                            append("  ·  stops early at 3 found")
+                        }, fontSize = 9.sp, color = T.inkFaint, lineHeight = 13.sp)
                 }
                 else -> {
                     // No card. The count is one faint line, because the field is the screen and a

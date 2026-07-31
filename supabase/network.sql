@@ -734,3 +734,68 @@ language sql security definer stable set search_path = public as $$
 $$;
 
 grant execute on function public.my_standing() to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- How many people COULD this reach — the honest denominator
+--
+-- A bar reading "asked 1 of 50" when the network contains one other person does not describe an
+-- early network, it describes a broken one. Fifty was a hardcoded ambition; what a progress bar
+-- has to show is progress against something real.
+--
+-- So the ask carries a target the owner chose, and the bar is drawn against
+-- `min(target, eligible)` — the smaller of what they asked for and what exists. Early on that
+-- reads "asked 1 of 1", which is a true statement about a young network rather than a false one
+-- about a failing feature. As people join, the same ask silently starts meaning more.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.eligible_reach(p_tags text[] default '{}')
+returns int language sql security definer stable set search_path = public as $$
+  select count(*)::int
+    from profiles p
+   where p.id <> auth.uid()
+     and coalesce(p.reachability, 'vouched') <> 'closed'
+     and (p_tags is null or cardinality(p_tags) = 0 or p.tags && p_tags
+          or p.tags is null or cardinality(p.tags) = 0);
+$$;
+
+grant execute on function public.eligible_reach(text[]) to authenticated;
+
+-- fan_out now honours the target the owner set, instead of its own default.
+create or replace function public.fan_out(p_ask uuid, p_limit int default null)
+returns int language plpgsql security definer set search_path = public as $$
+declare n int; m int; t text[]; want int; floor_n int := 25;
+begin
+  if not exists (select 1 from asks a where a.id = p_ask and a.from_user = auth.uid()) then
+    raise exception 'not your ask';
+  end if;
+  select tags, coalesce(target_reach, 50) into t, want from asks where id = p_ask;
+  want := coalesce(p_limit, want);
+
+  insert into ask_candidates (ask_id, candidate_user)
+  select p_ask, p.id from profiles p
+   where p.id <> auth.uid()
+     and coalesce(p.reachability, 'vouched') <> 'closed'
+     and (t is null or cardinality(t) = 0 or p.tags && t)
+   order by p.vouch_weight desc nulls last, p.network_size desc nulls last
+   limit want
+  on conflict do nothing;
+  get diagnostics n = row_count;
+
+  -- Untagged profiles are evidence of nothing, so a thin match tops up from them rather than
+  -- letting an ask reach one person in four because three never filled the form in.
+  if n < least(floor_n, want) then
+    insert into ask_candidates (ask_id, candidate_user)
+    select p_ask, p.id from profiles p
+     where p.id <> auth.uid()
+       and coalesce(p.reachability, 'vouched') <> 'closed'
+       and (p.tags is null or cardinality(p.tags) = 0)
+     order by p.network_size desc nulls last
+     limit greatest(0, least(floor_n, want) - n)
+    on conflict do nothing;
+    get diagnostics m = row_count;
+    n := n + coalesce(m, 0);
+  end if;
+
+  return n;
+end $$;
+
+grant execute on function public.fan_out(uuid, int) to authenticated;

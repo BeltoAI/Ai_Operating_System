@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +79,8 @@ fun NetworkSetup(
     var askText by remember { mutableStateOf("") }
     var drafting by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var target by remember { mutableStateOf(50) }
+    var eligible by remember { mutableStateOf(-1) }
     var note by remember { mutableStateOf("") }
 
     val progress by animateFloatAsState((step + 1) / 3f, tween(420), label = "p")
@@ -157,13 +160,43 @@ fun NetworkSetup(
                     }
                 }
                 else -> {
+                    LaunchedEffect(step, prof.tags) {
+                        if (step == 2) eligible = withContext(Dispatchers.IO) {
+                            try { Asks.eligible(ctx, prof.tags) } catch (e: Exception) { 0 }
+                        }
+                    }
                     Head("Who do you want\nto reach?",
                         "One line. Your agent puts it to everyone else's — they answer privately, or not at all.")
                     Box2("WHO CAN INTRODUCE ME TO…", askText) { askText = it }
-                    Spacer(Modifier.height(12.dp))
-                    Text("It asks up to 50 people over 3 days, and stops early once it has " +
-                         "found 3. You'll only hear from it when somebody real can introduce you.",
-                        fontSize = 10.sp, color = T.inkFaint, lineHeight = 16.sp)
+                    // How far it goes is a choice, not a constant — and it is the number that
+                    // will one day be the difference between tiers.
+                    Spacer(Modifier.height(18.dp))
+                    Text("HOW FAR SHOULD IT GO", fontSize = 9.sp, color = T.inkFaint,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                    Spacer(Modifier.height(9.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(10, 50, 200).forEach { n ->
+                            Box(Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (target == n) T.accent else T.bgElevated)
+                                .clickable { target = n }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                Text("$n people", fontSize = T.caption,
+                                    color = if (target == n) Color.White else T.inkSoft,
+                                    maxLines = 1, softWrap = false)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(11.dp))
+                    Text(buildString {
+                            // The truth about a young network, said out loud rather than hidden
+                            // behind a bar that never moves.
+                            if (eligible in 0 until target)
+                                append("$eligible ${if (eligible == 1) "person is" else "people are"} " +
+                                       "on SlyOS so far, so it will reach $eligible now and the rest " +
+                                       "as people join. ")
+                            append("It runs for 3 days and stops early once it has found 3 people. " +
+                                   "You'll only hear from it when somebody real can introduce you.")
+                        }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 16.sp)
                 }
             }
             Spacer(Modifier.height(30.dp))
@@ -200,7 +233,7 @@ fun NetworkSetup(
                                     catch (e: Exception) { false to (e.message ?: "couldn't publish") }
                                 if (!published) return@withContext msg
                                 if (askText.isBlank()) return@withContext ""
-                                val (id, m) = try { Asks.create(ctx, askText, prof.tags) }
+                                val (id, m) = try { Asks.create(ctx, askText, prof.tags, targetReach = target) }
                                     catch (e: Exception) { null to (e.message ?: "couldn't send") }
                                 if (id == null) m else ""
                             }

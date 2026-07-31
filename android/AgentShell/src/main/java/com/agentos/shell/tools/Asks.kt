@@ -36,7 +36,8 @@ object Asks {
 
     data class Ask(
         val id: String, val kind: String, val criteria: String,
-        val tags: List<String>, val state: String, val expiresAt: String
+        val tags: List<String>, val state: String, val expiresAt: String,
+        val targetReach: Int = 50
     ) {
         /**
          * Hours left before the server closes it.
@@ -101,8 +102,22 @@ object Asks {
      * everyone rather than nobody, because an ask that silently matches zero people is
      * indistinguishable from a broken feature.
      */
-    fun create(ctx: Context, criteria: String, tags: List<String>, kind: String = "reach"):
-            Pair<String?, String> {
+    /** How many people an ask with these tags could actually reach right now. */
+    fun eligible(ctx: Context, tags: List<String>): Int {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return 0
+        return try {
+            SupabaseClient.rpcJson("eligible_reach",
+                JSONObject().put("p_tags", JSONArray(tags)), token)?.trim()?.toIntOrNull() ?: 0
+        } catch (e: Exception) { 0 }
+    }
+
+    /** The number a progress bar should count against: what you asked for, or what exists. */
+    fun denominator(target: Int, eligible: Int): Int =
+        if (eligible <= 0) maxOf(target, 1) else minOf(target, eligible)
+
+    fun create(ctx: Context, criteria: String, tags: List<String>, kind: String = "reach",
+               targetReach: Int = 50): Pair<String?, String> {
         if (!AccountStore.signedIn(ctx)) return null to "Sign in first."
         val token = AccountStore.freshAccessToken(ctx)
         val uid = AccountStore.userId(ctx)
@@ -113,6 +128,7 @@ object Asks {
                 .put("from_user", uid).put("kind", kind)
                 .put("criteria", criteria.trim())
                 .put("tags", JSONArray(tags.map { it.lowercase().trim() }.filter { it.length in 2..24 }))
+                .put("target_reach", targetReach)
             val created = SupabaseClient.insertReturning("asks", token, JSONArray().put(row))
             val id = created?.optJSONObject(0)?.optString("id").orEmpty()
             if (id.isBlank()) return null to
@@ -125,7 +141,7 @@ object Asks {
                     "Asked $reached people: ${criteria.trim()}. Open for 72 hours.", role = "system")
             } catch (e: Exception) {}
             id to if (reached == 0) "Sent. Nobody matches those tags yet — add tags in Where you stand."
-                  else "Working. Asked $reached so far, up to 50 over 3 days — " +
+                  else "Working. Asked $reached so far, up to $targetReach over 3 days — " +
                        "it stops early once it has found 3 people."
         } catch (e: Exception) { null to (e.message ?: "couldn't send") }
     }
@@ -175,14 +191,15 @@ object Asks {
         if (token.isBlank() || uid.isBlank()) return emptyList()
         return try {
             val arr = JSONArray(SupabaseClient.get("asks",
-                "select=id,kind,criteria,tags,state,expires_at&from_user=eq.$uid" +
+                "select=id,kind,criteria,tags,state,expires_at,target_reach&from_user=eq.$uid" +
                 "&order=created_at.desc&limit=20", token))
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
                 val t = o.optJSONArray("tags")
                 Ask(o.optString("id"), o.optString("kind"), o.optString("criteria"),
                     if (t == null) emptyList() else (0 until t.length()).map { t.optString(it) },
-                    o.optString("state"), o.optString("expires_at"))
+                    o.optString("state"), o.optString("expires_at"),
+                    if (o.isNull("target_reach")) 50 else o.optInt("target_reach", 50))
             }
         } catch (e: Exception) { emptyList() }
     }
