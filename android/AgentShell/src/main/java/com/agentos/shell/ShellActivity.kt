@@ -36,7 +36,7 @@ import com.agentos.shell.theme.T
 import kotlinx.coroutines.delay
 
 /** The boot face of AgentOS. A single activity hosting the screen state machine. */
-enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, MadeDocs, Meeting, Health, Translate, Google, Crm, Graph, Papers, Standing, Asks }
+enum class Screen { Boot, Lock, Home, Now, People, Memory, MemorySettings, Mission, Apps, Store, Compose, EmailCompose, SpicyPost, Checklist, Outreach, Research, Cowork, Chat, Job, Network, Look, Shop, Trade, Converse, Architect, AppView, Manual, Reconnect, Setup, Outbox, Expenses, Faces, Docs, MadeDocs, Meeting, Health, Translate, Google, Crm, Graph, Papers, Standing, Asks, NetSetup }
 
 class ShellActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -255,6 +255,9 @@ class ShellActivity : ComponentActivity() {
         val navTarget = intent?.getStringExtra("nav")?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
         intent?.getStringExtra("emp")?.let { com.agentos.shell.tools.TeamInbox.openEmpId = it }   // tapped a team notification
         setContent {
+            // True for one visit to the field, right after the guided flow sends an ask, so the
+            // lines can be seen leaving. Deliberately not persisted — it is a moment, not a state.
+            var netLaunched by remember { mutableStateOf(false) }
             var screen by remember {
                 mutableStateOf(when {
                     !com.agentos.shell.tools.AgentClient.hasKey() -> Screen.Setup   // first run: paste your key
@@ -419,10 +422,15 @@ class ShellActivity : ComponentActivity() {
                         Screen.Store  -> OrbitScreen(m,
                             onPerson = { screen = Screen.Crm },
                             onStanding = { screen = Screen.Standing },
+                            onSetup = { screen = Screen.NetSetup },
+                            justLaunched = netLaunched,
                             onAsk = { screen = Screen.Asks },
                             onBack = { screen = Screen.Home })
                         Screen.Standing -> com.agentos.shell.screens.StandingScreen(m) { screen = Screen.Store }
                         Screen.Asks -> com.agentos.shell.screens.AskScreen(m) { screen = Screen.Store }
+                        Screen.NetSetup -> com.agentos.shell.screens.NetworkSetup(m) { launched ->
+                            netLaunched = launched; screen = Screen.Store
+                        }
                         Screen.MadeDocs -> com.agentos.shell.screens.AgentsScreen(m,
                             onOpen = { id -> currentAppId = id; screen = Screen.AppView },
                             onBack = { screen = Screen.Home })

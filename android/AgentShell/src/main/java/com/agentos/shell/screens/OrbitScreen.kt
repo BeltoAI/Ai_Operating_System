@@ -34,7 +34,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
@@ -80,6 +83,9 @@ fun OrbitScreen(
     onPerson: (String) -> Unit,
     onStanding: () -> Unit = {},
     onAsk: () -> Unit = {},
+    onSetup: () -> Unit = {},
+    /** Set right after the guided flow sends an ask, so the field can show it leaving. */
+    justLaunched: Boolean = false,
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -96,6 +102,11 @@ fun OrbitScreen(
     var peers by remember { mutableStateOf<List<NetworkProfile.Peer>>(emptyList()) }
     var pickedPeer by remember { mutableStateOf(-1) }
     var bridges by remember { mutableStateOf<List<com.agentos.shell.tools.Asks.Bridge>>(emptyList()) }
+    // Re-read when we come back from the guided flow, or the field still thinks you have no
+    // profile after you have just written one.
+    val stand = remember(justLaunched) { NetworkProfile.get(ctx) }
+    var liveAsk by remember { mutableStateOf<com.agentos.shell.tools.Asks.Ask?>(null) }
+    var liveReach by remember { mutableStateOf(0) }
     var pickedBridge by remember { mutableStateOf(-1) }
 
     LaunchedEffect(Unit) {
@@ -130,6 +141,13 @@ fun OrbitScreen(
         // one — your own people are on this phone and owe nobody a round trip.
         peers = withContext(Dispatchers.IO) {
             try { NetworkProfile.others(ctx) } catch (e: Exception) { emptyList() }
+        }
+        // Anything still running, so the field can show it rather than looking idle.
+        withContext(Dispatchers.IO) {
+            try {
+                liveAsk = com.agentos.shell.tools.Asks.myAsks(ctx).firstOrNull { it.live }
+                liveAsk?.let { liveReach = com.agentos.shell.tools.Asks.funnel(ctx, it.id)?.reached ?: 0 }
+            } catch (e: Exception) {}
         }
         bridges = withContext(Dispatchers.IO) {
             // One node per person, not one per route — several people knowing the same person is
@@ -196,6 +214,18 @@ fun OrbitScreen(
             }
         } to half
     }
+
+    /**
+     * The launch.
+     *
+     * Right after an ask goes out, the lines physically reach from you to every other person in
+     * the field, one after another. It is the only moment any of this looks like it is doing
+     * something — up to here the network has been a claim on a settings screen — and it is honest:
+     * a line is drawn per peer the ask actually went to.
+     */
+    val sweep by animateFloatAsState(
+        if (justLaunched) 1f else 0f,
+        tween(if (justLaunched) 6500 else 0, easing = LinearEasing), label = "sweep")
 
     // The travelling pulse along a connection. Four seconds is the speed at which it reads as
     // something moving between two people rather than as a blinking line.
@@ -420,7 +450,16 @@ fun OrbitScreen(
                 // rule, and it only exists between two people who have both published.
                 val t = ((pulse + i * 0.37f) % 1f)
                 val from = centre + pan
-                drawLine(T.accent.copy(alpha = if (on) 0.30f else 0.11f), from, at, strokeWidth = 1.1f)
+                // During a launch each line grows outward in turn; afterwards they are simply there.
+                val reach = if (!justLaunched) 1f
+                    else ((sweep * (peers.size + 1)) - i).coerceIn(0f, 1f)
+                if (reach <= 0f) return@forEachIndexed
+                val at2 = from + (at - from) * reach
+                drawLine(T.accent.copy(alpha = if (on) 0.30f else 0.11f), from, at2, strokeWidth = 1.1f)
+                if (reach < 1f) {
+                    drawCircle(T.accent.copy(alpha = 0.9f), 4f, at2)
+                    return@forEachIndexed
+                }
                 val head = from + (at - from) * t
                 val tail = from + (at - from) * (t - 0.11f).coerceAtLeast(0f)
                 drawLine(T.accent.copy(alpha = if (on) 0.95f else 0.5f), tail, head, strokeWidth = 2f)
@@ -617,6 +656,37 @@ fun OrbitScreen(
                             append(if (dust.touched[pickedDust]) "you have spoken"
                                    else "never spoken")
                         }, fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                }
+                // Nothing about the field says what it is for, and the two things the network
+                // cannot work without are both down a path nobody has a reason to take. So when
+                // there is no profile there is exactly one thing to press.
+                stand.isEmpty -> Card {
+                    Text("Your agent isn't set up yet.", fontSize = T.small, color = T.ink,
+                        fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Three questions, then it starts looking for the people you can't reach.",
+                        fontSize = 10.sp, color = T.inkFaint, lineHeight = 15.sp)
+                    Spacer(Modifier.height(13.dp))
+                    Text("Set it up →", fontSize = T.caption, color = Color.White,
+                        fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(999.dp))
+                            .background(T.accent).clickable { onSetup() }.padding(vertical = 13.dp))
+                }
+                liveAsk != null -> Card {
+                    val a = liveAsk!!
+                    Text(a.criteria, fontSize = T.caption, color = T.ink, lineHeight = 18.sp)
+                    Spacer(Modifier.height(9.dp))
+                    // A real bar against a real target, not a spinner: the ask asks up to fifty
+                    // people and you can watch it get there.
+                    val frac = (liveReach / 50f).coerceIn(0.02f, 1f)
+                    Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(999.dp))
+                        .background(T.hairline)) {
+                        Box(Modifier.fillMaxWidth(frac).height(3.dp)
+                            .clip(RoundedCornerShape(999.dp)).background(T.accent))
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text("asked $liveReach of 50  ·  ${a.closesIn}  ·  stops early at 3 found",
+                        fontSize = 9.sp, color = T.inkFaint)
                 }
                 else -> {
                     // No card. The count is one faint line, because the field is the screen and a
