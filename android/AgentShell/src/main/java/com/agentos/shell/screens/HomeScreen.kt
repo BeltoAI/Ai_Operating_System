@@ -175,6 +175,16 @@ fun HomeScreen(
     onHealth: () -> Unit = {},
     /** Switch the whole phone to (or out of) the large-button layout. */
     onSimpleMode: (Boolean) -> Unit = {},
+    /**
+     * Half a sentence, put in the box with the microphone already listening.
+     *
+     * Different from [initialPrompt], which runs immediately. "I need a ride " is not a request
+     * anybody can act on — the destination and the time live only in her head, and a button that
+     * fires off half a request is worse than no button. So the phone starts the sentence and she
+     * finishes it out loud.
+     */
+    initialDraft: String = "",
+    onDraftConsumed: () -> Unit = {},
     onGoogle: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
@@ -493,6 +503,25 @@ fun HomeScreen(
                 saved = MetricsStore.savedMinutesToday(ctx)
             }
             return@submit
+        }
+        // Buttons, edited by talking. "add a button for ordering from Instacart", "remove the ride
+        // one", "what buttons do I have". Deterministic entry so the request always lands, and the
+        // model only ever produces a label and a sentence — it can reach nothing else.
+        if (com.agentos.shell.tools.SimpleTiles.EDIT.containsMatchIn(q)) {
+            text = ""; thinking = true; lastQuery = q
+            scope.launch {
+                val r = withContext(Dispatchers.IO) {
+                    try { com.agentos.shell.tools.SimpleTiles.configure(ctx, q) }
+                    catch (e: Exception) { "I couldn't change the buttons just now." }
+                }
+                thinking = false; reply = r; if (doSpeak) speak(r)
+            }
+            return@submit
+        }
+        if (Regex("(?i)\\b(what|which)\\b.{0,20}\\bbuttons?\\b").containsMatchIn(q)) {
+            text = ""; lastQuery = q
+            reply = com.agentos.shell.tools.SimpleTiles.describe(ctx)
+            if (doSpeak) speak(reply); return@submit
         }
         // "grandparent" / "simple mode" — the phone becomes six large buttons and three places.
         // Deterministic, because somebody asking for a simpler phone should not have their request
@@ -1357,6 +1386,14 @@ fun HomeScreen(
     // so the user immediately SEES the new ability work instead of hunting for it.
     LaunchedEffect(initialPrompt) {
         if (initialPrompt.isNotBlank()) { text = initialPrompt; submit(initialPrompt, false); onPromptConsumed() }
+    }
+    // Half a sentence and an open microphone. Nothing is sent until she has finished saying it.
+    LaunchedEffect(initialDraft) {
+        if (initialDraft.isNotBlank()) {
+            text = initialDraft
+            onDraftConsumed()
+            try { startVoice() } catch (e: Exception) {}
+        }
     }
 
     // Live status bar: clock + battery, so Home reads like a real OS home screen (One UI hides these

@@ -1,7 +1,9 @@
 package com.agentos.shell.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.agentos.shell.theme.T
 import com.agentos.shell.tools.SimpleMode
+import com.agentos.shell.tools.SimpleTiles
 
 /**
  * The whole phone, for somebody who does not want a phone.
@@ -54,34 +57,67 @@ import com.agentos.shell.tools.SimpleMode
 @Composable
 fun SimpleHome(
     modifier: Modifier = Modifier,
+    /** Run it now. */
     onAsk: (String) -> Unit,
-    onPhotos: () -> Unit,
+    /** Put the start of the sentence in the box, open the microphone, let her say the rest. */
+    onFinishAloud: (String) -> Unit,
     onExit: () -> Unit
 ) {
     val ctx = LocalContext.current
-    val tasks = remember { SimpleMode.tasks(ctx) }
-    var showPeople by remember { mutableStateOf(false) }
+    var version by remember { mutableStateOf(0) }
+    val tiles = remember(version) { SimpleTiles.seedIfEmpty(ctx); SimpleTiles.list(ctx) }
+    var removing by remember { mutableStateOf<SimpleTiles.Tile?>(null) }
     var confirmEmergency by remember { mutableStateOf(false) }
+    // Leaving asks first, for the same reason stopping an ask does: a scroll on a screen of very
+    // large targets is one stray gesture away from a tap, and I knocked myself out of simple mode
+    // that way while testing it. Somebody who chose a simpler phone should not lose it by accident.
+    var confirmExit by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize().background(T.bg)
         .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
 
         Spacer(Modifier.height(26.dp))
-        Text(if (showPeople) "Who would you like to call?" else "What can I do for you?",
+        Text("What can I do for you?",
             fontSize = 30.sp, color = T.ink, fontWeight = FontWeight.Medium, lineHeight = 38.sp)
         Spacer(Modifier.height(22.dp))
 
-        if (showPeople) {
-            SimpleMode.callable(ctx).forEach { p ->
-                Big(p.name) { onAsk("Call ${p.name}") }
+        run {
+            val r = removing
+            if (r != null) {
+                Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)
+                    .clip(RoundedCornerShape(20.dp)).background(T.bgElevated).padding(20.dp)) {
+                    Text("Remove the \"${r.label}\" button?", fontSize = 20.sp, color = T.ink,
+                        fontWeight = FontWeight.Medium, lineHeight = 27.sp)
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(T.danger)
+                            .clickable {
+                                SimpleTiles.remove(ctx, r.id); removing = null; version++
+                            }.padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                            Text("Remove", fontSize = 19.sp,
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(T.bg)
+                            .clickable { removing = null }
+                            .padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                            Text("Keep it", fontSize = 19.sp, color = T.ink,
+                                fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
             }
-            Big("Back") { showPeople = false }
-        } else {
-            tasks.forEach { t ->
-                Big(t.label) {
-                    when (t.kind) {
-                        "people" -> showPeople = true
-                        "photos" -> onPhotos()
+        }
+
+        run {
+            tiles.forEach { t ->
+                Big(t.label, onLong = { removing = t }) {
+                    when {
+                        t.app.isNotBlank() ->
+                            try { com.agentos.shell.tools.ToolRouter.launchApp(ctx, t.app) }
+                            catch (e: Exception) {}
+                        // Only she knows where, and when, and to whom.
+                        t.finish -> onFinishAloud(t.prompt)
                         else -> onAsk(t.prompt)
                     }
                 }
@@ -133,18 +169,47 @@ fun SimpleHome(
             Spacer(Modifier.height(28.dp))
             // Never buried. Somebody who cannot find their way out of simple mode has been trapped
             // by it, and they cannot reach Settings from here to undo it.
-            Text("Show me everything again", fontSize = 17.sp, color = T.inkFaint,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
-                    .clickable { onExit() }.padding(vertical = 14.dp))
+            if (!confirmExit) {
+                Text("Show me everything again", fontSize = 17.sp, color = T.inkFaint,
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()
+                        .clickable { confirmExit = true }.padding(vertical = 14.dp))
+            } else {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(T.bgElevated).padding(20.dp)) {
+                    Text("Go back to the full phone, with all the menus?",
+                        fontSize = 20.sp, color = T.ink, lineHeight = 27.sp,
+                        fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                            .background(T.accent).clickable { onExit() }
+                            .padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                            Text("Yes", fontSize = 20.sp,
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
+                            .background(T.bg).clickable { confirmExit = false }
+                            .padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
+                            Text("No, stay simple", fontSize = 18.sp, color = T.ink,
+                                fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(30.dp))
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Big(label: String, onClick: () -> Unit) {
+private fun Big(label: String, onLong: () -> Unit = {}, onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(RoundedCornerShape(20.dp))
-        .background(T.bgElevated).clickable { onClick() }
+        .background(T.bgElevated)
+        // Long-press to remove. A tap is the only thing that needs to be easy here; anything that
+        // takes a button away should take a second of deliberate holding.
+        .combinedClickable(onLongClick = onLong) { onClick() }
         .padding(horizontal = 22.dp, vertical = 26.dp)) {
         Text(label, fontSize = 24.sp, color = T.ink, fontWeight = FontWeight.Medium,
             lineHeight = 30.sp)

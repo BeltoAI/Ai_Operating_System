@@ -207,7 +207,8 @@ private fun NavTab(icon: ImageVector, label: String, active: Boolean, badge: Int
  * always emphasized, with a clear indicator for the panel you're on.
  */
 @Composable
-fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {}, onNav: (Screen) -> Unit) =
+fun SlyBottomNav(current: Screen, nowCount: Int = 0, simple: Boolean = false,
+                 onBrainHold: () -> Unit = {}, onNav: (Screen) -> Unit) =
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -238,6 +239,13 @@ fun SlyBottomNav(current: Screen, nowCount: Int = 0, onBrainHold: () -> Unit = {
             }
         }
 
+        // In simple mode the phone is four places: ask it, what came in, what it remembers, and the
+        // buttons. Research and Orbit are machinery somebody who wanted a simpler phone did not ask
+        // for — and the buttons take their place, because that is the panel they will actually use.
+        if (simple) {
+            NavTab(Icons.Filled.Apps, "Buttons", current == Screen.Tiles) { onNav(Screen.Tiles) }
+            return@Row
+        }
         NavTab(Icons.Filled.Science, "Research", current == Screen.Research) { onNav(Screen.Research) }
         // A SHOPFRONT WAS THE WRONG METAPHOR, AND IT SHAPED THE SCREEN BEHIND IT.
         //
