@@ -582,8 +582,15 @@ grant execute on function public.intro_outcomes() to authenticated;
 -- the owner and is therefore still able to hand your details to somebody you agreed to introduce.
 -- That function remains the only way they ever cross.
 -- ─────────────────────────────────────────────────────────────────────────────
-revoke select (email, contact_email, contact_phone, calendly)
-  on public.profiles from authenticated, anon;
+-- THE TABLE-LEVEL GRANT MUST GO FIRST.
+--
+-- Postgres column privileges are additive to table privileges, not a mask over them. Supabase
+-- grants SELECT on the whole table to `authenticated` by default, so `revoke select (email)`
+-- removes a column privilege that was never what was authorising the read — and the email column
+-- stays perfectly readable. Verified: it did exactly nothing the first time.
+--
+-- Revoke the table-wide privilege, then grant back the columns that are genuinely public.
+revoke select on public.profiles from authenticated, anon;
 
 -- Everything genuinely public stays readable.
 grant select (id, handle, display_name, photo_url, offer, looking_for, open_to, tags,
@@ -630,3 +637,100 @@ create trigger trg_default_display_name before insert or update on public.profil
 update public.profiles
    set display_name = public.name_from_email(email)
  where coalesce(display_name, '') = '' and coalesce(email, '') <> '';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- An ask is a TASK, with a scope and three ways to end
+--
+-- "Working on it" with no boundary is the sentence every abandoned assistant feature was built on.
+-- An ask now declares up front how far it will go and what will stop it, and all three conditions
+-- are visible while it runs:
+--
+--   1. it has found enough — `target_intros` introductions, and it closes itself
+--   2. it has asked enough people — `target_reach` distinct users, then it stops widening and
+--      waits out the clock for their answers
+--   3. the clock — 72 hours, absolute, enforced by the server
+--
+-- Reaching people and getting answers are different things and the second one is slow, which is
+-- exactly why the screen has to distinguish them rather than showing one spinner for both.
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table public.asks add column if not exists target_reach  int default 50;
+alter table public.asks add column if not exists target_intros int default 3;
+
+-- Enough is enough. The moment an ask has what it went looking for it closes itself, which is the
+-- difference between a task that finishes and one that merely expires.
+create or replace function public.close_when_satisfied() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare n int; want int;
+begin
+  select count(distinct lower(btrim(person))) into n from bridges where ask_id = new.ask_id;
+  select coalesce(target_intros, 3) into want from asks where id = new.ask_id;
+  if n >= want then
+    update asks set state = 'matched' where id = new.ask_id and state = 'open';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_close_when_satisfied on public.bridges;
+create trigger trg_close_when_satisfied after insert on public.bridges
+  for each row execute function public.close_when_satisfied();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Why anybody comes back: you earn asks by answering them
+--
+-- Not points, not streaks, not a badge. The one thing this network can genuinely run out of is
+-- people willing to answer — an ask that reaches two hundred phones and gets nothing back is the
+-- failure mode — so the scarce resource is bought with the scarce contribution. Make an
+-- introduction, get an ask. It is the only reward that makes the thing work better rather than
+-- merely making somebody open the app.
+--
+-- The cap matters as much as the reward: earning is bounded, so nobody farms introductions.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.reward_introduction() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare cap int;
+begin
+  select case tier when 'business' then 100 when 'plus' then 20 else 8 end
+    into cap from profiles where id = new.holder;
+
+  update profiles
+     set vouches_made = coalesce(vouches_made, 0) + 1,
+         asks_left    = least(coalesce(asks_left, 0) + 1, coalesce(cap, 8))
+   where id = new.holder;
+  return new;
+end $$;
+
+drop trigger if exists trg_reward_introduction on public.bridges;
+create trigger trg_reward_introduction after insert on public.bridges
+  for each row execute function public.reward_introduction();
+
+-- An introduction that actually led somewhere is worth more than one that was merely offered, and
+-- only the asker can say which it was. This is the number that should decide whose answer gets
+-- read first when the network is large.
+create or replace function public.reward_kept() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.outcome = 'connected' and coalesce(old.outcome,'') <> 'connected' then
+    update profiles
+       set vouches_kept = coalesce(vouches_kept, 0) + 1,
+           vouch_weight = least(5.0, 1.0 + 0.25 * (coalesce(vouches_kept, 0) + 1))
+     where id = new.holder;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_reward_kept on public.bridges;
+create trigger trg_reward_kept after update on public.bridges
+  for each row execute function public.reward_kept();
+
+/** Your standing: what you have given the network, and what it gave back. */
+create or replace function public.my_standing()
+returns table(asks_left int, intros_made int, intros_kept int, weight real, rank_pct numeric)
+language sql security definer stable set search_path = public as $$
+  select p.asks_left, coalesce(p.vouches_made,0), coalesce(p.vouches_kept,0), p.vouch_weight,
+         round(100.0 * (select count(*) from profiles q
+                         where coalesce(q.vouches_made,0) <= coalesce(p.vouches_made,0))
+             / nullif((select count(*) from profiles), 0), 0)
+    from profiles p where p.id = auth.uid();
+$$;
+
+grant execute on function public.my_standing() to authenticated;

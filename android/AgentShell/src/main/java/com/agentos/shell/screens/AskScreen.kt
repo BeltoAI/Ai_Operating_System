@@ -67,6 +67,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
     var mine by remember { mutableStateOf<List<Pair<Asks.Ask, List<Asks.Answer>>>>(emptyList()) }
     var funnels by remember { mutableStateOf<Map<String, Asks.Funnel>>(emptyMap()) }
     var reopened by remember { mutableStateOf(-1) }
+    var standing by remember { mutableStateOf<Asks.Standing?>(null) }
     var incoming by remember { mutableStateOf<List<Asks.Incoming>>(emptyList()) }
     var bridges by remember { mutableStateOf<List<Asks.Bridge>>(emptyList()) }
     var busy by remember { mutableStateOf("") }
@@ -79,6 +80,7 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             // An open ask keeps working: every visit re-offers it to anybody who has joined or
             // published tags since. Idempotent, so nobody is reached twice.
             reopened = try { Asks.refresh(ctx) } catch (e: Exception) { 0 }
+            standing = try { Asks.standing(ctx) } catch (e: Exception) { null }
             mine = try { Asks.myAsks(ctx).map { it to Asks.answers(ctx, it.id) } }
                    catch (e: Exception) { emptyList() }
             funnels = try {
@@ -147,6 +149,34 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text(note, fontSize = 10.sp,
                 color = if (note.contains("Sent")) T.good else T.danger, lineHeight = 15.sp)
+        }
+
+        // Standing. Not points — the two numbers that decide what you can do next, and the reason
+        // to come back: the asks you spend are bought with the introductions you make.
+        standing?.let { st ->
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(T.bgElevated).padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column {
+                    Text("${st.asksLeft}", fontSize = 19.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold)
+                    Text("asks left", fontSize = 9.sp, color = T.inkFaint)
+                }
+                Column {
+                    Text("${st.introsMade}", fontSize = 19.sp, color = T.accent,
+                        fontWeight = FontWeight.Bold)
+                    Text("introductions made", fontSize = 9.sp, color = T.inkFaint)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("${st.introsKept}", fontSize = 19.sp, color = T.good,
+                        fontWeight = FontWeight.Bold)
+                    Text("that worked", fontSize = 9.sp, color = T.inkFaint)
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Text("Every introduction you make earns you another ask.",
+                fontSize = 9.sp, color = T.inkFaint)
         }
 
         LazyColumn(Modifier.fillMaxWidth()) {
@@ -225,17 +255,29 @@ fun AskScreen(modifier: Modifier = Modifier, onBack: () -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     // Proof of life. "Your agent is working on it" with no numbers and no clock is
                     // how every abandoned assistant feature read on the day it stopped working.
+                    // A task with a scope, not a spinner. Both halves are shown because reaching
+                    // people and hearing back are different things and the second one is slow —
+                    // one indicator for both is what makes a working feature look stalled.
                     val f = funnels[ask.id]
                     Text(buildString {
                             if (f != null) {
-                                append("reached ${f.reached}")
-                                if (f.stillThinking > 0) append("  ·  ${f.stillThinking} still looking")
+                                append("asked ${f.reached} of 50")
+                                if (f.stillThinking > 0) append("  ·  ${f.stillThinking} yet to answer")
                                 if (f.foundNothing > 0) append("  ·  ${f.foundNothing} found nobody")
+                                if (f.people > 0) append("  ·  ${f.people}/3 found")
                             }
                             if (isNotEmpty()) append("  ·  ")
-                            append(ask.closesIn)
+                            append(when {
+                                ask.state == "matched" -> "done — found what you asked for"
+                                ask.live -> ask.closesIn
+                                else -> "closed"
+                            })
                         }, fontSize = 9.sp,
-                        color = if (ask.live) T.inkSoft else T.inkFaint, lineHeight = 14.sp)
+                        color = when {
+                            ask.state == "matched" -> T.good
+                            ask.live -> T.inkSoft
+                            else -> T.inkFaint
+                        }, lineHeight = 14.sp)
                     Spacer(Modifier.height(7.dp))
                     // Group by person first. Three offers of the same person is ONE introduction
                     // with three routes, and reporting it as three would flatter the numbers.

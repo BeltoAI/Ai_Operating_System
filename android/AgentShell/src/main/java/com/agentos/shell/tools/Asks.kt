@@ -66,6 +66,20 @@ object Asks {
     data class Funnel(val reached: Int, val foundNothing: Int, val knewSomeone: Int,
                       val stillThinking: Int, val introductions: Int, val people: Int)
 
+    /** What you have given the network, and what it has given back. */
+    data class Standing(val asksLeft: Int, val introsMade: Int, val introsKept: Int, val weight: Float)
+
+    fun standing(ctx: Context): Standing? {
+        val token = AccountStore.freshAccessToken(ctx)
+        if (token.isBlank()) return null
+        return try {
+            val o = JSONArray(SupabaseClient.rpcJson("my_standing", JSONObject(), token) ?: return null)
+                .optJSONObject(0) ?: return null
+            Standing(o.optInt("asks_left"), o.optInt("intros_made"),
+                o.optInt("intros_kept"), o.optDouble("weight", 1.0).toFloat())
+        } catch (e: Exception) { null }
+    }
+
     /** A candidacy as the receiving phone sees it: an ask sent to me, and what I did about it. */
     data class Incoming(val askId: String, val state: String, val criteria: String, val kind: String)
 
@@ -111,7 +125,8 @@ object Asks {
                     "Asked $reached people: ${criteria.trim()}. Open for 72 hours.", role = "system")
             } catch (e: Exception) {}
             id to if (reached == 0) "Sent. Nobody matches those tags yet — add tags in Where you stand."
-                  else "Sent to $reached ${if (reached == 1) "person" else "people"}. Working for 3 days."
+                  else "Working. Asked $reached so far, up to 50 over 3 days — " +
+                       "it stops early once it has found 3 people."
         } catch (e: Exception) { null to (e.message ?: "couldn't send") }
     }
 
