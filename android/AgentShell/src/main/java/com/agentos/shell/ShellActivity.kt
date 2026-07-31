@@ -258,6 +258,9 @@ class ShellActivity : ComponentActivity() {
             // True for one visit to the field, right after the guided flow sends an ask, so the
             // lines can be seen leaving. Deliberately not persisted — it is a moment, not a state.
             var netLaunched by remember { mutableStateOf(false) }
+            // Simple mode. Read as state rather than a constant so turning it off redraws at once.
+            var simple by remember { mutableStateOf(com.agentos.shell.tools.SimpleMode.on(this)) }
+            var simpleAsk by remember { mutableStateOf("") }
             var screen by remember {
                 mutableStateOf(when {
                     !com.agentos.shell.tools.AgentClient.hasKey() -> Screen.Setup   // first run: paste your key
@@ -309,7 +312,11 @@ class ShellActivity : ComponentActivity() {
             }
 
             // Panels that show the persistent bottom nav (the calm, recurring surfaces).
-            val mainScreens = setOf(
+            // In simple mode the phone is three places, not nine: ask it something, deal with what
+            // came in, and what it remembers. Everything else is machinery somebody who wanted a
+            // simpler phone did not ask for.
+            val mainScreens = if (simple) setOf(Screen.Home, Screen.Now, Screen.Memory)
+            else setOf(
                 Screen.Home, Screen.Now, Screen.Memory, Screen.MemorySettings,
                 Screen.Research, Screen.Store, Screen.People, Screen.Checklist, Screen.Manual
             )
@@ -380,13 +387,27 @@ class ShellActivity : ComponentActivity() {
                         Screen.Setup  -> SetupScreen(m) { screen = Screen.Home }
                         Screen.Boot   -> BootScreen(m)
                         Screen.Lock   -> LockScreen(m, onEnter = { screen = Screen.Home })
-                        Screen.Home   -> HomeScreen(
+                        // Simple mode replaces the tiles, not the assistant: pressing a big button
+                        // hands its sentence to the same HomeScreen everybody else uses.
+                        Screen.Home   -> if (simple && simpleAsk.isBlank())
+                            com.agentos.shell.screens.SimpleHome(m,
+                                onAsk = { simpleAsk = it },
+                                onPhotos = { screen = Screen.Faces },
+                                onExit = {
+                                    com.agentos.shell.tools.SimpleMode.set(this@ShellActivity, false)
+                                    simple = false
+                                })
+                        else HomeScreen(
                             m,
                             paused = agentPaused,
                             autoVoice = pendingVoice,
                             onVoiceConsumed = { pendingVoice = false },
-                            initialPrompt = pendingHomePrompt,
-                            onPromptConsumed = { pendingHomePrompt = "" },
+                            initialPrompt = if (simpleAsk.isNotBlank()) simpleAsk else pendingHomePrompt,
+                            onPromptConsumed = { pendingHomePrompt = ""; simpleAsk = "" },
+                            onSimpleMode = { on ->
+                                com.agentos.shell.tools.SimpleMode.set(this@ShellActivity, on)
+                                simple = on
+                            },
                             onOpen = { screen = it },
                             onManual = { agentPaused = true; screen = Screen.Manual },
                             onCompose = { p, t -> composePlatform = p; composeTopic = t; screen = Screen.Compose },

@@ -173,6 +173,8 @@ fun HomeScreen(
     /** true = start recording on arrival; false = just show what has been recorded. */
     onMeeting: (Boolean) -> Unit = {},
     onHealth: () -> Unit = {},
+    /** Switch the whole phone to (or out of) the large-button layout. */
+    onSimpleMode: (Boolean) -> Unit = {},
     onGoogle: (String) -> Unit = {},
     onOpenApp: (Long) -> Unit = {}
 ) {
@@ -490,6 +492,20 @@ fun HomeScreen(
                 }
                 saved = MetricsStore.savedMinutesToday(ctx)
             }
+            return@submit
+        }
+        // "grandparent" / "simple mode" — the phone becomes six large buttons and three places.
+        // Deterministic, because somebody asking for a simpler phone should not have their request
+        // interpreted by a language model, and because the way back has to work the same way.
+        if (com.agentos.shell.tools.SimpleMode.TRIGGER.containsMatchIn(q)) {
+            val turnOff = Regex("(?i)\\b(off|stop|exit|normal|back|undo|everything again)\\b")
+                .containsMatchIn(q)
+            onSimpleMode(!turnOff)
+            text = ""; lastQuery = q
+            reply = if (turnOff) "Back to the full layout."
+                else "Simple mode is on — big buttons, and only the three screens that matter. " +
+                     "Say \"simple mode off\" any time, or tap \"Show me everything again\"."
+            if (doSpeak) speak(reply)
             return@submit
         }
         // Nightly alarm-planner config in plain language ("remind me at 10pm to set my alarm", "wake me 90 min
