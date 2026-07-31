@@ -567,3 +567,66 @@ language sql security definer stable set search_path = public as $$
 $$;
 
 grant execute on function public.intro_outcomes() to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Column privileges — because row-level security is not column-level security
+--
+-- "profiles are public to members" grants SELECT on the ROW, and `profiles` is the account table,
+-- so it carries an `email` column. The result: any signed-in user could read every other user's
+-- email address, and their contact details, with one request. That is not a small leak — it is the
+-- precise opposite of the claim this whole design rests on, which is that what the network sees
+-- about you is three sentences you wrote on purpose.
+--
+-- RLS cannot express "this row, but not that column". GRANT can. SELECT is revoked on the private
+-- columns while INSERT and UPDATE stay, so you can still write your own; `reveal_contact` runs as
+-- the owner and is therefore still able to hand your details to somebody you agreed to introduce.
+-- That function remains the only way they ever cross.
+-- ─────────────────────────────────────────────────────────────────────────────
+revoke select (email, contact_email, contact_phone, calendly)
+  on public.profiles from authenticated, anon;
+
+-- Everything genuinely public stays readable.
+grant select (id, handle, display_name, photo_url, offer, looking_for, open_to, tags,
+              reachability, network_size, vouch_weight, vouches_made, vouches_kept,
+              asks_left, tier, share_on_intro, updated_at, created_at)
+  on public.profiles to authenticated;
+
+grant insert, update on public.profiles to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- A name, from the moment somebody signs up
+--
+-- `display_name` was written only by publish(), so anybody who had not yet opened Where you stand
+-- appeared on everyone else's map as "Someone" — which, in a beta, is nearly everybody. A trigger
+-- fills it from the address they signed up with so the field is never a crowd of ghosts, and the
+-- moment they write a real name it wins.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.name_from_email(addr text) returns text
+language sql immutable as $$
+  select case
+    -- A role address is not a person. "info@solruo.com" becoming "Info" is worse than useless;
+    -- the company name is at least true and recognisable.
+    when split_part(addr, '@', 1) in
+         ('info','hello','contact','admin','team','support','sales','hi','mail','office','noreply','no-reply')
+      then initcap(split_part(split_part(addr, '@', 2), '.', 1))
+    else initcap(replace(replace(split_part(addr, '@', 1), '.', ' '), '_', ' '))
+  end;
+$$;
+
+create or replace function public.default_display_name() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(new.display_name, '') = '' and coalesce(new.email, '') <> '' then
+    new.display_name := public.name_from_email(new.email);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_default_display_name on public.profiles;
+create trigger trg_default_display_name before insert or update on public.profiles
+  for each row execute function public.default_display_name();
+
+-- Backfill anybody already in that state.
+update public.profiles
+   set display_name = public.name_from_email(email)
+ where coalesce(display_name, '') = '' and coalesce(email, '') <> '';

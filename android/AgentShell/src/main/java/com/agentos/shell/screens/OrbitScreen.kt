@@ -567,6 +567,13 @@ fun OrbitScreen(
                             "closed" -> "not taking requests"
                             else     -> "only through someone they know"
                         }), fontSize = 10.sp, color = T.inkFaint)
+                    // A peer who has published nothing is a real person on an older build, not a
+                    // broken row. Saying so beats three empty sections.
+                    if (peer.offer.isBlank() && peer.lookingFor.isBlank()) {
+                        Spacer(Modifier.height(9.dp))
+                        Text("Hasn't said what they're looking for yet.",
+                            fontSize = T.caption, color = T.inkFaint, lineHeight = 18.sp)
+                    }
                     if (peer.offer.isNotBlank()) {
                         Spacer(Modifier.height(9.dp))
                         Text("OFFERS", fontSize = 8.sp, color = T.inkFaint)
